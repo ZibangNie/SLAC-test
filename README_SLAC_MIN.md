@@ -14,7 +14,7 @@ pip install PyPDF2
 
 ## 1) 从 PDF 批量抽取为 .txt
 ```bash
-python slac_min_pipeline.py prepare --pdf_dir ./pdfs --out_txt_dir ./txts
+python slac_min_pipeline.py prepare --pdf_dir ./pdf --out_txt_dir ./txts
 ```
 
 ## 2) 训练（使用伪标签）
