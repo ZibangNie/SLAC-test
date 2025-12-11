@@ -1,0 +1,3557 @@
+{
+  "doc_id": "corpus_269502237",
+  "units": [
+    {
+      "unit_id": 0,
+      "text": "Lipschitz constant estimation for general neural network architectures using control tools",
+      "type": "heading",
+      "level": 0,
+      "parent_id": null,
+      "subtype": "doc_title"
+    },
+    {
+      "unit_id": 1,
+      "text": "I. INTRODUCTION",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 2,
+      "text": "N EURAL networks (NNs) are successfully applied in many fields, e.g., in data analysis, pattern recognition, image and video processing, natural language processing, and learning-and perception-based control [1], [2].Especially in safety-critical applications like autonomous driving and medical control systems, it is imperative that NNs are safe and reliable [3].However, many NN architectures are prone to adversarial examples, i.e., there exist imperceptible input perturbations that drastically change the output of the NN [4].Inspired by this problem, the field of robust NNs has emerged, offering a range of techniques for robustness certification.These include bound-propagation methods [5]- [7] and analysis based on Lipschitz bounds [8], [9].Through interval bound propagation [5], [6], [10] certify lower bounds on the perturbations necessary to change the classification of NNs using linear and quadratic relaxations to bound the nonlinear activation function.The Lipschitz constant serves as a sensitivity measure to input perturbations and can further *This work was funded by Deutsche Forschungsgemeinschaft (DFG, German Research Foundation) under Germany's Excellence Strategy -EXC 2075 -390740016 and under grant 468094890.The authors thank the International Max Planck Research School for Intelligent Systems (IMPRS-IS) for supporting Patricia Pauli.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 3,
+      "text": "1 Patricia Pauli and Frank Allgöwer are with the Institute for Systems Theory and Automatic Control, University of Stuttgart, 70550 Stuttgart, Germany (email: {patricia.pauli,frank.allgower}@ist.uni-stuttgart.de) 2 Dennis Gramlich is with the Chair of Intelligent Control Systems, RWTH Aachen, 52074 Aachen, Germany (e-mail: dennis.gramlich@ic.rwthaachen.de).be used to derive robustness certificates.Consequently, many works are concerned with Lipschitz constant estimation [7], [9], [11]- [16].",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 4,
+      "text": "Due to the NP-hard nature of the calculation of the true Lipschitz constant [17], [18], there is a high interest to instead find accurate upper bounds on this Lipschitz constant.Trivial methods like the product of the spectral norms of the weights [4] can cheaply be computed by the power iteration method, but the resulting bounds can be quite loose, especially for deep NNs.In contrast, loop transformation based approaches [19] and semidefinite programming (SDP) based approaches focusing on ℓ 2 [13], [20] and ℓ ∞ [14], [15] Lipschitz bounds, respectively, provide tighter bounds at the price of a computational overhead.The key idea in [13], [20] is the over-approximation of nonlinear activation functions using quadratic constraints to facilitate an SDP-based analysis.In this work, we adapt this idea, and extend and generalize previous works [13], [16], [21] to develop a general SDPbased method for Lipschitz constant estimation for a large class of NN architectures.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 5,
+      "text": "SDP-based methods provide the tightest bounds on the ℓ 2 Lipschitz constant for NNs in polynomial time [13].However, their scalability to deep state-of-the-art NNs is an open research problem which is actively investigated.[22], [23] develop more scalable SDP solvers and [24] do so specific to the problem of SDP-based Lipschitz constant estimation, [25] exploit the chordal sparsity pattern of the underlying linear matrix inequality (LMI) constraint for fully connected NNs and [16], [21] exploit the structure of convolutions.In this work, we exploit (i) the structure of the individual layer types and (ii) the concatenation structure of the feedforward networks.We do the latter by taking on a dynamic programming perspective and interpreting the layers of the feedforward NN as the time-varying dynamics of a system [20], [26].This view leads to a recursive formulation of layer-wise constraints, which is computationally favorable.To address the former, we especially exploit the structure and shift invariance of convolutions as we incorporate 1-D/2-D/N-D convolutions into the SDP-based analysis using Roessertype state space representations, i.e., state space models to describe 2-D and N-D systems [21], [27], [28].In contrast to previous works [13], [21], our approach incorporates many popular layer types including convolutional, deconvolutional and state space model layers [29], residual layers [30], fully connected layers, average and maximum pooling layers, and slope-restricted and GroupSort activation function layers [31].",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 6,
+      "text": "In summary, the main contribution of this work is an SDP-based method for Lipschitz constant estimation for a general class of NNs that outperforms previous SDP-based methods in terms of scalability and yields significantly lower Lipschitz bounds than commonly used methods using spectral norm bounds.To reach our goal, we exploit control theoretic concepts such as N-D systems theory and introduce a dynamic programming perspective for the underlying problem.The remainder of the paper is organized as follows.Section II formally states the problem, introduces all layer definitions and state space representations for convolutions.Next, Section III involves our dynamic programming based approach for Lipschitz constant estimation for NNs and Section IV discusses sources of conservatism.Finally, Section V applies our method on fully connected and fully convolutional networks of different sizes and multiple NN architectures to demonstrate the versatility and improved accuracy and scalability of our approach over previous approaches.We provide easy-to-use code for all considered NN architectures and layer types.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 7,
+      "text": "Notation: By ∥•∥ 2 we either mean the Euclidean norm of a vector or the ℓ 2 norm of a signal.By ⟨•, •⟩ 2 we denote the ℓ 2 inner product.By R n (R n + ), we mean the space of n-dimensional vectors with real (positive) entries.By S n (S n ++ ), we denote (positive definite) symmetric matrices and by D n (D n ++ ) we mean (positive definite) diagonal matrices of dimension n, respectively.Within our paper, we study CNNs processing image signals.For this purpose, an image is understood as a sequence (u[i 1 , . . ., i d ]) with free variables i 1 , . . ., i d ∈ N 0 .In this sequence, u[i 1 , . . ., i d ] is an element of R c , where c is called the channel dimension (e.g., c = 3 for RGB images).The signal dimension d will usually be d = 2 for images or d = 3 for medical images.The space of such signals/sequences is denoted by",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 8,
+      "text": "ℓ c 2e (N d 0 ) := {u : N d 0 → R c }.",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 9,
+      "text": "Images should be understood as sequences in ℓ c 2e (N d 0 ) with a finite square as support.For convenience, we will sometimes use multiindex notation for signals, i. e., we denote u[i 1 , . . ., i d ] as u[i] for i ∈ N d 0 .For these multi-indices, we use the notation i + j for (i 1 + j 1 , . . ., i d + j d ), ij = (i 1 j 1 , . . ., i d j d ) and i ≤ j for i 1 ≤ j 1 , . . ., i d ≤ j d .We further denote by",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 10,
+      "text": "[i, j] = {t ∈ N d 0 | i ≤ t ≤",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 11,
+      "text": "II. PROBLEM STATEMENT AND DEEP NEURAL NETWORKS",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 12,
+      "text": "In this work, we understand deep NNs as a concatenation of simple functions, i. e., as a composition",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 13,
+      "text": "NN θ = L l • L l−1 • • • • • L 2 • L 1 (1) of layers L k , k = 1, . . . , l",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 14,
+      "text": "where k is the layer index and L ∈ {F, C, S, σ, P, R} is either a fully connected layer F, a convolutional layer C, a state space model layer S, an activation function layer σ, a pooling layer P, or a reshaping/flattening layer R. The parameter θ of NN θ refers to the collection of parameters (weights and biases) θ k of all the individual layers.We can also write the NN recursively as the map from u 1 to y l defined by",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 15,
+      "text": "y k = L k (u k ) u k+1 = y k k = 1, . . . , l,(2)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 16,
+      "text": "where u k ∈ D k−1 and y k ∈ D k denote the input and the output of each layer and the real vector spaces D k−1 and D k are the input and output domains of the layer L k .We assume here that the layers are always chosen in such a way that the image space of L k and the domain space of L k+1 coincide.Consequently, our Lipschitz constant analysis applies to any finite concatenation of layers L ∈ {F, C, S, σ, P, R}.In deep learning, the definition of a layer may sometimes refer to a composition of multiple elements of {F, C, S, σ, P, R}.For example, a linear map is grouped with a diagonally repeated activation function or a convolutional layer, an activation function, and a pooling layer are grouped together as a layer.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 17,
+      "text": "Our approach can handle such concatenated layer definitions, meaning that we additionally allow L ∈ {σ",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 18,
+      "text": "F l • σ • • • • • σ • F p+1 • R • • • • • • • • P • σ • C p • • • • • P • σ • C 1 ,",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 19,
+      "text": "typically found in image classification.These convolutional neural networks (CNNs) are composed of fully connected layers F, activation function layers σ, a flattening operation R, convolutional layers C, and (optional) pooling layers P in the order shown above.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 20,
+      "text": "The goal of this work is to provide an accurate and scalable method that determines an upper bound on the Lipschitz constant of a general feedforward NN (1), (2).Problem 1.For a given neural network NN θ with parameters θ, find an upper bound on the Lipschitz constant, i. e., find a value γ ≥ 0 such that",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 21,
+      "text": "∥NN θ (u 1 ) − NN θ (u 2 )∥ 2 ≤ γ∥u 1 − u 2 ∥ 2 ∀u 1 , u 2 ∈ D 0 .",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 22,
+      "text": "We notice that the definition of an NN (1), (2) resembles a dynamical system u k+1 = L k (u k ) with state u k .The interpretation of an NN as a dynamical system with time-varying dynamics [20], [26] is very powerful because it enables us to use tools from control and systems theory to analyze properties of NNs.However, we stress that this interpretation should be taken with caution, since the inputs u k and u j for k ̸ = j usually live in different spaces D k−1 and D j−1 .As we will see in Section II-A, we allow signal spaces",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 23,
+      "text": "D k = ℓ c k 2e (N d k 0 ) of d k - dimensional",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 24,
+      "text": "signals as well as vector spaces D k = R c k .Also the vector (= channel) dimension c k may differ from one layer to another.In addition, the nature of the mappings L k and L j for k ̸ = j can be completely different, including linear and nonlinear mappings.In some less heterogeneous examples, e.g., fully connected networks",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 25,
+      "text": "F l • σ • • • • • σ • F 1 , or fully convolutional networks and subnetworks C l •σ •• • ••σ •C 1 ,",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 26,
+      "text": "the interpretation as dynamical systems is, however, more natural and it is common practice to design a deep backbone of NNs of the same layer type [32].",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 27,
+      "text": "It is the defining selling point of our work that we exploit the structure of each layer, as well as the composition structure of the NN itself using different perspectives and methods from control.The NN is described as a concatenation of its layers, which is now followed by a definition of each individual layer in Section II-A.Subsequently, in Section II-B, we introduce state space representations for convolutional layers.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 28,
+      "text": "A. Layer definitions Convolutional layer:",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 29,
+      "text": "A convolutional layer C k with layer index k is a mapping from D k−1 = ℓ c k−1 2e (N d k−1 0 ) to D k = ℓ c k 2e (N d k 0 ) which is defined by a convolution kernel K k [t] ∈ R c k ×c k−1 for 0 ≤ t ≤ r k and a bias b k ∈ R c k . We write y k [i] = b k + 0≤t≤r k K k [t]u k [i − t],(3)",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 30,
+      "text": "where",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 31,
+      "text": "u k [i − t] is set to zero if i − t is not in the domain of u k [•],",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 32,
+      "text": "which accounts for possible zero-padding.A convolutional layer retains the dimension",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 33,
+      "text": "d k−1 = d k = d but it may change in channel size from c k−1 to c k . The multi-index r k ∈ N d 0 defines the size of the kernel K k [•]. This compact description of a convolution (3) includes N-D convolutions (d = N ). For instance, a 1-D convolution (d = 1) y k [i] = b k + r k t=0 K k [t]u k [i − t](4)",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 34,
+      "text": "operates on a 1-D signal, e.g., a time signal, a 2-D convolution (d = 2)",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 35,
+      "text": "y k [i 1 , i 2 ] = b k + r k1 t1=0 r k2 t2=0 K k [t 1 , t 2 ]u k [i 1 − t 1 , i 2 − t 2 ](5)",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 36,
+      "text": "operates on signals with two propagation dimensions, e.g., images, and an N-D convolution considers inputs with even more input dimensions, e.g., 3-D convolutions may be used for videos or 3-D medical images.An extension of the convolutional layer (3) is a strided convolutional layer C s k with stride s k ∈ N d .For convolutions with stride s k = (s k1 , . . ., s kd ), the output is not given by (3), but by",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 37,
+      "text": "y k [i] = b k + 0≤t≤r k K k [t]u k [s k i − t].(6)",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 38,
+      "text": "This means that we always shift the kernel by s k1 , . . ., s kd along the respective signal dimension 1, . . ., d.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 39,
+      "text": "Fully connected layer: In the case of a fully connected layer F k with layer index k the domain and image spaces are",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 40,
+      "text": "D k−1 = R c k−1 and D k = R c k , i.",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 41,
+      "text": "F k : R c k−1 → R c k , u k → y k = b k + W k u k .(7)",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 42,
+      "text": "The vector b k ∈ R c k is called the bias and W k ∈ R c k ×c k−1 is called the weight matrix.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 43,
+      "text": "Remark 1.Note that the fully connected layer is a special case of a convolutional layer for",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 44,
+      "text": "d k−1 = d k = 0. Indeed, R c k−1 ∼ = ℓ c k−1 2e ({0}) = ℓ c k−1 2e (N 0 0 ) and R c k ∼ = ℓ c k 2e (N 0 0",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 45,
+      "text": ").Furthermore, we can understand W k as the convolution kernel which, in the case d k = 0, is given by K k [0] := W k .Consequently, all results presented in this work for convolutional layers automatically also hold for fully connected layers.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 46,
+      "text": "Activation function layer: An activation function layer σ can be applied to any of our domain spaces",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 47,
+      "text": "D k−1 = R c k−1 or D k−1 = ℓ c k−1 2e (N d k−1 0",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 48,
+      "text": "), but it requires D k ∼ = D k−1 .We consider activation functions which are defined by scalar activation functions σ : R → R, applied element-wise if applied to a vector u k ∈ R c k .To this end, for finite-dimensional vector spaces, σ is identified with the function",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 49,
+      "text": "σ : R c k → R c k , u k → y k = σ(u k1 ) • • • σ(u kc k ) ⊤ .",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 50,
+      "text": "We further lift the scalar activation function to signal spaces by defining the activation function layer on ℓ c k 2e (N d k 0 ) as the function σ :",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 51,
+      "text": "ℓ c k 2e (N d k 0 ) → ℓ c k 2e (N d k 0 ), (u k [i]) i∈N d k 0 → (y k [i]) i∈N d k 0 = (σ(u k [i])) i∈N d k 0 .",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 52,
+      "text": "Pooling layer: Pooling layers are downsampling operations from",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 53,
+      "text": "D k−1 = ℓ c k−1 2e (N d k−1 0 ) to D k = ℓ c k 2e (N d k 0 ) with d k−1 = d k = d and c k−1 = c k that take a batch of input signal entries (u k [s k i + t] | t ∈ [0, r k ]",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 54,
+      "text": ") and map them channel-wise into one single output signal entry y[i].The two most common pooling layers are average pooling P av :",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 55,
+      "text": "ℓ c k 2e (N d 0 ) → ℓ c k 2e (N d 0 ), y k [i] :=mean(u k [s k i − t] | t ∈ [0, r k ]) = 1 |[0, r k ]| 0≤t≤r k u k [s k i − t]",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 56,
+      "text": "and maximum pooling P max :",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 57,
+      "text": "ℓ c k 2e (N d k 0 ) → ℓ c k 2e (N d k 0 ), y k [i] := max(u k [s k i − t] | t ∈ [0, r k ]),",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 58,
+      "text": "where the maximum is applied channel-wise.For most pooling layers the kernel size and the stride coincide (r k + 1 = s k ), yet sometimes, e.g., in AlexNet [33], r k + 1 > s k is chosen.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 59,
+      "text": "Flattening operator: Flattening is a pure reshaping operation, which merges the signal dimensions into the channel dimension.Note that the mapping is not injective, i.e., a square batch (u k [i] | 0 ≤ i < N k ), for example a finitedimensional image, is reshaped into the channel dimension and the remaining entries (mostly zeros) are discarded.The typical flattening operation is a vectorization given by R : ℓ",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 60,
+      "text": "c k−1 2e (N d k−1 0 ) → R |[0,N k [|•c k−1 , (u k [i]) i∈N d k 0 → y k , where y k is a stacked vector of u k [i], 0 ≤ i < N k , i. e., y ⊤ k = u k [0, . . . , 0] ⊤ . . . u k [N k1 , . . . , N kd ] ⊤ .",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 61,
+      "text": "We could also define flattening operators ℓ State space model layer: State space model layers have recently gained popularity in the machine learning community [29].We define a state space model layer with layer index k as an affine time-invariant system S k : ℓ",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 62,
+      "text": "c k−1 2e (N d k−1 0 ) → ℓ c k 2e (N d k 0 ) with 1 ≤ d k < d k−1 contracting",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 63,
+      "text": "c k−1 2e (N 1 0 ) → ℓ c k 2e (N 1 0 ) x k [i + 1] y k [i] = 0 A k B k g k C k D k   1 x k [i] u k [i]   , where x k [i] ∈ R n k denotes the state. The state space model is characterized by some matrices (A k , B k , C k , D k , g k ) of appropriate dimensions.",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 64,
+      "text": "B. State space representations for convolutions",
+      "type": "heading",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 65,
+      "text": "In the machine learning literature, convolutional layers are usually represented as in (3) using a convolution kernel [34].However, state space realizations have proven to be more amenable to analysis using tools from robust control than such kernel (impulse response) representations [21].In the control engineering literature, mappings from ℓ",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 66,
+      "text": "c k−1 2e (N d 0 ) to ℓ c k 2e (N d 0 )",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 67,
+      "text": "are known as N-D systems and, as it is shown in [35], N-D systems with rational transfer functions admit a N-D state space representation.N-D convolutions are finite impulse response (FIR) filters, for which we in the following introduce state space realizations of the Roesser type [27].Throughout this section, we drop the layer index k to improve readability.If we refer to the previous layer we use the subscript \"−\", e.g., c − means c k−1 .",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 68,
+      "text": "Definition 1 (Roesser model).An affine N-D system",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 69,
+      "text": "ℓ c− 2e (N d 0 ) → ℓ c 2e (N d 0 ), (u[i]) → (y[i]",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 70,
+      "text": ") is described by a Roesser model as",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 71,
+      "text": "     x 1 [i + e 1 ]",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 72,
+      "text": ". . .",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 73,
+      "text": "x d [i + e d ] y[i]      =      0 A 11 • • • A 1d B 1 . . . . . . . . . . . . . . . 0 A d1 • • • A dd B d g C 1 • • • C d D             1 x 1 [i]",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 74,
+      "text": ". . .",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 75,
+      "text": "x d [i] u[i]        ,(8)",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 76,
+      "text": "where e i denotes the unit vector with 1 in the i-th position.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 77,
+      "text": "Here, the collection of matrices A 11 , . . .C d , D is called state space representation of the system,",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 78,
+      "text": "x 1 [i] ∈ R n1 , . . . x d [i] ∈ R n d are the states, u[i] ∈ R c− is the input and y[i] ∈ R c",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 79,
+      "text": "is the output of the system.We call (8) a linear time-invariant N-D system (N = d) if g = 0. Otherwise, we call the system affine time-invariant.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 80,
+      "text": "We define",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 81,
+      "text": "0 A B g C D :=      0 A 11 • • • A 1d B 1 . . . . . . . . . . . . . . . 0 A d1 • • • A dd B d g C 1 • • • C d D     ",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 82,
+      "text": ".",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 83,
+      "text": "Realizing 1-D convolutions in state space is straightforward [16].For the important layer type of 2-D convolutions (d = 2), i.e., the 2-D system",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 84,
+      "text": "  x 1 [i 1 + 1, i 2 ] x 2 [i 1 , i 2 + 1] y[i 1 , i 2 ]   =   0 A 11 A 12 B 1 0 A 21 A 22 B 2 g C 1 C 2 D       1 x 1 [i 1 , i 2 ] x 2 [i 1 , i 2 ] u[i 1 , i 2 ]     , (9)",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 85,
+      "text": "we use the construction presented in [28] as stated in Lemma 1.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 86,
+      "text": "Lemma 1 (Realization of 2-D convolutions [28]).Consider a convolutional layer C : 5) characterized by the convolution kernel K and the bias b.This layer is realized in state space by the matrices",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 87,
+      "text": "ℓ c− 2e (N 2 0 ) → ℓ c 2e (N 2 0 ) with represen- tation(",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 88,
+      "text": "A 12 B 1 C 2 D =      K[r 1 , r 2 ] • • • K[r 1 , 1] K[r 1 , 0] . . . . . . . . . . . . K[1, r 2 ] • • • K[1, 1] K[1, 0] K[0, r 2 ] • • • K[0, 1] K[0, 0]      , A 11 C 1 =   0 0 I c(r1−1) 0 0 I c   , A 21 = 0, g = b, A 22 B 2 = 0 I c−(r2−1) 0 0 0 I c− ,",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 89,
+      "text": "where",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 90,
+      "text": "K[i 1 , i 2 ] ∈ R c×c− , i 1 ∈ [0, r 1 ], i 2 ∈ [0, r 2 ]. The state signals (x 1 [i 1 , i 2 ]) i1,i2∈N0 with x 1 [i 1 , i 2 ] ∈ R n1 , n 1 = cr 1 ,and",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 91,
+      "text": "(x 2 [i 1 , i 2 ]) i1,i2∈N0 with x 2 [i 1 , i 2 ] ∈ R n2 , n 2 = c − r 2 are given inductively by (5) with x 1 [0, i 2 ] = 0 for all i 2 ∈ N 0 , and x 2 [i 1 , 0] = 0 for all i 1 ∈ N 0 .",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 92,
+      "text": "Proof.See [28, Theorem 1] for a proof.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 93,
+      "text": "Remark 2. Finding a mapping from K to (A, B, C, D) for N-D convolutions and dilated convolutions is also possible, see [28].We discuss state space representations for strided convolutions in Appendix B.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 94,
+      "text": "Remark 3. Representing a convolution in state space requires the choice of a propagation direction for both dimensions.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 95,
+      "text": "Usually, for image inputs we pick the upper left corner as the origin with i 1 = i 2 = 0.However, any other corner and corresponding propagation directions can also be chosen to represent the convolution equivalently.For state space model layers the propagation dimension, i.e., time is predefined, and cannot be changed.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 96,
+      "text": "III. LIPSCHITZ CONSTANT ESTIMATION",
+      "type": "heading",
+      "level": 5,
+      "parent_id": 64,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 97,
+      "text": "To address Problem 1 of estimating the Lipschitz constant of an NN, the interpretation (2) of NNs as dynamical systems u k+1 = L k (u k ) is utilized.Namely, we pose the problem of estimating the Lipschitz constant of NN θ as the dynamic optimization problem",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 98,
+      "text": "min γ∈R γ(10)",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 99,
+      "text": "s.t. ∥y 1 l − y 2 l ∥ 2 ≤ γ∥u 1 1 − u 2 1 ∥ 2 , ∀u 1 1 , u 2 1 ∈ D 0 , y 1 k = L k (u 1 k ), y 2 k = L k (u 2 k ), k = 1, . . . , l, u 1 k+1 = y 1 k , u 2 k+1 = y 2 k , k = 1, . . . , l − 1.",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 100,
+      "text": "The advantage of the recursive formulation (10) is that it can be solved using a dynamic programming approach.Namely, interpreting the equality constraints",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 101,
+      "text": "(u 1 k+1 , u 2 k+1 ) = (y 1 k , y 2 k ) = (L k (u 1 k ), L k (u 2 k ))",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 102,
+      "text": "as the dynamics of a system with tuples (u 1 k , u 2 k ) as states, we can recursively define value functions",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 103,
+      "text": "V l (y 1 l , y 2 l ) = ∥y 1 l − y 2 l ∥ 2 2 , y 1 l , y 2 l ∈ D l V k−1 (u 1 k , u 2 k ) = V k (L k (u 1 k ), L k (u 2 k )), u 1 k , u 2 k ∈ D k−1 ,(11)",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 104,
+      "text": "for k = 1, . . ., l, starting from the l-th layer.Drawing from dynamic programming, we can think of ∥y 1 l − y 2 l ∥ 2 2 as a terminal cost and the stage cost as being zero.We obtain that ( 10) is equivalent to finding the smallest",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 105,
+      "text": "γ ∈ R + such that V 0 (u 1 1 , u 2 1 ) ≤ γ 2 ∥u 1 1 − u 2 1 ∥ 2 2 for all u 1 1 , u 2 1 ∈ D 0 .",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 106,
+      "text": "We can therefore pose (10) as the optimization problem",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 107,
+      "text": "min γ,V1,...,V l γ (12a) s.t. V l (y 1 l , y 2 l ) ≥ ∥y 1 l − y 2 l ∥ 2 2 (12b) V k−1 (u 1 k , u 2 k ) ≥ V k (L k (u 1 k ), L k (u 2 k )), k = l, . . . , 2 (12c) γ 2 ∥u 1 1 − u 2 1 ∥ 2 2 ≥ V 1 (L 1 (u 1 1 ), L 1 (u 2 1 ))(12d)",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 108,
+      "text": "over value functions, where (12b) to (12d) must hold for all",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 109,
+      "text": "u 1 k , u 2 k ∈ D k−1 , k = 1, . . . , l.",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 110,
+      "text": "The equivalence of ( 10) and ( 12) can be checked by chaining the inequalities (12d), (12c), (12b) as",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 111,
+      "text": "γ 2 ∥u 1 1 − u 2 1 ∥ 2 2 ≥ V 1 (L 1 (u 1 1 ), L 1 (u 2 1 )) = V 1 (u 1 2 , u 2 2 ) (13) ≥ V 2 (L 2 (u 1 2 ), L 2 (u 2 2 )) ≥ . . . ≥ V l (y 1 l , y 2 l ) ≥ ∥y 1 l − y 2 l ∥ 2 2 .",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 112,
+      "text": "Here, the sequence of inequalities (13) shows that the constraints of ( 12) imply those of (10).In addition, inserting the value functions (11) into the constraints of ( 10) yields ( 13) and shows that the constraints of (10) also imply (12b) to (12d).Furthermore, as ∥y 1 l − y 2 l ∥ 2 2 ≥ 0, we can deduce from the chain of inequalities ( 13) that the value functions V k , k = 1, . . ., l are positive definite.Note that Problem (12) involves l constraints of the form (12c) and (12d) and that this layer-wise splitting achieved by introducing value functions is computationally favorable over using one large and sparse constraint for the whole NN.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 113,
+      "text": "Still, at the present state, ( 12) is an intractable problem due to the optimization over the infinite-dimensional objects (functions) V k and the infinitely many constraints (12c) which must hold for all u 1 k , u 2 k ∈ D k−1 .For this reason, we refer to a very common relaxation from the control literature, namely, quadratic value functions.To this end, we constrain the functions V k to be of the form [36].In the case D k = R c k we may simply assume that the operators X k are in matrix representation and obtain",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 114,
+      "text": "V k (y 1 k , y 2 k ) = V X k (y 1 k , y 2 k ) := ⟨y 1 k − y 2 k , X k (y 1 k − y 2 k )⟩ 2 (14) for linear self-adjoint, positive definite operators X k on D k , i.e., ⟨y 1 k − y 2 k , X k (y 1 k − y 2 k )⟩ 2 = ⟨X * k (y 1 k − y 2 k ), y 1 k − y 2 k ⟩ 2 for all y 1 k , y 2 k ∈ D k",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 115,
+      "text": "V X k (y 1 k , y 2 k ) = (y 1 k − y 2 k ) ⊤ X k (y 1 k − y 2 k ). In the case D k = ℓ c k 2e (N d k 0 ), we can represent X k in terms of a sequence of matrices (X ′ k [i, j]) i,j∈N d k 0 , X ′ k [i, j] ∈ R c k ×c k by V X k (y 1 k , y 2 k ) = i,j∈N d 0 (y 1 k [i] − y 2 k [i]) ⊤ X ′ k [i, j](y 1 k [j] − y 2 k [j]).",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 116,
+      "text": "For this representation, self adjointness of",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 117,
+      "text": "X k means that X ′ k is symmetric, i. e., X ′ k [i, j] = X ′ k [i, j] ⊤ = X ′ k [j, i].",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 118,
+      "text": "This relaxation is a first step towards rendering the optimization tractable.In particular, with the assumption V k = V X k we can replace the constraint (12c) at the k-th layer in (12) by",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 119,
+      "text": "V X k−1 (u 1 k , u 2 k ) ≥ V X k (L k (u 1 k ), L k (u 2 k )).(15)",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 120,
+      "text": "A second step involves deriving sufficient LMI conditions that imply (15) for all layer types or subnetworks L ∈ {F, C, σ,",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 121,
+      "text": "P, R} ∪ {σ • F, σ • C, P • σ • C} ∪ {residual layer}. We denote these LMIs by G k (X k , X k−1 , ν k ) ⪰ 0, k = 1, . . . , l",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 122,
+      "text": "with respective slack variables ν k which relaxes the optimization problem (12) to min X0,...,X l ,ν1,...,ν l ,ρ 2 ρ 2 (16)",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 123,
+      "text": "subject to X 0 = ρ 2 I, G k (X k , X k−1 , ν k ) ⪰ 0, k = 1, . . . , l, X k ∈ H y L k ∩ H u L k+1 , k = 1, . . . , l − 1, X l = I.",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 124,
+      "text": "For certain layers, we impose additional restrictions on X k to enhance tractability of the problem, whose nature will be discussed in the next sections for the individual layer types.These restrictions are denoted by H y L k and H u L k , corresponding to output and input restrictions, respectively.Notice that each operator X k has to satisfy the restrictions H y L k and H u L k+1 of two layers.The resulting optimization problem ( 16) is an SDP with one LMI constraint per layer, where the index k = 1, . . ., l counts through all considered layers/subnetworks.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 125,
+      "text": "In what follows, we provide detailed derivations of the LMI constraints 16), covering all relevant layer types and subnetworks.For ease of exposition, the layer indices k are omitted and the subscript \"−\" is used to refer to the previous layer, e.g., X − is short for X k−1 .",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 126,
+      "text": "G k (X k , X k−1 , ν k ) ⪰ 0 in (",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 127,
+      "text": "A. The convolutional layer",
+      "type": "heading",
+      "level": 6,
+      "parent_id": 96,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 128,
+      "text": "If L = C is a convolutional layer, then D − = ℓ c− 2e (N d 0 ) and D = ℓ c 2e (N d 0 )",
+      "type": "equation",
+      "level": 7,
+      "parent_id": 127,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 129,
+      "text": ". Convolutional layers described by (3) are shiftinvariant mappings and a similar property is imposed on the operators X. Particularly, we require that X ′ − and X ′ are of the form",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 127,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 130,
+      "text": "X ′ − [i, j] = X − i = j 0 i ̸ = j, X ′ [i, j] = X i = j 0 i ̸ = j,(17)",
+      "type": "equation",
+      "level": 7,
+      "parent_id": 127,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 131,
+      "text": "i. e., these operators are parametrized by matrices",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 127,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 132,
+      "text": "X ∈ S c ++ and X − ∈ S c−",
+      "type": "equation",
+      "level": 7,
+      "parent_id": 127,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 133,
+      "text": "++ in a block-diagonally repeated fashion.We denote the convolution-specific restriction in (17) by",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 127,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 134,
+      "text": "X ∈ H y C and X − ∈ H u C .",
+      "type": "equation",
+      "level": 7,
+      "parent_id": 127,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 135,
+      "text": "This parameterization is a key to deriving efficient LMI representations of the inequality (15).The assumption that X is a block-diagonal, shift-invariant operator is a restriction that may introduce conservatism.However, the use of e.g.blockdiagonal Lyapunov functions for N-D systems [37], or, more generally, time-invariant value functions for time-invariant systems [38] has proven useful in the control literature and often comes with only moderate conservatism.Thanks to the diagonally repeated parameterization of X, we relax (15) as an LMI as follows.symmetric matrices P m ∈ S nm ++ , P = blkdiag(P 1 , . . ., P d ) such that",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 127,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 136,
+      "text": "P 0 0 X − − A B C D ⊤ P 0 0 X A B C D ⪰ 0. (18",
+      "type": "equation",
+      "level": 7,
+      "parent_id": 127,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 137,
+      "text": ")",
+      "type": "equation",
+      "level": 7,
+      "parent_id": 127,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 138,
+      "text": "Proof.A proof of Lemma 2 is given in [21, Theorem 4] for 2-D systems and in Appendix A-A for N-D systems.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 127,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 139,
+      "text": "The inequality ( 18) is an instance of G(X − , X, ν) ⪰ 0 in ( 16) with slack variables ν = P .We further note that (18) in Lemma 2 is an exact characterization of (15) for our restricted value function parameters",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 127,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 140,
+      "text": "X ∈ H y C , X − ∈ H u C",
+      "type": "equation",
+      "level": 7,
+      "parent_id": 127,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 141,
+      "text": "in the cases d = 0, 1.This is because ( 15) is equivalent to dissipativity of the layer L with respect to (w.r.t.) the supply rate (u, y) → u ⊤ X − u − y ⊤ Xy.For d ≤ 1, L is at most a 1-D system and dissipativity of 1-D systems is exactly characterized by the dissipation inequality (18) [39].For d ≥ 2, this is no longer the case and the conservatism of (18) might stem from the block-diagonal structure of P and also depends on the choice of the realization, i.e., the choice of the matrices (A, B, C, D) [21].State space representations are non-unique and interestingly, [21] empirically discovered that a non-minimal state space representation can lead to less conservative results.For the interested reader, we discuss the extension of Lemma 2 to strided convolutions (6) in Appendix B. Note the special structure of ( 18).If we understand X/ X − as another block of P , then this matrix inequality is a Lyapunov inequality for a (d+1)-D system [37], an inequality that often appears in stability analysis of dynamical systems.The (A, B, C, D) block plays the role of the A-matrix.This system is time-varying along the k-axis, which should be viewed as the time axis, and time-invariant along all other axes, which should be viewed as space axes.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 127,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 142,
+      "text": "Another design choice for convolutional layers is the kind of zero-padding that is used.There are different kinds of padding as shown in Fig. 1 [40].We distinguish between full padding which increases the output dimension, same padding which preserves it and no/valid padding which decreases it.The proof of Lemma 2 in Appendix A-A relies on full padding, which over-approximates and thus includes the other cases as we argue in the following.The type of padding decides which finite excerpt [N 1 , N 2 ] of the infinite signal on N d 0 is passed on to the next layer.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 127,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 143,
+      "text": "Let [N 1 , N 2 ] define the excerpt that is used with same or no zero-padding.In case of full padding, the chosen excerpt involves all non-zero entries of y 1 [•] and y 2 [•] such that its value function is V X (y 1 , y 2 ).Due to the positive-definiteness of V X , its evaluation on a finite excerpt of the same signal yields the first inequality in",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 127,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 144,
+      "text": "N 2 i=N 1 y[i] ⊤ Xy[i] ≤ V X (y 1 , y 2 ) ≤ V X− (u 1 , u 2 ),",
+      "type": "equation",
+      "level": 7,
+      "parent_id": 127,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 145,
+      "text": "and the second inequality, i.e., (15), is implied by (18).This shows that ( 18) implies ( 15) for unpadded and same-padded signals.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 127,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 146,
+      "text": "B. The fully connected layer",
+      "type": "heading",
+      "level": 7,
+      "parent_id": 127,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 147,
+      "text": "If L = F is a fully connected layer, then D − = R c− and D = R c .In this case, we can understand X − and X as matrices with",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 146,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 148,
+      "text": "V X− (u 1 , u 2 ) = (u 1 − u 2 ) ⊤ X − (u 1 − u 2",
+      "type": "equation",
+      "level": 8,
+      "parent_id": 146,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 149,
+      "text": ") and V X (y 1 , y 2 ) = (y 1 − y 2 ) ⊤ X(y 1 − y 2 ), as mentioned before.We do not impose any further restrictions on X, X − , i. e., H y F = R c×c and H u F = R c−×c− .The following lemma describes (15) as an LMI in a lossless manner.",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 146,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 150,
+      "text": "Lemma 3. Consider a fully connected layer L = F.With operators X ∈ H y F and X − ∈ H u F , a fully connected layer (7) satisfies (15) if and only if",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 146,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 151,
+      "text": "X − − W ⊤ XW ⪰ 0.(19)",
+      "type": "equation",
+      "level": 8,
+      "parent_id": 146,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 152,
+      "text": "LMI ( 19) is a special case of the Lyapunov inequality (18) for d = 0, cmp.Remark 1, and hence already proven.In this case, A, B, C, P are empty matrices and D corresponds to W .We denote the inequality (19) by G(X − , X, ν) ⪰ 0, where ν = [ ] (the empty matrix).",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 146,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 153,
+      "text": "C. The activation function layer",
+      "type": "heading",
+      "level": 8,
+      "parent_id": 146,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 154,
+      "text": "If L = σ is an activation function layer, then D = D − = R c and D = D − = ℓ c",
+      "type": "equation",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 155,
+      "text": "2e (N d 0 ) are both possible.Recall that the channel dimension c − = c and signal dimension d − = d stay the same for this layer type.In case d > 0, we choose the operators X and X − to be block diagonal and time-invariant, i. e., they satisfy (17).The restriction of time-invariance is not needed for this layer type, which means that blockdiagonal multipliers with varying blocks X[i] can also be used.However, we use the restriction (17) for simplicity and computational tractability reasons.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 156,
+      "text": "The most common activation functions such as ReLU, tanh, and sigmoid are slope-restricted, i. e., they satisfy the quadratic constraint (20) of the following lemma.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 157,
+      "text": "Lemma 4 (Slope-restriction [41], [42]).Consider an activation function σ :",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 158,
+      "text": "R c → R c that is slope-restricted on [0, 1]. For any Λ ∈ D c ++ , σ satisfies x − y σ(x) − σ(y) ⊤ 0 Λ Λ −2Λ x − y σ(x) − σ(y) ≥ 0, ∀x, y ∈ R c .(20)",
+      "type": "equation",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 159,
+      "text": "Note that the published version of [41], i.e., [13], falsely used full matrix multipliers instead of diagonal Λ which was later corrected by [42].For slope-restricted activation functions, (15) can be relaxed by an LMI as follows.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 160,
+      "text": "Lemma 5. Consider an activation function layer L = σ that is slope-restricted on [0, 1].For some operators X ∈ H y C and X − ∈ H u C , this activation function layer satisfies (15) if there exist Λ ∈ D c ++ such that",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 161,
+      "text": "X − −Λ −Λ 2Λ − X ⪰ 0.(21)",
+      "type": "equation",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 162,
+      "text": "Proof.For two arbitrary inputs (u",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 163,
+      "text": "1 [i]), (u 2 [i]) ∈ ℓ c− 2e (N d 0 ) with corresponding outputs (y 1 [i]), (y 2 [i]",
+      "type": "equation",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 164,
+      "text": "), we left and right multiply (21) with",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 165,
+      "text": "∆u[i] ⊤ ∆y[i] ⊤ , wherein ∆u[i] = u 1 [i] − u 2 [i] and ∆y[i] = y 1 [i] − y 2 [i],",
+      "type": "equation",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 166,
+      "text": "and its transpose, respectively, which yields",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 167,
+      "text": "∆u[i] ⊤ X − ∆u[i] − ∆y[i] ⊤ X∆y[i] ≥ ∆u[i] ∆y[i] ⊤ 0 Λ Λ −2Λ ∆u[i] ∆y[i]",
+      "type": "equation",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 168,
+      "text": ".",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 169,
+      "text": "Subsequently, we sum over i ∈ N d 0 and obtain",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 170,
+      "text": "V X− (u 1 , u 2 ) − V X (y 1 , y 2 ) ≥ i∈N d 0 ∆u[i] ∆y[i] ⊤ 0 Λ Λ −2Λ ∆u[i] ∆y[i] ≥ 0,",
+      "type": "equation",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 171,
+      "text": "wherein the last inequality follows from Lemma 4.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 172,
+      "text": "Note that Lemma 5 also includes activation functions applied to vector spaces that occur subsequent to fully connected layers, where technically we need to infer X ∈ H y F and",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 173,
+      "text": "X − ∈ H u F instead of X ∈ H y C and X − ∈ H u C . In fact, X ∈ H y F and X − ∈ H u F are special cases of X ∈ H y C and X − ∈ H u",
+      "type": "equation",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 174,
+      "text": "C for d = 0, cmp.Remark 1.We denote the constraint (21) by G(X − , X, ν) ⪰ 0 where ν = Λ.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 175,
+      "text": "Beside slope-restricted activations, another class of activation functions that has recently gained popularity are gradient norm preserving activations such as GroupSort and MaxMin [31].These activations are not applied element-wise but to a vector input u[i] ∈ R c consisting of all preactivations at i. GroupSort separates the c preactivations into N groups each of size n g , i.e., c = N n g , and then sorts these groups in ascending order.With the restriction",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 176,
+      "text": "X ′ [i, j] = X ∈ T c ng i = j 0 i ̸ = j",
+      "type": "equation",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 177,
+      "text": "and an equivalent definition for X ′ − [i, j], where",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 178,
+      "text": "T c ng = {T ∈ S c | T = diag(λ) ⊗ I ng + diag(γ) ⊗ 1 ng 1 ⊤ ng , λ ∈ R c/ng + , γ ∈ R c/ng },",
+      "type": "equation",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 179,
+      "text": "we can handle GroupSort activation functions using the following lemma [43].We denote these structural constraints by X ∈ H y σ GS and X − ∈ H u σ GS .Lemma 6.Consider a GroupSort activation function L = σ GS .For some operators X ∈ H y σ GS and X − ∈ H u σ GS , the GroupSort activation function satisfies (15) if the matrices X and X − satisfy 0 ⪯ X ⪯ X − .",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 180,
+      "text": "Proof.The proof is deferred to Appendix A-B.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 181,
+      "text": "D. The pooling layer",
+      "type": "heading",
+      "level": 9,
+      "parent_id": 153,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 182,
+      "text": "If L = P is a pooling layer, then D − = ℓ c− 2e (N d 0 ) and D = ℓ c 2e (N d 0 ) for d = d − and c = c − .",
+      "type": "equation",
+      "level": 10,
+      "parent_id": 181,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 183,
+      "text": "The handling of pooling layers is very similar to the handling of activation function layers.As discussed in [16], for both layer types there exist quadratic constraints exploiting their channel-wise Lipschitz properties, based on which we find LMI constraints for the respective layers.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 181,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 184,
+      "text": "Since pooling layers, i.e., subsampling layers, only make sense on the signal spaces ℓ c 2e (N d 0 ), we consider these signal spaces as domain and image spaces and restriction (17) on the operators X and X − .Note that theoretically, we could study this problem in the non-static, non-shift-invariant case.However, pooling layers will be concatenated with shift-invariant convolutional layers whose operators X and X − are also chosen to be shift-invariant and static.The following lemma shows how we handle the dynamic programming inequality (15) with average pooling layers.Lemma 7.For the average pooling layer, the dynamic programming inequality (15) is satisfied if the matrices X and X − satisfy the simple matrix inequality 0 ⪯ µ 2 X ⪯ X − , µ being the Lipschitz constant of the average pooling layer.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 181,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 185,
+      "text": "Normally, we will set X − = µ 2 X.For maximum pooling layers, we require an additional restriction, namely",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 181,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 186,
+      "text": "X = diag(λ), λ ∈ R c , X − = diag(λ − ), λ − ∈ R c− , yielding the next lemma.",
+      "type": "equation",
+      "level": 10,
+      "parent_id": 181,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 187,
+      "text": "Lemma 8.For the maximum pooling layer, the dynamic programming inequality (15) is satisfied if the matrices X and X k−1 , that are parametrized as X = diag(λ), X − = diag(λ − ), satisfy 0 ≤ µ 2 λ j ≤ λ j − for j = 1, . . ., c with Lipschitz constant µ of the maximum pooling layer.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 181,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 188,
+      "text": "Again, we will normally require µ 2 λ j = λ j − , j = 1, . . ., c.It is common to choose the kernel size r + 1 and the stride s of pooling layers to be the same.In that case the Lipschitz constant of a maximum pooling layer is 1.We denote the restriction of the operators for maximum pooling layers, including the diagonality constraints, by X ∈ H y P max and X − ∈ H u P max .Furthermore, we denote by G(X − , X, ν) ⪰ 0 the respective constraint for these layers with ν = [ ].",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 181,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 189,
+      "text": "E. Flattening operations",
+      "type": "heading",
+      "level": 10,
+      "parent_id": 181,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 190,
+      "text": "In our setup, flattening operations have the role of reshaping tensor outputs from ℓ c− 2e (N d− 0 ) into vectors.In particular, they rearrange the output of a convolutional layer with d − > 0 as a vector to enable its use as an input for a fully connected layer.We have mentioned that, theoretically, a flattening operation could also map/project an element from",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 189,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 191,
+      "text": "ℓ c− 2e (N d− 0 ) to ℓ c 2e (N d 0 )",
+      "type": "equation",
+      "level": 11,
+      "parent_id": 189,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 192,
+      "text": ", where d − > d.However, we consider only the most relevant case of d = 0 in this section.",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 189,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 193,
+      "text": "In this case, R maps a patch (u",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 189,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 194,
+      "text": "[i] | N 1 ≤ i ≤ N 2 ) to the stacked vector of u[i], i. e., y = u[N 1 ] ⊤ • • • u[N 2 ] ⊤ ⊤ .",
+      "type": "equation",
+      "level": 11,
+      "parent_id": 189,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 195,
+      "text": "Thus, we obtain the following lemma.",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 189,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 196,
+      "text": "Lemma 9. Consider a flattening operation R :",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 189,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 197,
+      "text": "ℓ c− 2e (N d− 0 ) → R c , with support [N 1 , N 2 ] and c = c − |[N 1 , N 2 ]|. The value function V X− can be denoted as V X− (u 1 , u 2 ) = i,j∈N d 0 (u 1 [i] − u 2 [i]) ⊤ X ′ − [i, j](u 1 [j] − u 2 [j]),",
+      "type": "equation",
+      "level": 11,
+      "parent_id": 189,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 198,
+      "text": "whereas V X (y 1 , y 2 ) = (y 1 − y 2 ) ⊤ X(y 1 − y 2 ).Then the dynamic programming inequality (15) is satisfied if and only if",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 189,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 199,
+      "text": "   X ′ − [N 1 , N 1 ] • • • X ′ − [N 1 , N 2 ] . . . . . . . . . X ′ − [N 2 , N 1 ] • • • X ′ − [N 2 , N 2 ]    ⪰ X.(22)",
+      "type": "equation",
+      "level": 11,
+      "parent_id": 189,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 200,
+      "text": "The matrix inequality ( 22) is an instance of G(X − , X, ν) ⪰ 0 with ν = [ ] and H y R and H u R technically impose no additional restrictions on X − and X of the flattening operation.However, usually, the value function V X will be both static and time-invariant due to output restrictions on X − of the previous layer, e.g., X − ∈ H y C , i. e., X ′ − [i, j] = X − for i = j and zero otherwise.In addition, we can require equality in (22), in which case",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 189,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 201,
+      "text": "X = I |[N 1,N 2 ]| ⊗ X − is a block-diagonal matrix with |[N 1 , N 2 ]| copies of X − on its diagonal.",
+      "type": "equation",
+      "level": 11,
+      "parent_id": 189,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 202,
+      "text": "F. The state space model layer",
+      "type": "heading",
+      "level": 11,
+      "parent_id": 189,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 203,
+      "text": "The state space model layer L = S is a generalization of the 1-D convolutional layer.The proof of Lemma 2 is independent of the structure of A, B, C, and D, which mark the difference between 1-D convolutional and state space model layers.Accordingly, we use (18) as a constraint G(X − , X, ν) ⪰ 0.",
+      "type": "paragraph",
+      "level": 12,
+      "parent_id": 202,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 204,
+      "text": "G. Subnetworks",
+      "type": "heading",
+      "level": 12,
+      "parent_id": 202,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 205,
+      "text": "Up to now, we considered all building blocks of (1) as individual entities and require individual constraints (15) for all these layers.However, for the implementation of ( 12) and computational reasons, it is convenient to combine multiple layers as a subnetwork.We then include a constraint of type (15) for the subnetwork.A typical concatenation is the combination of linear layers with the succeeding nonlinear activation functions, i. e., σ•C for convolutional layers or σ•F for fully connected layers.Lemma 10.Consider the concatenation of a convolutional layer and an activation function layer, that is slope-restricted on [0, 1], L = σ • C. For some X ∈ H y C and X − ∈ H u C , the concatenation σ • C satisfies (15) if there exist symmetric matrices P m ∈ S nm ++ , P = blkdiag(P 1 , . . ., P d ) and a diagonal matrix",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 204,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 206,
+      "text": "Λ ∈ D c ++ such that   P − A ⊤ P A −A ⊤ P B −C ⊤ Λ −B ⊤ P A X − − B ⊤ P B −D ⊤ Λ −ΛC −ΛD 2Λ − X   ⪰ 0.(23)",
+      "type": "equation",
+      "level": 13,
+      "parent_id": 204,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 207,
+      "text": "Proof.The proof follows along the lines of the proof of Lemma 2, additionally using typical arguments from robust control [39].It can be found in Appendix A-C.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 204,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 208,
+      "text": "The condition ( 23) is treated as an instance of G(X, X − , ν) with ν = (P , Λ).For an additional pooling layer, i. e. P •σ•C, we can extend Lemma 10 easily by replacing X − with 1 µ 2 X − and considering the output restriction X ∈ H y Pmax in case a maximum pooling layer is added.Lemma 11.Consider the concatenation of a fully connected layer and an activation function layer, that is slope-restricted on [0, 1], L = σ • F. For some X ∈ H y F and X − ∈ H u F , the concatenation σ • F satisfies (15) if there exists a diagonal matrix Λ ∈ D c ++ such that",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 204,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 209,
+      "text": "X − −W ⊤ Λ −ΛW 2Λ − X ⪰ 0.(24)",
+      "type": "equation",
+      "level": 13,
+      "parent_id": 204,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 210,
+      "text": "Proof.We can view condition (24) as a special case of ( 23), cmp.Remark 1, and therefore, we refer to the proof of Lemma 10 in Appendix A-C.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 204,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 211,
+      "text": "Note that we can also combine more layers, yielding larger and sparser LMIs but renouncing the decision variables X at the transition between the layers.Extensions of Lemmas 10 and 11 of this kind can be found in Appendix C. If we combine all layers of a fully connected NN, we obtain the LMI originally proposed in [13].",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 204,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 212,
+      "text": "Remark 4. Throughout this subsection, we consider sloperestricted activations.However, all LMIs can also be formulated for GroupSort activations based on Lemma 6 [43].",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 204,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 213,
+      "text": "Remark 5. Beyond its use in Lipschitz analysis, SDP-based methods have been utilized for synthesis of Lipschitz-bounded NNs by parameterizing NN architectures such that they satisfy the underlying LMI conditions of an SDP by design [44]- [47].In this sense, the derived LMI conditions of this section build a basis for such a construction [48].",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 204,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 214,
+      "text": "H. Residual layers and skip connections",
+      "type": "heading",
+      "level": 13,
+      "parent_id": 204,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 215,
+      "text": "In deep learning, NN structures that include skip connections, called residual NNs or ResNets, have proven to avoid vanishing and exploding gradients [30].We define such residual layers as follows",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 214,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 216,
+      "text": "y = u + M(u),(25)",
+      "type": "equation",
+      "level": 14,
+      "parent_id": 214,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 217,
+      "text": "where M(u) is a feedforward NN (1) of arbitrary length and u ∈ D − and y ∈ D. We in addition require D = D − as well as M : D − → D − .For example, a ResNet layer that skips a fully connected network with one hidden layer reads",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 214,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 218,
+      "text": "y = u + W 2 σ(W 1 u + b 1 ) + b 2 . (26",
+      "type": "equation",
+      "level": 14,
+      "parent_id": 214,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 219,
+      "text": ")",
+      "type": "equation",
+      "level": 14,
+      "parent_id": 214,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 220,
+      "text": "with",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 214,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 221,
+      "text": "W 1 ∈ R nv×c− , W 2 ∈ R c×nv , b 1 ∈ R nv , b 2 ∈ R c , n v being the dimension of v := σ(W 1 u + b 1 ).",
+      "type": "equation",
+      "level": 14,
+      "parent_id": 214,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 222,
+      "text": "In the following lemma, we describe how the simple skip connection (26) leads to an LMI relaxation for (15).Lemma 12. Consider a residual layer (26) with activation functions that are slope-restricted on [0, 1].For some X ∈ H y F and X − ∈ H u F , the ResNet layer (26) satisfies (15) if there exist Λ ∈ D nv ++ such that",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 214,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 223,
+      "text": "X − − X −W ⊤ 1 Λ − XW 2 −ΛW 1 − W ⊤ 2 X 2Λ − W ⊤ 2 XW 2 ⪰ 0. (27",
+      "type": "equation",
+      "level": 14,
+      "parent_id": 214,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 224,
+      "text": ")",
+      "type": "equation",
+      "level": 14,
+      "parent_id": 214,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 225,
+      "text": "Proof.A proof can be found in Appendix A-D.It follows the same arguments as the proof of [49,Theorem 4].",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 214,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 226,
+      "text": "Remark 6.In a similar fashion, we can pose LMIs for ResNet layers which skip more than two layers or include convolutional layers.Due to space limitations, we do not discuss these cases.",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 214,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 227,
+      "text": "IV. ANALYSIS OF THE CONSERVATISM",
+      "type": "heading",
+      "level": 14,
+      "parent_id": 214,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 228,
+      "text": "With the exact dynamic programming recursion (11) it is (theoretically) possible to compute the exact Lipschitz constant of an NN using (12).For reasons of computational tractability, however, we propose the relaxation (16).For the derivation of this SDP, several relaxation steps were made resulting in the following sources of conservatism.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 229,
+      "text": "(i) Quadratic constraints that over-approximate nonlinearities.(ii) Layer specific restrictions",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 230,
+      "text": "X k−1 ∈ H u L k and X k ∈ H y L k . (iii)",
+      "type": "equation",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 231,
+      "text": "Cut-off errors caused by handling convolutional layers as mappings on infinite-dimensional sequence spaces, whereas in reality only finitely supported image signals are processed.(iv) Quadratic value functions (14).Number (i) enables the incorporation of nonlinear activation functions and pooling layers into an SDP-based analysis [20] and therefore this relaxation is essential for the tractability of the problem.Moreover, (iii) can be viewed as a special case of (ii), since considering general operators X k instead of spaceshift invariant operators would resolve this issue at the price of significantly larger LMIs.This shows that there is a trade-off between scalability and accuracy.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 232,
+      "text": "The quadratic value functions (iv) allow us to leverage the feedforward interconnection structure of the NN, yielding layer-wise LMIs and resulting in computational advantages and superior scalability compared to [13], [21].Next, we justify why layer-wise splitting is not more restrictive than the use of one large and sparse LMI constraint as done in [13], [21].To this end, we analyze a fully connected NN of the form",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 233,
+      "text": "FNN θ = F l • σ • • • • • σ • F 1 ,",
+      "type": "equation",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 234,
+      "text": "also considered in LipSDP [13].As suggested in [16], we can use the semidefinite constraint",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 235,
+      "text": "       Q l − I S l S ⊤ l R l + Q l−1 S l−1 S ⊤ l−1 R l−1 + Q l−2 . . . . . . . . . S1 S ⊤ 1 R1 + γ 2 I        ⪯ 0,(28)",
+      "type": "equation",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 236,
+      "text": "where",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 237,
+      "text": "−2Λ k Λ k W k W ⊤ k Λ k 0 ⪯ Q k S k S ⊤ k R k , k = 1, . . . , l(29)",
+      "type": "equation",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 238,
+      "text": "is used instead of ( 24) as layer-wise LMI constraints for fully connected layers for Lipschitz constant estimation.To recover LipSDP [13] simply replace the conic inequality in ( 29) with an equality.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 239,
+      "text": "The following theorem implies that it poses no restriction to parameterize the dissipativity blocks as",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 240,
+      "text": "Q k S k S ⊤ k R k = X k 0 0 −X k−1",
+      "type": "equation",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 241,
+      "text": ", where X l = I and X 0 = γ 2 I, as done in this work.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 242,
+      "text": "Theorem 1. Assume that the matrix inequality (28) is satisfied.Then there exists a sequence of matrices X 0 , . . ., X l such that X 0 = γ 2 I, X l = I and",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 243,
+      "text": "Q k S k S ⊤ k R k ⪯ X k 0 0 −X k−1 , k = 1, . . . l. (30",
+      "type": "equation",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 244,
+      "text": ")",
+      "type": "equation",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 245,
+      "text": "Proof.See Appendix A-E.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 246,
+      "text": "It follows from Theorem 1 that the LMIs ( 28), ( 29) are equivalent to (24), k = 1, . . ., l, X 0 = γ 2 I, Λ l = I, X k = I, i.e, that layer-wise splitting does not introduce conservatism.Consequently, the optimal value of γ found solving 28), ( 29), (31) where Λ = (Λ 1 , . . ., Λ l ), Q = (Q 1 , . . ., Q l ), S = (S 1 , . . ., S l ) and R = (R 1 , . . ., R l ), and the optimal value of γ from 32) is an instance of ( 16) for a fully connected NN.Another consequence of the result in Theorem 1 is that our approach of choosing the sequence of matrices (X k ) that satisfy (30) is not more conservative than using the large and sparse constraint in LipSDP.The relation of ( 16) to [21], that includes convolutional layers, can be shown in a similar fashion.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 247,
+      "text": "min γ 2 ,Λ,Q,S,R γ 2 s. t. (",
+      "type": "equation",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 248,
+      "text": "min γ 2 ,Λ,X γ 2 s. t. (24",
+      "type": "equation",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 249,
+      "text": "), k = 1, . . . , l, X 0 = γ 2 I, X l = I, Λ l = I (32) where Λ = (Λ 1 , . . . , Λ l ), X = (X 1 , . . . , X l−1 ) using the parameterization of Q k , S k , R k via X k , are equivalent. We note that (",
+      "type": "equation",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 250,
+      "text": "Remark 7. Convolutional layers can be recast as fully connected layers [34] and the experiments in [21] show that this recasting can reduce conservatism in comparison to (16).While (i) also causes conservatism in LipSDP [13], through the recasting of convolutional layers as fully connected layers, the relaxations (ii) and (iii) can be avoided in LipSDP.However, as it also becomes apparent in [21], this relaxation has a high computational cost.Remark 8.For the special case of a fully connected NN our proposed layer-wise LMI constraints (24) correspond to the decomposition of the LMI in LipSDP by chordal sparsity [25], also yielding a set of LMI constraints that are equivalent to LipSDP [13].",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 251,
+      "text": "Remark 9.The result of Theorem 1 can be interpreted as the statement that for a series interconnection of QSR-dissipative mappings, it suffices to consider supply rates s(u",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 252,
+      "text": "1 k − u 2 k , y 1 k − y 2 k ) of the form u 1 k − u 2 k y 1 k − y 2 k , X k 0 0 −X k−1 u 1 k − u 2 k y 1 k − y 2 k 2 .",
+      "type": "equation",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 253,
+      "text": "To summarize, the SDP ( 16) exploits the structure of NNs in two ways.Firstly, it exploits the concatenation structure of NNs to generate l small LMI constraints instead of one large and sparse constraint, and, secondly, it utilizes the fact that convolutional layers and state space model layers are dynamical systems.This gives ( 16) one advantage over [21], where only the dynamical system nature of convolutional layers is exploited and two advantages over LipSDP [13] in terms of scalability.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 254,
+      "text": "V. EXPERIMENTS",
+      "type": "heading",
+      "level": 15,
+      "parent_id": 227,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 255,
+      "text": "In this section, we compare our newly proposed method GLipSDP (general LipSDP) to state-of-the-art SDP-based methods for Lipschitz constant estimation w.r.t. the ℓ 2 norm, namely LipSDP [13] and CLipSDP (convolutional LipSDP) [21] and to a recent loop transformation based method LipLT [19].In addition, we compute a trivial matrix norm product bound (MP), the product of the spectral norms of the weights [4].We first compare the accuracy and scalability of the methods on fully connected and fully convolutional networks, respectively, in Subsections V-A and V-B and discuss the influences of the sources of conservatism that were introduced in IV.In Subsection V-C, we then apply GLipSDP to different architectures for CNNs to illustrate its versatility.The code is written in a modular fashion such that it can be applied easily to any NN architecture involving layers considered in this paper.All computations are carried out on a standard i7 note book with 32 GB RAM using Yalmip [50] with the solver Mosek [51] in Matlab for LipSDP, GLipSDP and CLipSDP and Python and Pytorch for LipLT and MP 1 .",
+      "type": "paragraph",
+      "level": 16,
+      "parent_id": 254,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 256,
+      "text": "A. Scalability on fully connected networks",
+      "type": "heading",
+      "level": 16,
+      "parent_id": 254,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 257,
+      "text": "In this subsection, we consider fully connected NNs F",
+      "type": "paragraph",
+      "level": 17,
+      "parent_id": 256,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 258,
+      "text": "• σ • F • • • σ • F of different widths c = {16,",
+      "type": "equation",
+      "level": 17,
+      "parent_id": 256,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 259,
+      "text": "32, 64} and depths d = {2, 4, 8, 16, 32, 64} and compare GLipSDP (ours), LipSDP, LipLT and MP in terms of accuracy and the SDPbased variants GLipSDP and LipSDP in terms of computation times.To do so we randomly generated weights that we subsequently normalized such that the MP bound is 1 and Fig. 2 (left) shows the bounds computed using LipSDP, GLipSDP 1 We provide our code at https://github.com/ppauli/GLipSDP. and LipLT for NNs of different depths d = {2, 4, 8}.We observe that LipSDP and GLipSDP yield the same bounds, as expected from Theorem 1, which are lower than the ones obtained by LipLT.As the depth increases the gap between MP and the other bounds becomes larger.In Fig. 2 (right), we now compare the computation times of LipSDP and GLipSDP.",
+      "type": "paragraph",
+      "level": 17,
+      "parent_id": 256,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 260,
+      "text": "While LipSDP relies on one large and sparse LMI constraint, GLipSDP considers one dense LMI per layer.We notice that for shallow NNs of depth of up to 8 layers, LipSDP is faster than layer-wise GLipSDP.However, with increasing depths the layer-wise splitting of GLipSDP is advantageous in terms of computation times.This trade-off is due to the fact that the splitting also introduces additional decision variables X at the layer transitions.A direct consequence of this phenomenon is that it may be computationally advantageous to combine some fully connected layers as subnetworks.",
+      "type": "paragraph",
+      "level": 17,
+      "parent_id": 256,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 261,
+      "text": "Next, we only consider the 32-layer fully connected networks with 32 and 64 neurons (d = 32, c = {32, 64}) and we apply GLipSDP but vary the number of layers combined in subnetworks, cmp.Section III-G.More specifically, we compute an upper Lipschitz bound using layer-wise LMI constraints, i.e., 32 LMI constraints, and then combine 2, 4, 8, 16, 32 layers to form subnetworks, then applying GLipSDP with 16, 8, 4, 2, and 1 LMI constraints instead of 32.It is an immediate result of Theorem 1 that GLipSDP yields the same Lipschitz bounds for all subnetwork configurations, yet it requires different computation times that are shown in Fig. 4 (left).The least computation time is achieved using 8 subnetworks of depth 4 in the 32-neuron case and 4 subnetworks of depth 8 in the 64-neuron variant, again illustrating the tradeoff due to smaller LMI constraints on the one hand and more decision variables on the other hand.",
+      "type": "paragraph",
+      "level": 17,
+      "parent_id": 256,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 262,
+      "text": "B. Scalability on fully convolutional networks",
+      "type": "heading",
+      "level": 17,
+      "parent_id": 256,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 263,
+      "text": "Next, we consider fully convolutional NNs.In particular, we train CNNs with backbones of depths d = {2, 4, 8, 16} and channel sizes c = {8, 16, 32} on the MNIST dataset [52].",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 262,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 264,
+      "text": "We then analyze the fully convolutional backbones of these NNs, i.e., a subnetwork σ • C • • • σ • C which only consists of convolutional layers.The input size to the backbone is 14×14 and is kept constant throughout all backbone layers.Fig. 3 (left) shows the Lipschitz bounds obtained using GLipSDP (ours), CLipSDP, and MP.We refrain from a comparison to LipSDP as the underlying SDP runs into memory issues for all networks except the smallest one (c = 8, d = 2).We first note that GLipSDP and CLipSDP produce the same bounds which are tighter than the ones found with LipLT and significantly tighter than the trivial matrix product bound MP.In Fig. 3 (right) we compare the computation times of GLipSDP and CLipSDP.What distinguishes our method GLipSDP from CLipSDP is that we consider layer-wise LMIs rather than one large and sparse LMI constraint.In the case of fully convolutional layers, we observe that the deeper the network the larger the computational advantage of using GLipSDP.",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 262,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 265,
+      "text": "In Fig. 4 (right), we apply GLipSDP defining subnetworks of different depths to analyze the 16-layer fully convolutional network with channel sizes 8 and 16 (d = 16, c = {8, 16}).In this experiment, we see that it is computationally advantageous to use multiple smaller LMI constraints, i.e., exploit the layerby-layer structure of the network, in fully convolutional NNs.It follows from Theorem 1 that the obtained Lipschitz bounds are the same for all chosen splits.",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 262,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 266,
+      "text": "C. Convolutional neural networks for image classification",
+      "type": "heading",
+      "level": 18,
+      "parent_id": 262,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 267,
+      "text": "Next, we compute upper bounds on the Lipschitz constant for typical CNN architectures, including LeNet-5 [53], the NNs used in [54], and 18-layer residual NNs.These experiments are conducted on the MNIST [52] and CIFAR-10 datasets, utilizing ReLU activation functions, the cross-entropy loss, the Adam optimizer, and default and recommended hyperparameters.We us weight decay for regularization such that the Lipschitz constants are reasonably low.Details on the architectures are deferred to Appendix D. In Table I, we compare our method (GLipSDP) to LipLT [19], the trivial matrix product bound (MP) and two variations of LipSDP and GLipSDP:",
+      "type": "paragraph",
+      "level": 19,
+      "parent_id": 266,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 268,
+      "text": "• S-LipSDP: As LipSDP runs into memory issues for the chosen architectures, we apply LipSDP on possibly large subnetworks that are analyzed separately.The product of the Lipschitz estimates for the subnetworks yields an upper bound for the network.",
+      "type": "paragraph",
+      "level": 19,
+      "parent_id": 266,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 269,
+      "text": "• S-GLipSDP: We also compute S-GLipSDP (Split GLipSDP), splitting the NN into subnetworks that are convenient to handle and apply GLipSDP to the subnetworks.Again, the product of the bounds of the subnetworks gives an upper bound for the entire NN.All splits into subnetworks for S-GLipSDP and S-LipSDP are listed in Table III and IV, respectively, in Appendix D. To illustrate the remaining conservatism of the bounds, we also empirically compute lower bounds.",
+      "type": "paragraph",
+      "level": 19,
+      "parent_id": 266,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 270,
+      "text": "In Table I, we summarize the resulting Lipschitz bounds and computation times for the different NNs.We observe that GLipSDP outperforms the S-GLipSDP, S-LipSDP, LipLT, and MP bounds in all NNs.If a value is not stated, the corresponding method runs into memory issues or is not applicable.Especially for the FC-R18, a residual NN with fully connected layers, GLipSDP achieves a bound very close to the empirical lower bound and in other NNs that involve convolutions, there also are significant improvements over MP bounds and clear advantages compared to LipLT.LipLT and LipSDP do not accommodate pooling layers, which are a building block of LeNet-5, showing the versatility of GLipSDP in comparison to these other methods.In the LeNet-5 examples, while GLipSDP provides the best bounds, we notice that S-LipSDP gives better bounds than S-GLipSDP.This is due to the conservatism introduced through (ii) and (iii) in handling convolutional layers, cmp.Remark 7. On the example of 2C2F, we recognize a clear computational advantage of GLipSDP and S-GLipSDP over S-LipSDP together with the tighter bound found with GLipSDP.Depending on the chosen split of the subnetworks the computation time of S-GLipSDP can also be larger than the one for S-LipSDP, as for example for 4C3F (the splits are different for S-GLipSDP and S-LipSDP, see Tables III and IV).In this example, we, however, achieve a much lower bound with S-GLipSDP.Using a 32GB RAM note book, GLipSDP runs into memory issues on 4C3F and 6C2F, yet using S-GLipSDP, we still achieve much better bounds than the MP bounds and also outperform LipLT in our 4C3F example.In summary, our newly proposed method enables us to achieve tighter bounds than those provided by LipLT and MP, and it is more scalable than other SDP-based methods.",
+      "type": "paragraph",
+      "level": 19,
+      "parent_id": 266,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 271,
+      "text": "VI. CONCLUSION",
+      "type": "heading",
+      "level": 19,
+      "parent_id": 266,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 272,
+      "text": "We presented a versatile and scalable approach for Lipschitz constant estimation for a large class of NN architectures.Our approach views the NN as a time-varying dynamical system, where we interpret the layer indices as time indices.This view allows us to exploit the layer-wise composition structure of NNs.In addition, we leverage the structure of the individual layers, especially of convolutional layers that we represent as N-D systems of the Roesser type.Our method is more accurate than other optimization-free methods and more scalable than previous SDP-based methods.We assume that the convolutional layer L = C is realized as a Roesser system (8).This means that for any",
+      "type": "paragraph",
+      "level": 20,
+      "parent_id": 271,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 273,
+      "text": "(u[i]) ∈ ℓ c− 2e (N d 0 )",
+      "type": "equation",
+      "level": 20,
+      "parent_id": 271,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 274,
+      "text": ", there exists a uniquely defined",
+      "type": "paragraph",
+      "level": 20,
+      "parent_id": 271,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 275,
+      "text": "(x[i]) ∈ ℓ n 2e (N d 0 ) with x[i] ⊤ = x 1 [i] ⊤ • • • x d [i] ⊤ and x j [i] = 0 ∀i ∈ N d 0 , i j = 0,(33)",
+      "type": "equation",
+      "level": 20,
+      "parent_id": 271,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 276,
+      "text": "such that (u[i], x[i], y[i]) with y = C(u) satisfies (8), where i j denotes the j-th index in i.",
+      "type": "paragraph",
+      "level": 20,
+      "parent_id": 271,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 277,
+      "text": "Hence, let two arbitrary inputs (u",
+      "type": "paragraph",
+      "level": 20,
+      "parent_id": 271,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 278,
+      "text": "1 [i]), (u 2 [i]) ∈ ℓ c− 2e (N d 0 ) be given and let (y 1 [i]), (y 2 [i]), (x 1 [i]), (x 2 [i]",
+      "type": "equation",
+      "level": 20,
+      "parent_id": 271,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 279,
+      "text": ") denote the corresponding state and output response of the layer C. Multiplying the matrix inequality (18) from the left by the vector ∆x",
+      "type": "paragraph",
+      "level": 20,
+      "parent_id": 271,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 280,
+      "text": "[i] ⊤ ∆u[i] ⊤ , where ∆x[i] = x 1 [i] − x 2 [i] and ∆u[i] = u 1 [i] − u 2 [i],",
+      "type": "equation",
+      "level": 20,
+      "parent_id": 271,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 281,
+      "text": "and from the right by its transpose yields the inequality",
+      "type": "paragraph",
+      "level": 20,
+      "parent_id": 271,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 282,
+      "text": "d j=1 ∆x j [i] ⊤ P j ∆x j [i] + ∆u[i] ⊤ X − ∆u[i] ≥ d j=1 ∆x j [i + e j ] ⊤ P j ∆x j [i + e j ] + ∆y[i] ⊤ X∆y[i].",
+      "type": "equation",
+      "level": 20,
+      "parent_id": 271,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 283,
+      "text": "Note that the bias terms do not need to be considered, since they cancel out when computing the differences ∆x j [i + e j ].",
+      "type": "paragraph",
+      "level": 20,
+      "parent_id": 271,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 284,
+      "text": "Summing this inequality over all",
+      "type": "heading",
+      "level": 20,
+      "parent_id": 271,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 285,
+      "text": "i ∈ N d 0 yields i∈N d 0 d j=1 ∆x j [i] ⊤ P j ∆x j [i] + i∈N d 0 ∆u[i] ⊤ X − ∆u[i] ≥ d j=1 i∈N d 0 ,ij ≥1 ∆x j [i] ⊤ P j ∆x j [i] + i∈N d 0 ∆y[i] ⊤ X∆y[i],",
+      "type": "equation",
+      "level": 21,
+      "parent_id": 284,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 286,
+      "text": "wherein ∆y",
+      "type": "paragraph",
+      "level": 21,
+      "parent_id": 284,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 287,
+      "text": "[i] = y 1 [i] − y 2 [i].",
+      "type": "equation",
+      "level": 21,
+      "parent_id": 284,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 288,
+      "text": "These sums all converge since all signals are in ℓ 2e (N d 0 ), as the convolutional layer is a finite impulse response filter and, therefore, it is stable.Canceling terms on both sides yields",
+      "type": "paragraph",
+      "level": 21,
+      "parent_id": 284,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 289,
+      "text": "i∈N d 0 ∆u[i] ⊤ X − ∆u[i] ≥ d j=1 i∈N d 0 ,ij =0 ∆x j [i] ⊤ P j ∆x j [i] + i∈N d 0 ∆y[i] ⊤ X∆y[i].",
+      "type": "equation",
+      "level": 21,
+      "parent_id": 284,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 290,
+      "text": "Here, the sum over the boundary terms",
+      "type": "paragraph",
+      "level": 21,
+      "parent_id": 284,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 291,
+      "text": "d j=1 i∈N d 0 ,ij =0 ∆x j [i] ⊤ P j ∆x j [i] is zero, cmp. (33",
+      "type": "equation",
+      "level": 21,
+      "parent_id": 284,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 292,
+      "text": "), such that this inequality is exactly what we had to show.",
+      "type": "paragraph",
+      "level": 21,
+      "parent_id": 284,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 293,
+      "text": "B. Proof of Lemma 6",
+      "type": "heading",
+      "level": 21,
+      "parent_id": 284,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 294,
+      "text": "To prove Lemma 6, we require the following lemma, which is a simplification of [43, Lemma 1] that directly follows for P = S = 0 in [43, Lemma 1].",
+      "type": "paragraph",
+      "level": 22,
+      "parent_id": 293,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 295,
+      "text": "Lemma 13.Consider a GroupSort activation σ GS : R c → R c with group size n g .For any T ∈ T c ng , σ GS satisfies",
+      "type": "paragraph",
+      "level": 22,
+      "parent_id": 293,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 296,
+      "text": "x − y σ(x) − σ(y) ⊤ T 0 0 −T x − y σ(x) − σ(y) ≥ 0, ∀ x, y ∈ R c .",
+      "type": "equation",
+      "level": 22,
+      "parent_id": 293,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 297,
+      "text": "If X − ∈ T c ng and X ∈ T c ng satisfy 0 ⪯ X ⪯ X − , there exists a multiplier T ∈ T c ng that satisfies 0 ⪯ X ⪯ T ⪯ X − , for which we equivalently write",
+      "type": "paragraph",
+      "level": 22,
+      "parent_id": 293,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 298,
+      "text": "X − − T 0 0 − X + T ⪰ 0. (34",
+      "type": "equation",
+      "level": 22,
+      "parent_id": 293,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 299,
+      "text": ") Let (u 1 [i]), (u 2 [i]) ∈ ℓ c− 2e (N d 0 )",
+      "type": "equation",
+      "level": 22,
+      "parent_id": 293,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 300,
+      "text": "be two arbitrary inputs with corresponding outputs (y 1 [i]), (y 2 [i]) of the GroupSort activation layer.We multiply (34) with ∆u[i] ⊤ ∆y[i] ⊤ from the left, where ∆x",
+      "type": "paragraph",
+      "level": 22,
+      "parent_id": 293,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 301,
+      "text": "[i] = x 1 [i]−x 2 [i] and ∆u[i] = u 1 [i]−u 2 [i],",
+      "type": "equation",
+      "level": 22,
+      "parent_id": 293,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 302,
+      "text": "and its transpose from the right and further sum over i ∈ N d 0 , to obtain",
+      "type": "paragraph",
+      "level": 22,
+      "parent_id": 293,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 303,
+      "text": "V X− (u 1 , u 2 ) − V X (y 1 , y 2 ) ≥ i∈N d 0 ∆u[i] ∆y[i] ⊤ T 0 0 −T ∆u[i] ∆y[i] ≥ 0,",
+      "type": "equation",
+      "level": 22,
+      "parent_id": 293,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 304,
+      "text": "where the last inequality follows from Lemma 13.",
+      "type": "paragraph",
+      "level": 22,
+      "parent_id": 293,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 305,
+      "text": "C. Proof of Lemma 10",
+      "type": "heading",
+      "level": 22,
+      "parent_id": 293,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 306,
+      "text": "Let two arbitrary inputs (u",
+      "type": "paragraph",
+      "level": 23,
+      "parent_id": 305,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 307,
+      "text": "1 [i]), (u 2 [i]) ∈ ℓ c− 2e (N d 0 ) be given and let (y 1 [i]), (y 2 [i]), (x 1 [i]), (x 2 [i]",
+      "type": "equation",
+      "level": 23,
+      "parent_id": 305,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 308,
+      "text": ") denote the corresponding state and output response of the layer C, where x m",
+      "type": "paragraph",
+      "level": 23,
+      "parent_id": 305,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 309,
+      "text": "[i] = x m 1 [i] ⊤ • • • x m d [i] ⊤ ⊤ , m = 1, 2. We left/right multi- ply (18) with ∆x[i] ⊤ ∆u[i] ⊤ ∆y[i] ⊤ , where ∆x[i] = x 1 [i] − x 2 [i], ∆u[i] = u 1 [i] − u 2 [i] and ∆y[i] = y 1 [i] − y 2 [i],",
+      "type": "equation",
+      "level": 23,
+      "parent_id": 305,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 310,
+      "text": "and its transpose, respectively, and obtain",
+      "type": "paragraph",
+      "level": 23,
+      "parent_id": 305,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 311,
+      "text": "d j=1 ∆x j [i] ⊤ P j ∆x j [i] + ∆u[i] ⊤ X − ∆u[i] + 2∆y[i] ⊤ Λ∆y[i] − 2∆y[i] ⊤ Λ(C∆x[i] + D∆u[i]) ≥ d j=1 ∆x j [i + e j ] ⊤ P j ∆x j [i + e j ] + ∆y[i] ⊤ X∆y[i].",
+      "type": "equation",
+      "level": 23,
+      "parent_id": 305,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 312,
+      "text": "Subsequent summation over all i ∈ N d 0 then yields",
+      "type": "paragraph",
+      "level": 23,
+      "parent_id": 305,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 313,
+      "text": "i∈N d 0 ∆u[i] ⊤ X − ∆u[i] + 2∆y[i] ⊤ Λ∆y[i] − 2∆y[i] ⊤ Λ(C∆x[i] + D∆u[i]) ≥ i∈N d 0 ∆y[i] ⊤ X∆y[i],",
+      "type": "equation",
+      "level": 23,
+      "parent_id": 305,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 314,
+      "text": "again using the arguments laid out in the proof of Lemma 2. By Lemma 4, we conclude that 2∆y",
+      "type": "paragraph",
+      "level": 23,
+      "parent_id": 305,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 315,
+      "text": "[i] ⊤ Λ∆y[i] − 2∆y[i] ⊤ Λ(C∆x[i] + D∆u[i])",
+      "type": "equation",
+      "level": 23,
+      "parent_id": 305,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 316,
+      "text": "≤ 0 for all i ∈ N d 0 such that we obtain (15).",
+      "type": "paragraph",
+      "level": 23,
+      "parent_id": 305,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 317,
+      "text": "D. Proof of Lemma 12",
+      "type": "heading",
+      "level": 23,
+      "parent_id": 305,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 318,
+      "text": "For some u 1 , u 2 ∈ R c and the corresponding intermediate outputs v 1 , v 2 ∈ R c , and outputs y 1 , y 2 ∈ R c of the ResNet layer (26), we left/right multiply (27) with ∆u ⊤ ∆v ⊤ , where ∆u = u 1 − u 2 and ∆v = v 1 − v 2 , and its transpose, respectively.We obtain",
+      "type": "paragraph",
+      "level": 24,
+      "parent_id": 317,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 319,
+      "text": "V X− (u 1 , u 2 ) − V X (y 1 , y 2 ) ≥ −2∆v ⊤ Λ∆v + 2∆v ⊤ ΛW 1 ∆u.",
+      "type": "equation",
+      "level": 24,
+      "parent_id": 317,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 320,
+      "text": "Given that the activation functions are slope-restricted on [0, 1], we use Lemma 4 to conclude that −2∆v",
+      "type": "paragraph",
+      "level": 24,
+      "parent_id": 317,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 321,
+      "text": "⊤ Λ∆v + 2∆v ⊤ ΛW 1 ∆u ≥ 0. It follows that V X− (u 1 , u 2 ) − V X (y 1 , y 2 ) ≥ 0.",
+      "type": "equation",
+      "level": 24,
+      "parent_id": 317,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 322,
+      "text": "E. Proof of Theorem 1",
+      "type": "heading",
+      "level": 24,
+      "parent_id": 317,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 323,
+      "text": "We prove Theorem 1 by induction.Induction hypothesis: If for some (Q 1 , . . ., Q l ), (R 1 , . . ., R l ), (S 1 , . . ., S l ), Z l and γ > 0",
+      "type": "paragraph",
+      "level": 25,
+      "parent_id": 322,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 324,
+      "text": "       Q l − Z l S l S ⊤ l R l + Q l−1 S l−1 S ⊤ l−1 R l−1 + Q l−2 . . . . . . . . . S1 S ⊤ 1 R1 + γ 2 I        ⪯ 0 (35)",
+      "type": "equation",
+      "level": 25,
+      "parent_id": 322,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 325,
+      "text": "is satisfied, then there exists a sequence of matrices (X 0 , . . ., X l ) such that X 0 = γ 2 I, X l = Z l and (30) holds.",
+      "type": "paragraph",
+      "level": 25,
+      "parent_id": 322,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 326,
+      "text": "Start of induction",
+      "type": "heading",
+      "level": 25,
+      "parent_id": 322,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 327,
+      "text": ": l = 1. Assume Q 1 − Z 1 S 1 S ⊤ 1 R 1 + γ 2 I ⪯ 0 holds for some Q 1 , R 1 , S 1 , γ > 0, and Z 1 ⪰ 0. Then (30) is satisfied with X 0 = γ 2 I, X 1 = Z 1 : Q 1 S 1 S ⊤ 1 R 1 ⪯ Z 1 0 0 −γ 2 I .",
+      "type": "equation",
+      "level": 26,
+      "parent_id": 326,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 328,
+      "text": "Induction step: l → l + 1. Assume that our induction hypothesis holds for l.Let for some (Q 1 , . . ., Q l+1 ), (R 1 , . . ., R l+1 ), (S 1 , . . ., S l+1 ), Z l+1 , γ > 0 the inequality",
+      "type": "paragraph",
+      "level": 26,
+      "parent_id": 326,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 329,
+      "text": "       Q l+1 − Z l+1 S l+1 S ⊤ l+1 R l+1 + Q l S l S ⊤ l R l + Q l−1 . . . . . . . . . S1 S ⊤ 1 R1 + γ 2 I        ⪯ 0 (36) hold, which implies Q l+1 − Z l+1 ⪯ 0. There exists an orthogonal matrix V of the eigenvectors of Q l+1 − Z l+1 that diagonalizes Q l+1 − Z l+1 by a similarity transforma- tion, i. e., V ⊤ (Q l+1 − Z l+1 )V is a diagonal matrix. We construct V = V 1 V 2 in such a way that V ⊤ (Q l+1 − Z l+1 )V = diag(0, . . . , 0, v 1 , . . . , v n ) = blkdiag(0, D), V ⊤ 1 (Q l+1 − Z l+1 )V 1 = 0, V ⊤ 2 (Q l+1 − Z l+1 )V 2 = D",
+      "type": "equation",
+      "level": 26,
+      "parent_id": 326,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 330,
+      "text": ", where v 1 , . . ., v n < 0 and n is the rank of Q l+1 −Z l+1 .Next, we left and right multiply (36) with the full-rank matrix diag(V ⊤ , I) and its transpose diag(V, I), respectively, which yields",
+      "type": "paragraph",
+      "level": 26,
+      "parent_id": 326,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 331,
+      "text": "       0 0 0 D 0 V ⊤ 2 S l+1 0 S ⊤ l+1 V2 R l+1 + Q l . . . . . . . . . S1 S ⊤ 1 R1 + γ 2 I        ⪯ 0(37)",
+      "type": "equation",
+      "level": 26,
+      "parent_id": 326,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 332,
+      "text": "and further, we drop the c l+1 − n zero rows and columns of (37), resulting in",
+      "type": "paragraph",
+      "level": 26,
+      "parent_id": 326,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 333,
+      "text": "       D V ⊤ 2 S l+1 S ⊤ l+1 V2 R l+1 + Q l S l S ⊤ l R l + Q l−1 . . . . . . . . . S1 S ⊤ 1 R1 + γ 2 I        ⪯ 0.(38)",
+      "type": "equation",
+      "level": 26,
+      "parent_id": 326,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 334,
+      "text": "We now apply the Schur complement to (38) w.r.t.D, which yields that (38) is negative semi-definite if and only if (35) and D ≺ 0 hold, where",
+      "type": "paragraph",
+      "level": 26,
+      "parent_id": 326,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 335,
+      "text": "Z l = S ⊤ l+1 V 2 D −1 V ⊤ 2 S l+1 − R l+1 .",
+      "type": "equation",
+      "level": 26,
+      "parent_id": 326,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 336,
+      "text": "Given that the diagonal matrix D has only entries v 1 , . . ., v n < 0, D ≺ 0 is satisfied and D is invertible.By the induction hypothesis, there exists a sequence of matrices X 0 , . . ., X l such that X 0 = γ 2 I, X l = Z l , (30).The equality X l = Z l implies that there exists at least one X l that satisfies X l ⪯ Z l and",
+      "type": "paragraph",
+      "level": 26,
+      "parent_id": 326,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 337,
+      "text": "Q l S l S ⊤ l R l ⪯ X l 0 0 −X l−1 . Here, X l ⪯ Z l reads X l ⪯ S ⊤ l+1 V 2 D −1 V ⊤ 2 S l+1 − R l+1",
+      "type": "equation",
+      "level": 26,
+      "parent_id": 326,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 338,
+      "text": ". By the Schur complement, we then get",
+      "type": "paragraph",
+      "level": 26,
+      "parent_id": 326,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 339,
+      "text": "D V ⊤ 2 S l+1 S ⊤ l+1 V 2 R l+1 + X l ⪯ 0,",
+      "type": "equation",
+      "level": 26,
+      "parent_id": 326,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 340,
+      "text": "to which we again add the dropped c l+1 − n zero rows and columns, yielding",
+      "type": "paragraph",
+      "level": 26,
+      "parent_id": 326,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 341,
+      "text": "V ⊤ (Q l − Z l )V V ⊤ S l+1 S ⊤ l+1 V R l+1 + X l ⪯ 0.(39)",
+      "type": "equation",
+      "level": 26,
+      "parent_id": 326,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 342,
+      "text": "Subsequently, we left and right multiply (39) with diag(V, I) and its transpose diag(V ⊤ , I), respectively, yielding",
+      "type": "paragraph",
+      "level": 26,
+      "parent_id": 326,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 343,
+      "text": "Q l+1 − Z l+1 S l+1 S ⊤ l+1 R l+1 + X l ⪯ 0,",
+      "type": "equation",
+      "level": 26,
+      "parent_id": 326,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 344,
+      "text": "and we further set X l+1 = Z l+1 , which concludes the induction step.The statement of the theorem is a special case of our induction hypothesis for Z l = I.",
+      "type": "paragraph",
+      "level": 26,
+      "parent_id": 326,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 345,
+      "text": "APPENDIX B STRIDED CONVOLUTIONS",
+      "type": "heading",
+      "level": 26,
+      "parent_id": 326,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 346,
+      "text": "To represent strided convolutions in state space, we require a reshaping operator as a strided convolution is only shift invariant w.r.t. a shift by the stride s along i.The strided convolution then takes the form L = C • R s with a convolutional layer C with stride one and a reshaping operator R s .This reshaping operator R s is given by",
+      "type": "paragraph",
+      "level": 27,
+      "parent_id": 345,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 347,
+      "text": "APPENDIX C LMI CONSTRAINTS FOR SUBNETWORKS",
+      "type": "heading",
+      "level": 27,
+      "parent_id": 345,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 348,
+      "text": "Usually we consider the combination of a linear layer with a nonlinear activation function as shown in Section II-B and formulate LMI constraints for this combination.However, combining multiple layers is also possible.While producing larger LMI constraints, we renounce the use of the decision variables at the transition of layers, i.e., X, which reduces the number of decision variables.The following LMIs state the corresponding constraints.Proofs of Lemmas 14 and 15 follow the same arguments as previous proofs and coincide with the proofs in [13], [21] for the case that the whole NN is considered as a subnetwork.",
+      "type": "paragraph",
+      "level": 28,
+      "parent_id": 347,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 349,
+      "text": "         X − −W ⊤ 1 Λ 1 0 • • • 0 −Λ 1 W 1 2Λ 1 −W ⊤ 2 Λ 2 . . . . . .",
+      "type": "equation",
+      "level": 28,
+      "parent_id": 347,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 350,
+      "text": "APPENDIX D NEURAL NETWORK ARCHITECTURES",
+      "type": "heading",
+      "level": 28,
+      "parent_id": 347,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 351,
+      "text": "We analyze the well-known LeNet-5 [53] and other typical CNN architectures [54] as well as 18-layer residual NNs inspired by [30].To describe the NN architectures, similar to [54], we denote a 2-D convolutional layer by c(C, K, S), where C is the number of output channels, K the symmetric kernel size and S the symmetric stride.A dense fully connected layer is denoted by d(N ), where N is the number of output neurons.In addition, by p(type, K, S) we mean pooling layers of type either average or maximum, with kernel size K and stride S.",
+      "type": "paragraph",
+      "level": 29,
+      "parent_id": 350,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 352,
+      "text": "                            X− − B ⊤ 1 P 1B1 −B ⊤ 1 P 1A1 −D ⊤ 1 Λ1 −A ⊤ 1 P 1B1 P 1 − A ⊤ 1 P 1A1 −C ⊤ 1 Λ1 −Λ1D1 −Λ1C1 2Λ1 − B ⊤ 2 P 2 B2 −B ⊤ 2 P 2A2 −D ⊤ 2 Λ2 −A ⊤ 2 P 2 B2 P 2 − A ⊤ 2 P 2A2 −C ⊤ 2 Λ2 −Λ2D2 −Λ2C2 2Λ2 − B ⊤ 3 P 3B3 . . . . . . . . . −B ⊤ l P l A l −D ⊤ l Λ l −A ⊤ l P l B l P l − A ⊤ l P l A l −C ⊤ l Λ l −Λ l D l −Λ l C l 2Λ l − X                             ⪰ 0(42)",
+      "type": "equation",
+      "level": 29,
+      "parent_id": 350,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 353,
+      "text": "TABLE III SPLITS INTO SUBNETWORKS FOR S-GLIPSDP",
+      "type": "heading",
+      "level": 29,
+      "parent_id": 350,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 354,
+      "text": "j} the interval of all multi-indices between i, j ∈ N d 0 and by |[i, j]| the number of elements in this interval.Finally, we define the interval [i, j[:= [i, j − 1].",
+      "type": "figure",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 355,
+      "text": "j} the interval of all multi-indices between i, j ∈ N d 0 and by |[i, j]| the number of elements in this interval.Finally, we define the interval [i, j[:= [i, j − 1].",
+      "type": "paragraph",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 356,
+      "text": "e., there are only the channel dimensions c k−1 , c k (= number of neurons of the input and output layer) and no signal dimensions d k−1 , d k , i. e., d k−1 = d k = 0. We define a fully connected layer as an affine function",
+      "type": "figure",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 357,
+      "text": "e., there are only the channel dimensions c k−1 , c k (= number of neurons of the input and output layer) and no signal dimensions d k−1 , d k , i. e., d k−1 = d k = 0. We define a fully connected layer as an affine function",
+      "type": "paragraph",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 358,
+      "text": "only some of the signal dimensions and not all at once.For example, we can flatten 2-D signals into 1-D signals (d k = 1) or into vectors with d k = 0.",
+      "type": "figure",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 359,
+      "text": "only some of the signal dimensions and not all at once.For example, we can flatten 2-D signals into 1-D signals (d k = 1) or into vectors with d k = 0.",
+      "type": "paragraph",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 360,
+      "text": "Consider a convolutional layer L = C.For some operators X ∈ H y C and X − ∈ H u C , the convolutional layer (3) represented by a Roesser model (8) satisfies (15) if there exist(a) (b) (c)",
+      "type": "figure",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 361,
+      "text": "Consider a convolutional layer L = C.For some operators X ∈ H y C and X − ∈ H u C , the convolutional layer (3) represented by a Roesser model (8) satisfies (15) if there exist(a) (b) (c)",
+      "type": "paragraph",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 362,
+      "text": "Fig. 1.(a) No padding, (b) same padding, (c) full padding for a 3 × 3 kernel [40].",
+      "type": "figure",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 363,
+      "text": "Fig. 1.(a) No padding, (b) same padding, (c) full padding for a 3 × 3 kernel [40].",
+      "type": "paragraph",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 364,
+      "text": "Fig. 2. Lipschitz bounds γ using LipSDP, GLipSDP, LipLT and the matrix product bound (MP) on fully connected NNs with depths d = {2, 4, 8} and hidden layer size c = 32 (LipSDP/GLipSDP bounds are close to zero for deeper NNs) (left).Computation times for fully connected NNs with depths d = {2, 4, 8, 16, 32, 64} and channel sizes c = {16, 32, 64} for GLipSDP ( ) and LipSDP ( ) (right).",
+      "type": "figure",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 365,
+      "text": "Fig. 2. Lipschitz bounds γ using LipSDP, GLipSDP, LipLT and the matrix product bound (MP) on fully connected NNs with depths d = {2, 4, 8} and hidden layer size c = 32 (LipSDP/GLipSDP bounds are close to zero for deeper NNs) (left).Computation times for fully connected NNs with depths d = {2, 4, 8, 16, 32, 64} and channel sizes c = {16, 32, 64} for GLipSDP ( ) and LipSDP ( ) (right).",
+      "type": "paragraph",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 366,
+      "text": "Fig. 3. Lipschitz bounds γ using CLipSDP, GLipSDP, LipLT and the matrix product bound (MP) on fully convolutional NNs with depths d = {2, 4, 8, 16} and channel sizes c = 16 (left).Computation times for fully convolutional networks with depths d = {2, 4, 8, 16} and channel sizes c = {8, 16, 32} for GLipSDP ( ) and CLipSDP ( ) (right).",
+      "type": "figure",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 367,
+      "text": "Fig. 3. Lipschitz bounds γ using CLipSDP, GLipSDP, LipLT and the matrix product bound (MP) on fully convolutional NNs with depths d = {2, 4, 8, 16} and channel sizes c = 16 (left).Computation times for fully convolutional networks with depths d = {2, 4, 8, 16} and channel sizes c = {8, 16, 32} for GLipSDP ( ) and CLipSDP ( ) (right).",
+      "type": "paragraph",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 368,
+      "text": "Fig.4.Computation times for GLipSDP using 32, 16, 8, 4, 2, 1 subnetworks for a 32-layer fully connected network with 32 and 64 neurons (left).Computation times for GLipSDP using 16, 8, 4, 2, 1 subnetworks for a 16layer fully convolutional network with 8 and 16 channels (right).The resulting Lipschitz bound is the same for all computations.",
+      "type": "figure",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 369,
+      "text": "Fig.4.Computation times for GLipSDP using 32, 16, 8, 4, 2, 1 subnetworks for a 32-layer fully connected network with 32 and 64 neurons (left).Computation times for GLipSDP using 16, 8, 4, 2, 1 subnetworks for a 16layer fully convolutional network with 8 and 16 channels (right).The resulting Lipschitz bound is the same for all computations.",
+      "type": "paragraph",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 370,
+      "text": "i]) → (vec(u[si + t] | t ∈ [0, s[)),where vec(u[si + t] | t ∈ [0, s[) denotes the stacked vector of the signal entries u[si + t], t ∈ [0, s[.The resulting state space representation for a strided convolution takes this stacked vector vec(u[si + t] | t ∈ [0, s[) as its input.We can view this as the flattening of a batch of pixels into a vectorized input which in turn serves as the input to the state space representation of the strided convolution.Details on the construction of the Roesser model for strided convolutions and multiple examples can be found in[28].To use Lemma 2 on strided convolutions we recall that strided convolutions take the form L = C • R s .Hence, for the layer L and the value function V X , (15) takes the form⟨u, X − u⟩ ≥ ⟨(C • R s )u, X(C • R s )u⟩ for all u ∈ ℓ c− 2e (N d− 0 ) or, equivalently, ⟨u ′ , R − † s X − R −1 s u ′ ⟩ ≥ ⟨Cu ′ , XCu ′ ⟩ for all u ′ ∈ ℓ where R −1 s is the inverse and R − † s the inverse adjoint of R s .The last inequality is of the same form as (15) with R − † s X − R −1 s replacing X − .Consequently, we need to enforce R − † s X − R −[si, sj + s − 1] • • • X ′ − [si + s − 1, sj + s − 1] equal to some symmetric matrix Y ∈ R c−|[0,s[|×c−|[0,s[| for i = j or zero for i ̸ = j.For matrices X − ∈ H y C , we have X ′− [i, j] = X − for i = j and X ′ − [i, j] = 0 for i ̸ = j.This implies that (40) is satisfied with Y = diag( X − , . . ., X − ).",
+      "type": "figure",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 371,
+      "text": "i]) → (vec(u[si + t] | t ∈ [0, s[)),where vec(u[si + t] | t ∈ [0, s[) denotes the stacked vector of the signal entries u[si + t], t ∈ [0, s[.The resulting state space representation for a strided convolution takes this stacked vector vec(u[si + t] | t ∈ [0, s[) as its input.We can view this as the flattening of a batch of pixels into a vectorized input which in turn serves as the input to the state space representation of the strided convolution.Details on the construction of the Roesser model for strided convolutions and multiple examples can be found in[28].To use Lemma 2 on strided convolutions we recall that strided convolutions take the form L = C • R s .Hence, for the layer L and the value function V X , (15) takes the form⟨u, X − u⟩ ≥ ⟨(C • R s )u, X(C • R s )u⟩ for all u ∈ ℓ c− 2e (N d− 0 ) or, equivalently, ⟨u ′ , R − † s X − R −1 s u ′ ⟩ ≥ ⟨Cu ′ , XCu ′ ⟩ for all u ′ ∈ ℓ where R −1 s is the inverse and R − † s the inverse adjoint of R s .The last inequality is of the same form as (15) with R − † s X − R −1 s replacing X − .Consequently, we need to enforce R − † s X − R −[si, sj + s − 1] • • • X ′ − [si + s − 1, sj + s − 1] equal to some symmetric matrix Y ∈ R c−|[0,s[|×c−|[0,s[| for i = j or zero for i ̸ = j.For matrices X − ∈ H y C , we have X ′− [i, j] = X − for i = j and X ′ − [i, j] = 0 for i ̸ = j.This implies that (40) is satisfied with Y = diag( X − , . . ., X − ).",
+      "type": "paragraph",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 372,
+      "text": "Consider a fully connected subnetwork σ • F l • • • • • σ • F 1 with activation functions that are slope-restricted on [0, 1].For some X ∈ H y F and X − ∈ H u F , this subnetwork satisfies (15) if there exist Λ j ∈ D ny j++ , j = 1, . . ., l, such that ",
+      "type": "figure",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 373,
+      "text": "Consider a fully connected subnetwork σ • F l • • • • • σ • F 1 with activation functions that are slope-restricted on [0, 1].For some X ∈ H y F and X − ∈ H u F , this subnetwork satisfies (15) if there exist Λ j ∈ D ny j++ , j = 1, . . ., l, such that ",
+      "type": "paragraph",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 374,
+      "text": "Consider a fully convolutional subnetwork σ l • C l−1",
+      "type": "figure",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 375,
+      "text": "Consider a fully convolutional subnetwork σ l • C l−1",
+      "type": "paragraph",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 376,
+      "text": "BOUNDS (COMPUTATION TIMES IN SECONDS) FOR DIFFERENT MODELS WITH STATED ACCURACIES.",
+      "type": "figure",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 377,
+      "text": "BOUNDS (COMPUTATION TIMES IN SECONDS) FOR DIFFERENT MODELS WITH STATED ACCURACIES.",
+      "type": "paragraph",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 378,
+      "text": "(16,5,1)ARCHITECTURES.LeNet-5: c(6, 5, 1).p(av, 2, 2).c(16,5,1).p(av, 2, 2).d(120).d(84).d(10)2C2F: c(16, 4, 2).c(32, 4, 2).d(100).d(10)4C3F: c(32, 3, 1).c(32, 4, 2).c(64, 3, 1).c(64, 4, 2).d(512) 2 .d(10)FC-R18: d(64).res(64,2) 8 .d(10)C-R18: c(16, 7, 2).p(max, 2, 2).res(16, 3, 1, 2) 8 .p(av,2, 2).d(10)LeNet-5: c(6, 5, 1).p(max, 2, 2).c(16, 5, 1).p(max, 2, 2).d(120).d(84).d(10)6C2F: c(32, 3, 1) 2 .c(32,4, 2).c(64, 3, 1) 2 .c(64,4, 2).d(512).d(10)",
+      "type": "figure",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 379,
+      "text": "(16,5,1)ARCHITECTURES.LeNet-5: c(6, 5, 1).p(av, 2, 2).c(16,5,1).p(av, 2, 2).d(120).d(84).d(10)2C2F: c(16, 4, 2).c(32, 4, 2).d(100).d(10)4C3F: c(32, 3, 1).c(32, 4, 2).c(64, 3, 1).c(64, 4, 2).d(512) 2 .d(10)FC-R18: d(64).res(64,2) 8 .d(10)C-R18: c(16, 7, 2).p(max, 2, 2).res(16, 3, 1, 2) 8 .p(av,2, 2).d(10)LeNet-5: c(6, 5, 1).p(max, 2, 2).c(16, 5, 1).p(max, 2, 2).d(120).d(84).d(10)6C2F: c(32, 3, 1) 2 .c(32,4, 2).c(64, 3, 1) 2 .c(64,4, 2).d(512).d(10)",
+      "type": "paragraph",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 380,
+      "text": "• • • • • σ 2 • C 1 with activation functions that are sloperestricted on [0, 1].For some X ∈ H y C and X − ∈ H u C , this subnetwork satisfies (15) if there exist Λ j ∈ D cj ++ , P j = blkdiag(P j 1 , . . ., P j d ), P j i ∈ S ni ++ , i = 1, . . ., d, j = 1, . . ., l such that (42).",
+      "type": "figure",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 381,
+      "text": "• • • • • σ 2 • C 1 with activation functions that are sloperestricted on [0, 1].For some X ∈ H y C and X − ∈ H u C , this subnetwork satisfies (15) if there exist Λ j ∈ D cj ++ , P j = blkdiag(P j 1 , . . ., P j d ), P j i ∈ S ni ++ , i = 1, . . ., d, j = 1, . . ., l such that (42).",
+      "type": "paragraph",
+      "level": 30,
+      "parent_id": 353,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 382,
+      "text": "References",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "references"
+    },
+    {
+      "unit_id": 383,
+      "text": "p(av, 2, 2).c(16, 5, 1).p(av, 2, 2) | d(120). LeNet-5: c(6, 5, 1). d(84).d(10) 2C2F: c(16, 4, 2).c(32, 4, 2) | d(100).d(10",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 384,
+      "text": "3, 1).c(32, 4, 2).c(64, 3, 1).c(64, 4, 2) | d(512). 4C3F: c(32d(512).d(10",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 385,
+      "text": "FC-R18: d(64) | res. 64) | • • • | res",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 386,
+      "text": "6C2F: c(32, 3, 1) 2 .c(32, 4, 2) | c(64, 3, 1) 2 | c(64, 4, 2) | d(512).d(10) TABLE IV SPLITS INTO SUBNETWORKS FOR S-LIPSDP Model Specification LeNet-5: c(6, 5, 1). LeNet-5: c(6, 5, 1).p(max, 2, 2).c(16, 5, 1).p(max, 2, 2) | d(120).d(84. p(av, 2, 2) | c(16, 5, 1).p(av, 2, 2) | d(120).d(84).d(10) 2C2F: c(16, 4, 2).c(32, 4, 2) | d(100).d(10",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 387,
+      "text": "1) | c(32, 4, 2) | c(64, 3, 1) | c(64, 4, 2) | d(512) | d(512). 4C3F: c(323d",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 388,
+      "text": "FC-R18: d(64) | 1 + d(64).d(64) | • • • | 1 + d(64). d(64) | d",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 389,
+      "text": "p(max, 2, 2) | c(16, 5, 1). C-R18 , REFERENCES REFERENCES. 6LeNet-5: c(6, 5, 1)",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 390,
+      "text": "Neural networks and their applications. C M Bishop, Review of scientific instruments. 6561994",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 391,
+      "text": "A survey of convolutional neural networks: analysis, applications, and prospects. Z Li, F Liu, W Yang, S Peng, J Zhou, IEEE Transactions on Neural Networks and Learning Systems. 33122021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 392,
+      "text": "Deep learning for safe autonomous driving: Current challenges and future directions. K Muhammad, A Ullah, J Lloret, J Del, V H C Ser, De Albuquerque, IEEE Transactions on Intelligent Transportation Systems. 2272020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 393,
+      "text": "Intriguing properties of neural networks. C Szegedy, W Zaremba, I Sutskever, J Bruna, D Erhan, I Goodfellow, R Fergus, arXiv:1312.61992013arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 394,
+      "text": "Efficient neural network robustness certification with general activation functions. H Zhang, T.-W Weng, P.-Y Chen, C.-J Hsieh, L Daniel, Advances in neural information processing systems. 201831",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 395,
+      "text": "Automatic perturbation analysis for scalable certified robustness and beyond. K Xu, Z Shi, H Zhang, Y Wang, K.-W Chang, M Huang, B Kailkhura, X Lin, C.-J Hsieh, Advances in Neural Information Processing Systems. 332020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 396,
+      "text": "Efficiently computing local lipschitz constants of neural networks via bound propagation. Z Shi, Y Wang, H Zhang, J Z Kolter, C.-J Hsieh, Advances in Neural Information Processing Systems. 202235",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 397,
+      "text": "Formal guarantees on the robustness of a classifier against adversarial manipulation. M Hein, M Andriushchenko, Advances in Neural Information Processing Systems. 201730",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 398,
+      "text": "Lipschitz-margin training: Scalable certification of perturbation invariance for deep neural networks. Y Tsuzuku, I Sato, M Sugiyama, Advances in neural information processing systems. 201831",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 399,
+      "text": "On the effectiveness of interval bound propagation for training verifiably robust models. S Gowal, K Dvijotham, R Stanforth, R Bunel, C Qin, J Uesato, R Arandjelovic, T Mann, P Kohli, arXiv:1810.127152018arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 400,
+      "text": "Lipschitz regularity of deep neural networks: analysis and efficient estimation. A Virmaux, K Scaman, Advances in Neural Information Processing Systems. 2018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 401,
+      "text": "Lipschitz certificates for layered network structures driven by averaged activation operators. P L Combettes, J.-C Pesquet, SIAM Journal on Mathematics of Data Science. 222020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 402,
+      "text": "Efficient and accurate estimation of lipschitz constants for deep neural networks. M Fazlyab, A Robey, H Hassani, M Morari, G Pappas, Advances in neural information processing systems. 201932",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 403,
+      "text": "Lipschitz constant estimation of neural networks via sparse polynomial optimization. F Latorre, P Rolland, V Cevher, International Conference on Learning Representations. 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 404,
+      "text": "Semialgebraic optimization for Lipschitz constants of relu networks. T Chen, J B Lasserre, V Magron, E Pauwels, Advances in Neural Information Processing Systems. 200. 202033",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 405,
+      "text": "Lipschitz constant estimation for 1d convolutional neural networks. P Pauli, D Gramlich, F Allgöwer, Learning for Dynamics and Control Conference. PMLR2023",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 406,
+      "text": "Lipschitz regularity of deep neural networks: analysis and efficient estimation. A Virmaux, K Scaman, Advances in Neural Information Processing Systems. 201831",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 407,
+      "text": "Exactly computing the local Lipschitz constant of ReLU networks. M Jordan, A G Dimakis, Advances in Neural Information Processing Systems. 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 408,
+      "text": "Certified robustness via dynamic margin maximization and improved lipschitz regularization. M Fazlyab, T Entesari, A Roy, R Chellappa, Advances in Neural Information Processing Systems. 202436",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 409,
+      "text": "Safety verification and robustness analysis of neural networks via quadratic constraints and semidefinite programming. M Fazlyab, M Morari, G J Pappas, IEEE Transactions on Automatic Control. 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 410,
+      "text": "D Gramlich, P Pauli, C W Scherer, F Allgöwer, C Ebenbauer, arXiv:2303.03042Convolutional neural networks as 2-d systems. 2023arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 411,
+      "text": "Enabling certification of verification-agnostic networks via memoryefficient semidefinite programming. S Dathathri, K Dvijotham, A Kurakin, A Raghunathan, J Uesato, R R Bunel, S Shankar, J Steinhardt, I Goodfellow, P S Liang, Advances in Neural Information Processing Systems. 202033",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 412,
+      "text": "A globally convergent lp and socp-based algorithm for semidefinite programming. B Roig-Solvas, M Sznaier, arXiv:2202.123742022arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 413,
+      "text": "On the scalability and memory efficiency of semidefinite programs for lipschitz constant estimation of neural networks. Z Wang, A J Havens, A Araujo, Y Zheng, B Hu, Y Chen, S Jha, International Conference on Learning Representations. 2024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 414,
+      "text": "Chordal sparsity for Lipschitz constant estimation of deep neural networks. A Xue, L Lindemann, A Robey, H Hassani, G J Pappas, R Alur, 2022 IEEE 61st Conference on Decision and Control (CDC). IEEE2022",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 415,
+      "text": "Deep learning theory review: An optimal control and dynamical systems perspective. G.-H Liu, E A Theodorou, arXiv:1908.109202019arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 416,
+      "text": "A discrete state-space model for linear image processing. R Roesser, IEEE Transactions on Automatic Control. 2011975",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 417,
+      "text": "State space representations of the roesser type for convolutional layers. P Pauli, D Gramlich, F Allgöwer, IFAC-PapersOnLine. 58172024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 418,
+      "text": "Efficiently modeling long sequences with structured state spaces. A Gu, K Goel, C Ré, arXiv:2111.003962021arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 419,
+      "text": "Deep residual learning for image recognition. K He, X Zhang, S Ren, J Sun, Proceedings of the IEEE conference on computer vision and pattern recognition. the IEEE conference on computer vision and pattern recognition2016",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 420,
+      "text": "Sorting out Lipschitz function approximation. C Anil, J Lucas, R Grosse, International Conference on Machine Learning. PMLR2019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 421,
+      "text": "Scaling in depth: Unlocking robustness certification on imagenet. K Hu, A Zou, Z Wang, K Leino, M Fredrikson, arXiv:2301.125492023arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 422,
+      "text": "Imagenet classification with deep convolutional neural networks. A Krizhevsky, I Sutskever, G E Hinton, Advances in neural information processing systems. 2012",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 423,
+      "text": "Deep Learning. I Goodfellow, Y Bengio, A Courville, 2016MIT Press",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 424,
+      "text": "On linear fractional representations of multidimensional rational matrix functions. C J Bett, M Lemmon, ISIS. 9781997",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 425,
+      "text": "Theory of linear operators in Hilbert space. N I Akhiezer, I M Glazman, Courier Corporation. 2013",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 426,
+      "text": "Stability and the lyapunov equation for n-dimensional digital systems. C Xiao, D J Hill, P Agathoklis, IEEE Transactions on Circuits and Systems I: Fundamental Theory and Applications. 199744",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 427,
+      "text": "Dynamic Programming and Optimal Control. D P Bertsekas, 20051Athena Scientific Belmont, MA",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 428,
+      "text": "Linear matrix inequalities in control. C Scherer, S Weiland, Lecture Notes. 322000Dutch Institute for Systems and Control",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 429,
+      "text": "A guide to convolution arithmetic for deep learning. V Dumoulin, F Visin, arXiv:1603.072852016arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 430,
+      "text": "Efficient and accurate estimation of lipschitz constants for deep neural networks. M Fazlyab, A Robey, H Hassani, M Morari, G J Pappas, arXiv:1906.048932023arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 431,
+      "text": "Training robust neural networks using Lipschitz bounds. P Pauli, A Koch, J Berberich, P Kohler, F Allgöwer, IEEE Control Systems Letters. 62021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 432,
+      "text": "Novel quadratic constraints for extending lipsdp beyond slope-restricted activations. P Pauli, A Havens, A Araujo, S Garg, F Khorrami, F Allgöwer, B Hu, International Conference on Learning Representations. 2024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 433,
+      "text": "Lipschitz bounded equilibrium networks. M Revay, R Wang, I R Manchester, arXiv:2010.017322020arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 434,
+      "text": "Recurrent equilibrium networks: Unconstrained learning of stable and robust dynamical models. 2021 60th IEEE Conference on Decision and Control (CDC). IEEE2021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 435,
+      "text": "Direct parameterization of lipschitzbounded deep networks. R Wang, I Manchester, International Conference on Machine Learning. PMLR202336110",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 436,
+      "text": "Lipschitzbounded 1d convolutional neural networks using the cayley transform and the controllability gramian. P Pauli, R Wang, I R Manchester, F Allgöwer, arXiv:2303.118352023arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 437,
+      "text": "Lipkernel: Lipschitzbounded convolutional neural networks via dissipative layers. P Pauli, R Wang, I Manchester, F Allgöwer, 2024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 438,
+      "text": "A unified algebraic perspective on lipschitz neural networks. A Araujo, A J Havens, B Delattre, A Allauzen, B Hu, International Conference on Learning Representations. 2023",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 439,
+      "text": "Yalmip: A toolbox for modeling and optimization in MATLAB. J Lofberg, Proc. of the CACSD Conference. of the CACSD ConferenceTaipei, Taiwan2004",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 440,
+      "text": "The MOSEK optimization toolbox for MATLAB manual. Mosek Aps, 2020Version 9.2.5",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 441,
+      "text": "MNIST handwritten digit database. Y Lecun, C Cortes, 2010",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 442,
+      "text": "Gradient-based learning applied to document recognition. Y Lecun, L Bottou, Y Bengio, P Haffner, Proceedings of the IEEE. the IEEE199886",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 443,
+      "text": "and is now a Ph.D. student with the Institute for Intelligent Control at RWTH Aachen University under the supervision of Prof. Christian Ebenbauer. His research interests are Robust Control and Robust Trajectory Optimization. Frank Allgöwer studied Engineering Cybernetics and Applied Mathematics in Stuttgart and at the University of California, Los Angeles (UCLA), respectively, and received his Ph.D. degree from the University of Stuttgart in Germany. Since 1999 he is the Director of the Institute for Systems Theory and Automatic Control and professor at the University of Stuttgart. His research interests include networked control, cooperative control, predictive control, and nonlinear control with application to a wide range of fields including systems biology. K Leino, Z Wang, M Fredrikson, International Conference on Machine Learning. Stuttgart, Germany2021. 2019. 2020. May 2020 to October 2021Cybernatics and Mathematics from the University ofShe has since been a Ph.D. student with the Institute for Systems Theory and Automatic Control under supervision of Prof. Frank Allgöwer and a member of the International Max-Planck Research School for Intelligent Systems (IMPRS-IS). For the years 2017-2020 Frank served as President of the International Federation of Automatic Control (IFAC) and for the years 2012-2020 as Vice President of the German Research Foundation DFG",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 382,
+      "subtype": "bibentry"
+    }
+  ]
+}

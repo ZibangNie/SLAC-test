@@ -1,0 +1,649 @@
+AMAZON SAGEMAKER MODEL PARALLELISM: A GENERAL AND FLEXIBLE FRAMEWORK FOR LARGE MODEL TRAINING
+
+
+Can Karakus 
+Rahul Huilgol 
+Fei Wu 
+Anirudh Subramanian 
+Cade Daniel 
+Derya Cavdar 
+Teng Xu 
+Haohan Chen 
+Arash Rahnama 
+Luis Quintela 
+AMAZON SAGEMAKER MODEL PARALLELISM: A GENERAL AND FLEXIBLE FRAMEWORK FOR LARGE MODEL TRAINING
+
+With deep learning models rapidly growing in size, systems-level solutions for large-model training are required. We present Amazon SageMaker model parallelism, a software library that integrates with PyTorch, and enables easy training of large models using model parallelism and other memory-saving features. In contrast to existing solutions, the implementation of the SageMaker library is much more generic and flexible, in that it can automatically partition and run pipeline parallelism over arbitrary model architectures with minimal code change, and also offers a general and extensible framework for tensor parallelism, which supports a wider range of use cases, and is modular enough to be easily applied to new training scripts. The library also preserves the native PyTorch user experience to a much larger degree, supporting module re-use and dynamic graphs, while giving the user full control over the details of the training step. We evaluate performance over GPT-3, RoBERTa, BERT, and neural collaborative filtering, and demonstrate competitive performance over existing solutions.
+
+INTRODUCTION
+
+Recent years have seen an exponential increase in the size of the state-of-the-art deep learning models, measured in the number of trainable parameters, driven by the observation that larger models achieve better generalization performance, as well as demonstrating examples of zero-shot and few-shot generalization behaviors (Brown et al., 2020). This trend has spurred interest in systems-level solutions for large model training, since the model sizes far outgrew the available memory capacity in state-of-the-art hardware accelerators. Such solutions consist of partitioning the model parameters and other memory-consuming training state (gradients, optimizer states, activations) across devices (model parallelism), as well as other memory-saving techniques.
+
+Although the existing model parallelism solutions have been successful in some applications, there remains a need for a generic framework that can flexibly handle the full diversity of possible use cases. This is because the existing solutions for the two types of model parallelism, namely pipeline parallelism and tensor parallelism, are typically limited either in the supported use cases, model architectures, or framework APIs/features; or require a prohibitively large effort to integrate with a new training script. Some unsupported use cases might include, but are not limited to, (1) architectures that do not consist of a single transformer encoder (multiple transformer blocks such as T5 (Raffel et al., 2019), RAG (Lewis et al., 2020), REALM (Guu et al., 2020), etc. or large non-transformer architectures (Real et al., 2019)), (2) architectures that do not consist of a consecutive sequence of identical layers, (3) a single large component in an otherwise small model (a huge output layer due to too many classes, or a huge embedding layer, especially in recommendation models with billions of items), (4) architectures that make extensive use of module/parameter re-use, (5) scripts with conditional execution flows, (6) non-conventional execution patterns such as mixture-of-experts layers.
+
+In this paper, we present a general, flexible, and extensible framework for large model training, which includes both pipeline and tensor parallelism, as well as other popular memory-saving features, and covers all of the abovementioned use cases in addition to the commonly-studied single-transformer architectures. The library is designed to take minimal effort to integrate with a brand new script, regardless of model architecture and the API used. The library automatically partitions and distributes arbitrary model architectures across multiple devices (possibly across nodes) without explicit user input on how to partition (see §3.2.3 for on overview of the API), and internally manages training runtime, including pipelining and cross-device communication through its dedicated communication backend. In addition to being generic, our experiments also show that the library has competitive performance with respect to DeepSpeed.
+
+Our main contributions are as follows: arXiv:2111.05972v1 [cs.LG] 10 Nov 2021
+
+• Design and implementation of a pipeline parallelism engine, including a load-balancing auto-partitioning algorithm and pipelining runtime for arbitrary model architectures based on module-server design, • A general and extensible tensor parallelism framework that is applicable to wider range of scenarios than existing solutions, including uniformly large models, models with a limited number of large components, and mixture-of-experts models (Shazeer et al., 2017), along with built-in distributed module implementations for commonly-used building blocks in deep learning, • A dedicated device-to-device (D2D) communication backend design that can handle dynamically-generated communication requests, • A flexible user API design that does not abstract away the details of training step, and maintains most of the underlying framework features and characteristics such as module re-use and dynamic graphs, • A set of experiments on AWS infrastructure to train GPT-3 (Brown et al., 2020), BERT (Devlin et al., 2018), RoBERTa (Liu et al., 2019), and Neural Collaborative Filtering (NCF) (He et al., 2017) models, which demonstrates the performance of the library.
+
+The rest of the paper is organized as follows. We review relevant literature in §2, present the design, overview, and the API of the library in §3, describe pipeline parallelism architecture in §4 and tensor parallelism architecture in §5, explain the design of the communication backend in §6, and present the empirical results in §7.
+
+The paper assumes a certain familiarity with model parallelism concepts such as pipeline parallelism, tensor parallelism, and microbatching. For a primer on such topics, refer to Appendix A.
+
+
+RELATED WORK
+
+In recent years, there has been increasing interest in model parallelism and other large model training solutions. Among the first was GPipe (Huang et al., 2019) and PipeDream (Narayanan et al., 2019), the latter of which improves pipeline efficiency at the expense of increased memory use due to storing multiple weight copies. The works in (Chen et al., 2018) and (Narayanan et al., 2021a) aimed to address this issue through weight prediction, and a novel weight update scheme, respectively. TeraPipe (Li et al., 2021b) introduced another type of pipelining specific to single-transformer architectures, where pipelining occurs across tokens instead of microbatches.
+
+Another type of model parallelism is tensor parallelism, where individual operators or layers are partitioned. Mesh-TensorFlow (MTF) (Shazeer et al., 2018) created a tensor parallelism framework on top of TensorFlow. Megatron-LM (Shoeybi et al., 2019) created a tensor-parallel implementation of GPT-2 and T5 based on PyTorch, and added pipeline parallelism in later work (Narayanan et al., 2021b). More recently, GSPMD (Xu et al., 2021) implemented tensor parallelism as part of XLA compiler. Partitioning over sequence dimension for transformers was proposed in (Li et al., 2021a).
+
+A separate line of work in scaling up deep learning models has been based on the mixture-of-experts (MoE) layer (Shazeer et al., 2017), which scaled models by having extremely wide layers consisting of parallel "experts", and forwarding incoming activations to only k experts using a differentiable gating mechanism. GShard (Lepikhin et al., 2020) implemented this idea in XLA compiler to train a 600 billion parameter model. Switch Transformers (Fedus et al., 2021) built upon this idea, forward each input to only one expert, and further scaling the achievable model scale.
+
+The DeepSpeed project produced a line of work that combined a number of large-model training techniques (Rasley et al., 2020;Rajbhandari et al., 2020;Ren et al., 2021;Rajbhandari et al., 2021). This was centered around the ZeRO optimizer, which shards the optimizer states, gradients, and parameters across data-parallel devices. Later, CPU offloading techniques were also added to enable multi-trillionparameter model training (Ren et al., 2021).
+
+In contrast to these works, this paper presents a large-model training solution that is more generic, architecture-agnostic, flexible, and easy-to-use. For instance, the pipeline and tensor parallelism implementations of Megatron-LM are deeply integrated with GPT-3 model definition code, and not readily applicable to a new training script, a novel architecture, or a new training technique that requires direct access to loss or gradient tensors. Similarly, the popular DeepSpeed library requires significant changes to the training script to implement pipeline parallelism, requires nn.Sequential API to be used, and hides the details of the training step under a high-level API, taking control away from user. Further, although the sharding techniques of ZeRO optimizer are often very effective in achieving large scale training (and are partially also implemented in SageMaker model parallelism), under some scenarios, such as the use of novel unsupported optimizers, or very large embeddings in recommendation models, sharding techniques might become infeasible or less performant than model parallelism. Our library addresses all such limitations, as will be explained in next section.
+
+
+DESIGN PRINCIPLES AND OVERVIEW
+
+
+Design principles
+
+Amazon SageMaker model parallelism library is designed to be generic, flexible, and easy-to-use, which means that the library can be integrated into an existing training script with a small number of additional lines of code, under a wide range of scenarios. Some specific ways in which the library provides this flexibility are as follows:
+
+1. Do not abstract away the training step: Deep learning literature contains a wide array of useful training techniques, and the training of state-of-the-art models often benefits from such techniques in terms of accuracy and convergence. These techniques may include gradient clipping, mixed-precision training with loss scaling, or use of various novel optimizers that postprocess gradients in differing ways. A critical feature of a generic model parallelism framework must be to allow the user the flexibility to use such techniques as desired, by not abstracting away the details of a training step under a high-level API, and giving explicit access to loss and gradient tensors. This is in general non-trivial to achieve, since pipeline parallelism alters the forward and backward pass in a fundamental manner that does not immediately align with the execution paradigm of the ML framework (currently no existing pipeline parallelism implementation satisfies this to our knowledge). SageMaker model parallelism achieves this by encapsulating the existing training step with a decorator @smp.step. The implementation of the training step is still fully exposed (and editable) by the user, while the decorator uses the wrapped function as a building block in the pipelined execution (See §3.2.3 and 4 for more details).
+
+
+Preserve framework features and characteristics:
+
+Modern machine learning frameworks offer a wide range of features that give the user tremendous flexibility in defining models. In contrast, model parallelism solutions built on top of these frameworks are often highly restrictive in terms of which features or APIs are supported. This is because such solutions necessarily have a very large surface area that interacts with the framework, hence supporting the entire set of underlying framework features is a challenge. Despite this, SageMaker model parallelism is designed to maintain most of the core framework features and APIs, so that most existing training scripts can be supported without significant refactors. Some examples of this are as follows:
+
+• Pipeline parallelism on SageMaker is not limited to particular model definition APIs such as nn.Sequential, unlike the existing pipeline parallelism implementations. This allows flexibility to support diverse model architectures that is not limited to a single contiguous block of isomorphic layers, as will be explained in the third point. • Module/parameter re-use is automatically han-dled, without requiring specific input or code change from the user. This is typically a challenge since different versions of a parameter residing on different devices need to be kept synchronized. The library achieves this by placing the modules that share a parameter at the same device automatically, removing the need for synchronization. • Conditional execution (if/else blocks) is supported, thanks to the module-server architecture, which does not have a priori assumptions about the architecture or control flow. • Training steps with the library are semantically and mathematically equivalent to the original training step, hence it does not introduce model accuracy penalties.
+
+3. Do not limit to specific architectures: Existing model parallelism solutions typically (almost) exclusively focus on a single model architecture, such as GPT-3. For instance, as of today, Megatron-LM repository is tightly integrated with the GPT-3 model definition and training code, and is not immediately applicable to a generic model architecture. In contrast, pipeline parallelism feature of SageMaker has a generic API that can be readily applied to any model architecture in addition to popular transformer architectures. Although tensor parallelism intrinsically requires some degree of architecture specialization, SageMaker tensor parallelism also has a more generic API that is easily applicable to new scripts. It is also applicable under a wider range of scenarios than existing implementations, including large transformers (GPT-3), large embedding tables, or classification models with very large number of classes, owing to the fact that tensor parallelism is applied over data-parallel groups. In addition, the API is readily extensible to custom distributed module implementations for modules without built-in support.
+
+
+Framework overview
+
+
+High-level workflow
+
+The library can be used by making a few lines of code change to an existing training script in PyTorch, and launching a new training job through SageMaker Python SDK. The specific code changes will be discussed in more detail in Section 3.2.3. Various configurations for model parallelism, as well as other memory-saving features (which include activation checkpointing, activation offloading, and optimizer state sharding, see Appendix H for details), can be defined through a Python dict fed through the Estimator API of the SageMaker Python SDK, while launching the job.
+
+Once training is launched, the library automatically traces and partitions the model, and manages the training runtime, including the device placement, pipelined execution, and cross-device communication, both within and across instances. The library also manages data parallelism internally, so the use of a separate data parallelism API is not required.
+
+Detailed user guide for the library is available in (Amazon, 2020b), and the detailed API documentation is available in (Amazon, 2020a), with supplemental documentation in Appendix I.
+
+
+Process and ranking basics
+
+The library relies on MPI for process management, and maintains a one-to-one mapping between CPU processes and GPU devices, i.e., each process manages exactly one GPU. For instance, if training is launched over 4 p4d.24xlarge instances (with 8 GPUs per instance), an MPI job with 32 processes is launched. We follow the MPI terminology and use rank to indicate the global index of the process across the cluster.
+
+The library features three different parallelization strategies; namely, pipeline, tensor, and data parallelism. The entire set of devices in a cluster can be allocated in a variety of ways across these three strategies, which can be controlled through the placement strategy option of the library (see (Amazon, 2020a)). Regardless of the specific placement, one can define data-parallel group (DP GROUP), pipeline-parallel group (PP GROUP), and tensor-parallel group (TP GROUP) as the sets of processes that collectively perform data parallelism, pipeline parallelism, and tensor parallelism among each other, respectively. In addition, a reduced-data-parallel group (RDP GROUP) is the set of processes that hold the exact same model replica (see Figure 1). Unlike existing implementations, the library treats TP GROUP as a subset of DP GROUP, instead of an independent dimension, which will be explained in more detail in §5. We will use tp rank, pp rank, and dp rank to refer to the index of a process within its TP GROUP, PP GROUP, and DP GROUP, respectively. See Figure 1 for an illustration of these concepts.
+
+
+User interface
+
+The core API consists of three main changes to the user script (specific features might require additional APIs, which will be discussed where relevant, see (Amazon, 2020a) for detailed API documentation, and Appendix I for supplemental documentation). In what follows, we assume that the library is imported through import smdistributed.modelparallel.torch \ as smp
+
+To use the library, the user must 1. Initialize the internal state of the library and launch Figure 1. Illustration of process groups over 8 devices, with tensorparallelism degree 2, pipeline-parallelism degree 2, and dataparallelism degree 4. At the top, an example model with 4 layers. On the bottom, the 4-layer model is distributed across 4 devices using both pipeline parallelism and tensor parallelism (tensor parallelism is used for the middle two layers). Note that TP GROUP is a subset of DP GROUP, since tensor parallelism is performed across data-parallel ranks. Note that the typical loss.backward() call is replaced with model.backward(loss) so that the library can control the backward pass. If pipeline parallelism is enabled, smp.step-decorated function specifies the computations that must be executed in a pipelined manner. Hence, the computations placed inside the function are executed once per microbatch when train step function is called. The tensors that are returned from the smp.step-decorated function automatically get wrapped in StepOutput object, which encapsulates different versions of the tensor across all microbatches. After the call to train step, these tensors can be combined into a single value using the API exposed by StepOutput class (StepOutput API available in (Amazon, 2020a)). For instance, the loss can be averaged, and per-microbatch predictions combined across microbatches through # loss is returned by train_step loss_avg = loss.reduce_mean() # predictions is returned by train_step pred = predictions.concat() After training, to combine model partitions into a single artifact, one can use state dict() API, which is overriden in smp.DistributedModel and smp.DistributedOptimizer so that the partitioned model and optimizer states are allgathered and combined in the CPU to produce as a single state dictionary that represents the entire model. It is also possible to get only the local states using local state dict() API, which is useful for checkpointing.
+
+
+PIPELINE PARALLELISM ARCHITECTURE
+
+
+Overview
+
+Amazon SageMaker model parallelism library views the model as a directed graph of nodes, where each node (with the exception of the root) represents a PyTorch nn.Module object, and there is an edge from node A to node B only if module B is a submodule of module A (note Py-Torch models are defined as a hierarchy of nn.Module objects). Note that the graph is a tree if there are no modules that are submodules of multiple other distinct modules.
+
+Module-submodule relationships are derived purely from PyTorch module creations ( init calls), and is independent of how the module is actually used within the forward method of the parent module. The root of the graph corresponds to the smp.step-decorated function, which is treated as the parent node of the the top-level model object (smp.DistributedModel).
+
+The model partition for pipeline parallelism takes place at the level of nn.Module, i.e., each partition is a mapping from the set of nn.Modules of the model to the set of pp ranks. An example module graph and partition is provided in Figure 2. Note that there is no assumption on any particular computational graph structure in this view of the model, which is why the pipeline parallelism framework is generic. Further, unlike other implementations of pipeline parallelism, the library does not view the model as a flat sequence of stages (for example, a sequence of layers where certain blocks of layers are assigned to specific devices), but as a hierarchy of modules based on the existing hierarchy in model definition. Refer to Appendix D for example partitions over this module hierarchy.
+
+The auto-partitioning algorithm, which assigns modules to pp ranks, will be discussed in §4.5; for now, we assume the module assignment is given. Every pp rank is responsible for (forward and backward) execution of the modules assigned to itself, and stores the necessary parameters for those modules. During forward or backward execution of a module, whenever control flow reaches a submodule that is not assigned to the current pp rank, an execution request is sent to the pp rank that stores that submodule, which in turn sends its own requests to other pp ranks if needed. When the execution of the requested module finishes, the result (the outputs of the module for forward pass, or the gradients returned from the backward pass of the module) is returned to the pp rank that made the original request. The square brackets represent the pp rank the module is assigned to as a result of partitioning. Whenever the control flow reaches a submodule that is not stored locally, an execution request is sent to the pp rank that owns the submodule, which responds to the requester with the output of the module. smp.step function is always treated as the top module and is placed on pp rank 0. For each microbatch, pp rank 0 enqueues a new execution request for itself, which marks the start of forward pass. At the start of the backward pass for each microbatch (model.backward call), another local request is enqueued at pp rank 0, this time for backward execution.
+
+Each pp rank runs an execution server, which is a Python thread that monitors incoming execution requests from other pp ranks, and assigns the execution tasks to local worker threads (see §4.2 for details). During each execution of an smp.step-decorated function, instead of following regular Pythonic control flow, every pp rank launches the module server and waits for incoming requests. pp rank 0 additionally enqueues a new execution request to itself, corresponding to the execution of the top-level smp.step node, which consists of the contents of the smp.step function.
+
+From that point on, execution follows the request-response paradigm. Pipelining across microbatches is achieved by splitting the input tensors to smp.step-function across the batch dimension, and initiating microbatch execution requests at different times (See §4.3). At any point in time, requests corresponding to different microbatches are processed by different pp ranks, as shown in Figure 5.
+
+Note that this module-server architecture applied over the module hierarchy endows the library with flexibility in handling a range of use cases, such as supporting module reuse, supporting arbitrary model architectures and framework APIs, conditional execution, and handling different pipeline schedules easily, in sharp contrast to other implementations of pipeline parallelism. This is because (1) the module hierarchy is general enough to cover virtually all model implementations in PyTorch (and not those limited to nn.Sequential API, or more generally an identical sequence of layers), and (2) the execution at the module servers launched by the pp ranks is driven completely dynamically by incoming requests, without any a priori expectation about the model architecture or execution flow, (3) auto-partitioning algorithm automatically places modules that share parameters on the same device, (4) re-used modules can be executed simply by sending multiple requests to the device that holds the module. 
+
+
+Module-server execution
+
+An execution server consists of an input queue, a server for the queue (executed on main thread), a collection of worker threads (Python threads), and a set of modules assigned to the server by the partitioning algorithm. The worker threads do the actual module execution, and can be in one of three states: {PENDING, IDLE, EXECUTING} (see Figure 3). Only one worker thread is allowed to be in EXECUTING state at a time. Moreover, at any point in time, only one thread per rank (across main thread and worker threads) actively executes, while the rest wait.
+
+The server execution works as follows:
+
+• The tasks requested from an execution server, as well as responses to the requests made by the server, are all enqueued in the input queue. The input queue contains messages that represent the information on what the task is, such as which module needs to be executed, input tensors, whether forward or backward execution is requested, and other metadata (see Appendix B for more details on message structure). • When the control is at the main thread, it queries the input queue. When a new request arrives, it looks for the next thread in IDLE state, and assigns the work to that thread. If no IDLE thread is available (all threads are in PENDING state), it launches a new thread, and assigns the module execution task to it. Note that if the control is in main thread, no worker thread can be in EXECUTING state since only thread can be active at a time. After the worker thread is assigned the work, control switches to it, and it switches to EXECUTING state. • When a worker thread encounters a submodule that is owned by another rank, it sends the request to the appropriate rank, and then switches to PENDING state, returning control to the main thread. Note that typically multiple threads will be in PENDING state, each corresponding to a different microbatch. • When a response to an earlier request arrives at the queue, it returns the response to the thread that made the request (this thread must be in PENDING state) and notifies the thread to switch control to it, and switches it into EXECUTING state.
+
+Note that the use of multiple Python threads is purely for the ability to easily context-switch between microbatches, and not for actual parallelization of computation.
+
+
+Pipelining
+
+Pipeline schedule is controlled by pp rank 0, since it handles the top-level smp.step-execution requests. This rank creates two dedicated smp.step-execution requests for each microbatch (one for forward, one for backward pass) and assigns it to itself, which marks the start of the forward or backward pass of each microbatch. pp rank 0 can determine the pipeline schedule through the timing and sequence of such requests. Note that this rank will be aware of when the forward pass for a particular microbatch finishes through the model.backward call.
+
+The module-server architecture enables supporting custom pipeline schedules flexibly, without making any architectural changes, by simply specifying a sequence of (microbatch, phase)-tuples, where phase can be forward or backward. SageMaker model parallelism library has built-in support for two different pipeline schedules, which are called simple pipeline (similar to GPipe), and interleaved pipeline (similar to Megatron and PipeDream with pipeline flushes).
+
+• Simple pipeline: Executes the forward pass of each microbatch sequentially, before executing the backward pass for each microbatch. • Interleaved pipeline: If there is a microbatch that is ready to start backward execution, schedules that next. Otherwise, schedules forward execution for the next microbatch.
+
+Note that interleaved pipeline is more flexible and resourceefficient than a rigid, predefined pipeline schedule, since the schedule might adapt opportunistically based on the actual execution times of different modules. See Figure 5 for an example pipeline schedule that is measured while training a GPT-2 variant on the module-server architecture, over four partitions. Processing of forward and backward requests for each microbatch are marked as Req::FWD and Req::BWD respectively. Note that although backward and forward processing tends to be interleaved, this pattern can be broken opportunistically, depending on the actual timing of events.
+
+
+Static mode and fast mode
+
+Note that when a single module has many submodules that need to be executed sequentially, the module-server architecture might result in unnecessary overhead, since the output of each module needs to be returned to the parent module, which in turn needs to be sent to the next module. Moreover, in most cases, the model and the training step is static, in that the execution flow in every training step is identical.
+
+To eliminate the additional overhead in such cases, the library contains two additional features, called fast mode, and static mode, which can be enabled through flags in model parallelism configuration.
+
+By enabling static mode, the user conveys to the library that the training step does not contain any conditionals, and the flow of execution at every step will be the same. In this case, the library records the sequence of requests/responses at each server for the first T steps (by default, T = 5), and from T th step onward, it avoids explicitly exchanging request and responses, but follows the order of tasks that was followed in the step that achieved the lowest step time among the first T steps. In fast mode, which can be enabled on top of static mode, the child → parent → child round-trip for tensor communication is also avoided, and the tensor directly takes the shortcut from one child module to the next, cutting the amount of communication in half. This is achieved by keeping track of the producer-consumer relationships between modules in the first training step.
+
+
+Partitioning algorithm
+
+Partitioning takes place automatically during the first execution of the smp.step-decorated function, unless autopartition is disabled, in which case the user specifies the partition manually using smp.partition API. If the model does not fit in the CPU RAM during the initial creation, smp.delay param initialization API can be used to delay parameter allocation until after the model is partitioned and moved to GPUs (see Appendix I.5 for details).
+
+The goal of the partitioning algorithm is to try to minimize the number of request-response communication rounds, while balancing the computation and memory loads across the devices. Intuitively this means that if a node is assigned to a device, its children should be assigned to the same device as much as possible, so that the communication rounds are minimized.
+
+In what follows, we will assume that the model is represented as a tree T = (V, E) of ModuleNodes, which are objects consisting of one or more nn.Modules in the model (modules that share parameters are part of the same ModuleNode), and the child-parent relationships in the tree follow the hierarchy of modules in the model definition.
+
+We define Q(n) as the set of children of a node n ∈ V: Q(n) := {j : (n, j) ∈ E}. We assume that for each node n ∈ V, there is a cost c(n) associated with storing and executing the modules that are part of the subtree of n, which accounts for both the memory consumption and computation. The details of how the ModuleNode tree and the cost function are constructed is described in Appendix C. For the purposes of this discussion, we only point out that the cost function satisfies c(n) ≥ p∈Q(n) c(p), i.e., the cost function is super-additive in the subtrees.
+
+We will use the notation d(n) = i to mean that device i was assigned to node n. The goal of the algorithm is to compute d(n) for all n ∈ T .
+
+The algorithm starts with a set of virtual devices P (r) = {0, 1, . . . , D − 1} for the root node r (where D is pipeline Algorithm 1 Tree partitioning algorithm Input: Set P (r) of devices, tree T of nodes with root r. while there are more nodes do Get next node n in breadth-first order of T
+d(n) ← P (n)[0] if |P (n)| > 1 then {P (c)} c∈Q(n) ← Partition(P (n), Q(n)) else P (c) ← {P (n)[0]} for all c ∈ Q(n) end if end while
+parallelism degree specified by user), and operates by traversing the nodes of T in breadth-first order, and partitioning the set P (n) for the current node n among its children Q(n), so that P (n) = c∈Q(n) P (c).
+
+Intuitively, P (n) for a node n represents the set of devices that will be responsible for executing the part of the model represented by the subtree under n. At every iteration, the algorithm proceeds by partitioning P (n) among the children of n, i.e., deciding which subset of P (n) should be responsible for the execution of each child subtree. For the purposes of the partition algorithm, P (n) refers to "virtual" devices, in that it pertains to the partition indices within each PP GROUP, and not necessarily physical device indices. The algorithm terminates when |P (n)| = 1 for all the remaining nodes n in the breadth-first traversal, in which case all the remaining children of node n inherit P (n). The current node n always gets assigned the smallest partition index in P (n), denoted by P (n)[0].
+
+The crux of the algorithm is the choice of how to partition P (n) among the children of node n (i.e., Partition call). The goal here is to find a partition so that the number of devices assigned to the subtree represented by child p is approximately proportional to the cost of that subtree, c(p), while biasing the algorithm towards assigning the same partition to modules that are adjacent to each other in execution order. The details of how this is done, including a pseudo-code for Partition operation (Algorithm 2), is given in Appendix C. The main idea behind this algorithm is to use dynamic programming to split the children Q(n) into segments that are as equal-cost as possible, and then allocating the elements of P (n) across these segments using D'Hondt method (Gallagher, 1991) (although other proportional allocation methods can be substituted), and recursively re-applying these steps to the segments with more than one device assigned. The intuition behind this is that each child node effectively gets assigned a subset of P (n) that is approximately proportional to the cost of its subtree, so that the per-device cost is balanced. Example partitioning decisions arrived by this algorithm are given in Appendix D.
+
+
+TENSOR PARALLELISM ARCHITECTURE
+
+
+Motivation
+
+Tensor parallelism involves splitting operations or layers themselves to execute in parallel across multiple devices. Unlike pipeline parallelism, tensor parallelism needs to be implemented on a per-operation, or per-layer basis, since the distribution mechanism depends on the mathematical function being implemented. For this reason, it is not possible to have a fully model-architecture-agnostic tensor parallelism implementation. However, it is still possible to create a general framework that can efficiently support the full diversity of scenarios that require tensor parallelism (including uniformly large models, models with only one large component, or mixture-of-experts models), and is modular enough to be easily extensible to new custom operations, which are unique advantages of the library compared to other tensor parallelism solutions.
+
+To handle these scenarios efficiently, SageMaker model parallelism library performs tensor parallelism across dataparallel ranks, in contrast to other implementations. To see why this matters, consider an example scenario where an otherwise medium-sized model has a huge embedding table that must be distributed across N GPUs. Clearly, using the N − 1 additional GPUs only for storing the partitions of embedding table is highly inefficient, so these GPUs should contribute to the computation as well. Feeding the same input to all N − 1 tensor-parallel devices, as Megatron-LM does, would not improve the efficiency in this case, since apart from the embedding, the computation done by the N − 1 devices would be redundant. It is also impractical to split all the operations in the model since some operations in the model might be difficult to distribute (or unsupported), or might introduce unnecessary cross-device communication for small operations. Performing tensor parallelism across data-parallel ranks effectively solves this problem, by having the GPUs compute on different data samples for the parts of the model that are not distributed, while the relevant parts of the data samples are exchanged between tensorparallel ranks for the distributed components. We describe the mechanics of tensor parallelism in more detail in the next subsection.
+
+
+Overview
+
+As with pipeline parallelism, the fundamental computational unit for tensor parallelism is nn.Module. In essence, tensor parallelism consists in traversing the model, and replacing specific submodules of the model with their distributed implementations during smp.DistributedModel call. The distributed implementation has the same input-output relationship as the original module. A module gets replaced if and only if (1) a distributed implementation of the module is available, (2) the user has enabled tensor parallelism for Figure 6. Tensor-parallel distribution of an affine layer (nn.Linear) over two tensor-parallel ranks. The dashed block implements the affine function f (x) = W x + b, where the weight is distributed column-wise: W = [W1 W2] (bias only resides in tp rank 0). Each input also gets partitioned row-wise x = x 1 x 2 , so that the summation of the two local affine functions: (W1x1 + b) + (W2x2) = W x + b is identical to the non-distributed case. Note that each tensor-parallel rank has a local batch size of 2, consisting of different data samples. To implement this for all data samples, tp rank i slices its input x (i) row-wise, and sends the jth slice x (i) j to tp rank j (implemented via all-to-all collective). Next, tp rank j applies its local function to all slices collected from its TP GROUP:
+yj := y (1) j y (2) j = Wj x (1) j x (2) j
+(and adds bias if j = 0). Finally, a reduce-scatter operation sums yj across tp ranks j, and slices it so that tp rank i ends up with y
+(i) := T j=1 y (i) j , where T is tensor parallelism degree.
+the module, and (3) no ancestor of the module is already replaced with its distributed version 1 , and (4) it does not share parameters with another module.
+
+When tensor parallelism is performed over data-parallel ranks, the parameters, gradients, and optimizer states for the modules that satisfy (1)-(4) above are partitioned across the tp ranks. For the rest of the modules, the tensor-parallel devices operate in a regular data-parallel manner. To execute the distributed module, a device first collects the necessary tensor slices of all data samples across peer devices in the same tensor parallelism group. The local fragment of the module is then executed on the slices of all these data samples, followed by another round of synchronization which both combines the parts of the output for each data sample, and also returns the combined data samples to their respective GPUs where the data sample first originated from, so that the output of the distributed module in every tp rank is the same as the non-distributed scenario. We illustrate this idea over an example with nn.Linear, depicted in Figure 6.
+
+The library comes with built-in distributed implementations for commonly used native PyTorch modules, such as nn.Linear and nn.Embedding, but also has generic implementations for commonly used building blocks in deep learning, such as the attention layer, layer normal-ization, and transformer encoder/decoder blocks. All tensor-parallel module implementations are child classes of smp.nn.DistributedModule class, and part of smp.nn module (see Appendix I.3 for APIs for all distributed module implementations).
+
+Note that in order to replace a module with a distributed implementation during smp.DistributedModel call, the library needs to be able to match a module with its corresponding DistributedModule. For native PyTorch modules, this is achieved using an internal look-up table maintained in the library. This look-up table also includes entries for popular HuggingFace model implementations (GPT-2, RoBERTa, and BERT), which maps specific submodules of these implementations to internal distributed transformer implementations of the library. For custom modules that are not part of the look-up table, smp.tp register API can be used to register specific DistributedModules with a given module in the user script (See Appendices E and I.4). If there is no built-in distributed implementation for the target module, it is also possible to implement a custom one by sub-classing smp.nn.DistributedModule, and using the communication and weight initialization primitives provided the library API, which ensure compatibility with the rest of the features (see Appendix I.6 for details).
+
+
+Built-in distributed modules
+
+In this section we briefly describe the specific distribution mechanisms implemented for some of the built-in DistributedModules.
+
+
+DistributedLinear:
+
+The distribution mechanism for the linear layer was described in Figure 6.
+
+DistributedEmbedding: nn.Embedding layers are distributed across the embedding dimension. The input indices are allgathered across the tensor-parallel ranks, followed by a local embedding look-up, which at ith tp rank gives the ith slice of the embedding vector for each index. The results are then scattered across tp ranks by the batch dimension, and combined by the embedding dimension, using an all-toall collective, which gives the local embedding outputs in all tp ranks.
+
+DistributedTransformer: Consists of a sequence of DistributedTransformerLayers, which in turn consist of DistributedAttentionLayer and DistributedTransformerOutputLayers. The library offers two separate distribution implementations for the latter two layers, which can be controlled by setting the configuration parameter "optimize" to "speed" or "memory". The "speed" option distributes the attention and output layers in the same way as done by Megatron, while "memory" option instead shards all the intermediate activations across the tp ranks, including layer 
+
+
+COMMUNICATION BACKEND
+
+The library features a dedicated communication backend for pipeline parallelism, which manages intra-node and crossnode device-to-device (D2D) communication without relying on the popular NCCL library. This is because NCCL necessitates tight synchronization between nodes, requiring collectives (or point-to-point send/recv operations) be called in the same order in all participating terminals. This is difficult to achieve in the full breadth of cases that the library supports, e.g., conditional control flows where a communication primitive may not be called at a terminal depending on some condition, or cases where two different transmitters simultaneously attempt to send a tensor to the same rank, where a global order of transmissions would require tight synchronization mechanism to be enforced globally.
+
+This motivates a more flexible communication backend, which do not have a priori expectations about the order of communications required, and serves communication requests made by the framework in an on-demand basis. Furthermore, for good performance, it needs to leverage NVLinks for intra-node transmissions, and GPUDirect RDMA technology for inter-node transmissions. Appendix G presents the architecture for the D2D subsystem that satisfies these requirements.
+
+
+EXPERIMENTS
+
+
+10-billion parameter RoBERTa and BERT
+
+We train larger variants of RoBERTa and BERT under two different model configurations shown in Table 1, both totaling 10 billion parameters. These experiments are run on a cluster of 16 p4d.24xlarge nodes, each equipped with 8 NVIDIA A100 GPUs. We use a sequence length of 512. For SageMaker, we use a tensor parallelism degree of 4, pipeline parallelism degree of 1, and with activation checkpointing and optimizer state sharding features enabled. For DeepSpeed, we use ZeRO optimization stage 2 with communication overlap and activation (gradient) checkpointing.
+
+The results in Table 2 show that for the configuration A, which is a wider architecture, smp is 39% faster than Deep-Speed on 16 nodes. For the deeper configuration B, the two libraries have comparable performance, although Deep-Speed is 15% faster. We train GPT-3 under the 175-billion parameter configuration described in (Brown et al., 2020), with a sequence length of 2048. For this experiment, we use 120 p4d.24xlarge nodes for a total of 960 NVIDIA A100 GPUs. The library was configured with pipeline parallelism degree 6 (with fast mode enabled), tensor parallelism degree 8, and with activation offloading, activation checkpointing, and optimizer state sharding enabled. To use tensor parallelism with pipeline parallelism, we feed the same data sample to each TP GROUP (see Appendix I.1, section on prescaled batch), so that true data parallelism degree becomes 20. We use a global batch size of 2560, and 64 microbatches. Under this configuration, the library achieves a throughput of 26.5 sequences per second.
+
+
+Neural collaborative filtering with large embedding table
+
+We train a neural collaborative filtering model (He et al., 2017) with 318133 users, 1792 items, MLP latent dimension of 512, and GMF latent dimension of 64. We use the library with pipeline parallelism degree of 1, and tensor parallelism degree of 16, over four p3.16xlarge instances (each with 8 NVIDIA V100 GPUs), and only distribute the four embedding tables of the model, with the rest of the model being executed in a data-parallel manner. We use a per-GPU batch size of 256, for a total batch size of 8192.
+
+As a baseline, we run the same model while feeding the same batch of data to all tensor-parallel ranks, similar to Megatron (note that this removes the need for the initial allgather in DistributedEmbedding, as well as turning the all-to-all into an allgather, reducing the amount of communication required). To maintain the same global batch size, we use a per-GPU batch size of 4096. Table 3 show the resulting throughput for this model under these configurations for two different internal Amazon datasets. Li, S., Xue, F., Li, Y., and You, Y. Sequence parallelism: Making 4d parallelism possible. arXiv preprint arXiv:2105.13120, 2021a.
+
+Li, Z., Zhuang, S., Guo, S., Zhuo, D., Zhang, H., Song, D., and Stoica, I. Terapipe: Token-level pipeline parallelism for training large-scale language models. arXiv preprint arXiv:2102.07988, 2021b. Raffel, C., Shazeer, N., Roberts, A., Lee, K., Narang, S., Matena, M., Zhou, Y., Li, W., and Liu, P. J. Exploring the limits of transfer learning with a unified text-to-text transformer. arXiv preprint arXiv:1910.10683, 2019. 
+
+
+A MODEL PARALLELISM BASICS
+
+Model parallelism is a type of distributed training pattern where a single copy of the model is partitioned across multiple accelerators which operate in parallel. In contrast to data parallelism, which is useful at all model scales, model parallelism becomes more and more useful at larger model scales, and becomes unavoidable beyond a certain scale, absent some other powerful memory-saving technique, such as tensor sharding across data-parallel ranks, or CPU offloading 2 .
+
+There are two main types of model parallelism: (1) pipeline parallelism, and (2) tensor parallelism. SageMaker model parallelism library supports both types of model parallelism. 
+
+
+A.1 Pipeline parallelism
+
+Pipeline parallelism partitions the set of layers or modules, or, depending on the granularity of the partition, operations across the set of devices, such that each operation remains fully within one device. The pipeline-parallel partition is often represented as a sequence of stages in the model, e.g., the first N/2 layers of the model is stored in one device, and the next N/2 is stored on another etc.
+
+Note that since the partition typically consists of a set of sequential stages that depend on each other, such partitions do not immediately achieve parallelization. To improve parallelization, pipelined execution is performed, where the incoming batch of data is split into microbatches, which are simply subsets of a single mini-batch. Each microbatch is sequentially fed into the model, and follows a tightly orchestrated pipeline schedule that prescribes which stage of computation (forward or backward) for which microbatch each device should perform for each time slot. The pipeline schedule is typically designed so that the amount of parallelization (simultaneous computation) between the devices is maximized (see Figures 7 and 8). Works such as GPipe, PipeDream, Megatron, and DeepSpeed implement different variants of pipeline parallelism in limited ways (See Section 2 for a brief comparison of these works).
+
+
+A.2 Tensor parallelism
+
+In contrast to pipeline parallelism, tensor parallelism consists of splitting specific operations and implementing them in a distributed way. For instance, pipeline parallelism would leave each matrix multiplication operation intact, while tensor parallelism partitions the matrices to implement distributed matrix multiplication. Unlike pipeline parallelism, tensor parallelism results in immediately parallelized computations.
+
+Note that the specific way in which an operation is distributed in tensor parallelism depends on the mathematical function implemented by the operation (e.g., distributed matrix multiplication is implemented differently from distributed embedding look-up), and thus tensor parallelism must be implemented in an operator-specific basis.
+
+Works such as Megatron (Shoeybi et al., 2019), Mesh-TensorFlow, and GSPMD implement variants of tensor parallelism.
+
+
+B PIPELINE PARALLELISM MESSAGE STRUCTURE
+
+The messages exchanged between pp ranks contain the following information:
+
+• Whether this is a request or response, and if it is a response, an identifier for the corresponding request • If request, an identifier for the module the execution is requested for • If a request for a nn.Sequential module, the subset of (consecutive) modules the execution is requested for • If a request for module execution, whether forward or backward execution is requested • If a request for module execution, the input tensors for the module (along with any encapsulating Python structure such as lists that contain the tensors) or the gradients flowing into the module • If a response, module outputs (along with any encapsulating Python structure such as lists that contain the tensors) or the gradients flowing out of the module • Microbatch information • The pp rankmaking the request • The location of the module within the module graph • Whether the requester is currently in a autocast context • Whether the requester is currently in a no grad/enable grad context • Whether activation checkpointing is enabled for the current module C PARTITIONING ALGORITHM DETAILS
+
+
+C.1 Tracing
+
+During the first execution of the smp.step-decorated function, before the true forward pass starts, the library first runs a tracing step, which consists of a single forward pass execution of the model on rank 0. The goal of the tracing step is to determine the order in which the modules are executed, as well as profiling metrics such as the execution time of each module and activation memory consumption, which are fed as inputs to the partitioning algorithm.
+
+The only significant memory usage during the tracing step is the model parameters (activations, gradients, and optimizer states are not stored), so tracing can often be done on a single GPU up to a certain model size (approximately 15-20 billion parameters). For larger models, the library also supports tracing on CPU (with retries on GPU for modules unsupported on CPU), which typically has access to much larger memory. In this case, module execution times are not measured.
+
+Note that for larger models, even a single CPU memory is not sufficient. In those cases, we do not perform tracing.
+
+
+C.2 Tree construction
+
+The partitioning algorithm operates on a tree of ModuleNodes, where each ModuleNode consists of one or more nn.Modules, and each nn.Module is covered by exactly one ModuleNode. The mapping from nn.Modules to ModuleNodes are as follows.
+
+Define the (bipartite) graph G which has the set of nn.Modules and nn.Parameters as its vertices, and there is an edge between two vertices i and j if and only if module i contains parameter j. Then each connected component in G represents a ModuleNode. Intuitively, a ModuleNode consists of a set of modules that share a set of parameters. In practice, almost all ModuleNodes will contain only a single module, since most modules for models in practice do not share parameters.
+
+Given such ModuleNodes, a tree can be constructed by adding an edge from i to j if i contains a module that has a module in j as its child, and in case of multiple parents, pruning the additional edges so that a tree is produced in the end. Since the pruning is arbitrary, the trees that can be produced by this process is not unique, but we simply choose one such tree, with the assumption that most modules do not share their parameters, hence the resulting trees are mostly similar to each other.
+
+Algorithm 2 Partition P, {n i } 0≤i≤m−1 Input: Set P of devices, nodes n j , for 0 ≤ j ≤ m − 1.
+
+Find segments {S i } 0≤i≤ −1 by solving (2) using the recursion (3). Compute segment costs c i := n∈Si c(n), 0 ≤ i ≤ −1 Compute segment allocations
+{P i } 0≤i≤ −1 ← Algorithm 3 P, {c i } 0≤0≤ −1 for i = 0 to − 1 do if |P i | == 0 then For all nodes n ∈ S i , set P (n) = {P [0]} else if |S i | == 1 or |P i | == 1 then Set P (n) = P i for all nodes n ∈ S i else Run Partition Pi, {nj} j∈S i end if end for return {P (n i )} for 0 ≤ i ≤ m − 1
+
+C.3 Cost function
+
+We assign a cost to each module as follows:
+C(m) := αw(m) + (1 − α)ψ(m),(1)
+whereC(m) is the unnormalized cost, w(m) is the memory cost, ψ(m) is the computation cost of module m; and α ∈ [0, 1] is a hyperparameter that governs the trade-off between balancing the memory and balancing the computation. If module execution times are measured during tracing, ψ(m) is the forward execution time of module m; otherwise, it is the number of descendant modules it contains, which is treated as a proxy for the computational load of the module. w(m) is computed through the number of parameters contained in module m including its submodules, plus the activation memory usage measured during tracing.
+
+The cost C(n) of a ModuleNode n is recursively defined as the sum of the costs of the set of modules M (n) it contains and the costs of its children Q(n):
+C(n) = m∈M (n)C (m) + p∈Q(n) C(p).
+Finally, the normalized cost c(n) of a ModuleNode n is defined as the cost of n divided by the cost of the root r:
+c(n) = C(n) C(r) ,
+where C(r) > 0 since there is at least one module and one parameter in the model. Note that c(n) ∈ [0, 1], and c(r) = 1. Algorithm 3 D'Hondt method Input: Set P (n) of devices, and costs c i > 0, for 0 ≤ i ≤ − 1.
+
+
+C.4 Partitioning algorithm
+Initialize s:=1, q i := c i , P i = {} for 0 ≤ i ≤ − 1. for p ∈ P (n) do P k ← P k ∪ {p} where k := arg max i q i q k ← q k s+1 s ← s + 1 end for return {P i } for 0 ≤ i ≤ − 1
+In this section, we describe how we partition the set P (n) of devices among the children Q(n) of node n, so that
+P (n) = c∈Q(n) P (c).
+Note that the sets P (c) may not be disjoint across c ∈ Q(n), and it is possible that |P (c)| > 1, in which case P (c) will further be partitioned among the children of c.
+
+To achieve this, we first partition the sequence of Q(n) (where the order is dictated by the execution order obtained during tracing) into segments such that maximum normalized cost in any segment is minimized:
+min P ω(P) := min P max S∈P p∈S c(p),(2)
+where P is a partitioning of the sequence Q(n) into subsequences S with consecutive elements. In other words, we are seeking an optimally balanced -way partitioning of Q(n) into sub-arrays with consecutive elements. This can be solved through dynamic programming, using the recursion
+c(k, i) = min j≤i max    c(k − 1, j), q∈Q(n,j) c(q)    ,(3)
+for 0 ≤ i < |Q(n)|, 2 ≤ k ≤ , where c(k, i) is defined as the partition cost ω(P) achieved in partitioning the first i elements of Q(n) into k partitions, and Q(n, j) represents the sub-sequence of Q(n) from element j onwards. To see how recursion (3) solves (2), note that min P ω(P) = c(|Q(n)| , ), and c(1, i) = j≤i c(j). In practice, we choose to be node-dependent: = |P (n)|.
+
+Once the segments are formed, we allocate the virtual devices P (n) across the segments, such that the number of devices assigned to segment S is approximately proportional to the total cost p∈S c(p) of segment i. Any proportional allocation algorithm can be used to achieve this, but we implement D'Hondt method 3 (Gallagher, 1991) in practice 1. No device is assigned to the segment. In this case, all ModuleNodes in the segment get assigned the same device as the parent node 4 . 2. One device is assigned to the segment. In this case, all ModuleNodes in the segment get assigned this device. 3. Multiple devices are assigned to the segment. In this case, if the segment has one node, we keep the device assignment as is (this node will be revisited later in BFS). Otherwise, we recursively apply the dynamic programming and D'Hondt allocation steps to this segment, until each sub-segment reduces to one of the above two scenarios. Note that this process is guaranteed to terminate as long as all ModuleNode costs are strictly positive.
+
+To understand the intuition behind the algorithm, it is useful to consider how it would behave in some specific scenarios. Note that Algorithm 2 must be versatile enough to handle diverse node cost distributions. For instance, the children nodes Q(n) might consist of one or two nodes that contain most of the total cost, along with a large number of tiny-cost nodes. On the other extreme, the children might consist of a large number of nodes for which the cost is almost-equally distributed. In the former scenario, the segmentation step will combine all the small nodes into a single segment, and the large-cost nodes will be placed in their dedicated segments. If the combined cost of the combined nodes is small enough, D'Hondt method will allocate all the devices to the nodes that account for most of the cost, while the smallcost nodes will simply be placed on the same device as the parent, which is desirable. In the latter scenario, segmentation will create approximately-equal-cost segments, and D'Hondt method will allocate one device for each segment (recall that we choose the number of segments to be equal to the number of devices for the current node), balancing the per-device load. In practice, we observe that the presented algorithm can handle a broad range of scenarios across different model architectures and implementations, and result in a relatively balanced partition, although manual tuning might somtimes improve the balance of the memory load method is used in the allocation of parliament seats proportional to the votes in many representative democracies around the world. Note the similarity of the parliament seat allocation problem with the virtual device allocation proportional to segment costs. Figure 9. Auto-partition decision over T5-11B with α = 1.0. layers[i:j] represent encoder/decoder layers between i (inclusive) and j (exclusive). The numbers on the second row of each box represent the normalized cost of the corresponding ModuleNode, and the partition index the node is assigned to, respectively. Note that since lm head and word embedding share weights, they are assigned to the same ModuleNode, and are thus assigned to the same partition. Per-partition total normalized costs vary between 0.114 and 0.134 (note that perfect balancing would assign 0.125 to each partition).
+
+(See (Amazon, 2020a) for the manual partition API).
+
+
+D EXAMPLE PARTITION DECISIONS
+
+Figures 9 and 10 illustrate partition decisions output by the auto-partitioning algorithm over a T5 model with 11 billion parameters, with memory-cost weights α = 1.0 and α = 0.2, respectively, and a pipeline parallelism degree of 8.
+
+In either case, the partitioning algorithm balances the normalized costs across 8 partitions. In the case of α = 1.0, note that the costs of encoder and decoder blocks are closer, and so the auto-partitioning algorithm assigns four devices to each. In contrast, for α = 0.2, the decoder block has a relatively higher cost, and hence gets assigned five devices, compared to three for the encoder. The additional cost of the decoder reflects the fact that it performs the additional cross-attention operation.
+
+Further note that in Figure 10, partition 0 gets assigned fewer decoder layers, balancing the fact that it holds other layers such as embedding and lm head. These distributed implementations are built in a generic manner, supporting a range of use cases across different model architectures through initialization arguments, such as selfvs. cross-attention for encoder-decoder architectures, causal vs. non-causal masks for language modeling (e.g., BERT vs. GPT-2), and pre-vs. post-residual layer normalization in transformer layers. More details on the API documentation for these distributed modules can be found in Appendix I.3.
+
+
+E.2 Enabling tensor parallelism
+
+Tensor parallelism can be used by either using the distributed modules listed in the previous section directly in model construction phase, or the library can automatically replace the modules with their distributed implementations whenever possible, as requested by the user. Such automated replacement can be useful, for instance, when the user do not have direct access to the model construction code (such as when importing a HuggingFace transformer implementation), or many sub-modules in the model require distribution.
+
+For modules whose distribution is natively supported in the library, such automatic replacement can be enabled by with smp.tensor_parallelism(enabled=True): module = MyModule() which marks MyModule, as well as all of its submodules, for tensor parallelism. Later, when smp.DistributedModel wrapper is called, all modules marked for tensor parallelism are replaced with their distributed implementation, as long Figure 10. Auto-partition decision over T5-11B with α = 0.2. See Figure 9 for an explanation of the representation. The encoder gets assigned three devices while the decoder is assigned five, since decoder involves more computation, and setting α = 0.2 results in weighing the computational component higher in computing the normalized cost. Per-partition total normalized costs vary between 0.107 and 0.131 (note that perfect balancing would assign 0.125 to each partition).
+
+as they satisfy the conditions (1)-(4) listed in Section 5.2. Alternatively, tensor parallelism can be enabled for a specific module using the smp.set tensor parallelism API, for example, smp.set_tensor_parallelism(model.embedding, enabled=True)
+
+Modules with built-in tensor parallelism support include nn.Linear and nn.Embedding from native PyTorch, as well as the relevant submodules of HuggingFace transformers implementations for BERT, RoBERTa, and GPT-2.
+
+
+E.3 Registering a distributed module for tensor parallelism
+
+For custom module implementations without built-in support, the user can register the module class with a builtin DistributedModule using @smp.tp register decorator or smp.tp register with module API, which informs the library that the module implements the same function as the corresponding DistributedModule. During registration, the user may specify hooks which translate the init and forward arguments and return values from the original module to the distributed one: Once registered, if tensor parallelism is enabled for the original module, the library replaces the module with its registered distributed counterpart, and matches its hyperparameters and method signature using the hooks defined during registration. Note that such registration is not needed if the user directly imports and uses the DistributedModule during model construction. The details for these APIs are available in Appendix I.4.
+
+
+E.4 Creating custom distributed modules
+
+For modules whose distributed implementation is not available among built-in modules listed in Section I.3, the user can also implement custom distributed modules by subclassing smp.nn.DistributedModule, and registering them with the existing modules. The library API exposes a number of primitives aiding with distributed weight initialization and collective communication, which internally handle the interactions with other features such as data parallelism and pipeline parallelism, so that new custom distributed modules can be implemented easily. These primitives are described in detail in Appendix I.6.
+
+
+F DISTRIBUTED TRANSFORMER IMPLEMENTATIONS
+
+In this section we present the distribution mechanisms for the self-attention and MLP blocks of a transformer. The library features two separate distribution mechanisms for optimizing memory footprint, and throughput, respectively. The former avoids replicating activations within the TP GROUP, while the latter minimizes communication across tp ranks, and is effectively equivalent to the distribution method of Megatron-LM. The distribution method can be chosen by setting "optimize": "speed" or "optimize": "memory" in the configuration while Figure 11. DistributedTransformerOutputLayer implementation when optimize: "speed". bwd allreduce operation is implemented by the bwd allreduce for tp collective (see Appendix I.6)
+
+. Figure 12. DistributedTransformerOutputLayer implementation when optimize: "speed". bwd allreduce operation is implemented by the bwd allreduce for tp collective (see Appendix I.6) launching the job.
+
+
+F.1 Speed-optimized distribution
+
+In speed-optimized distribution, within each transformer layer, the first linear layers are distributed across their output channels, and the second ones are distributed across their input channels, for both self-attention, and MLP blocks. The activations sharded between these two blocks, and are replicated across tp ranks otherwise. To execute a single transformer layer, two allreduces during forward, and two allreduces during backward pass are required. The system diagram for self-attention and MLP blocks are provided in Figures 11 and 12. Note that this distribution mechanism is the same as that implemented by Megatron-LM (Shoeybi et al., 2019).
+
+
+F.2 Memory-optimized distribution
+
+Memory-optimized distribution offers a novel method for tensor-parallel distribution of the transformer layer, where all linear layers are distributed over their input channels, and are followed by a reduce-scatter operation in forward pass, which sums the tensors and slices the result across the channel dimension (ith tp rank ends up with the ith slice of the summed tensor). The reduce-scatter operation becomes an allgather in the backward pass.
+
+We also distribute the layer normalization layer across tp ranks in memory-optimized distribution. To do this, observe that layer normalization is an element-wise operation given the mean and variance. Hence, we can decompose layer normalization into two steps, the first of which computes the local first and second moments of the data (
+N i=1 x i , N i=1
+x 2 i ), which are then allreduced within the TP GROUP (note that this introduces minimal communication overhead since the moments are scalars) to compute the global mean and variance. Given the mean and variance, ApplyLayerNorm operation applies element-wise normalization on the sharded activations. See Figures 13 and 14 for details.
+
+Note that this design minimizes the redundancy in activation storage, since the input to every channel is fully sharded (and not replicated) across channels. This comes at the expense of increased communication, which results in four reducescatter operations and two scalar allreduce operations in the forward pass, and four allgather operations in the backward pass, per transformer layer. When a Python object is to be communicated across pp ranks, the library first traverses the object to extract the tensors contained in it, and replaces them with a TensorStub that contains an ID that is associated with the tensor. The object that is stripped of tensors is then serialized and communicated via MPI, between the CPU processes. The tensors are communicated through the backend as will be described in this section. After both the tensors and the encapsulating object are received at the destination, the receiver rank traverses the object, and replaces the TensorStubs with the corresponding tensors based on the IDs they contain, to reconstruct the original object.
+
+The communication backend consists of a set of threads, each having a specific responsibility, exchanging Message objects between each other. A Message contains all the necessary information regarding the communication of the tensor to be sent or received, such as the data pointers, shape, dtype, device, peer rank (source or destination) for the communication, members for tracking MPI and CUDA events. The backend operates by having each thread monitor an input queue of Messages, process the next Message, and then enqueue it for another thread, depending on the next operation that needs to be performed on the Message. Such design based on Message-consumer threads allows flexibility in design and reduces complexity and coupling across components.
+
+When a tensor is to be sent or received, its metadata is encapsulated in a new Message object, and enqueued at CommInitiatorThread, which is responsible for routing incoming messages to one of two subsytems: MPI communicator and D2D communicator. When a Message first arrives, this thread first initiates a round of metadata communication between source and destination, which contains information about shape, dtype, and device of the tensor (this metadata communication is skipped for static mode, since it is the same in every step). This allows the receiver to allocate a correctly-sized buffer for the incoming tensor. The metadata communication takes place over the MPI communicator. When the metadata communication is complete, the corresponding Message is routed back to CommInitiatorThread for data communication.
+
+If any of the following is true, then the message is routed to MPI communicator; otherwise D2D communicator is chosen:
+
+• The incoming tensor device is CPU, • The source and destination ranks are on the same node, but there is no NVLink connecting them, • The source and destination ranks are on different nodes, but RDMA is not supported for the instance, • There is not enough free space in the D2D send or receive buffers (see Section G.2) for the incoming tensor.
+
+For performance, D2D communicator is prioritized whenever possible, since it avoids host-device copies over the PCIe link, and uses RDMA and NVLink technologies, for intra-node and cross-node communications, respectively. MPI communicator is used as a fallback whenever D2D is not feasible, as in the conditions listed above. We will next describe the architectures of MPI and D2D communicators in more detail.
+
+G.2 Device-to-device communication D2D Communicator is responsible for direct copies between GPU devices, over NVLinks for devices on the same node, and over GPUDirect RDMA for devices in different nodes.
+
+A critical feature of this subsystem is that it needs to maintain persistent buffers for reception (and for cross-node D2D, for transmission) of tensors. This is because both crossprocess CUDA memory copies, and RDMA transmissions, require creation of cross-process memory handles for the destination locations, which is an expensive operation. To amortize for this cost, we create persistent buffers for transmission at the beginning of program, which is re-used across different tensor transmissions (a memory manager is used to efficiently re-use this buffer). A side effect of this is that, an incoming tensor transmission must first check if there is It consists of the following threads:
+
+• D2DAllocatorThread: Responsible for MPI-based control signaling between source and destination, as well as allocation of sufficient space in destination buffers (and for cross-node D2D, also in source buffer). When this thread finishes processing a Message, the source/destination transmission buffers are allocated, or if there is no sufficient space, the CommInitiatorThread has been notified of this, so that the Message can be routed over the MPI communicator. Crucially, the source and destination rank are in agreement about the outcome through a handshaking protocol. • D2DSendThread: For same-node D2D transmissions, initiates cross-GPU CUDA memory copies, given a destination memory handle (provided by D2DAllocatorThread), and finalizes completed transmissions. • D2DRecvThread: For same-node D2D transmissions, tracks the reception of cross-GPU CUDA memory copies. For completed transmissions, copies the result to the framework tensor buffer, and notifies the framework. • CrossNodeD2DProgressThread: Responsible for making send/receive calls over the rdma-core API (accessed through Herring (Thangakrishnan et al., 2020)), copying the incoming framework tensor to the transmission D2D buffer, and copying the received tensors to the newly-created framework tensor buffer. • IOSendCompletionWatcherThread: Tracks the completion of RDMA transmissions. • IORecvCompletionWatcherThread: Tracks the completion of RDMA receptions.
+
+
+G.3 MPI-based communication
+
+MPI Communicator uses asynchronous, point-to-point MPI primitives to communicate tensors across CPU locations (within or across nodes). The system diagram for this component is given in Figure 17, which consists of four main threads. We describe the functionality of each below:
+
+• 
+
+
+H OTHER MEMORY-SAVING FEATURES
+
+The library includes a number of crucial memory-saving techniques in support of the core model parallelism features, which are often needed for large-scale training. These techniques can be enabled through simple APIs, without requiring additional code changes.
+
+
+H.1 Optimizer state sharding
+
+Optimizer state sharding is a technique that was introduced by DeepSpeed, in (Rajbhandari et al., 2020) (which was later extended to gradient and parameter sharding in (Rajbhandari et al., 2021)). It modifies the data parallelism workflow so that the optimizer states are sharded across data-parallel ranks. Instead of allreduce, the gradients are only reduced at the rank that stores the optimizer state for the corresponding parameter. This rank then locally updates these parameters, and broadcasts the latest values of the parameters to the rest of the ranks. This technique is readily implemented in the library, and can be enabled by setting "shard optimizer state": True in model parallelism configuration (see Appendix I.1 for details).
+
+
+H.2 Activation checkpointing
+
+Activation checkpointing is another useful technique that drastically reduces the activation memory footprint during training. This is achieved by storing only a subset of activations (called "checkpoints") during forward pass, and then re-computing the necessary subset of activations from the nearest checkpoint during backward pass. The library offers a fine-grained API for activation checkpointing, where the user can choose exactly which modules to checkpoint. For nn.Sequential modules, the user can also specify the frequency with which checkpointing should occur, in number of layers. This feature can be enabled on PyTorch by using smp.set activation checkpointing API (see Appendix I.2 and I.1 for API details)
+
+
+H.3 Activation offloading
+
+Activation offloading is yet another useful memory-saving feature, where the stored activations are offloaded to CPU RAM during forward pass, and fetched back to the GPU during backward pass, when they are needed. In SageMaker model parallelism, this feature is implemented in a way that interacts with, and requires the use of, pipeline parallelism and activation checkpointing. Specifically, the activations for a particular microbatch are fetched before the backward execution for that microbatch, and the activations for the other microbatches remain in CPU RAM. Moreover, it is only the checkpointed activations that are offloaded, i.e., short-term recomputed activations are not offloaded. In order to prevent the backward computation getting blocked on the fetching of activations from CPU over the PCIe link, in practice we prefetch the activations, by starting the data transfer shortly before the backward computation starts. The amount of head-start can be controlled through the configuration parameter "activation loading horizon", and activation offloading itself can be enabled through "offload activations" (see Appendix I.1 for details).
+
+
+I DETAILED API DOCUMENTATION
+
+
+I.1 Additional configuration parameters
+
+The following configuration parameters are available in addition to the documentation provided in (Amazon, 2020a).
+
+• tensor parallel degree (int, default: 1) The number of devices over which the tensor-parallel modules will be distributed.
+
+If tensor parallel degree is more than 1, then ddp must be set to True. • pipeline parallel degree (int, default: 1) The number of devices over which pipeline parallelism will be performed (alias for partitions) • optimize (["speed", "memory"], default: "memory") Determines the distribution mechanism of transformer layers. If optimizing speed, there will be less communication across tensor-parallel ranks and layer normalization will not be distributed, but there will be duplicate activations stored across tensor-parallel ranks. If optimizing memory, there will be no redundant activations stored, but this will result in more communication overhead across tensor-parallel ranks. • fp16 params (bool, default: False) If True, the pa-rameters of the distributed modules will be initialized in fp16. Determines the mapping of model partitions onto physical devices.
+
+-Must be either "spread", "cluster", or a permutation of the string "DPT". "spread" is equivalent to "TPD", and "cluster" is equivalent to "DPT". The interpretation of the three-letter string is as follows: -D stands for (reduced) data parallelism, P stands for pipeline parallelism, and T stands for tensor parallelism. -As one moves right-to-left on the three-letter string, the parallelism type that is represented by the letter type is performed over global ranks that are closer together. The parallelism type that is represented by the right-most letter is performed over immediate-neighbor ranks (i.e., devices), while the parallelism type represented by the left-most letter is performed over ranks that are as distant as possible. Can only be passed when module is a sequential module. To ensure that backward works correctly, the autograd function has to unpack any tuples received. If the layer checkpointed takes a tuple as input, then this needs to be set to True. strategy: (string, default=\each"): Can only be passed when module is a sequential module. Strategy determines how many layers part of the sequential module need to be grouped together for one checkpointing call. -This determines how much memory can be reduced. It can take the following values * "each" : The default is to checkpoint each module inside the sequential separately. * "contiguous": Groups consecutive layers on the same partition together. For example if a sequential consists of [a, b, c, d] where a, b are on pp rank 0 and c, d are on pp rank 1, then this strategy would checkpoint a, b together and then c, d together. This means effectively, the inputs of a, outputs of b, inputs of c, and outputs of d are in memory, rest of the activations are recomputed. * "group 2", "group 3", "group 4", etc:
+
+More generally, group x where x is an integer. This strategy provides more flexibility in how many layers to group together. group x groups x layers together on a best effort basis. It can group x layers together if there are x layers consecutively on the same partition. For example: [a,b,c,d,e] where a, b are on pp rank 0 and c, d, e are on pp rank 1. If the strategy is group 3, then a, b are checkpointed together on pp rank 0 and c, d, e are checkpointed together on pp rank 1.
+
+
+I.3 smp.nn module
+
+The following are the built-in distributed modules that are part of smp.nn module. -A class decorator that registers the dist module class with the module class that it is attached to. The hooks can be used to adapt to different interfaces used with init and forward methods. -Arguments: * dist module:
+
+A subclass of smp.nn.DistributedModule that implements the distributed version of the module class the decorator is attached to. Any distributed module class defined in smp.nn module can be used. * init hook: A callable that translates the arguments of the original module init method to an (args, kwargs) tuple compatible with the arguments of the corresponding distributed module init method. Must return a tuple, whose first element is an iterable representing the positional arguments, and second element is a dict representing the keyword arguments. The input signature of the init hook must exactly match the signature of the original init method (including argument order and default values), except it must exclude self. * forward hook: A callable that translates the arguments of the original module forward method to an (args, kwargs) tuple compatible with the arguments of the corresponding distributed module forward method. Must return a tuple, whose first element is an iterable representing the positional arguments, and second element is a dict representing the keyword arguments. The input signature of the init hook must exactly match the signature of the original forward method (including argument order and default values), except it must exclude self. * return hook: A callable that translates the object returned from the distributed module to the return object expected of the original module.
+
+• smp.tp register with module (module cls, dist module, init hook=None, forward hook=None, return hook=None)
+
+-When there is no direct access to model definition code, this API can be used to register a distributed module with an existing module class. -Arguments:
+
+* module: The existing module class to be dis-tributed * dist module:
+
+A subclass of smp.nn.DistributedModule that implements the distributed version of the module class the decorator is attached to. Any distributed module class defined in smp.nn module can be used. * init hook: A callable that translates the arguments of the original module init method to an (args, kwargs) tuple compatible with the arguments of the corresponding distributed module init method. Must return a tuple, whose first element is an iterable representing the positional arguments, and second element is a dict representing the keyword arguments. The input signature of the init hook must exactly match the signature of the original init method (including argument order and default values), except it must exclude self. * forward hook: A callable that translates the arguments of the original module forward method to an (args, kwargs) tuple compatible with the arguments of the corresponding distributed module forward method. Must return a tuple, whose first element is an iterable representing the positional arguments, and second element is a dict representing the keyword arguments. The input signature of the init hook must exactly match the signature of the original forward method (including argument order and default values), except it must exclude self. * return hook: A callable that translates the object returned from the distributed module to the return object expected of the original module.
+
+
+I.5 Delaying parameter initialization
+
+• smp.delay param initialization: A context manager that delays the CPU initialization of nn.Parameters until the modules are moved to GPU. Any modules created inside the context manager will not have their parameters taking up physical memory, until the first call of a smp.step-decorated function. Useful for cases when the model parameters are too many to fit in the CPU RAM.
+
+
+I.6 Creating custom distributed modules
+
+The following API can be used to create custom modules, after importing them from smdistributed.modelparallel.torch.nn.utils.
+
+All custom distributed modules must be sub-class of -Parameters of the smp.nn.DistributedModule must be created within this context manager. module is a reference to the module object self, scaled batch signifies whether the parameter interacts with the entire batch collected from TP GROUP, use normal initializes parameters with normal distribution with range initializer range.
+
+• initialize with input partition (module) -A context manager to create parameters that are distributed across their input channels, i.e., the dimension that is applied to the input tensor. module is a reference to the module self object. • initialize with output partition -A context manager to create parameters that are distributed across their output channels. module is a reference to the module self object. • fused allgather for tp (tensor, dim) -Applies allgather collective to tensors across TP GROUP, and concatenates the result across dimension dim. • fwd allreduce for tp (tensor) -Applies allreduce collective to tensors across TP GROUP. • scatter and merge for tp (tensor, split dim, merge dim) -Slices tensors across split dim into as many slices as the tensor parallelism degree, applies all-to-all to resulting slices, and concatenates the received slices across merge dim. • bwd allreduce for tp (tensor) -Applies allreduce collective to tensors across TP GROUPduring backward pass (no-op for forward pass). • reduce scatter for tp (tensor, dim) -Slices tensor across dim, applies reduce-scatter collective to the slices across TP GROUP.
+
+Figure 2 .
+2The execution flow over an example model with a toplevel module A, and submodules B-F .
+
+Figure 3 .
+3The state diagram for a worker thread
+
+Figure 4 .
+4The system diagram for a module server
+
+Figure 5 .
+5Example interleaved pipeline timeline for a 4-billion parameter GPT-2 variant over four pp ranks, with 16 microbatches.
+
+
+Liu, Y., Ott, M., Goyal, N., Du, J., Joshi, M., Chen, D., Levy, O., Lewis, M., Zettlemoyer, L., and Stoyanov, V. Roberta: A robustly optimized bert pretraining approach. arXiv preprint arXiv:1907.11692, 2019. Narayanan, D., Harlap, A., Phanishayee, A., Seshadri, V., Devanur, N. R., Ganger, G. R., Gibbons, P. B., and Zaharia, M. Pipedream: generalized pipeline parallelism for dnn training. In Proceedings of the 27th ACM Symposium on Operating Systems Principles, pp. 1-15, 2019. Narayanan, D., Phanishayee, A., Shi, K., Chen, X., and Zaharia, M. Memory-efficient pipeline-parallel dnn training. In International Conference on Machine Learning, pp. 7937-7947. PMLR, 2021a. Narayanan, D., Shoeybi, M., Casper, J., LeGresley, P., Patwary, M., Korthikanti, V. A., Vainbrand, D., Kashinkunti, P., Bernauer, J., Catanzaro, B., et al. Efficient large-scale language model training on gpu clusters. arXiv preprint arXiv:2104.04473, 2021b.
+
+Figure 7 .Figure 8 .
+78Example simple pipeline schedule over 2 GPUs Example interleaved pipeline schedule over 2 GPUs
+
+Figure 13 .Figure 14 .
+1314DistributedAttentionLayer implementation when optimize: "memory" DistributedTransformerOutputLayer implementation when optimize: "memory"
+
+Figure 15 .
+15System diagram for initial routing of messages for ten
+
+Figure 16 .
+16System diagram for D2D Communicator block
+
+Figure 17 .
+17System diagram for MPI Communicator block sufficient space in the transmission buffers, and avoid using D2D communicator if there is not.
+
+Table 1 .
+1Configurations A and B for RoBERTa training. The definitions for model hyperparameters are the same as in(Brown et al.,   2020) 
+Model 
+d model n layers n heads d head 
+RoBERTa 
+4096 
+48 
+32 
+128 
+BERT 
+2560 
+127 
+40 
+64 
+
+normalization. See Appendix F for details. 
+
+
+
+Table 2 .
+2Throughput of smp and DeepSpeed (RoBERTa and BERT).Library 
+Configuration Batch Throughput 
+smp 
+RoBERTa 
+1024 
+385 seq/s 
+DeepSpeed 
+RoBERTa 
+1024 
+276 seq/s 
+smp 
+BERT 
+8192 
+327 seq/s 
+DeepSpeed 
+BERT 
+8192 
+373 seq/s 
+
+7.2 175-billion parameter GPT-3 
+
+
+
+Table 3 .
+3Throughput for smp and the baseline over two datasets.Setting 
+Dataset 
+Throughput 
+smp 
+1 
+107656 samples/s 
+Baseline 
+1 
+43078 samples/s 
+smp 
+2 
+69298 samples/s 
+Baseline 
+2 
+36723 samples/s 
+
+
+
+Thangakrishnan, I., Cavdar, D., Karakus, C., Ghai, P., Selivonchyk, Y., and Pruce, C. Herring: rethinking the parameter server at scale for the cloud. In SC20: International Conference for High Performance Computing, Networking, Storage and Analysis, pp. 1-13. IEEE, 2020.Rajbhandari, S., Rasley, J., Ruwase, O., and He, Y. Zero: 
+Memory optimizations toward training trillion parameter 
+models. In SC20: International Conference for High Per-
+formance Computing, Networking, Storage and Analysis, 
+pp. 1-16. IEEE, 2020. 
+
+Rajbhandari, S., Ruwase, O., Rasley, J., Smith, S., and He, Y. 
+Zero-infinity: Breaking the gpu memory wall for extreme 
+scale deep learning. arXiv preprint arXiv:2104.07857, 
+2021. 
+
+Rasley, J., Rajbhandari, S., Ruwase, O., and He, Y. Deep-
+speed: System optimizations enable training deep learn-
+ing models with over 100 billion parameters. In Proceed-
+ings of the 26th ACM SIGKDD International Conference 
+on Knowledge Discovery & Data Mining, pp. 3505-3506, 
+2020. 
+Real, E., Aggarwal, A., Huang, Y., and Le, Q. V. Regular-
+ized evolution for image classifier architecture search. In 
+Proceedings of the aaai conference on artificial intelli-
+gence, volume 33, pp. 4780-4789, 2019. 
+
+Ren, J., Rajbhandari, S., Aminabadi, R. Y., Ruwase, O., 
+Yang, S., Zhang, M., Li, D., and He, Y. Zero-offload: De-
+mocratizing billion-scale model training. arXiv preprint 
+arXiv:2101.06840, 2021. 
+
+Shazeer, N., Mirhoseini, A., Maziarz, K., Davis, A., Le, 
+Q., Hinton, G., and Dean, J. Outrageously large neural 
+networks: The sparsely-gated mixture-of-experts layer. 
+arXiv preprint arXiv:1701.06538, 2017. 
+
+Shazeer, N., Cheng, Y., Parmar, N., Tran, D., Vaswani, 
+A., Koanantakool, P., Hawkins, P., Lee, H., Hong, M., 
+Young, C., et al. Mesh-tensorflow: Deep learning for 
+supercomputers. arXiv preprint arXiv:1811.02084, 2018. 
+
+Shoeybi, M., Patwary, M., Puri, R., LeGresley, P., Casper, 
+J., and Catanzaro, B. Megatron-lm: Training multi-
+billion parameter language models using model paral-
+lelism. arXiv preprint arXiv:1909.08053, 2019. 
+
+Xu, Y., Lee, H., Chen, D., Hechtman, B., Huang, Y., Joshi, 
+R., Krikun, M., Lepikhin, D., Ly, A., Maggioni, M., et al. 
+Gspmd: General and scalable parallelization for ml com-
+putation graphs. arXiv preprint arXiv:2105.04663, 2021. 
+
+
+
+• CommTrackerThread: Keeps track of ongoing tensor communications, finalizes those that are finished, and notifies the framework. • CommPostprocessingThread: For data transmissions (not metadata), if the tensor device is GPU, copies the received buffer to GPU, finalizes communication, and notifies the framework.CommRequesterThread: Initiates the communica-
+tion by calling the necessary asynchronous MPI primi-
+tives (MPI Isend, MPI Irecv). Always assumes that 
+the source buffer is at CPU RAM. Attaches the re-
+sulting request (MPI Request object) to the Message, 
+and enqueues it with CommTrackerThread, which 
+keeps track of ongoing communication transactions. 
+• CommPreprocessingThread: If the original buffer 
+is located in GPU, copies it to the CPU, updates 
+the relevant fields of Message, and enqueues it with 
+
+CommRequesterThread. 
+
+
+
+
+• shard optimizer state (bool, default: False) If True, shards the optimizer state of all parameters across the data parallel processes which hold the same parameter. This sharding of optimizer state happens in a balanced manner. • offload activations (bool, default: False) If True, offloads the checkpointed activations to CPU, and fetches them back before the backward pass of the corresponding microbatch. • activation loading horizon (int, default: 4) If activation offloading is enabled, determines how early the activations should be brought back to the GPU. If too small, might impact performance by blocking the GPU on the CPU-GPU data transfers. If too large, might increase GPU memory usage. • prescaled batch (bool, default: False) If True,when DistributedTransformerLMHead is used (this is typically used for GPT-2/3), the library assumes that the devices in the same tensor parallelism group receive the same input data. Otherwise, it is assumed that they receive different examples • placement strategy (str, default: "cluster")
+
+
+I.2 Enabling activation checkpointing smp.set activation checkpointing • This API enables checkpointing for a module given a reference to the module. • Arguments: module (Instance of nn.Module or nn.Sequential): The module to checkpoint. preserve rng state (bool, default=True): Set to False to omit stashing and restoring the RNG state during each checkpoint. pack args as tuple (bool, default=False):
+
+
+• smp.nn.DistributedLinear (in features, out features) -Distributed implementation for nn.Linear • smp.nn.DistributedEmbedding (num embeddings, embedding dim, padding idx=None, max norm=None, norm type=2.0, scale grad by freq=False, sparse=False, weight=None, initializer range=0.02, skip allgather=False, skip scatter and merge=False,) -Distributed implementation for nn.Embedding • smp.nn.DistributedTransformerLMHead (num layers=12, num attention heads=32, attention head size=32, hidden size=1024, intermediate size=4096, vocab size=30522, num positions=1024, attention dropout prob=0.1, hidden dropout prob=0.1, activation="gelu", layernorm epsilon=1e-5, num token types=0, causal mask size=None, add cross attention=False, add lm head=True, initializer range=0.02, use normal initialization=False, pre layernorm=False, post layernorm=True) -Distributed implementation for GPT-3, including the embedding and LM head • smp.nn.DistributedTransformer (num layers=12, num attention heads=32, attention head size=32, hidden size=1024, intermediate size=4096, attention dropout prob=0.1, hidden dropout prob=0.1, activation="gelu", layernorm epsilon=1e-5, initializer range=0.02, use normal initialization=False, causal mask size=None, add cross attention=False, pre layernorm=False, post layernorm=True) -Distributed implementation for a sequence of generic transformer layers, which can be specialized to BERT, GPT-2/3, RoBERTa, and many other transformers. • smp.nn.DistributedTransformerLayer (num attention heads=32, attention head size=32, hidden size=1024, intermediate size=4096, attention dropout prob=0.1, hidden dropout prob=0.1, activation="gelu", layernorm epsilon=1e-5, initializer range=0.02, use normal initialization=False, causal mask size=None, add cross attention=False, pre layernorm=False, post layernorm=True) -Distributed implementation for a single generic transformer layer. I.4 Registering distributed modules • @smp.tp register (dist module, init hook=None, forward hook=None, return hook=None)
+
+
+Amazon SageMaker Model Parallelism: A General and Flexible Framework for Large Model Training smp.nn.DistributedModule.• parameter creation scope 
+
+(module, scaled batch=True, 
+dtype=None, use normal=False, 
+initializer range=0.02) 
+
+
+Amazon.com, Santa Clara, CA. Correspondence to: Can Karakus <cakarak@amazon.com>.
+In general, distributing a higher-level module is more efficient than distributed multiple lower-level modules, since some of the collectives involved in lower-level distribution can be avoided when distributing a parent module.
+Often such techniques will be used in combination with model parallelism
+It can be shown that D'Hondt method minimizes the largest device-count-to-segment-cost ratio among all segments. The to perform this allocation since it tends to favor larger-cost segments (the motivation for this will become clear shortly). D'Hondt algorithm is outlined in Algorithm 3.At the end of D'Hondt allocation, there are three possible scenarios for each segment:
+This can happen when the cost of the segment is too small, in which case assigning the same virtual device as the parent avoids an additional round of communication. D'Hondt method biases towards this scenario by slightly favoring the larger-cost segments in its allocation.
+
+Distributed Model Parallelism. Amazon, 29Amazon. Distributed Model Parallelism. https: //sagemaker.readthedocs.io/en/stable/ api/training/smd_model_parallel.html, 2020a. [Online; accessed 29-Sep-2021].
+
+Introduction to Model Parallelism -Amazon SageMaker. Amazon, Online; accessed 29-Sep-2021Amazon. Introduction to Model Parallelism - Amazon SageMaker. https://docs.aws. amazon.com/sagemaker/latest/dg/ model-parallel-intro.html, 2020b. [On- line; accessed 29-Sep-2021].
+
+Language models are few-shot learners. T B Brown, B Mann, N Ryder, M Subbiah, J Kaplan, P Dhariwal, A Neelakantan, P Shyam, G Sastry, A Askell, arXiv:2005.14165arXiv preprintBrown, T. B., Mann, B., Ryder, N., Subbiah, M., Kaplan, J., Dhariwal, P., Neelakantan, A., Shyam, P., Sastry, G., Askell, A., et al. Language models are few-shot learners. arXiv preprint arXiv:2005.14165, 2020.
+
+C.-C Chen, C.-L Yang, H.-Y Cheng, arXiv:1809.02839Efficient and robust parallel dnn training through model parallelism on multi-gpu platform. arXiv preprintChen, C.-C., Yang, C.-L., and Cheng, H.-Y. Efficient and robust parallel dnn training through model parallelism on multi-gpu platform. arXiv preprint arXiv:1809.02839, 2018.
+
+Training deep nets with sublinear memory cost. T Chen, B Xu, C Zhang, C Guestrin, arXiv:1604.06174arXiv preprintChen, T., Xu, B., Zhang, C., and Guestrin, C. Training deep nets with sublinear memory cost. arXiv preprint arXiv:1604.06174, 2016.
+
+J Devlin, M.-W Chang, K Lee, K Toutanova, Bert, arXiv:1810.04805Pre-training of deep bidirectional transformers for language understanding. arXiv preprintDevlin, J., Chang, M.-W., Lee, K., and Toutanova, K. Bert: Pre-training of deep bidirectional transformers for lan- guage understanding. arXiv preprint arXiv:1810.04805, 2018.
+
+Switch transformers: Scaling to trillion parameter models with simple and efficient sparsity. W Fedus, B Zoph, N Shazeer, arXiv:2101.03961arXiv preprintFedus, W., Zoph, B., and Shazeer, N. Switch transform- ers: Scaling to trillion parameter models with simple and efficient sparsity. arXiv preprint arXiv:2101.03961, 2021.
+
+Proportionality, disproportionality and electoral systems. M Gallagher, Electoral studies. 10Gallagher, M. Proportionality, disproportionality and elec- toral systems. Electoral studies, 10(1):33-51, 1991.
+
+K Guu, K Lee, Z Tung, P Pasupat, Chang , M.-W Realm, arXiv:2002.08909Retrieval-augmented language model pretraining. arXiv preprintGuu, K., Lee, K., Tung, Z., Pasupat, P., and Chang, M.- W. Realm: Retrieval-augmented language model pre- training. arXiv preprint arXiv:2002.08909, 2020.

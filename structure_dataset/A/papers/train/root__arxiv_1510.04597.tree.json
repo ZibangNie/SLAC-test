@@ -1,0 +1,917 @@
+{
+  "doc_id": "corpus_5246859",
+  "units": [
+    {
+      "unit_id": 0,
+      "text": "Predictive partitioning for efficient BFS traversal in social networks",
+      "type": "heading",
+      "level": 0,
+      "parent_id": null,
+      "subtype": "doc_title"
+    },
+    {
+      "unit_id": 1,
+      "text": "Introduction",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 2,
+      "text": "Breadth First Search (BFS) is a fundamental graph algorithm which is applied constantly to huge social network graphs in distributed and parallel systems consuming large amounts of energy and resources.BFS is central to several more complicated graph algorithms such as identifying connected components, testing for bipartiteness, belief propagation, finding community structures in social networks and computing the max flow-min cut for a graph [1].As such it has drawn much attention from from the parallel processing community as a benchmark algorithm with several competing variants focused on efficient implementation [1][2][3][4][5][6][7][8][9][10][11][12][13].However, despite its importance known structural properties of social networks have not been leveraged to improve the algorithms efficiency.We show that a simple adjustment of the partitioning vector based on graph structure can radically improve the efficiency at the algorithms bottleneck, and have little (sometimes improved) effects elsewhere.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 3,
+      "text": "The setting here envisages that BFS is performed repeatedly on an unweighted, undirected graph from random root vertices.In addition, we assume basic statistics about the graph can be collected after each run or alternatively offline.It is assumed the graph is traversed in parallel by several processors thus requiring a-priori a partition of the graph vertices across each processor.In this setting the basic computation step of BFS (Section 3.1) is dominated by the communications costs (messages) between processors after each iteration (as noted in [6] amongst others).The messages emitted after the peak iteration further dominate the communication costs amounting to ∼ 70% of the total (Section 4), thus this is the bottleneck of the whole algorithm.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 4,
+      "text": "The aim of this paper is to use known properties of social networks (specifically the power-law distribution, small world and assortativity properties) to reduce the communications costs at the bottleneck and so make the algorithm more efficient.With the exception of a few papers (Section 2) most approaches ignore information about the structure of the graph focusing instead on CPU-GPU architecture specifics.We show that the incident degree distribution per iteration is highly skewed away from a power law distribution.Thus the number of edges crossing a partition is a biased estimate of the messages between partitions at the peak iteration.Further we propose a new weighted graph construction which reflects the expected number of messages per edge.Finally, we show empirically that using the METIS [14] partitioning algorithm that the subsequent reduction in messages emitted across partitions can be reduced in some individual cases by ∼ 50%, for some graphs on average by ∼ 20% but the improvement is highly dependent on structure and so for some graphs is insignificant.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 5,
+      "text": "The paper is laid out as follows.Section 2 discusses related work, Section 3 gives the background behind the BFS algorithm, partitioning and develops the theory showing that the degree distributions are highly skewed.Section 4 presents empirical results and finally in Section 5 we mainly focus on future work and discussing the consequences of the findings.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 6,
+      "text": "Related Work",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 7,
+      "text": "Implementing BFS in parallel is a well established approach which generally consists of three stages: graph pre-ordering, graph partitioning and parallel architecture specific implementation.This research is most pertinent to graph partitioning however there are several aspects of architecture specifics of interest.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 6,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 8,
+      "text": "Graph partitioning seeks to reduce the number of messages sent between partitions during processing which can be achieved in several ways.The most obvious mechanism is to use a 1-D partition; each vertex and associated edges are sent to an individual processor [1,4,9,15].An excellent overview of 1-D graph partitioning methods can be found in [13] with techniques designed specifically for scale-free networks exist such as [16].Although [16] considers partitioning for social network graphs they do not do so in the context of BFS, indeed the two approaches are complimentary as here we provide a weighted social network graph for partitioning.[4] consider partitioning edges across processors (as opposed to vertices).The edges may be uniformly distributed by either the source or the target vertex.They propose that when the degree of the target vertex exceeds a pre-defined threshold the algorithm performs best by switching to a target vertex partitioning, while Hong et.al. [17] note that for low degree vertices partitioning should be based on vertex but for large degree vertices the partitioning should be based on edge.In contrast a 2-D partition [2,8,10,11] distributes the edges of a vertex across several processors.The 2-D approach is based on the observation that an exploration from a set of vertices is equivalent to the product of the adjacency matrix and a vector of the vertices touched.Thus they partition the adjacency matrix into two dimensions (blocks along the rows and columns) and then collect the row products in one set of messages and the unique column entries in another.Thus the messages produced are between particular processors and not all to all as in the 1-D case.It would appear from the literature that the 2D partitioning approach results in more efficient BFS traversals but we do not consider this approach in this research (see future work, Section 5).",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 6,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 9,
+      "text": "Shang and Kitsuregawa",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 6,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 10,
+      "text": "Skewed graph structure is a central topic in many papers [1,2,5,12,17].The non-locality of neighbours in a graph, and the fact that some vertices can have degrees several factors larger than the average, leads to load imbalances across processors and random memory access patterns.Yuan et.al. [12] examines the expected distance between two pairs of nodes being explored in a BFS and show that they can predict the vertex locality.This is perhaps the closest work to this research.In contrast our approach looks at the expected use of a vertex of a given degree in a particular iteration, though the two approaches are similar in spirit.To the best of our knowledge our approach is the first to take graph structure during the execution of the BFS algorithm into account.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 9,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 11,
+      "text": "Background",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 12,
+      "text": "Breadth First Search",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 13,
+      "text": "Given a graph G(V, E) and a source vertex s, where V , E refer to the vertex and edge sets respectively the BFS algorithm returns a route from s to every reachable vertex in G.The BFS algorithm begins with a set V 0 = {s} and explores the graph by identifying neighbours of s, denoted as the set V + 0 , where + denotes neighbour expansion.At the next iteration all vertices connected to V + 0 minus those already visited are V 1 = V + 0 \\ {V 0 }.We call the set of unique vertices in the τ th iteration, V τ , the frontier set.In general the frontier consists of",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 14,
+      "text": "V τ = V + τ −1 \\ { τ −1 i=0 V i }(1)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 15,
+      "text": "and the set of vertices already visited, { τ −1 i=0 V i }, are said to be touched.The algorithm continues until V τ = {∅} and all vertices have been explored.Figure 1 illustrates a small example starting vertex 1, where V 0 = {1}, V 1 = {6}, V 2 = {2, 7, 5}, V 3 = {4, 10, 3, 8, 8}, V 4 = {9} and finally V 5 = {∅}.In this example we see that the number of vertices in the frontier increases rapidly, peaks, and then decays rapidly to zero.In addition, note that there is a duplicate in V 3 as vertex 8 is reached from both vertex 7 and 2 in the 2 nd iteration.The BFS algorithm creates a shortest path tree from the root node by recording the edges traversed between V τ and V τ −1 and in the case of duplicates, only the first (or a random) edge is recorded.The BFS algorithm may be implemented on P parallel processors by partitioning V into P subsets V 1 , . . ., V P , where V i V j = {∅} ∀i = j, and i V i = V , such that each vertex is assigned a processor which performs the neighbour expansion of that vertex.This is the basic format of most parallel BFS (P-BFS) algorithm implementations.At the end of each iteration the processor owning each element in the next frontier must be notified that this vertex is now to be explored.We define a message M τ Vi→Vj (u, v) to be a notification from processor i to processor j that vertex u has identified vertex v to be a member of the next frontier set.If u and v reside in the same processor then there is no communication cost and thus the communications cost for P-BFS is here defined as the sum of all messages that cross a partition:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 16,
+      "text": "C τ = u∈Vτ−1,v∈Vτ M τ Vi→Vj (u, v) ∀i = j(2)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 17,
+      "text": "This is illustrated in Figure 1 where the graph is arbitrarily partitioned into",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 18,
+      "text": "3: V 1 = {1, 2, 3}, V 2 = {4, 5, 6}, V 3 = {7, 8, 9, 10}. In this case the messages in iteration 2 of the algorithm are M 2 V2→V3 (7, 4), M 2 V3→V1 (7, 3), M 2 V1→V3 (2, 8), M 2 V2→V3 (5, 3).",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 19,
+      "text": "The aim of a partitioning algorithm is to partition a graph into roughly equal sets, |V i | ≈ |V j |, such that a specific objective is achieved such as the number of edges that cross the partitions, the edge-cut, is minimized as:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 20,
+      "text": "arg min V1,...,VP C = u∈Vi,v∈Vj,∀i =j w u,v(3)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 21,
+      "text": "or alternatively the communications volume:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 22,
+      "text": "arg min V1,...,VP C = u∈Vi∀i w u,v D(v)(4)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 23,
+      "text": "where D(v) is the number of different blocks in which v has a neighbouring node (to account for parallel communications between processors).Although the communications volume would appear to be more suited as a objective function for P-BFS the minimum cut has been adopted as the standard for several practical reasons [13].There are several methods for graph partitioning (a recent review of such methods may be found in [13]) and the one adopted here is the popular METIS [14] multi-level k-way algorithm.This algorithm first applies several rounds of coarsening to produce a small graph which is then partitioned.This partitioned graph is then uncoarsened in stages to produce the full partition.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 24,
+      "text": "Graph structure",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 25,
+      "text": "The development here initially follows that of Kurant et.al. [18] who derive expressions for the observed degree distribution of a graph sampled by BFS (i.e. a different problem).The configuration model [19] is a construct which allows construction of graphs with a desired degree distribution.N vertices are each assigned k stubs sampled uniformly from a desired degree distribution, p k , i.e. k ∼ p k .The configuration model then pairs these stubs at random thus constructing edges and thus a graph with the desired degree distribution.The order in which these stubs are connected is irrelevant as the pairing is random.Thus we may assign to each stub an arbitrary time, t ∈ [0, 1] and moving from t = 0 → 1 connect the stubs as their randomly assigned time is passed.This converts a discrete graph generation process into a continuous time process and is a useful framework to derive expressions for the bias inherent in BFS sampling [18,20].Kurant et.al. interweave the stub matching step with the exploration phase of BFS.Thus the stubs are connected only when the the frontier is being explored and the unconnected stubs with the lowest time are chosen first.A vertex enters the frontier when all of its stubs have been paired and this happens with probability (1 − t) k therefore the expected fraction of vertices of degree k touched before time t is [18]:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 26,
+      "text": "f k (t) = p k (1 − (1 − t) k ) (5",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 27,
+      "text": ")",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 28,
+      "text": "where p k is the probability a vertex has degree k (i.e. the degree distribution).",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 29,
+      "text": "The fraction of nodes of any degree visited before time t is [18]:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 30,
+      "text": "f (t) = 1 − k p k (1 − (1 − t) k ) (6)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 31,
+      "text": "Kurant investigated the bias of BFS samples but here we are concerned with the degree distribution of the frontier.In addition, we are only interested in particular times; those that correspond to the iterations.It is assumed that the number of vertices touched up to each iteration",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 32,
+      "text": "n τ = τ i=1 |V i | is known. 1 Thus we may define: 2 t τ = f −1 (n τ /N )(7)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 33,
+      "text": "where f −1 denotes the inverse of f (t) as ( 6) cannot be inverted explicitly.This inverse consists of finding the minimum of a smooth function in one dimension and may be solved easily using gradient descent or any similar search algorithm.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 34,
+      "text": "The frequency of degrees of type k in the τ th frontier, n τ k , can be calculated iteratively by removing those seen in the previous frontiers as:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 35,
+      "text": "n τ k = p k (1 − (1 − t τ ) k ) k p k (1 − (1 − t τ ) k ) n τ − τ −1 i=1 p i k n i (8",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 36,
+      "text": ")",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 37,
+      "text": "where n 0 = 0 and p τ k is the frontier degree distribution defined as:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 38,
+      "text": "p τ k = n τ k k n τ k (9)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 39,
+      "text": "The probability that a vertex of degree k is used in the frontier is then the number of vertices of degree k in the frontier divided by the total number in the graph:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 40,
+      "text": "π τ k = p τ k n τ p k N(10)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 41,
+      "text": "Figure 2 shows f k (t) for p k ∝ k −2 . 3Up to iteration 3, 25% of the degrees touched are of degree 1 which rises to ∼ 50% by iteration 5.That is, BFS is biased (proportionately) towards higher degree vertices initially, moving towards lower degree vertices at later iterations.Note that Figure 2 shows the accumulated proportion as the algorithm progresses, however, it is the difference in these proportions that are touched at each iteration and this has a very different shape (Figure 3).",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 42,
+      "text": "Figure 3 shows π τ k for the YouTube friendship graph (Section 4).The distribution of nodes used in iterations 2 and 3 is biased towards high degree nodes.In iteration 4 the bias centres on vertices of degree 10 with 40% being touched but only 15% of degree 1 nodes are touched.In iteration 5 the bias switches, ∼ 40% of degree 1 vertices are touched but only ∼ 25% of degree 10 vertices are touched.There is a similar switch between iteration 5 and 6.The interesting thing about 1 A good estimate of the number of vertices expected in each iteration of BFS can be obtained from a single graph traversals. 2 Here we diverge from the analysis of Kurant as we are interested in the degree distribution used per iteration and not the degree distribution of the BFS tree. 3 Here we use the YouTube friendship graph as an example: the power law exponent =-2 and tτ = {0.0006,0.02, 0.19, 0.53, 0.81, 0.93, 0.97, 0.99, 1}, the results are similar for the other graphs we examined.this behaviour is that the degree distribution of vertices used is highly skewed and during the main iterations (4,5,6) those used in one iteration tend not to be used in the next and visa versa (as illustrated with arrows in Figure 3).Thus at a specific iteration we have a prior probability over the vertices that will be used and a different prior over the vertices they are connected to in the next frontier, and these distributions are different from the initial power-law distribution, i.e.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 43,
+      "text": "π τ k = π τ +1 k ∝ p k . The transition from π τ k → π τ +1",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 44,
+      "text": "k involves connecting vertices with degree distribution π τ k to those with π τ +1 k .It would be tempting to assume that the probability of a node of degree k connects to a node of degree k ′ is just the product of π τ k and π τ +1 k , however the two events are not independent.Realworld graphs are generally assortative and as has been shown graph generators that take into account the correlation structure in the joint degree distribution p k,k ′ produce far better approximations to real-world graphs [19] and have very different properties from those that assume independence [21].Here we assume that the joint degree distribution, p k,k ′ , [19] gives a good approximation of the expected edges between the vertices in iteration τ and τ + 1, therefore we may define the probability of transitioning from a vertex with degree k to an edge with degree k ′ in iteration τ , p τ k,k ′ as:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 45,
+      "text": "p τ k,k ′ = π τ k p k,k ′ π ′τ +1 k(11)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 46,
+      "text": "The probability of using a particular edge, {u, v}, in iteration τ is equal to the probability of passing from u → v, or from v → u but not both, u ↔ v, as this would imply u and v have already been touched in iteration τ , therefore:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 47,
+      "text": "w τ k,k ′ = p τ k,k ′ + p τ k ′ ,k − p τ k,k ′ p τ k ′ ,k(12)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 48,
+      "text": "where w τ k,k ′ can be used to weight each edge in G where the weights represents the expected message along that edge in iteration τ .The total number of expected messages given a particular partition is then:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 49,
+      "text": "E[C τ ] = u∈Vτ ,v∈Vτ+1 w τ ku,kv I Vi→Vj (u, v)(13)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 50,
+      "text": "where I Vi→Vj (u, v) is an indicator variable s.t.u → v crosses a partition.To implement this approach requires estimates of; p k , p k,k ′ , n τ .Given these a weighted version of G, W (V, E), may be constructed, and partitioned using a weighted partitioning algorithm (here we use METIS).",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 24,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 51,
+      "text": "Results",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 52,
+      "text": "The simulations presented below consist of randomly choosing a source node, performing a BFS using the competing algorithms (described below), and recording the number of messages generated.The simulations are based on 500 randomly chosen root vertices.We begin by looking at the messages generated in individual runs, moving onto those for a particular graph and finish with the results of the simulations over the 8 graphs examined.The peak iteration is defined as the iteration with the largest number of vertices in the frontier, i.e.. max τ |V τ |, There are four competing algorithms which represent different levels of knowledge:",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 51,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 53,
+      "text": "1. METIS is applied to G(V,E) from s with no weighting, a BFS is then performed and the messages across partitions recorded.This is the baseline algorithm against which the others are compared, 2. Using the results from 1) we calculate the peak τ , and p τ k,k ′ using actual messages counts.G is then weighted to give the empirical weighted matrix which we denote: W emp .W emp is then partitioned using METIS.This partition is then used to perform the same BFS from s.Note that in essence we are using the answer to derive the partition which is unrealistic.The aim here is to give an upper bound on the algorithms performance, 3. Using the p τ k,k ′ from all 500 iterations we combine and smooth these estimates to produce a single weighted graph called, W smooth .This is partitioned using METIS and a BFS is performed from s.The aim here is to give an estimate of performance without the approximation error inherent in Equation 10, and 4. Using the actual degree distribution, p k , the joint degree distribution p k,k ′ (see note below) and the number of vertices in the peak iteration together with equations (10,11,12) we form a single weighted graph called, W avg .We note that these quantities are computationally inexpensive to calculate and a reasonable estimate may be formed from a small number of BFS runs (here we use 10 runs).",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 51,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 54,
+      "text": "The joint degree distribution, p k,k ′ , can present problems of storage and estimation especially when the maximum degree is high.However, as the graphs studied have a power law distribution, the number of vertices with a high degree falls rapidly.In this paper we calculate p k,k ′ where nodes with k ≥ 300 are counted in a single bin.Therefore, p k,k ′ is formed of a, 300 × 300 grid.We choose the number of partitions to be be 100 as this reflects the order of processors in a GPU (the number of processors varies greatly depending on the machine; the NVIDIA GeForce GTX280, for example, has 30 [9] while the NVidia Kepler architecture has 4,096 GPU's [10]).",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 51,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 55,
+      "text": "Data Sets",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 51,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 56,
+      "text": "The datasets used in this study are taken from the Konect graph repository. 4We are specifically interested in social network graphs and so the RMAT graphs used in studies such as [1,7] are not included though we do include a synthetically generated ER graph with a single large component.We also did not consider graphs with N > 2M for computational reasons.These graphs are listed in Table 1.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 55,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 57,
+      "text": "Simulations",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 51,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 58,
+      "text": "Figure 4 shows the empirical distribution of π τ k (based on a sample of 500 random root nodes) for the YouTube Graph versus the theoretical (Figure 3).As can be seen for low degrees the approximation is excellent but deviates at higher degrees, especially during iteration 4.This occurs because high degree nodes in real networks cluster together in the network core (breaking the uniform assumption in the configuration model).That said, most nodes in power-law network are of low degree where the approximation is excellent and as will be seen the results are not effected adversely.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 57,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 59,
+      "text": "τ 2 (f τ = 2601) τ 3 (f τ = 48731) τ 4 (f τ = 287739) τ 5 (f τ = 401494) τ 6 (f τ = 243044)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 57,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 60,
+      "text": "Fig. 4: π τ k theoretical (solid) vs empirical (dashed) (YouTube Graph).",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 57,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 61,
+      "text": "(790185) W emp (713823) W smooth (708161) W avg2 2.5 3 3.5 G",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 57,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 62,
+      "text": "Fig. 5: Average number of messages per iteration (YouTube; totals in brackets)",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 57,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 63,
+      "text": "Figure 5 shows the average number of messages per iteration using the 4 algorithms above applied to the YouTube graph.As can be seen the three weighted graph versions perform better than the unweighted graph.The average number of messages (over all iterations) transmitted using W avg is the lowest at 681K while those for the unweighted graph are 790K.The results differ on closer inspection however.Figure 6 shows the histogram of the iteration at which the peak iteration occurred in each BFS run.For most source vertices the iteration at which the number of vertices in the frontier reaches a peak is 5 or 6.  Figure 7 shows the distribution of messages for a particular root node and as can be seen here the peak occurs at iteration 4 and the number of messages in the peak far exceeds those in the other iterations (as is typically the case, as shown in Figure 8).It is interesting to note that a weighted matrix designed to reduce the number of messages at the peak iteration should also reduce the number of messages off the peak although this is not always the case.Figure 9 shows the distribution of the actual number of messages sent at the peak versus the estimate (Equation 13).The estimate is reasonably close given it is an approximation but seems to underestimate the number of messages by about 5%.Now we turn our attention to how the algorithm performs relative to the baseline.Figure 10 shows the percentage improvement in messages over the the baseline algorithm.The savings are in the order of 15% for this graph which is quite significant.In this particular case the three algorithms perform reasonably similarly but note that W avg leads to the lowest improvement in messages at the peak but interestingly the highest improvement in the overall number of messages (Figure 5).",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 57,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 64,
+      "text": "D. Fay",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 57,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 65,
+      "text": "Figure 11 shows the improvements observed with the Epinions graph.Here there is a distinct bi-modal distribution, with one distribution centred around 4% and another centred ∼ 35%.For this graph about half the iterations peak at τ = 3 and the remainder at τ = 4.If we look at the improvement for those that peak at τ = 3 alone then a clearer picture emerges.For these vertices the improvement is very small (the 4% mode in the distribution).One possibility is that vertices which reach the peak at τ = 3 lie in the core of the graph and have less hops to the periphery; thus the BFS algorithm has less time to achieve the random mixing assumed in Equation 12(Kurant similarly notes that the starting vertex can significantly effect their estimates [18]).Next we examine a graph with no structure, an Erdos Renyi (ER) graph, where the joint degree distribution is uniform and the degree distribution is concentrated around the mean.As there is no structure in the graph we expect the algorithm to fail and this is exactly what is seen in Figure 12. 5 The % (dis)improvement is a distinctive Gaussian distribution centred on zero.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 66,
+      "text": "% reduction in messages",
+      "type": "heading",
+      "level": 4,
+      "parent_id": 64,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 67,
+      "text": "Moving onto a collection of graphs, Table 1 summarizes our results.These results are quite mixed; for some graphs the reduction in messages can be very 5 Alternatively one could insert a concentrated degree distribution for p k in (5) and see that π tau k = p k .",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 66,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 68,
+      "text": "significant and in the order of ∼ 15% while for others it can be quite low.For the epinions and YouTube graphs the improvement is 12.80% and 14.59% on average which is not far from the upper bound of 16.90% and 16.57%.For the Catster, Wikipedia, and DBLP graph the results are reasonable and in the region of 5% (3.8%, 4.8%, 6.7%).The result for the Google Hyperlink graph is less promising and in fact shows that the algorithm degrades performance!Investigating further we found that the degree distribution for this graph is not power law. Figure 13 displays the distinctive power law tail but the distribution for low degree nodes is more uniformly distributed breaking the underlying assumption required for the algorithm to work.For the Epinions graph the result for the non-core vertices increases to 17.20% but for the YouTube graph it actually decreases to 12.37%.For the DBLP graph, there is no difference.For Wikipedia the difference is quite significant with noncore vertices reporting a reduction in messages up from 4.80% to 13.96%.The main conclusion here is that the position of a vertex in the graph certainly has an effect on the performance but it is unclear what the effect will actually be.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 66,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 69,
+      "text": "Conclusion",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 70,
+      "text": "This paper has clearly demonstrated that graph structure can be leveraged to improve the efficiency of BFS; in some cases significantly by up to 20%.In fact, any graph (not just power law graphs) with a skewed degree distribution will result in π τ k = π τ +1 k ∝ p k and so an improved partition in theory.The computational overhead required for the algorithm to work {p k , p k,k ′ , n τ } can be easily estimated from an initial burn in period (several BFS runs).Future work will look at extending this approach to weighted, directed graphs, we also note that as vertices and edges are added to a real-world graph its degree distribution does not change rapidly and so there is scope for application in dynamic and streaming graph analysis.The skew present in π τ k is such that (the standard) unweighted edge partition is not optimal for any iteration.This is why in Figure 5 we see that the total number of messages (not just at the peak) can also be radically reduced.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 71,
+      "text": "We are currently working to implement the algorithm on a GPU and a distributed architecture.For GPU's the communications cost between processors is not uniform.In fact there exists a hierarchy with typical GPU's containing several (∼ 15) multi-processors, each containing several (∼ 12) groups, each containing (∼ 16) cores.Communications between cores are considered far less costly than those between multi-processors as can be used to advantage [17].",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 72,
+      "text": "On the surface there would not appear to be a conflict between the approach presented here and those mentioned in Section 2. Future work will investigate integration with these approaches for improved performance.Finally, further work is required to determine why the algorithm works better for some start vertices, if those vertices can be identified in advance, and in a computationally efficient manner.It is also possible that Equation 5 could be made conditional on known information about the root vertex.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 73,
+      "text": "Fig.1: Illustration of BFS on a small graph with (arbitrary) partitions.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 74,
+      "text": "Fig.1: Illustration of BFS on a small graph with (arbitrary) partitions.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 75,
+      "text": "Fig. 2: Proportion of vertices of degree k seen before iteration τ (α = −2)",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 76,
+      "text": "Fig. 2: Proportion of vertices of degree k seen before iteration τ (α = −2)",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 77,
+      "text": "Fig. 6: Histogram of iteration at which the number of vertices in the frontier reached a peak.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 78,
+      "text": "Fig. 6: Histogram of iteration at which the number of vertices in the frontier reached a peak.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 79,
+      "text": "Fig. 7: Example showing number of messages per iteration for YouTube graph (root u=157,298)",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 80,
+      "text": "Fig. 7: Example showing number of messages per iteration for YouTube graph (root u=157,298)",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 81,
+      "text": "Fig.8: The percentage of total messages emitted at the peak iteration.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 82,
+      "text": "Fig.8: The percentage of total messages emitted at the peak iteration.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 83,
+      "text": "Fig. 9: Distribution of number of messages versus the expected number (YouTube graph, mean values in brackets)",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 84,
+      "text": "Fig. 9: Distribution of number of messages versus the expected number (YouTube graph, mean values in brackets)",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 85,
+      "text": "Fig. 10: Distribution of reduction for YouTube dataset (the distribution using those with peak ≥ 6 is shown using the dotted line, 500 samples)",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 86,
+      "text": "Fig. 10: Distribution of reduction for YouTube dataset (the distribution using those with peak ≥ 6 is shown using the dotted line, 500 samples)",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 87,
+      "text": "Fig.12: Distribution of reduction for ER dataset (the distribution using those with peak ≥ 3 is shown using the dotted line)",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 88,
+      "text": "Fig.12: Distribution of reduction for ER dataset (the distribution using those with peak ≥ 3 is shown using the dotted line)",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 89,
+      "text": ",890 2,987,624 -0.03 16.57(12.59) 14.61 (10.18) 14.59 (12.37)Summary of results for a collection of graphs (http://konect.unikoblenz.de)values for ρ in brackets exclude core nodes, results averaged over 500 simulations.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 90,
+      "text": ",890 2,987,624 -0.03 16.57(12.59) 14.61 (10.18) 14.59 (12.37)Summary of results for a collection of graphs (http://konect.unikoblenz.de)values for ρ in brackets exclude core nodes, results averaged over 500 simulations.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 91,
+      "text": "References",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "references"
+    },
+    {
+      "unit_id": 92,
+      "text": "Scalable GPU graph traversal. D Merrill, M Garland, A Grimshaw, 17th ACM SIGPLAN symposium on Principles and Practice of Parallel Programming. feb 201247",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 93,
+      "text": "Graph partitioning for scalable distributed graph computations. A Buluç, K Madduri, Contemporary Mathematics. 5882013",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 94,
+      "text": "On the complexity of distributed BFS in ad hoc networks with spontaneous wake-up. K Krzywdzinski, D Kowalski, Discrete Mathematics and Theoretical Computer Science. 1532013",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 95,
+      "text": "Efficient breadth-first search on large graphs with skewed degree distributions. H Shang, M Kitsuregawa, Joint 2013 EDBT/ICDT Conferences.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 96,
+      "text": ". Proceedings. March 18-22, 2013, 2013",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 97,
+      "text": "PowerLyra: Differentiated graph computation and partitioning on skewed graphs. R Chen, J Shi, Y Chen, H Chen, Proceedings of the Tenth European D. Fay Conference on Computer Systems, ser. EuroSys '15. the Tenth European D. Fay Conference on Computer Systems, ser. EuroSys '15New York, NY, USAACM2015115",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 98,
+      "text": "Parallel breadth first search on GPU clusters. Z Fu, H Dasari, M Berzins, B Thompson, UUSCI- 2014-0022014SCI Institute, University of Utah, SCITechnical Report",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 99,
+      "text": "Large-scale graph processing algorithms on the GPU. Y Wang, J D Owens, UC Davis, Tech. Rep. Jan 2013",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 100,
+      "text": "Distributedmemory breadth-first search on massive graphs. A Buluç, S Beamer, K Madduri, K Asanović, D Patterson, Parallel Graph Algorithms. D Bader, Taylor-FrancisCRC Press2015in press",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 101,
+      "text": "An effective GPU implementation of Breadthfirst search. L Luo, M Wong, W.-M Hwu, Proceedings of the 47th Design Automation Conference, ser. DAC '10. the 47th Design Automation Conference, ser. DAC '10New York, NY, USAACM2010",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 102,
+      "text": "Parallel distributed breadth first search on the Kepler architecture. M Bisson, M Bernaschi, E Mastrostefano, abs/1408.1605CoRR. 2014",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 103,
+      "text": "Parallel breadth-first search on distributed memory systems. A Buluç, K Madduri, Proceedings of 2011 International Conference for High Performance Computing, Networking, Storage and Analysis, ser. SC '11. 2011 International Conference for High Performance Computing, Networking, Storage and Analysis, ser. SC '11New York, NY, USAACM20116512",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 104,
+      "text": "Modeling the locality in graph traversals. L Yuan, C Ding, D Tefankovic, Y Zhang, ICPP. IEEE Computer Society2012",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 105,
+      "text": "Recent advances in graph partitioning. A Buluç, H Meyerhenke, I Safro, P Sanders, C Schulz, abs/1311.3144CoRR. 2013",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 106,
+      "text": "Multilevel k-way partitioning scheme for irregular graphs. G Karypis, V Kumar, Journal of parallel and distributed computing. 481998",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 107,
+      "text": "Computing breadth first search in large graph using hmetis partitioning. W E Sahar Idwan, European Journal of Scientific Research. 2922009",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 108,
+      "text": "Multilevel algorithms for partitioning powerlaw graphs. A Abou-Rjeili, G Karypis, Proceedings of the 20th International Conference on Parallel and Distributed Processing, ser. IPDPS'06. the 20th International Conference on Parallel and Distributed Processing, ser. IPDPS'06Washington, DC, USAIEEE Computer Society2006",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 109,
+      "text": "Accelerating CUDA graph algorithms at maximum warp. S Hong, S K Kim, T Oguntebi, K Olukotun, SIGPLAN Not. 468Feb. 2011",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 110,
+      "text": "On the bias of BFS (breadth first search). M Kurant, A Markopoulou, P Thiran, Teletraffic Congress (ITC), 2010 22nd International. Sept 2010",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 111,
+      "text": "Orbis: rescaling degree correlations to generate annotated Internet topologies. P Mahadevan, C Hubble, D Krioukov, B Huffaker, A Vahdat, SIGCOMM Computer Communications Review. 3742007",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 112,
+      "text": "On the bias of traceroute sampling: or, power-law degree distributions in regular graphs. D Achlioptas, A Clauset, D Kempe, C Moore, STOC'05: Proceedings of the 37th Annual ACM Symposium on Theory of Computing. Baltimore, MDmay 2005",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 113,
+      "text": "Discriminating graphs through spectral projections. D Fay, H Haddadi, S Uhlig, L Kilmartin, A W Moore, J Kunegis, M Iliofotou, Computer Networks. 55152011",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "bibentry"
+    }
+  ]
+}

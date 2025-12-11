@@ -1,0 +1,725 @@
+{
+  "doc_id": "corpus_281658783",
+  "units": [
+    {
+      "unit_id": 0,
+      "text": "REFINE-CONTROL: A SEMI-SUPERVISED DISTILLATION METHOD FOR CONDITIONAL IMAGE GENERATION",
+      "type": "heading",
+      "level": 0,
+      "parent_id": null,
+      "subtype": "doc_title"
+    },
+    {
+      "unit_id": 1,
+      "text": "INTRODUCTION",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 2,
+      "text": "Recently, researchers have applied controllable modules to guide text-to-image diffusion models, such as ControlNet [1] to achieve fine-grained control over image generation.As a controllable add-on module to the foundational model, it encodes extra spatial conditions into fine-grained guidance signals.This allows for pixel-level control without compromising the powerful generative capabilities of the pre-trained model, leading to its widespread adoption in various applications [2,3,4], including image editing [5,6].",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 3,
+      "text": "While this \"foundation + module\" paradigm has significantly enhanced controllability, its success has also introduced severe challenges: 1) High Computational and Memory Costs.The architecture of add-on modules like ControlNet is intricately integrated with the underlying diffusion model.Typically, the size of these modules exceeds half of the model's overall structure [7,8].This substantial resource requirement severely hampers the deployment and application of advanced controllable generative models on edge devices.2) Reliance on Large-Scale Finely Annotated Data.Training a high-performance controllable module often requires massive, high-quality datasets.Acquiring such datasets is expensive and time-consuming, especially in tasks such as image inpainting.3) Structural Hurdles in Knowledge Distillation.While model distillation is an effective approach for model compression [9,10,11], the significant architectural mismatches between teacher and student ControlNet models pose unique challenges for its direct application.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 4,
+      "text": "To address these challenges, we propose Refine-Control, a novel two-stage semi-supervised distillation framework.The motivation behind our two-stage approach is to decouple the distillation process into foundational mapping and advanced refinement.In the first stage, we leverage a fully annotated dataset for supervised learning, enabling the student model to quickly learn the initial mapping from conditions to outputs.In the second stage, we use an easily accessible dataset with unlabeled data for self-supervised fine-tuning.This improves the generalization and generation quality of the student model.Considering mainstream loss functions are often insufficient to deal with the structural mismatches of Control-Nets, we design a specialized tri-level knowledge fusion loss to transfer hierarchical knowledge of the teacher.We also utilize local prompts to alleviate the misinterpretation problems caused by global prompts, when facing scenarios with multiple objects similar in semantics, thereby enhancing controllability in complex scenes.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 5,
+      "text": "In summary, our contributions are as follows:",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 6,
+      "text": "• We propose a novel two-stage distillation framework enabling efficient knowledge transfer even with \"data challenges\".",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 7,
+      "text": "• We introduce a specialized tri-level knowledge fusion loss to transfer hierarchical knowledge during distillation.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 8,
+      "text": "• A novel data pipeline with local prompts is introduced to enhance controllability.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 9,
+      "text": "THE REFINE-CONTROL FRAMEWORK",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 10,
+      "text": "We frame the image-inpainting distillation as a two-stage process: foundational learning and advanced refinement.Our approach is designed to systematically build the student model's capabilities by decoupling the training process into these two distinct and complementary phases.The primary goal of the first stage is to establish a robust baseline understanding of the task, and to ensure the student can produce structurally coherent results.Subsequently we apply self-supervised finetuning in the second stage.This enables the student to further learn from the teacher's generative logic, enhancing its generalization and generation quality.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 9,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 11,
+      "text": "The Supervised Distillation Stage",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 9,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 12,
+      "text": "To enable the student model to quickly learn the initial mapping from conditions to outputs in this stage, we design a trilevel knowledge fusion loss that effectively transfers hierarchical knowledge from the teacher to the student.It contains three different components: a goal-oriented task loss (L task ), an output-oriented distillation loss (L distill ), and a processoriented asymmetric feature loss (L af ).This work primarily focuses on image inpainting tasks, and the total loss for this stage is:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 13,
+      "text": "L stage1 = λ task • L task + λ distill • L distill + λ af • L af ,(1)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 14,
+      "text": "where λ task , λ distill , and λ af are weighting hyperparameters.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 15,
+      "text": "Mask-Weighted Task Loss",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 16,
+      "text": "Instead of computing the loss over the entire image, we guide the model to focus on the user-specified inpainting region, which represents the key area of interest.To achieve this, we introduce a mask-weighted task loss.Given the binary mask M (where inpainting regions are 1), we define a weight matrix ω mask :",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 15,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 17,
+      "text": "ω mask = α • M + (1 − α) • (J − M ),(2)",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 15,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 18,
+      "text": "where J is a matrix of ones with the same shape as M , and α > 0.5 is a hyperparameter that assigns higher importance to the masked areas.The task loss is then defined based on the Flow Matching objective [12]:",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 15,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 19,
+      "text": "L task = E x0,ϵ,t ||ω mask ⊙ (ϵ − ϵ θ (x t , t, c))|| 2 , (3",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 15,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 20,
+      "text": ")",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 15,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 21,
+      "text": "where c denotes the generation constraints, including text prompts c t and ControlNet constraints c control , x 0 represents the original image, ϵ denotes the noise, and t signifies the diffusion steps.x t is the noisy sample obtained by adding noise ϵ to x 0 at timestep t, and ϵ θ is the final output of the model.This formulation ensures that errors within the inpainting region are penalized more heavily, guiding the student model to prioritize generation quality where it matters most.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 15,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 22,
+      "text": "Distillation Loss",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 23,
+      "text": "Following the success of knowledge distillation in diffusion models [9,10,11], we employ an output-level distillation loss.This loss encourages the student model ϵ θ to replicate the final denoising output of the teacher model ϵ T , effectively transferring its overall generative capability.The loss is defined as:",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 22,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 24,
+      "text": "L distill = E x0,ϵ,t ||ϵ T (x t , t, c) − ϵ θ (x t , t, c)|| 2 2 ,(4)",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 22,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 25,
+      "text": "Asymmetric Feature Loss",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 11,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 26,
+      "text": "A key challenge in distilling ControlNet is the architectural mismatch, as our student model has fewer layers (S = 12) than the teacher model (T = 23).To bridge this structural gap, we propose a many-to-one feature alignment and a one-to-many injection strategy.Instead of a simple one-toone mapping, each layer of the student network is designed to learn the aggregated features from two corresponding layers of the teacher network, and to connect to the fundamental model layers to which its corresponding group of teacher layers would be injected.Specifically, let f j S be the output feature map of the j-th layer of the student ControlNet, and f i T be that of the i-th layer of the teacher.Our alignment strategy ensures that the j-th student layer approximates the features of the (2j-1)-th and (2j)-th teacher layers, where f j S would be injected into the fundamental model layer to which the teacher layers (2j-1)-th and (2j)-th are connected.This ensures a more comprehensive feature transfer across different semantic levels.The asymmetric feature loss is formulated as:",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 25,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 27,
+      "text": "L af = E x,ct,m [ S j=1 ||2 • f j S (•) − (f 2j−1 T (•) + f 2j T (•))|| 2 ],(5)",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 25,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 28,
+      "text": "where the parameters of the teacher model are frozen.This loss directly optimizes the student's intermediate representations, which is crucial for preserving the fine-grained control capabilities of the teacher.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 25,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 29,
+      "text": "Self-Supervised Fine-tuning Stage",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 9,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 30,
+      "text": "Considering the scarcity of finely labeled data, we introduce a self-supervised learning stage in the second phase.The goal of this phase is to refine the model's internal generative logic, prompting it to rely solely on the teacher's guidance rather than ground-truth references.This mitigates potential overfitting to the training data and improves the coherence of generated content.Meanwhile, this stage also aims to increase the practicality of the distillation scheme, demonstrating that the student model can be trained on partial data, which is more accessible in real-world scenarios.In this stage, we apply a bi-level knowledge fusion loss combining the final output mimicry loss L distill and intermediate feature representation loss L af shown in Fig. 1.The optimization objective is defined as",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 29,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 31,
+      "text": "L stage2 = λ distill • L distill + λ af • L af .(6)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 29,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 32,
+      "text": "3. EXPERIMENTS",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 29,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 33,
+      "text": "Experimental Setup",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 9,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 34,
+      "text": "Datasets",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 33,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 35,
+      "text": "We construct our datasets from LAION-2B [13], using the Segment Anything Model (SAM) [14] for semantic segmentation.The supervised dataset, D sl , contains 130k triplets of (image, mask, local prompt).The self-supervised dataset, D ssl , contains another 130k pairs of (masked image, local prompt).To improve generation precision, we utilize Qwen2.5-VL[15], supplemented with human annotation, to generate local prompts only describing the masked regions, aiming to mitigate potential ambiguities caused by global prompts, as shown in Fig. 2. For evaluation, we create a testing dataset D test from Unsplash [16] in a similar way.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 34,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 36,
+      "text": "Implementation Details",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 33,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 37,
+      "text": "We adopt SD3-Inpainting-ControlNet [7] as our teacher model, which is a 23-layer ControlNet model.The student model is designed to have 12 layers, initialized with the first 12 layers of SD3-medium [17], which is the fundamental model.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 36,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 38,
+      "text": "Quantitative Results",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 9,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 39,
+      "text": "We compare our proposed distillation method against two critical baselines: (1) the original teacher model, SD3-Inpainting-ControlNet, (2) a student model with the same architecture trained from scratch (Student f c ).In Student ours , we set the hyperparameters λ task = 4, λ distill = λ af = 1 in Eq.1 and α = 0.975 in Eq.2.In Table 1, we present the results in terms of PSNR [18], SSIM [18], FID [19], LPIPS [20], and CMMD [21].Here, ↑ indicates higher is better, and ↓ indicates lower is better.The best results for each metric are highlighted in bold, and the second-best results are underlined.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 40,
+      "text": "It can be seen that Student ours achieves comparable results to the teacher model, which is twice its size, and outperforms Student f c significantly in all metrics, demonstrating that distillation is a far more effective approach than simple training for creating high-quality, compact models, thereby validating the effectiveness of our knowledge transfer framework.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 41,
+      "text": "We also compare Student ours with other distillation methods and inpainting models.The compared models include Dreamshaper-v8 [22], SD2-Inpainting [23], SD3-Inpainting-ControlNet, FLUX-Inpainting-ControlNet [8], and Student ssd , a model using the distillation method proposed in [24].All baselines except Student ssd use official implementations.As shown in Table 2, our 12-layer Student ours achieves comparable results to these baselines.FLUX-Inpainting-ControlNet and 23-layer SD3-Inpainting-ControlNet outperform other models, but they require significantly larger computational costs and latency than Student ours .",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 42,
+      "text": "Ablation Study",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 9,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 43,
+      "text": "To validate the effectiveness of different modules in our proposed framework, we perform ablation studies.Specifically, we designed several variant models, each omitting a different component to evaluate its specific contribution to the overall performance.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 44,
+      "text": "• Student wo mask : The variant removes the mask region weighting in the task loss L task .",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 45,
+      "text": "• Student one stage : The variant removes the two-stage distillation, combining the training datasets D sl and D ssl randomly in a single training stage.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 46,
+      "text": "• Student sl : The variant is trained solely with supervised learning on the D sl dataset, while maintaining the same total training steps as the two-stage approach.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 47,
+      "text": "• Student wo cf : The model removes the asymmetric feature loss L af .As shown in Table 3, the removal of the mask region weighting, the two-stage distillation pipeline, the second stage self-supervised learning, or the asymmetric feature loss all consistently decrease in the performance of the student model.This demonstrates the effectiveness of each component in our proposed distillation framework.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 48,
+      "text": "Qualitative Analysis",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 9,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 49,
+      "text": "We demonstrate the robustness of our distilled model in alleviating misinterpretations when handling multiple semantically similar target objects in image inpainting tasks.As shown in Fig. 2, when users only want to inpaint a specific horse, by using a local prompt, \"one white fluffy pony\", our model can accurately generate the content in the specified region, outperforming SD3-Inpainting-ControlNet using global prompt, \"Two fluffy ponies, one brown and one white, nuzzling each other in the snow\", which leads to the misinterpretation of the generation task.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 50,
+      "text": "Furthermore, we provide a visual comparison of different models.As shown in Fig. 3",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 51,
+      "text": "CONCLUSION",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 52,
+      "text": "This paper proposed a novel and effective distillation method for conditional diffusion models, specifically tailored for inpainting ControlNet, using a two-stage distillation strategy.Through the use of a tri-level knowledge fusion loss that combines distinct levels of knowledge transfer, and a second selfsupervised fine-tuning stage, this method effectively reduces the computational requirements for ControlNet while preserving its high-fidelity generative and control capabilities.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 51,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 53,
+      "text": "arXiv:2509.22139v1 [cs.CV] 26 Sep 2025",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 51,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 54,
+      "text": "arXiv:2509.22139v1 [cs.CV] 26 Sep 2025",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 51,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 55,
+      "text": "Fig. 1: Illustration of tri-level knowledge fusion loss in the supervised distillation stage.The student is optimized via three complementary losses: task-specific performance, final output mimicry, and intermediate feature representation.The Stable Diffusion backbone remains frozen.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 51,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 56,
+      "text": "Fig. 1: Illustration of tri-level knowledge fusion loss in the supervised distillation stage.The student is optimized via three complementary losses: task-specific performance, final output mimicry, and intermediate feature representation.The Stable Diffusion backbone remains frozen.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 51,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 57,
+      "text": "Fig. 2: Comparison of generation results with global and local prompts.The introduction of local prompts alleviates the misunderstanding of the generation task.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 51,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 58,
+      "text": "Fig. 2: Comparison of generation results with global and local prompts.The introduction of local prompts alleviates the misunderstanding of the generation task.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 51,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 59,
+      "text": "Distillation evaluation.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 51,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 60,
+      "text": "Distillation evaluation.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 51,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 61,
+      "text": "Quantitative results of previous distillation methods and generative models in image inpainting tasks.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 51,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 62,
+      "text": "Quantitative results of previous distillation methods and generative models in image inpainting tasks.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 51,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 63,
+      "text": "Ablation studies.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 51,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 64,
+      "text": "Ablation studies.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 51,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 65,
+      "text": "References",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "references"
+    },
+    {
+      "unit_id": 66,
+      "text": "Adding conditional control to text-to-image diffusion models. Lvmin Zhang, Anyi Rao, Maneesh Agrawala, Proceedings of the IEEE/CVF international conference on computer vision. the IEEE/CVF international conference on computer vision2023",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 67,
+      "text": "Sketch2anim: Towards transferring sketch storyboards into 3d animation. Lei Zhong, Chuan Guo, Yiming Xie, Jiawei Wang, Changjian Li, ACM Transactions on Graphics (TOG). 4442025",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 68,
+      "text": "Lavie: High-quality video generation with cascaded latent diffusion models. Yaohui Wang, Xinyuan Chen, Xin Ma, Shangchen Zhou, Ziqi Huang, Yi Wang, Ceyuan Yang, Yinan He, Jiashuo Yu, Peiqing Yang, International Journal of Computer Vision. 13352025",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 69,
+      "text": "Ootdiffusion: Outfitting fusion based latent diffusion for controllable virtual try-on. Yuhao Xu, Tao Gu, Weifeng Chen, Arlene Chen, Proceedings of the AAAI Conference on Artificial Intelligence. the AAAI Conference on Artificial Intelligence202539",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 70,
+      "text": "Dit4edit: Diffusion transformer for image editing. Kunyu Feng, Yue Ma, Bingyuan Wang, Chenyang Qi, Haozhe Chen, Qifeng Chen, Zeyu Wang, Proceedings of the AAAI Conference on Artificial Intelligence. the AAAI Conference on Artificial Intelligence202539",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 71,
+      "text": "Pfb-diff: Progressive feature blending diffusion for text-driven image editing. Wenjing Huang, Shikui Tu, Lei Xu, Neural Networks. 1811067772025",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 72,
+      "text": "Sd3-controlnet-inpainting. Alimama Creative, Team , 2024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 73,
+      "text": "Flux. Forest Black, Labs, 2024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 74,
+      "text": "Flash diffusion: Accelerating any conditional diffusion model for few steps image generation. Clement Chadebec, Onur Tasar, Eyal Benaroche, Benjamin Aubin, Proceedings of the AAAI Conference on Artificial Intelligence. the AAAI Conference on Artificial Intelligence202539",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 75,
+      "text": "Snapgen: Taming high-resolution text-to-image models for mobile devices with efficient architectures and training. Dongting Hu, Jierun Chen, Xijie Huang, Huseyin Coskun, Arpit Sahni, Aarush Gupta, Anujraaj Goyal, Dishani Lahiri, Rajesh Singh, Yerlan Idelbayev, arXiv:2412.096192024arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 76,
+      "text": "Snapfusion: Text-to-image diffusion model on mobile devices within two seconds. Yanyu Li, Huan Wang, Qing Jin, Ju Hu, Pavlo Chemerys, Yun Fu, Yanzhi Wang, Sergey Tulyakov, Jian Ren, Advances in Neural Information Processing Systems. 202336",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 77,
+      "text": "Yaron Lipman, Ricky Tq Chen, Heli Ben-Hamu, Maximilian Nickel, Matt Le, arXiv:2210.02747Flow matching for generative modeling. 2022arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 78,
+      "text": "Laion-5b: An open large-scale dataset for training next generation image-text models. Christoph Schuhmann, Romain Beaumont, Richard Vencu, Cade Gordon, Ross Wightman, Mehdi Cherti, Theo Coombes, Aarush Katta, Clayton Mullis, Mitchell Wortsman, Advances in neural information processing systems. 202235",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 79,
+      "text": "Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi Mao, Chloe Rolland, Laura Gustafson, Tete Xiao, Spencer Whitehead, Alexander C Berg, Wan-Yen Lo, Piotr Dollár, Ross Girshick, arXiv:2304.02643Segment anything. 2023",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 80,
+      "text": "Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, Humen Zhong, Yuanzhi Zhu, Mingkun Yang, Zhaohai Li, Jianqiang Wan, Pengfei Wang, Wei Ding, Zheren Fu, Yiheng Xu, Jiabo Ye, Xi Zhang, Tianbao Xie, Zesen Cheng, Hang Zhang, Zhibo Yang, Haiyang Xu, Junyang Lin, arXiv:2502.13923Qwen2.5-vl technical report. 2025arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 81,
+      "text": "Feature refinement to improve high resolution image inpainting. Prakhar Kulshreshtha, Brian Pugh, Salma Jiddi, arXiv:2206.136442022arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 82,
+      "text": "Scaling rectified flow transformers for high-resolution image synthesis. Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim Entezari, Jonas Müller, Harry Saini, Yam Levi, Dominik Lorenz, Axel Sauer, Frederic Boesel, Fortyfirst international conference on machine learning. 2024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 83,
+      "text": "Image quality assessment: from error visibility to structural similarity. Zhou Wang, Alan C Bovik, Hamid R Sheikh, Eero P Simoncelli, IEEE transactions on image processing. 1342004",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 84,
+      "text": "Gans trained by a two time-scale update rule converge to a local nash equilibrium. Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, Sepp Hochreiter, Advances in neural information processing systems. 201730",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 85,
+      "text": "The unreasonable effectiveness of deep features as a perceptual metric. Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shechtman, Oliver Wang, Proceedings of the IEEE conference on computer vision and pattern recognition. the IEEE conference on computer vision and pattern recognition2018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 86,
+      "text": "Rethinking fid: Towards a better evaluation metric for image generation. Sadeep Jayasumana, Srikumar Ramalingam, Andreas Veit, Daniel Glasner, Ayan Chakrabarti, Sanjiv Kumar, Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. the IEEE/CVF Conference on Computer Vision and Pattern Recognition2024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 87,
+      "text": "dreamshaper-8-inpainting. Lykon, 2023",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 88,
+      "text": "High-resolution image synthesis with latent diffusion models. Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, Björn Ommer, Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. the IEEE/CVF conference on computer vision and pattern recognition2022",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 89,
+      "text": "Progressive knowledge distillation of stable diffusion xl using layer level loss. Yatharth Gupta, V Vishnu, Harish Jaddipal, Sayak Prabhala, Patrick Paul, Von Platen, arXiv:2401.026772024arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "bibentry"
+    }
+  ]
+}

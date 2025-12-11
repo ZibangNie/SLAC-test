@@ -1,0 +1,1117 @@
+{
+  "doc_id": "corpus_270380314",
+  "units": [
+    {
+      "unit_id": 0,
+      "text": "CombineHarvesterFlow: Joint Probe Analysis Made Easy with Normalizing Flows",
+      "type": "heading",
+      "level": 0,
+      "parent_id": null,
+      "subtype": "doc_title"
+    },
+    {
+      "unit_id": 1,
+      "text": "I. INTRODUCTION",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 2,
+      "text": "Analyses of data from the Atacama Cosmology Telescope (ACT) [1], the Baryon Oscillation Spectroscopic Survey (BOSS) [2], the Dark Energy Survey (DES) [3], the Dark Energy Spectroscopic Instrument (DESI) [4], the extended Baryon Oscillation Spectroscopic Survey (eBOSS) [2], Hyper Suprime-Cam (HSC) [5], the Kilodegree Survey (KiDS) [6], Planck [7] and the South Pole Telescope (SPT) [8], have provided some of the tightest cosmological constraints.Future measurements with Euclid [9], the Nancy Grace Roman Space Telescope 1 , the Rubin Observatory 2 , the Simons Observatory 3 and CMB-S4 4 will tighten these constraints even further.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 3,
+      "text": "Meanwhile there has been a proliferation of cosmological likelihood packages to perform inference with these datasets (e.g.MontePython [10], CosmoMC [11], COS-MOLIKE [12], desilike 5 , CosmoSIS [13], Cobaya [14], firecrown 6 , CLOE 7 ).With each collaboration preferring different pipelines, performing joint analyses requires substantial effort and computational resources -even when the analyses are statistically independent.It is this problem which we set out to solve.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 4,
+      "text": "Traditionally there have been three ways to sample from the joint posterior of two statistically independent measurements: 1) explicitly sampling the joint posterior, 2) importance sampling or 3) emulating the likelihood (or posterior) directly from the samples.All these approaches have significant drawbacks.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 5,
+      "text": "Explicitly sampling the likelihood requires the likelihood of each experiment to be integrated into a single unified likelihood package (e.g.CosmoSIS).This time consuming exercise may have to be repeated multiple times for each new experiment.The computational costs are also significant.A single DES Year 3 (DESY3) 3×2 point analysis takes up to 4 node days on a modern high-performance node with 128 cores [15].",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 6,
+      "text": "Importance sampling offers a promising alternative.Suppose that we have access to samples from the posterior (chains) of one of the experiments, {c i }, over cosmological parameter space c.Then to sample from the joint posterior we compute the likelihood of the second experiment at each point in the original chain {L(c i )} and then re-weight the original chain by these likelihoods.However, if both sets of experiments contain a large set of nuisance parameters, this option is no longer viable.This is because at every point in the first chain, there is a distribution of nuisance parameter values in the second experiment.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 7,
+      "text": "A third alternative is to directly emulate the likelihood (or posterior) using a neural network or Gaussian process emulator.In Appendices A-B, we show that this approach fails in many circumstances.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 8,
+      "text": "In this paper we advocate for a new approach using normalizing flows.Given two chains from two independent cosmological experiments our approach is capable of reweighting O(10 9 ) points from each experiment to compute the joint posterior in seconds.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 9,
+      "text": "The structure of the paper is as follows.In Sec.II, we present the formalism and describe our publicly released code in Sec.III.In Sec.IV, we show our method works on a toy problem before presenting joint large scale structure parameter constraints from photometric, spectroscopic and CMB lensing data.Finally, in Sec.V we discuss the future outlook for this method.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 10,
+      "text": "II. FORMALISM",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 11,
+      "text": "A. Joint Sampling Two Likelihoods",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 10,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 12,
+      "text": "Let us suppose that we have performed two independent cosmological likelihood analyses and that we have arXiv:2406.06687v2[astro-ph.CO] 7 Oct 2024 samples from the posterior distributions, P (c, m i |d i ), for both experiments i ∈ {1, 2}, assuming some model M. Here, c, are the parameters sampled in both chains, usually the cosmological parameters of interest, while d i and m i are the data vectors and nuisance parameters.In all that follows, we will assume that there is no covariance between the two data vectors and that the two experiments have completely different sets of nuisance parameters.We will also assume that the priors on the cosmologial and nuisance parameters are separable, that is p(c, m i ) = p(c)p(m i ).These conditions are often met and we will apply them to a real world example in Sec.IV.For the time being we will also assume that the analyses were run with the same prior p(c), but we relax this assumption in Sec.II E.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 13,
+      "text": "To perform a joint analysis, we would like to find the joint posterior on c, after marginalizing over both sets of nuisance parameters i.e.,",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 14,
+      "text": "p(c|d 1 , d 2 ) = dm 1 dm 2 p(c, m 1 , m 2 |d 1 , d 2 ). (1)",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 11,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 15,
+      "text": "Using the independence of the likelihood and Bayes' Theorem we find,",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 16,
+      "text": "p(c|d 1 , d 2 ) ∝ p(c|d 1 )p(c|d 2 ) p(c) ,(2)",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 11,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 17,
+      "text": "where, p(c|d i ), is",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 18,
+      "text": "p(c|d i ) = dm i p(c, m i |d i ).(3)",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 11,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 19,
+      "text": "The factor p(c) appears in the denominator of Eqn. 2 to avoid double counting the prior.If the prior is uninformative, the denominator can be ignored.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 20,
+      "text": "The key idea in this paper is that we can fit normalizing flows to estimate the conditional density, p(c|d 1 ), from the chains of the first experiment.Then to sample the joint posterior, we weight the samples of the second posterior by our estimate by our estimate p(c|d 1 ).If the prior is informative we must also apply a weight 1/p(c), to all points, so that the final weight is p(c|d 1 )/p(c).",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 21,
+      "text": "Alternatively, we could have trained the flows to approximate, p(c|d 2 ), and used this estimate to weight the samples of the first posterior.An essential crosscheck is to ensure that we get the same joint posterior in both cases.This will be discussed further in Sec.IV.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 22,
+      "text": "To combine N analyses, we first combine the first two using Eqn. 2 and then iteratively add the next N − 2 analyses one at a time.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 23,
+      "text": "B. Estimating the Marginal Posterior with Normalizing Flows",
+      "type": "heading",
+      "level": 4,
+      "parent_id": 11,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 24,
+      "text": "Given samples from a target distribution p t (x), one can train a normalizing flow to learn an invertible map-ping, F , from a multivariate normal distribution centered at the origin with identity covariance, to the target.Once the mapping is learned, one can estimate the likelihood of each point in the target from the Jacobian:",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 23,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 25,
+      "text": "p t (x) = G(F −1 (x))| ∂F −1 ∂x |,",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 23,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 26,
+      "text": "where G is the probability density of the unit normal.We use this feature of normalizing flows to estimate the marginal posterior, p(c|d i ), from the chains as described in the previous section.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 23,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 27,
+      "text": "In all that follows, we use flowjax8 [16] a publicly available package written in Jax to train the normalizing flows using a masked autoregressive flow (MAFs) [17,18] architecture.We use the default MAF settings in flowjax throughout.We construct the invertible transform using a rational quadratic spline with 8 knots on the interval [−4, 4], using the builtin RationalQuadraticSpline class in flowjax.In all that follows the learning rate is set to 10 −3 .",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 23,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 28,
+      "text": "C. A Flow Ensemble Model",
+      "type": "heading",
+      "level": 5,
+      "parent_id": 23,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 29,
+      "text": "To improve the accuracy of the density estimate, we train an ensemble of N flows with the same architecture.Each flow is given equal weight so that when we compute the log-probability of a point x, our estimate, ln p(x), is taken to be the average estimate over all the flows.We find that results typically convergence for N ≳ 5.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 30,
+      "text": "D. Using Outputs from Nested Samplers",
+      "type": "heading",
+      "level": 6,
+      "parent_id": 28,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 31,
+      "text": "Nested samplers such as PolyChord [19], nautilus [20] and MultiNest [21] return a set of samples and corresponding weights.Since flowjax does not take weights as input, we use a custom loss function in CombineHarvesterFlow which uses the weighted average of the log-probabilities over the training set, rather than the average, used in flowjax.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 30,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 32,
+      "text": "E. Change of Variable",
+      "type": "heading",
+      "level": 7,
+      "parent_id": 30,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 33,
+      "text": "So far we have assumed that both sets of chains have the same priors.Let us relax this assumption and suppose the two chains have the priors, p 1 (c 1 ), and p 2 (c 2 ), and we have a target prior, p t (c t ), which we would like to use for the joint analysis.Here, the priors and target may not be expressed in the same parameterization but we will assume there is a mapping, T : c i → c t , between c t and c i , for each i.We will also assume that the support of p(c t ) is a subset of the intersection of the supports of p 1 (c 1 ) and p 2 (c 2 ).",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 32,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 34,
+      "text": "Then to map the posterior sample from c i to c t , we weight the chains [22] to account for both the change in prior and the Jacobian.Hence, if we write c ij for the jth point in chain i and we assume it has an initial weight w I (c ij ), then the final weight in the target parameterization is",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 32,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 35,
+      "text": "w f T (c ij ) = p t T (c ij ) p i (c ij ) ∂c t ∂c i w I (c ij ).(4)",
+      "type": "equation",
+      "level": 8,
+      "parent_id": 32,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 36,
+      "text": "After one has mapped both posteriors to the same target prior, one must still divide the joint constraints by p(c t ) (see Eqn. 2), to avoid double counting the prior in the joint constraints.",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 32,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 37,
+      "text": "III. CODE",
+      "type": "heading",
+      "level": 8,
+      "parent_id": 32,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 38,
+      "text": "We release CombineHarvesterFlow as a pipinstallable package.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 37,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 39,
+      "text": "The package is also available at https://github.com/pltaylor16/CombineHarvesterFlow.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 37,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 40,
+      "text": "The code has a simple two class structure.The harvest class allows the user to train, save and load flows on both CPU and GPU, while a combine class allows the user to draw samples from the joint marginal posterior using the approach described in Sec II A. Given the large number of potential corner cases, the package does not account for the prior in the denominator of Eqn. 2, nor weights associated with a change of variable described in Sec II E. The user is responsible for weighting the points in the input and output chains appropriately.The examples presented in Sec.IV A-IV B are made publicly available in a jupyter notebook released with the package -in addition to a notebook containing an example with an informative prior.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 37,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 41,
+      "text": "IV. RESULTS",
+      "type": "heading",
+      "level": 9,
+      "parent_id": 37,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 42,
+      "text": "A. Validation on Toy Models",
+      "type": "heading",
+      "level": 10,
+      "parent_id": 41,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 43,
+      "text": "As a simple test case, we find the joint constraints from two 2-dimensional Gaussian posteriors using CombineHarvesterFlow.To validate our estimate, we use the fact that the product of two Gaussians with means µ 1 and µ 2 and covariances Σ 1 and Σ 2 is also a Gaussian with covariance",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 44,
+      "text": "Σ = [(Σ 1 ) −1 + (Σ 2 ) −1 ] −1 and mean µ = Σ[(Σ 1 ) −1 µ 1 + (Σ 2 ) −1 µ 2 ]",
+      "type": "equation",
+      "level": 11,
+      "parent_id": 42,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 45,
+      "text": ". In this example, we assume there are no nuisance parameters and that the prior is uninformative.Before rotation, the mean and covariances of the two Gaussian are given by: µ 1 = (0, 0), µ 2 = (1, 0), Σ 1 = diag (1,4) and (3,1).Both Gaussians are then rotated by 45 • .",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 46,
+      "text": "Σ 2 = diag",
+      "type": "equation",
+      "level": 11,
+      "parent_id": 42,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 47,
+      "text": "The resulting 68% and 95% confidence regions on parameters p 1 and p 2 found by sampling 20000 points from these distributions are shown in the top panel of Fig. 1 by the dashed black and red contours respectively.",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 48,
+      "text": "The confidence regions of the joint posterior found by sampling 20000 points from the exact joint posterior is shown in solid blue.",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 49,
+      "text": "Using CombineHarvesterFlow, we train an ensemble of 7 flows to learn the original posteriors.We then weight the samples in the first posterior by the flow weights of the second posterior -and crucially as a crosscheck, we weight the samples of the second posterior by the flow weights of the first posterior.The results are shown in the bottom panel of Fig. 1.In both cases, we reproduce the true joint posteriors almost exactly.",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 50,
+      "text": "B. Validation of CombineHarvesterFlow and Causes of Failure",
+      "type": "heading",
+      "level": 11,
+      "parent_id": 42,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 51,
+      "text": "In certain circumstances CombineHarvesterFlow can fail to return accurate joint posteriors.In this Section, we discuss the most common causes and show that checking that the results derived from weighting the first posterior versus the second posterior is a robust way to ensure CombineHarvesterFlow returns accurate constraints.",
+      "type": "paragraph",
+      "level": 12,
+      "parent_id": 50,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 52,
+      "text": "If two experiments are in severe tension, one should not attempt to find joint constraints, as the tension likely indicates the presence of systematics -or that the underlying model assumption (e.g.ΛCDM) is wrong.However, if one does persist to find joint constraints, this is an instance where CombineHarvesterFlow can fail.This is because the sampling density is so low in the regions where the joint posterior is large, that the normalizing flows do not accurately model the density in these regions.",
+      "type": "paragraph",
+      "level": 12,
+      "parent_id": 50,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 53,
+      "text": "To illustrate this point, we consider two Gaussian posteriors with means and covariances given by: µ 1 = (0, 0), µ 2 = (9, 0), Σ 1 = diag (1,4)  CombineHarvesterFlow can also fail when one experiment is much more constraining than the other.This is because the less constraining experiment undersamples the region where the joint density is large.",
+      "type": "paragraph",
+      "level": 12,
+      "parent_id": 50,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 54,
+      "text": "To exemplify, we again consider two Gaussians.This time we take µ 1 = (0, 0), µ 2 = (1, 0), Σ 1 = diag(0.001,0.004) and Σ 2 = diag (3,1).The original posteriors and joint constraints are shown in the top middle panel of Fig. 2  tightly constraining posteriors does actually return an accurate estimate of the joint posterior, while weighting the less constraining posterior results in slightly different constraints.Even though weighting the tighter posteriors accurately determined the joint posterior in this instance -it is not clear that this will be true in general, so we always recommend discarding the results when the two CombineHarvesterFlow estimates are not the same.",
+      "type": "paragraph",
+      "level": 12,
+      "parent_id": 50,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 55,
+      "text": "In the case where one set of posteriors is much tighter than the other, there is likely little to be gained from combining the results.Nevertheless, we can still obtain joint constraints if we first place a more restrictive prior on the less constraining experiment and rerun the chains to increase the sampling density in the relevant region of parameter space.This still may be favorable to running joint chains if the two likelihood pipelines are not merged.",
+      "type": "paragraph",
+      "level": 12,
+      "parent_id": 50,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 56,
+      "text": "To highlight this point, we take the same initial posteriors as in the previous example, but this time enforce a flat prior so that p i ∈ [−0.2, 0.2].We show the initial posteriors in the top right of Fig. 2 and the joint posterior and the CombineHarvesterFlow estimates are shown in the bottom right panel.In this case the two CombineHarvesterFlow estimates and the true joint posteriors agree exactly.",
+      "type": "paragraph",
+      "level": 12,
+      "parent_id": 50,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 57,
+      "text": "Even in the extreme examples presented in this section, CombineHarvesterFlow extracts reasonably accurate posteriors -while the results from the two different weighting strategies give a rough estimate on the uncertainties.In many circumstances (e.g.non-publishable testing and validation runs) this accuracy is more than sufficient, so we expect CombineHaresterFlow to dramatically accelerate workflows even when it fails to produce extremely accurate joint posteriors.We stress that these errors are typically much smaller than those expected from model mis-specification.In the future, we recommend that users specify a success criterion (e.g.fractional error on the error for parameters of interest) and add the differences from the CombineHaresterFlow cross-check to the total error budget.",
+      "type": "paragraph",
+      "level": 12,
+      "parent_id": 50,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 58,
+      "text": "C. DESY3 × CMB Lensing + Boss Full Shape Direct Fit",
+      "type": "heading",
+      "level": 12,
+      "parent_id": 50,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 59,
+      "text": "Due to the different coverage in radial modes, the covariance between projected statistics and spectroscopic full shape statistics is negligible [23].Hence, we use CombineHarvesterFlow to derive joint constraints between the DESY3 × CMB lensing 6 × 2 point posterior 9 [24] and the BOSS full shape direct fit posteriors found in [25] 10 .To our knowledge this is the first time that this combination of probes has been combined into a single analysis.We pay particular attention to S 8 where tensions between CMB and large scale structure measurements have previously been reported (see e.g.Fig. 12 in [26]). 9publicly available at https://des.ncsa.illinois.edu/releases/y3a2 10 We use the chains which exclude the bispectrum information FIG. 2. CombineHarvesterFlow can fail due to under sampling regions of high joint density (left and right panels), but can be fixed in certain circumstances by adjusting the prior right.Failures are usually caused by tensions between the two experiments (left), or when one experiment is much more constraining than the other (middle).In former case one should not combine experiments as the tension likely points to systematics -while in the later case, the tension can be overcome by enforcing a tighter prior on the less constraining experiment (right).Top: Dashed lines indicate the original 68% and 95% confidence intervals for two experiments, while solid blue indicates the true joint posteriors.Bottom: Black and red contours are the CombineHarvesterFlow estimates from weighting the first and second posteriors, while blue indicates the true joint constraints.In the case of tension (left) or undersampling (middle) the two CombineHarvesterFlow joint posterior estimates do not match so the results should be rejected.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 58,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 60,
+      "text": "We use CombineHarvesterFlow11 to find joint constraints in {Ω m , h 0 , ω b , n s , S 8 }.We take flat uninformative priors on h 0 and A s . 12Since the DESY3 × CMB lensing constraints ran up against the boundaries of the flat prior on n s , we impose a conservative Gaussian prior, n s ∼ N (0.96, 0.02), by retroactively weighting the chains after running CombineHarvesterFlow to avoid boundary effects.The DES chains were parameterised in {Ω m , h 0 , Ω b , n s , A s } space while the BOSS chains were run in {ω c , h 0 , ω b , n s , ln(10 10 A s )}.Hence, the contribution of the Jacobians cancel when going to {Ω m , h 0 , ω b , n s , A s }-space, when we introduce a weighting factor of A s to the chains.Both chains, store the σ 8 values at all sampled points, so we train the flows and present our final results in S 8 , rather than A s .Finally, we take a Gaussian prior on ω b ∼ N (0.02268, 0.00036) as in the BOSS chains.Since the DES prior is uninformative, this is achieved simply by not dividing out by the ω b prior in Eqn. 2.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 58,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 61,
+      "text": "The joint constraints in the S 8 −Ω m plane13 are shown in Fig. 3. Crucially, we find good agreement between weighting the DES 6 × 2 point chains and the BOSS chains.We find that the two CombineHarvesterFlow constraints are consistent and Ω m = 0.32 +0.01 −0.01 and S 8 = 0.79 +0.01 −0.01 .For comparison, reweighing the Planck chains 14 to have the same prior described above, we find Ω m = 0.32 +0.02 −0.02 and S 8 = 0.83 +0.02 −0.02 .Adding the S 8 errors in quadrature [28]  point constraints are consistent with Planck at the 1.3σ level.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 58,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 62,
+      "text": "V. FUTURE OUTLOOK A. Environmental and Cost Impact",
+      "type": "heading",
+      "level": 13,
+      "parent_id": 58,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 63,
+      "text": "As noted in [29] (hereafter To22), the environmental impact of single Monte Carlo analysis are O($100) in energy costs and emit O(1) ton of CO 2 .This is roughly equivalent to the emission of a transatlantic flight.Over the next decade, collaborations may collectively run as many as O(10 2 ) − O(10 4 ) joint analyses, in which case our approach could save up to O($10, 000)−O($1, 000, 000) in energy costs and reduce emissions by O(10 2 ) − O(10 4 ) tons of CO 2 .",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 62,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 64,
+      "text": "B. Methodological Extensions",
+      "type": "heading",
+      "level": 14,
+      "parent_id": 62,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 65,
+      "text": "In this work we have focused on combing constraints from two-point statistics but we suspect that due to the different radial coverage in Fourier space that the covariance between projected and redshift-space space analyses is negligible in general.This opens the possibility of performing joint non-Gaussian constraints derived from non-Gaussian estimators, simulation-based inference or field-level Hamiltonian Monte-Carlo (e.g.[30][31][32][33][34][35][36][37]).",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 66,
+      "text": "Several papers have investigated using normalizing flows to estimate the Bayesian evidence directly from MCMC chains [38,39].In a follow up work we will investigate computing the evidence of the joint posteriors.This will require training the flows on the full posteriors, p(c, m i ).",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 67,
+      "text": "VI. CONCLUSION",
+      "type": "heading",
+      "level": 15,
+      "parent_id": 64,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 68,
+      "text": "In this paper we have shown how to jointly sample from two independent experiments with a large set of nuisance parameters using only the chains from the two experiments.In particular, training normalizing flows to learn the posterior, after marginalizing over the nuisance parameters, and then cross-weighting the chains by the probability density effectively recovers the joint posterior when there is no covariance.We release a public package called CombineHarvesterFlow which performs these calculations.",
+      "type": "paragraph",
+      "level": 16,
+      "parent_id": 67,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 69,
+      "text": "CombineHarvesterFlow enables joint probe parameter estimation without tedious pipeline integration.One can even sample from joint likelihoods when the likelihood pipeline for one of the datasets is not publicly available.",
+      "type": "paragraph",
+      "level": 16,
+      "parent_id": 67,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 70,
+      "text": "CombineHarvesterFlow is fast.We have found that training time for each flow can vary depending on the hardware and size of parameters space -but training typically takes less than a minute on a CPU.Once trained, the flows enable virtually instantaneous sampling of the joint posterior.",
+      "type": "paragraph",
+      "level": 16,
+      "parent_id": 67,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 71,
+      "text": "We estimate that compared to running joint likelihood analyses our approach will reduce emissions by between O(10 2 ) − O(10 4 ) tons of CO 2 and save between O($10, 000) − O($1, 000, 000) in energy costs.",
+      "type": "paragraph",
+      "level": 16,
+      "parent_id": 67,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 72,
+      "text": "This speed and efficiency opens up new possibilities for validation tests inside large collaborations.For example, when different parts of the data vector are not covariant (e.g.different tracers in DESI or the photometric and spectroscopic analyses in Euclid), one can run independent MCMC runs for each part of the data vector and then combine different combinations -determining the cosmological impact of each piece -at virtually no additional computational cost.",
+      "type": "paragraph",
+      "level": 16,
+      "parent_id": 67,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 73,
+      "text": "Our approach can fail when two experiments are in tension or when one measurement is significantly more constraining than the other.In the former case, one should not combine the measurements as the tension likely signals the presence of unmitigated systematics, while in the later case there is little to be gained from combining the measurements.",
+      "type": "paragraph",
+      "level": 16,
+      "parent_id": 67,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 74,
+      "text": "CombineHarvesterFlow helps the user detect spurious results.In particular, weighting the first chain by the flows trained on the second chain, and vice versa, should yield consistent constraints.After submission, we became aware of several papers which proposed similar techniques to the one proposed in this work [40,41].Subsequent to this work [42] also proposed a similar method.However, the ability to detect spurious re-sults with the cross-check is a key feature that sets CombineHarvesterFlow apart.",
+      "type": "paragraph",
+      "level": 16,
+      "parent_id": 67,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 75,
+      "text": "We have also shown that when CombineHarvesterFlow fails due to one posterior being much tighter than the other, readjusting the original priors and resampling can resolve the issue.For this reason, we recommend that there is coordination between collaborations to choose priors that ensure chains can be reused without costly resampling.",
+      "type": "paragraph",
+      "level": 16,
+      "parent_id": 67,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 76,
+      "text": "Since the covariance between projected angular statistics and redshift space multipoles is negligible, we used CombineHarvesterFlow to combine DESY3 × CMB lensing with BOSS full shape direct fit measurements.To our knowledge this is the first time a joint analysis of these datasets have been performed.We find S 8 = 0.79 +0.01 −0.01 which is consistent with Planck at the 1.3σ level.This example showcases the efficacy of CombineHarvesterFlow -a tool which will render many currently tedious joint sampling problems trivially implementable, fast and computationally inexpensive.FIG. 5. A sample of 1000 points from a highly non-Gaussian likelihood described in Appendix B. Colors represent the ratio of the true likelihood to the GP-emulated likelihood.For many of the points, the ratio is far away from unity indicating that the emulator has failed dramatically.This is due to the GP sampling scheme which fails for non-Gaussian posteriors.",
+      "type": "paragraph",
+      "level": 16,
+      "parent_id": 67,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 77,
+      "text": "of the training set.However, GP emulators do not scale with large training sets which requires one to subsample the chains [51].We find that the sampling scheme available AReconstructionTool, which is optimized for Gaussian posteriors such as those found in Planck, does not generalize well to non-Gaussian posteriors.",
+      "type": "paragraph",
+      "level": 16,
+      "parent_id": 67,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 78,
+      "text": "As an example, we take the Gaussian with mean (µ x , µ y ) = (0, 10) and covariance, Σ = diag(5, 1) and make the transform y → y ′ = x 2 y.We compute the log-likelihood, which is analytically tractable, at 1000 points randomly sampled from the likelihood.At the same points we estimate the ratio of the true likelihood to the emulated likelihood.The results are shown in Fig. 5.We find that for many of these points, the ratio is far from unity indicated the GP-emulator has failed dramatically.",
+      "type": "paragraph",
+      "level": 16,
+      "parent_id": 67,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 79,
+      "text": "and Σ 2 = diag(3, 1), before rotating both Gaussians by 45 • .These posteriors are shown as dashed black and red lines in the top left of Fig. 2. The joint constraints are shown in solid blue.In the bottom left corner of Fig. 2, we zoom in on the joint constraints.The CombineHarvesterFlow estimates from weighting the first and second posteriors are shown in black and red respectively, while the true joint constraints are shown in blue.In both cases CombineHarvesterFlow fails to accurately reproduce the joint posteriors.The two CombineHarvesterFlow constraints are in disagreement which suggests the CombineHarvesterFlow results should be discarded.",
+      "type": "figure",
+      "level": 16,
+      "parent_id": 67,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 80,
+      "text": "and Σ 2 = diag(3, 1), before rotating both Gaussians by 45 • .These posteriors are shown as dashed black and red lines in the top left of Fig. 2. The joint constraints are shown in solid blue.In the bottom left corner of Fig. 2, we zoom in on the joint constraints.The CombineHarvesterFlow estimates from weighting the first and second posteriors are shown in black and red respectively, while the true joint constraints are shown in blue.In both cases CombineHarvesterFlow fails to accurately reproduce the joint posteriors.The two CombineHarvesterFlow constraints are in disagreement which suggests the CombineHarvesterFlow results should be discarded.",
+      "type": "paragraph",
+      "level": 16,
+      "parent_id": 67,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 81,
+      "text": "FIG. 1. Top: The 68% and 95% confidence intervals for two initial Gaussian posteriors are indicated by the red and black dashed lines.The joint constraints which are known analytically are shown in solid blue.Bottom: The joint constraints are again shown in blue, while the constraints found using CombineHarvesterFlow from weighting the first posterior and the second posterior are shown in black and red respectively.In both cases, CombineHarvesterFlow accurately recovers the joint posterior.",
+      "type": "figure",
+      "level": 16,
+      "parent_id": 67,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 82,
+      "text": "FIG. 1. Top: The 68% and 95% confidence intervals for two initial Gaussian posteriors are indicated by the red and black dashed lines.The joint constraints which are known analytically are shown in solid blue.Bottom: The joint constraints are again shown in blue, while the constraints found using CombineHarvesterFlow from weighting the first posterior and the second posterior are shown in black and red respectively.In both cases, CombineHarvesterFlow accurately recovers the joint posterior.",
+      "type": "paragraph",
+      "level": 16,
+      "parent_id": 67,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 83,
+      "text": "FIG.6.CombineHarvesterFlow joint constraints from DESY3 × CMB lensing and BOSS full shape analyses.Different weighting strategies result in consistent constraints in the parameters of interest, S8 and Ωm, but the other parameters are not completely consistent.This is likely due to undersampling, as the DES posteriors are much broader in h0 and ω b .",
+      "type": "figure",
+      "level": 16,
+      "parent_id": 67,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 84,
+      "text": "FIG.6.CombineHarvesterFlow joint constraints from DESY3 × CMB lensing and BOSS full shape analyses.Different weighting strategies result in consistent constraints in the parameters of interest, S8 and Ωm, but the other parameters are not completely consistent.This is likely due to undersampling, as the DES posteriors are much broader in h0 and ω b .",
+      "type": "paragraph",
+      "level": 16,
+      "parent_id": 67,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 85,
+      "text": "the joint BOSS and DES 6 × 2",
+      "type": "figure",
+      "level": 16,
+      "parent_id": 67,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 86,
+      "text": "the joint BOSS and DES 6 × 2",
+      "type": "paragraph",
+      "level": 16,
+      "parent_id": 67,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 87,
+      "text": "References",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "references"
+    },
+    {
+      "unit_id": 88,
+      "text": ". F J Qu, ACT)10.3847/1538-4357/acfe06arXiv:2304.05202Astrophys. J. 9622024astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 89,
+      "text": ". S Alam, eBOSS10.1103/PhysRevD.103.083533arXiv:2007.08991Phys. Rev. D. 103835332021astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 90,
+      "text": ". T M C Abbott, DES10.1103/PhysRevD.105.023520arXiv:2105.13549Phys. Rev. D. 105235202022astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 91,
+      "text": ". A G Adame, DESIarXiv:2404.030022024astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 92,
+      "text": ". S More, 10.1103/PhysRevD.108.123520arXiv:2304.00703Phys. Rev. D. 1081235202023astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 93,
+      "text": ". C Heymans, 10.1051/0004-6361/202039063arXiv:2007.15632Astron. Astrophys. 6462021astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 94,
+      "text": ". N Aghanim, Planck10.1051/0004-6361/201833910arXiv:1807.06209Astron. Astrophys. 6412020Erratum: Astron.Astrophys. 652, C4 (2021). astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 95,
+      "text": ". F Bianchini, SPT)10.3847/1538-4357/ab6082arXiv:1910.07157Astrophys. J. 8882020astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 96,
+      "text": ". Y Mellier, EuclidarXiv:2405.134912024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 97,
+      "text": ". T Brinckmann, J Lesgourgues, 10.1016/j.dark.2018.100260arXiv:1804.07261Phys. Dark Univ. 241002602019astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 98,
+      "text": ". A Lewis, 10.1103/PhysRevD.87.103529arXiv:1304.4473Phys. Rev. D. 871035292013astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 99,
+      "text": ". E Krause, T Eifler, Mon Not, Roy, 10.1093/mnras/stx1261arXiv:1601.05779Astron. Soc. 47021002017astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 100,
+      "text": ". J Zuntz, M Paterno, E Jennings, D Rudd, A Manzotti, S Dodelson, S Bridle, S Sehrish, J Kowalkowski, 10.1016/j.ascom.2015.05.005arXiv:1409.3409Astron. Comput. 122015astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 101,
+      "text": ". J Torrado, A Lewis, 10.1088/1475-7516/2021/05/057arXiv:2005.05290JCAP. 05572021astro-ph.IM",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 102,
+      "text": ". P Lemos, DES10.1093/mnras/stac2786arXiv:2202.08233Mon. Not. Roy. Astron. Soc. 52111842023astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 103,
+      "text": "Flowjax: Distributions and normalizing flows in jax. D Ward, 10.5281/zenodo.10402073release year of version",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 104,
+      "text": "D P Kingma, T Salimans, R Jozefowicz, X Chen, I Sutskever, M Welling, Advances in neural information processing systems. 201629",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 105,
+      "text": "Advances in neural information processing systems. G Papamakarios, T Pavlakou, I Murray, 201730",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 106,
+      "text": ". W J Handley, M P Hobson, A N Lasenby, 10.1093/mnrasl/slv047arXiv:1502.01856Mon. Not. Roy. Astron. Soc. 450L612015astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 107,
+      "text": ". J U Lange, 10.1093/mnras/stad2441arXiv:2306.16923Mon. Not. Roy. Astron. Soc. 52531812023astro-ph.IM",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 108,
+      "text": ". F Feroz, M P Hobson, M Bridges, 10.1111/j.1365-2966.2009.14548.xarXiv:0809.3437Mon. Not. Roy. Astron. Soc. 39816012009astro-ph",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 109,
+      "text": ". P Taylor, R Massey, M Jauzac, F Courbin, D Harvey, R Joseph, A Robertson, 10.1093/mnras/stx855arXiv:1701.04412Mon. Not. Roy. Astron. Soc. 4682017astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 110,
+      "text": ". P L Taylor, K Markovič, 10.1103/PhysRevD.106.063536arXiv:2205.14167Phys. Rev. D. 106635362022astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 111,
+      "text": ". T M C Abbott, 10.1103/PhysRevD.107.023531arXiv:2206.10824Phys. Rev. D. 107235312023astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 112,
+      "text": ". O H E Philcox, M M Ivanov, 10.1103/PhysRevD.105.043517arXiv:2112.04515Phys. Rev. D. 105435172022astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 113,
+      "text": ". J U Lange, A P Hearin, A Leauthaud, F C Van Den Bosch, E Xhakaj, H Guo, R H Wechsler, J Derose, 10.1093/mnras/stad473arXiv:2301.086922023astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 114,
+      "text": ". J A Kable, G Benevento, G E Addison, C L Bennett, 10.3847/1538-4357/acfed0arXiv:2307.12174Astrophys. J. 9592023astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 115,
+      "text": ". P Lemos, DES10.1093/mnras/stab1670arXiv:2012.09554Mon. Not. Roy. Astron. Soc. 50561792021astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 116,
+      "text": ". C.-H To, E Rozo, E Krause, H.-Y Wu, R H Wechsler, A N Salcedo, 10.1088/1475-7516/2023/01/016arXiv:2203.05583JCAP. 01162023astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 117,
+      "text": ". N.-M Nguyen, F Schmidt, B Tucci, M Reinecke, A Kostić, arXiv:2403.032202024astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 118,
+      "text": ". N Porqueres, A Heavens, D Mortlock, G Lavaux, 10.1093/mnras/stab3234arXiv:2108.04825Mon. Not. Roy. Astron. Soc. 5092021astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 119,
+      "text": ". J Hou, A Moradinezhad, C Dizgah, M Hahn, S Eickenberg, P Ho, E Lemos, C Massara, L Modi, B R Parker, -S Blancard, 10.1103/PhysRevD.109.103528arXiv:2401.15074Phys. Rev. D. 1091035282024astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 120,
+      "text": ". G Valogiannis, C Dvorkin, 10.1103/PhysRevD.106.103509arXiv:2204.13717Phys. Rev. D. 1061035092022astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 121,
+      "text": ". C Hahn, arXiv:2310.152462023",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 122,
+      "text": ". S Cheng, Y.-S Ting, B Ménard, J Bruna, 10.1093/mnras/staa3165arXiv:2006.08561Mon. Not. Roy. Astron. Soc. 4992020astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 123,
+      "text": ". M Gatti, DESarXiv:2405.108812024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 124,
+      "text": ". N Jeffrey, DESarXiv:2403.023142024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 125,
+      "text": ". R Srinivasan, M Crisostomi, R Trotta, E Barausse, M Breschi, arXiv:2404.122942024stat.ML",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 126,
+      "text": ". A Polanska, M A Price, D Piras, A Spurio Mancini, J D Mcewen, arXiv:2405.059692024astroph.IM",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 127,
+      "text": ". H Bevins, W Handley, P Lemos, P Sims, E D L Acedo, A Fialkov, 10.3390/psf2022005001arXiv:2207.114572022astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 128,
+      "text": ". H T J Bevins, W J Handley, P Lemos, P H Sims, E D L Acedo, A Fialkov, J Alsing, 10.1093/mnras/stad2997arXiv:2205.12841Mon. Not. Roy. Astron. Soc. 5262023astro-ph.IM",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 129,
+      "text": ". A Mootoovaloo, C García-García, D Alonso, J Ruiz-Zapatero, arXiv:2409.014072024astroph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 130,
+      "text": "JAX: composable transformations of Python+NumPy programs. J Bradbury, R Frostig, P Hawkins, M J Johnson, C Leary, D Maclaurin, G Necula, A Paszke, J Van-Derplas, S Wanderman-Milne, Q Zhang, 2018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 131,
+      "text": ". S R Hinton, 10.21105/joss.00045The Journal of Open Source Software. 1452016",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 132,
+      "text": ". A Lewis, arXiv:1910.139702019astro-ph.IM",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 133,
+      "text": ". P Virtanen, 10.1038/s41592-019-0686-2Nature Methods. 172612020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 134,
+      "text": ". C R Harris, K J Millman, S J Van Der Walt, R Gommers, P Virtanen, D Cournapeau, E Wieser, J Taylor, S Berg, N J Smith, Nature. 5853572020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 135,
+      "text": ". J D Hunter, 10.1109/MCSE.2007.55Computing in Science & Engineering. 9902007",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 136,
+      "text": ". E Saraivanov, K Zhong, V Miranda, S S Boruah, T Eifler, E Krause, arXiv:2403.123372024astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 137,
+      "text": ". D Foreman-Mackey, D W Hogg, D Lang, J Goodman, Publications of the Astronomical Society of the Pacific. 1253062013",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 138,
+      "text": ". T Mcclintock, E Rozo, Mon Not, Roy, 10.1093/mnras/stz2426arXiv:1905.09299Astron. Soc. 48941552019astro-ph.CO",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 87,
+      "subtype": "bibentry"
+    }
+  ]
+}

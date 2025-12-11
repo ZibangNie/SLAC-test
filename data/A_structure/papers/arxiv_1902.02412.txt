@@ -1,0 +1,257 @@
+A Bayesian Approach for Accurate Classification-Based Aggregates
+
+
+Q A Meertens 
+† ‡ 
+C G H Diks 
+¶ H J Van Den Herik 
+F W Takes 
+A Bayesian Approach for Accurate Classification-Based Aggregates
+Bayesian inferenceclassification errorsaggregatesmisclassification biasmachine learning
+In this paper, we study the accuracy of values aggregated over classes predicted by a classification algorithm. The problem is that the resulting aggregates (e.g., sums of a variable) are known to be biased. The bias can be large even for highly accurate classification algorithms, in particular when dealing with class-imbalanced data. To correct this bias, the algorithm's classification error rates have to be estimated. In this estimation, two issues arise when applying existing bias correction methods. First, inaccuracies in estimating classification error rates have to be taken into account. Second, impermissible estimates, such as a negative estimate for a positive value, have to be dismissed. We show that both issues are relevant in applications where the true labels are known only for a small set of data points. We propose a novel bias correction method using Bayesian inference. The novelty of our method is that it imposes constraints on the model parameters. We show that our method solves the problem of biased classificationbased aggregates as well as the two issues above, in the general setting of multi-class classification. In the empirical evaluation, using a binary classifier on a real-world dataset of company tax returns, we show that our method outperforms existing methods in terms of mean squared error.
+
+Introduction
+
+Aggregation after automated classification naturally occurs in a wide range of data mining applications. Classification-based aggregation even is the most common data operation in some research fields. Therefore, comprehending the effect of classification errors on the accuracy of the resulting aggregates is essential. The aim of this paper is to improve the accuracy of such aggregates by reducing their statistical bias. Before dis-cussing technical details, we briefly describe two applications, demonstrating the relevance of the problem.
+
+The first application is sentiment analysis in social media [5,16]. For the sake of simplicity, assume that messages are either positive or negative and that the overall sentiment is defined as the difference between the number of positive and negative messages. The sentiment of one message is predicted using natural language processing. The estimator for the sentiment on social media obtained in this manner is statistically biased, unless precision equals recall, as we show below.
+
+The second application is land cover mapping based on satellite imagery [4,13]. Here, the aim is to estimate the area of different types of land cover (e.g., cropland, wetland) of a large, delimited surface (e.g, a country, a continent). In [4], the per-pixel land cover class (one of 15) is predicted by an SVM image classifier. Again, the estimated surface per land cover class is biased.
+
+The two applications above are examples of the following general setting. Consider a set of N data points. Each data point is equipped with a categorical variable s (for stratum) and a numerical variable y. We are interested in the aggregates obtained by summing y after grouping by s. We denote the resulting aggregates by the K-vector u, where K > 1 is the number of categories that s may attain. Now, if s is not observed, but the result of a classification algorithm is used instead, the latter may contain classification errors. We therefore distinguish between the true class s and the predicted class s. Similarly, we write u for the K-vector of classification-based aggregates obtained by summing y after grouping by s.
+
+The problem studied in this paper is that the vector of classification-based aggregates u will be a statistically biased estimator for the true aggregate vector u. The bias can be nonzero even if N is large and the accuracy of the classification algorithm is high. In fact, the example below shows that the bias does not depend on N at all.
+
+The Base Rate Example. We consider a set of N = 100,000 companies, in which we would like to identify webshops based on the text found on the company's website. Assume a trained classification algorithm with false negative rate p = FN/(TP+FN) = 0.01 and false positive rate q = FP/(TN + FP) = 0.005.
+
+Assume that the set contains u 1 = 10,000 webshops, which would in practice be unknown. The fraction u 1 /N = 0.1 is referred to as the base rate. The expected number of companies classified as webshops is (1.1) 0.99 · 10,000 + 0.005 · 90,000 = 10,350,
+
+showing that the estimator has a relative bias of +3.5%.
+
+Essentially, the base rate example shows that if s is binary and y ≡ 1,
+(1.2) E[ u] = P T u with P = 1 − p p q 1 − q .
+In fact, it can be shown that equation (1.2) holds for a multi-class variable s and any numerical variable y, with P being the K × K contingency matrix [19]. We now make two crucial observations. First, the relative bias E[( u−u)/N ] does not depend on N . It implies that the bias does not vanish for large datasets. Second, the bias is only equal to 0 if p = q = 0, or if (for constant y) the base rate is precisely equal to q/(p + q). In the case of binary classification and constant y, the latter is equivalent to precision being equal to recall. In the case of multi-class classification and constant y, it is equivalent to the base rate vector (and hence u) being an eigenvector (of the transposed contingency matrix P T ) corresponding to the eigenvalue 1. Now, if the inverse Q = (P T ) −1 of P T is welldefined (in the binary case: if p + q = 1), then Q u is an unbiased estimator for u. The problem is that the classification error rates are not known exactly and merely estimated. If the estimates of the classification error rates are based on a (very) small test set, the proposed unbiased estimator Q u might attain impermissible values. To illustrate this problem, we include a second example.
+
+The Peculiar Example. Consider a set of N = 100 companies in which the predicted number of webshops is equal to 10. To estimate the classification errors, a (very) small test set of size n = 10 is used. Assume that it resulted in TP = 4, FP = 1, FN = 2 and TN = 2, hence p = 0.2 and q = 0.4. Correcting the bias as suggested above yields
+(1.3) P T −1 u = 1.5 −1 −0.5 2 10 90 = −75 175 .
+Thus, the unbiased estimate of the number of webshops in the dataset is −75.
+
+The issue in the peculiar example is caused by the fact that (1) p and q are not known but merely estimated and (2) the base rate is relatively low. Observe that the outcome does not dependent on the size N of the full dataset. The problem arises because the test set is small (because it implies inaccurate estimates for p and q), as we will show in Section 3.2. Having only a small test set available, even if N is large, is quite common. The reason is that labeled data is unavailable in many applications (e.g., the sentiment analysis and land cover mapping examples), while manually creating labeled data requires expert knowledge, making it expensive.
+
+We propose a novel bias correction method that reduces the statistical bias of classification-based aggregates. In contrast to existing methods, it is suitable for applications where the test set is small. If the test set is large enough, our bias correction method will give as accurate results as existing methods.
+
+This paper is structured as follows. In Section 2, the formal problem statement is introduced and related work is discussed. In Section 3, we formulate our bias correction method in the general setting of multi-class classification problems. In Section 4, we illustrate the effectiveness of the proposed methods using experiments on real-world data. Finally, Section 5 concludes.
+
+
+Problem Statement and Related Work
+
+In this section, we introduce the notation and formal problem statement, and discuss related work.
+
+
+Problem Statement.
+
+We partly adopt the notation from [19] to formulate our problem statement. Consider a set I of objects i = 1, 2, . . . , N . Each object i ∈ I belongs to a class s i . The finite, ordered set of classes is denoted by H and is of size K := |H| ≥ 2. In addition, each object is attributed with a continuous variable y i of interest. We introduce the class matrix A = (a ih ) of dimension N × K given by a ih = I(s i = h), where I(·) denotes the indicator function. The counts vector v := A T 1, where 1 is an N -vector of ones, counts the number of occurrences of the classes h ∈ H in the population. That is, v h equals the number of i ∈ I for which s i = h. The base rate vector β of length K is given by
+β h = v h /N for h ∈ H.
+Assume that the classes s i are not known, but instead predicted to be s i . The predicted class matrix based on the predictions s i is denoted by A. Similarly, v denotes the predicted counts vector. Assume that y i is known for all i ∈ I. The goal is to estimate the sum of y i over each of the classes h ∈ H. In other words, the main problem statement is how to find, using the predicted s i and the known y i , an accurate estimator of the aggregate vector
+(2.4) u = A T y.
+In the sentiment analysis application from before, the set I is the set of messages and s i is binary (a positive or negative message). Each y i equals 1 and hence u is a 2-vector with u 1 the number of positive messages and u 2 the number of negative messages. In the land cover mapping application obtained from [4], each i ∈ I is a pixel and s i may attain K = 15 different values. The value y i is the real land area corresponding to pixel i. Hence, the 15-vector u contains the total land area of each of the 15 land cover classes. Now, a first estimator of u might be the K-vector
+(2.5) u = A T y.
+However, we know that u is a biased estimator of u, recall equation (1.2). To estimate (and then correct) this statistical bias, we assume a classification error model, following the methodology in [19]; the value of s i , given the value of s i , is assumed to be a stochastic variable following a categorical distribution. The stochastic variable depends on i, but draws for different i are assumed to be independent. The unknown event probabilities are denoted by p ghi = P( s i = h | s i = g) and stored in contingency matrices
+P i = (p ghi ) gh of dimension K ×K. The suggested estimator u is shown to have expectation E[ u] = i∈I P T i a i y i , where a i is the i-th column of A T . If P T
+i is invertible, we denote its inverse by Q i . An unbiased estimator of u is then given by i∈I Q i a i y i . We refer to this bias correction method as the baseline method.
+
+What remains is to estimate the classification error rates p ghi using a test set. In Section 3, we propose a novel estimation method that properly deals with small test sets (recall The Peculiar Example).
+
+
+Related
+
+Work. Below, we discuss related work on biased aggregates, bias in machine learning and Bayesian inference.
+
+Biased Aggregates. To the best of our knowledge, [19] is the first work generally describing the classification error model and studying classification-based aggregates. We mention front runners from two fields using similar bias correction methods.
+
+The first field is epidemiology, which studies the distribution of health and disease. There, it is well-known how a low base rate can lead to high bias even if sensitivity (1 − p) and specificity (1 − q) are high [11] (cf. The Base Rate Example). As mostly binary classifiers are considered (sick or not), bias correction is straightforward [11, pp. 87-89]. In addition, a standard Bayesian method of bias correction, predominantly using a uniform or Jeffreys prior without parameter constraints, is applied in epidemiology [6,8]. We will generalize these Bayesian methods to the entire family of conjugate prior distributions and to the setting of multi-class classification. Moreover, we will improve empirical performance by imposing well-chosen parameter constraints.
+
+The second field is land cover mapping, which analyzes land use based on large volumes of remote sensing data, for example using SVM [12]. As can be expected, multi-class classification is not uncommon in this subject area (see [4] for a case study with K = 15 classes). Since accurately estimating the total area of types of vegetation is highly relevant in monitoring ecological systems [20], there have been many efforts in the field to make better use of accuracy data [15]. To the best of our knowledge, our bias correction method is a novel contribution to these efforts.
+
+Bias in Machine Learning. In machine learning, the accuracy of classification-based aggregates is relatively understudied. The literature on machine learning is mainly concerned with minimizing loss for individual future predictions and therefore focuses on a different kind of bias. Much work deals with model selection bias and overfitting [3] and sample selection bias [21]. However, reducing these types of bias (by, e.g., using k-fold cross-validation) does not necessarily reduce the statistical bias of classification-based aggregates. This is a pitfall especially if the base rate is low, i.e., when dealing with class-imbalanced data. Of course, correctly dealing with class-imbalanced data is well-studied [9]. However, as long as the classifier is not error-free, it will still result in biased aggregate predictions.
+
+An alternative is an aggregate loss function that measures the bias on the aggregate level instead of on the individual level [17]. Other alternatives include averaging multiple (biased) estimators into a single, more accurate estimator [18]. Such alternatives will reduce the bias of classification-based aggregates, but our proposed method will completely remove it for sufficiently large test sets.
+
+
+Bayesian
+
+Inference. An extensive review on Bayesian inference for categorical data analysis can be found in [1]. It specifically comments on the use of prior distributions and "the lack of consensus about what noninformative means" [1]. We will avert this discussion by analytically deriving the posterior distribution for the entire family of conjugate priors. We empirically evaluate two common prior choices; the uniform (flat) prior and the Jeffreys prior. In real-world applications, our bias correction method can be implemented for nonconjugate prior as well, by utilizing Markov chain Monte Carlo (MCMC) methods.
+
+
+Methods
+
+In this section, we introduce our bias correction method in the general setting of multi-class classification problems. The section contains three parts. First, the likelihood and posterior (for conjugate priors) as well as the Jeffreys prior are shown. Second, we formulate novel constraints on the classification error rates, being our main scientific contribution. Third, we show how to obtain the proposed Bayesian estimator of the aggregate vector using these parameter constraints.
+
+3.1 Bayesian Parameter Estimation. We begin by translating existing theorems from Bayesian statistics to our setting of multi-class classification. It mostly contains elementary probability manipulations. We make one simplifying assumption compared to [19]: the probabilities p ghi do not depend on i. We write p gh instead and only a single contingency matrix P remains. We refer to this assumption as that of the homogeneity of the contingency matrices. The reason for this simplifying assumption is that the notation, derivations and formulas are more pleasant to read. In practice, it might be more reasonable to assume that p ghi depends on i, but only through y i and possibly other features. Our proposed methodology can be applied separately to each group of objects having similar features, which can then be aggregated to obtain a single, final estimate.
+
+Two parts now follow: (1) formulating the likelihood function and posterior distribution (for conjugate priors), and (2) deriving the Jeffreys prior.
+
+Likelihood and Posterior. The parameters of the classification error model are the K 2 classification error rates (or event probabilities) {p gh : g, h ∈ H} and the K base rate parameters {β g : g ∈ H}. To estimate these parameters, consider a test set J = {i 1 , . . . , i n } ⊂ I of n randomly selected i j ∈ I for which we observe s ij . The corresponding dataset D of n independent observations x 1 , . . . , x n is given by x j = (s ij , s ij ), for i j ∈ J. We simply write x j = (s j , s j ) for j = 1, . . . , n. The following theorem shows the likelihood function and the posterior distribution for a suitable family of prior distributions, namely Dirichlet distributions. Recall that a Dirichlet distribution of order k ≥ 2 has the standard (k − 1)-simplex ∆ k−1 ⊂ R k as support, where
+(3.6) ∆ k−1 = x ∈ R k : x i ≥ 0, i x i = 1 .
+The density of a Dirichlet distribution of order k ≥ 2 with concentration parameters α = (α 1 , . . . , α k ) equals
+(3.7) f (x | α) = Γ(α 1 + · · · + α k ) Γ(α 1 ) · · · Γ(α k ) k m=1 x αm−1 m ,
+where Γ(·) is the gamma function. A Dirichlet distribution will be referred to as Dir(k, α).
+
+Theorem 3.1. The likelihood function of observing the dataset D = {x 1 , . . . , x n }, given the model parameters p and β, is given by
+(3.8) p(D | p, β) = g,h∈H (p gh β g ) n gh ,
+where n gh = |{j ∈ J : x j = (g, h)}|. The family consisting of products of K + 1 independent Dirichlet distributions of order K forms the collection of conjugate priors for the above likelihood function. Next, choose the prior K+1 k=1 D k on (p, β), where D g ∼ Dir(K, α g ) for g ∈ H and D K+1 ∼ Dir(K, γ). Write α g = (α gh ) h∈H for g ∈ H and γ = (γ g ) g . The posterior density is then given by (3.9)
+p(p, β | D, α, γ)∝   g,h∈H p α gh +n gh −1 gh     g∈H β γg+ng−1 g   ,
+where n g = h∈H n gh . Thus, the posterior distribution is the product of K + 1 independent Dirichlet distributions, the first K being Dir(K, (α gh + n gh ) h∈H ), for g ∈ H, and the last one being Dir(K, (γ g + n g ) g∈H ).
+
+Proof. The probability that s i = g for a randomly selected i ∈ I equals β g . The probability of observing x i = (g, h), given the classification error model, is equal to (3.10)
+P(s i = g, s i = h) = P( s i = h | s i = g) P(s i = g) = p gh β g .
+The pairs x i again follow a categorical distribution, now mapping into the product space {1, . . . , K}×{1, . . . , K} having event probabilities p gh β g . Equation (3.8) now follows, see [2, pp. 74-75].
+
+Next, we observe that the likelihood function (3.8) is equivalent to
+(3.11) p(D | p, β) =   g,h∈H p n gh gh     g∈H β ng g   ,
+where n g = h n gh = |{j ∈ J : s j = g}|. The likelihood function can be viewed as a product of K + 1 independent categorical distributions, as h p gh = 1 for every g ∈ H. It is well-known that the family of Dirichlet distributions forms the collection of conjugate priors to the categorical (and multinomial) distribution. For a derivation, see [2, pp. 76-78]. This proves the claim regarding the family of conjugate priors for the likelihood function (3.8).
+
+Finally, to derive the posterior distribution, we apply the result from [2, pp. 76-78] to each of the parameter vectors p g (with g ∈ H) and β separately. The posterior distribution for a prior distribution K+1 k=1 D k on (p, β), where D g ∼ Dir(K, α g ) for g ∈ H and D K+1 ∼ Dir(K, γ), is then seen to be equal to
+p(p, β | D, α, γ)∝   g,h∈H p α gh +n gh −1 gh     g∈H β γg+ng−1 g   .
+This concludes the proof.
+
+The Jeffreys Prior. If the model is correctly specified, the effect of prior choices will diminish as n attains larger values. For small test set sizes n, the choice of a prior distribution does affect the posterior distribution. With the breakthrough of MCMC methods, there is no need to impose any restrictions (other than those resulting from numerical limitations) on the family of prior distributions. For now, we have considered conjugate prior distributions in order to analytically formulate the posterior distribution. Specifically, we will compare two common prior choices: (1) the uniform prior and (2) the Jeffreys prior (cf. [1]). The uniform prior corresponds to setting the components of the hyperparameters γ and α g , g ∈ H, equal to 1 in Theorem 3.1. The Jeffreys prior, defined as proportional to the square root of the determinant of the Fisher Information Matrix (FIM), corresponds (in the case of a single categorical stochastic variable) to setting all components of α equal to 1/2 ([1, 303]). However, due to the repeated occurrence of β g in the likelihood function (3.8), we find a slightly different outcome which we did not find in recent text books.
+
+Proposition 3.1. The Jeffreys prior for the likelihood function (3.8) is given by a product of K +1 independent Dirichlet distributions of order K with hyperparameters α gh = 1/2 for all g, h ∈ H and γ g = K/2 for all g ∈ H.
+
+Proof. The proof consists of computing the determinant of the Fisher information matrix (FIM). To compute the FIM, a linearly independent set of parameters specifying the model is required. Note that the parameter vectors {p g : g ∈ H} and β are elements of the K-simplex ∆ K , as p gg = 1 − h =g p gh for each g ∈ H and β K = 1 − g =K β g , where we identify H with the set {1, 2, . . . , K}. It follows that the classification error model has (K + 1)(K − 1) = K 2 − 1 free parameters, which we will denote by p = ( p g ) g∈H , with p g = (p gh ) h =g , and β = (β g ) g =K . It is straightforward to show that the FIM is a block-diagonal matrix of the form (3.12) [10, p. 391]. We will now use the fact that the determinant of an m × m matrix C = αab T + diag(d), with α ∈ R and a, b, d ∈ R m is given by
+I( p, β) =       A 1 0 · · · 0 0 . . . . . . . . . A K 0 0 · · · 0 A K+1       , where A g = β g p −1 gg · 1 · 1 T + diag( p g ) −1 for g ∈ H and A K+1 = β −1 K · 1 · 1 T + diag( β) −1 , see(3.13) det(C) =   1 + α m j=1 a j b j d j   m j=1 d j .
+For a proof, consult [7, pp. 293-294]. Applied to (3.12), we find det(A g ) = β K−1 g h∈H p −1 gh , for g ∈ H and det(A K+1 ) = g∈H β −1 g . It follows that (3.14) det(I(p, β)) =   g,h∈H
+p −1 gh     g∈H β K−2 g   .
+Taking the square root concludes the proof.
+
+The Jeffreys prior density for the binary classification problem (K = 2) reduces to (3.15) p(p, β | α, γ) = 1
+π 2 p(1 − p)q(1 − q) ,
+where p = p 10 and q = p 01 . Panel (a) of Figure 1 shows the marginal Jeffreys prior density for the parameter p = p 10 (1 minus recall) for K = 2. Panels (b)-(d) show the marginal posterior density for n = 50, n = 500 and n = 2,000, using simulated data with base rate β 1 = 0.1 and true classification error rates p = 0.3 and q = 0.1. The posterior density indeed converges to the true parameter value p = 0.3 (dashed line).
+
+
+Imposing Parameter Constraints.
+
+Motivated by The Peculiar Example, we deduce useful constraints for the model parameter p. The example showed that in (very) small test sets, the unbiased estimator Q v of the counts vector v might give impermissible estimates (negative counts). In particular, we estimated the true webshop count to be −75.
+
+In our setting, there are two possible explanations for finding a negative estimate of a positive quantity: (I) the predicted base rate vector, being only a single realization of a stochastic variable, lies far away from its mean in this particular case, or (II) we have estimated the contingency matrix not sufficiently accurately and therefore the bias correction is inaccurate. The following theorem demonstrates why, in many practical cases, (II) plays a larger role than (I).
+
+Theorem 3.2. The variance-covariance matrix of the base rate vector β, conditional on the true s i , equals (3.16)
+Var( β | {s i , i ∈ I}) = 1 N diag(P T β) − P T diag(β)P .
+Proof. Recall the N × K class matrix A = (a ih ) given by a ih = I(s i = h) for objects i ∈ I and classes h ∈ H. The vector a i denoted the i-th column of A T . Note that the equality a i a T i = diag(a i ) holds, as each a i is a standard basis vector of R K . A similar equality holds for a i . The variance-covariance matrix of a i (for readability, we leave out the conditionality on the righthand side) is equal to
+Var( a i | {s i , i ∈ I}) = E( a i a T i ) − E( a i ) E( a i ) T = E(diag( a i )) − P T a i a T i P = diag(P T a i ) − P T diag(a i )P.
+In the last equality, we used the fact that the operation diag(·) commutes with taking the expectation. Recall that a i and a j (i = j) are independent, conditional on {s i , i ∈ I}. Thus, summing both sides of the above equation over i ∈ I and dividing the results by N 2 concludes the proof. Theorem 3.2 shows that the variance of β is proportional to the inverse of the population size N , while the variance of the parameter p is proportional to the inverse test set size n. In practice, we often find N n, hence (II) plays a larger role than (I). Therefore, we wish to impose constraints on the model parameter p such that Q v ≥ 0 with probability 1, conditional on v. Given v, we write
+(3.17) Θ K = Θ K ( v) := p ∈ (∆ K−1 ) K : Q(p) v ≥ 0 , where ∆ K−1 is the standard (K − 1)-simplex in R K .
+In other words, to determine whether a point p is in Θ K , one has to check whether or not v is contained in the convex hull of the rows of the contingency matrix P (p) corresponding to the point p.
+
+The Binary Case. In the binary case of K = 2, the proposed parameter constraints take on the elegant form
+(3.18) Θ 2 ( v) ∼ = ([0, v 2 ] × [0, v 1 ]) ∪ ([ v 2 , 1] × [ v 1 , 1]).
+To prove equation (3.18) algebraically, one solves the two linear equations Q(p) v ≥ 0 for p = p 10 and q = p 01 . Instead of doing so, we prefer a more insightful geometrical proof, see Figure 2, in which e 1 and e 2 correspond to the standard basis vectors of R 2 . Note that the predicted base rate vector β = v/N (orange dot) lies on the 1-simplex ∆ 1 ⊂ R 2 . The blue line segment in Figure 2, panel (a), shows the image of ∆ 1 under P T and the corresponding locations of p and q on the axes. It shows precisely what we found in The Peculiar Example: the predicted counts vector does not lie in the image of ∆ 1 under the estimated transposed contingency matrix P T . Now, Theorem 3.2 shows that it is unlikely that the predicted base rate vector β is not contained in the image of the true transposed contingency matrix. In Figure 2, panel (a), we thus impose that we need a blue endpoint of im(P T ) on each side of the orange dot v/N . It follows that the orange area in Figure 2, panel (b), contains the permitted (q, p)pairs and thus corresponds to Θ 2 ( v). This concludes the geometrical proof of equation (3.18).
+
+
+Bayesian Aggregates.
+
+In [19], it was shown that E[ u] = P T u. Hence, an unbiased estimator for u would be Q u with Q = (P T ) −1 . Recall that we refer to this method as the baseline method. The baseline method does not yet take the uncertainty in estimating the contingency matrix P into account. In The Peculiar Example, we have seen that this might lead to impermissible outcomes for small test sets. We propose the following three-step approach, assuming that a classification algorithm has already been trained and used to predict the classifications on the entire unseen dataset. In step 1, choose a prior from the Dirichlet family, such as the Jeffreys prior in Proposition 3.1, and find the posterior distribution of p using Theorem 3.1 (integrating β out of the equation). Alternatively, MCMC methods can be used to obtain a numerical approximation of the posterior distribution, also for non-conjugate (but proper) priors. In step 2, take draws from the posterior distribution and only accept the draws that lie within Θ K ( v). Choose a positive integer R (resolution parameter) and stop step 2 after R draws have been obtained. In step 3, compute the matrix Q and the product Q u, for each of the R draws. These three steps give a numerical approximation (of resolution R) to the posterior distribution of the estimator of the aggregate vector u, conditional on u.
+
+We conclude by noting that the time complexity of the proposed Bayesian method in n and N is equal to that of the baseline method if conjugate priors are considered, as it allows direct sampling from the posterior distribution. In fact, if wall-clock time is considered, the entire estimation can be easily implemented to finish in tens of milliseconds on any regular machine. Using MCMC methods, the time complexity depends on the prior choice and might increase with n, but not with N . The wall-clock time for our bias correction method using MCMC methods will increase to several minutes.
+
+
+Empirical Evaluation
+
+We begin by briefly revisiting The Peculiar Example from Section 1. Then, we introduce real-world data on company tax returns and use it to compare existing methods to our bias correction method.
+
+
+The Peculiar Example. Recall The Peculiar
+
+Example from Section 1. The baseline method resulted in an estimate of −75 webshops. The result of our bias correction method, with Jeffreys prior and parameter constraints, is shown in Figure 3. The posterior mean of the number of items in the webshop class is now equal to 5.0. The distribution is skewed (to the right) and the estimator still has a large variance, indicating that  more labeled data is required to obtain a more accurate estimate. However, our bias correction method is able to capture the little information available in the small test set of size n = 10, resulting in a useful estimate.
+
+
+Data on Company Turnover.
+
+To show the strength of our bias correction method in a general setting, we will now empirically evaluate our bias correction method using a real-world dataset of company tax returns. The goal is to estimate the total annual turnover of webshops. The binary classification (webshop or not) is not available in the data, but the annual turnover y i for each company i is. This application is exhaustive, because the numerical variable y (company turnover) is not constant (i.e., y i depends on i).
+
+The dataset, earlier studied in [14], contains tax returns filed in the Netherlands in 2016 by a set I of N = 18,939 companies established outside the Netherlands, but within the European Union. The total turnover reported by these companies for 2016 equals EUR 12.2 billion. Figure 4 shows how companies' total annual turnover is distributed in the dataset.
+
+In [14], a classification algorithm was trained (on a separate dataset) to predict whether a company was active as a webshop (class 1) or not (class 0). Without discussing the details of training it, we run  
+
+
+Bias Correction and Effect of Prior Beliefs.
+
+We compare the accuracy of our bias correction method to that of the baseline method and that of Bayesian methods without parameter constraints, when applied to estimate the total turnover of webshops in the given dataset. To compute the accuracy of the estimators, we have to know the true classification s i (webshop or not) for each company. As the true classifications are unknown, the only way to examine the accuracy is by means of simulation. For the purpose of this simulation, we take the predicted classifications from [14] as the true classifications s i . The base rate of the webshop class then equals β 1 = 0.075.
+
+Next, we take the binary classification error model with the true classification error rates p = 0.05 and q = 0.05 as the data generating process. We make this choice of p and q, because it leads to a sufficiently large bias of classification-based aggregates (as q/(p + q) = 0.5 0.075 = β 1 ) making Figure 5 more pleasant to read. We emphasize that other choices of p and q will lead to similar conclusions.
+
+The results of our Monte Carlo simulation are  shown in Figure 5, including the true value of webshop turnover u 1 (black, solid) and the distribution of the predicted value u 1 without performing any corrections (black, dashed). Besides our bias correction method (orange, dashed and solid), the figure shows the baseline method (red, dashed) and existing Bayesian bias correction methods without parameter constraints (blue, dashed and solid). The distributions are obtained by drawing 1,000 bootstrap replications from the classification error model and following the approach proposed in Section 3.3 for each bootstrap replication. Panel (a) shows the results for a test set of size n = 50 and panel (b) shows the results for n = 2,000.
+
+To facilitate a more rigorous comparison of the methods, the same results are summarized in Table 1. We make four observations from the results. First, for n = 50, our bias correction method achieves a considerable reduction of mean squared error (MSE) compared to existing Bayesian methods without parameter constraints. The effect of imposing parameter constraints diminishes for n = 2,000. Second, for n = 2,000, our bias correction method performs equally well (in terms of MSE) as the baseline method and existing Bayesian methods. Third, also for n = 2,000, all bias correction methods are a huge improvement (in terms of MSE) compared to performing no bias correction; the bias substantially decreases without increasing the variance too much. Fourth, our bias correction method decreases the variance compared to the baseline method, essentially by cutting off a large part of the support (cf. Figure 5, panel (a)). Even though this slightly increases MSE, it guarantees that impermissible estimates are never found, as we have illustrated in Section 4.1.
+
+Finally, we note that a dataset of size N = 18,939 is rather small for data mining applications nowadays. However, the base rate example and equation (1.2) showed that the relative bias does not depend on N . Therefore, the experimental results that we have found for the dataset of company tax returns will generalize to (much) larger datasets in other applications.
+
+
+Conclusion
+
+In this paper, we have studied the statistical bias of classification-based aggregates in the general setting of multi-class classification. We proposed a Bayesian bias correction method, being the first to derive and impose constraints on the classification error rates.
+
+For small test sets, imposing these parameter constraints dismisses impermissible estimates, leading to similar MSE as the baseline method and reduced MSE compared to existing Bayesian methods. For larger test sets, all bias correction methods yield similar results, substantially reducing the MSE of classification-based aggregates. The improvement of our method compared to existing methods is particularly compelling if the number of labeled data points is small. We argue this to be relevant in many data mining applications, including sentiment analysis and land cover mapping.
+
+As future work, we aim to reduce MSE even further by studying the bias-variance trade-off in classificationbased aggregates in more detail, and by relaxing the assumption of homogeneity of contingency matrices.
+
+Figure 1 :
+1The Jeffreys prior (no parameter constraints) and resulting posterior densities for model p, converging to the true parameter p 0 = 0.3 as n increases.
+
+Figure 2 :
+2The geometric relations between the contingency matrix P , the estimated counts vector v and the size N of the unseen data are shown in panel (a), for K = 2. Panel (b) shows the constraints on the model parameters p and q that we impose.
+
+Figure 3 :
+3The results of our method (with Jeffreys prior and parameter constraints) for The Peculiar Example.
+
+Figure 4 :
+4The distribution of the turnover variable in a dataset of filed tax returns. Figure adapted from[14].
+
+Figure 5 :
+5The distribution of the mean of the posterior distribution of total turnover for different priors and different test set sizes.the classification algorithm on the full dataset of size N , obtaining the predicted classifications s i ∈ {1, 0}.
+
+Table 1 :
+1A comparison of the bias, variance and mean squared error (MSE) of each of the bias correction methods (including no correction) when estimating webshop turnover.
+AcknowledgementsThis research has been funded by Statistics Netherlands and the Dutch Ministry of Economic Affairs. We express our gratitude to Arnout van Delden, Sander Scholtus and Danny van Elswijk for insightful discussions and for useful comments on an earlier version of the text.
+Bayesian inference for categorical data analysis. A Agresti, D B Hitchcock, Statistical Methods and Applications. 14A. Agresti and D. B. Hitchcock, Bayesian infer- ence for categorical data analysis, Statistical Methods and Applications, 14 (2005), pp. 297-330.
+
+C M Bishop, Pattern Recognition and Machine Learning. New YorkSpringerC. M. Bishop, Pattern Recognition and Machine Learning, Springer, New York, 2006.
+
+On over-fitting in model selection and subsequent selection bias in performance evaluation. G C Cawley, N L C Talbot, Journal of Machine Learning Research. 11G. C. Cawley and N. L. C. Talbot, On over-fitting in model selection and subsequent selection bias in performance evaluation, Journal of Machine Learning Research, 11 (2010), pp. 2079-2107.
+
+Land cover mapping from remotely sensed and auxiliary data for harmonized official statistics. H Costa, D Almeida, F Vala, F Marcelino, M Caetano, ISPRS International Journal of Geo-Information. 7157H. Costa, D. Almeida, F. Vala, F. Marcelino, and M. Caetano, Land cover mapping from remotely sensed and auxiliary data for harmonized official statis- tics, ISPRS International Journal of Geo-Information, 7 (2018), p. 157.
+
+Big data as a source for official statistics. P J H Daas, M J Puts, B Buelens, P A M Van Den, Hurk, Journal of Official Statistics. P. J. H. Daas, M. J. Puts, B. Buelens, and P. A. M. van den Hurk, Big data as a source for official statistics, Journal of Official Statistics, 31 (2015), pp. 249-262.
+
+Bayesian correction of misclassification of pertussis in vaccine effectiveness studies: How much does underreporting matter?. N D Goldstein, I Burstyn, E C Newbern, L P Tabb, J Gutowski, S L Welles, American Journal of Epidemiology. 183N. D. Goldstein, I. Burstyn, E. C. Newbern, L. P. Tabb, J. Gutowski, and S. L. Welles, Bayesian cor- rection of misclassification of pertussis in vaccine effec- tiveness studies: How much does underreporting mat- ter?, American Journal of Epidemiology, 183 (2016), pp. 1063-1070.
+
+F A Graybill, Matrices with Applications in Statistics. Wadsworth, Belmont2nd ed.F. A. Graybill, Matrices with Applications in Statis- tics, Wadsworth, Belmont, 2nd ed., 1983.
+
+P Gustafson, Measurement Error and Misclassification in Statistics and Epidemiology: Impact and Bayesian Adjustments. Boca RatonChapman & HallP. Gustafson, Measurement Error and Misclassifi- cation in Statistics and Epidemiology: Impact and Bayesian Adjustments, Chapman & Hall, Boca Raton, 2004.
+
+Learning from classimbalanced data: Review of methods and applications. G Haixiang, L Yijing, J Shang, G Mingyun, H Yuanyue, G Bing, Expert Systems with Applications. 73G. Haixiang, L. Yijing, J. Shang, G. Mingyun, H. Yuanyue, and G. Bing, Learning from class- imbalanced data: Review of methods and applications, Expert Systems with Applications, 73 (2017), pp. 220- 239.
+
+. R V Hogg, J W Mckean, A T Craig, Introduction to Mathematical Statistics. Pearson8th ed.R. V. Hogg, J. W. McKean, and A. T. Craig, In- troduction to Mathematical Statistics, Pearson, Boston, 8th ed., 2018.
+
+T L Lash, M P Fox, A K Fink, Applying Quantitative Bias Analysis to Epidemiologic Data. New YorkSpringerT. L. Lash, M. P. Fox, and A. K. Fink, Apply- ing Quantitative Bias Analysis to Epidemiologic Data, Springer, New York, 2009.
+
+Analysis of uncertainty in multi-temporal object-based classification. F Löw, P Knöfel, C Conrad, ISPRS Journal of Photogrammetry and Remote Sensing. 105F. Löw, P. Knöfel, and C. Conrad, Analysis of un- certainty in multi-temporal object-based classification, ISPRS Journal of Photogrammetry and Remote Sens- ing, 105 (2015), pp. 91-106.
+
+A review of supervised object-based land-cover image classification. L Ma, M Li, X Ma, L Cheng, P Du, Y Liu, ISPRS Journal of Photogrammetry and Remote Sensing. 130L. Ma, M. Li, X. Ma, L. Cheng, P. Du, and Y. Liu, A review of supervised object-based land-cover image classification, ISPRS Journal of Photogrammetry and Remote Sensing, 130 (2017), pp. 277-293.
+
+Q A Meertens, C G H Diks, H J Van Den Herik, F W Takes, arXiv:1805.06930A data-driven supply-side approach for measuring cross-border internet purchases. Q. A. Meertens, C. G. H. Diks, H. J. van den Herik, and F. W. Takes, A data-driven supply-side approach for measuring cross-border internet purchases, arXiv:1805.06930, (2018).
+
+Making better use of accuracy data in land change studies: Estimating accuracy and area and quantifying uncertainty using stratified estimation, Remote Sensing of Environment. P Olofsson, G M Foody, S V Stehman, C E Woodcock, 129P. Olofsson, G. M. Foody, S. V. Stehman, and C. E. Woodcock, Making better use of accuracy data in land change studies: Estimating accuracy and area and quantifying uncertainty using stratified estimation, Remote Sensing of Environment, 129 (2013), pp. 122- 131.
+
+A survey on opinion mining and sentiment analysis: Tasks, approaches and applications, Knowledge-Based Systems. K Ravi, V Ravi, 89K. Ravi and V. Ravi, A survey on opinion mining and sentiment analysis: Tasks, approaches and applications, Knowledge-Based Systems, 89 (2015), pp. 14-46.
+
+A predictive model for advertiser value-per-click in sponsored search. E Sodomka, S Lahaie, D Hillard, Proceedings of the 19th SIAM International Conference on Data Mining. the 19th SIAM International Conference on Data MiningNew YorkE. Sodomka, S. Lahaie, and D. Hillard, A pre- dictive model for advertiser value-per-click in sponsored search, in Proceedings of the 19th SIAM International Conference on Data Mining, New York, 2013, pp. 1179- 1190.
+
+Averaging regularized estimators. M Taniguchi, V Tresp, Neural Computation. 9M. Taniguchi and V. Tresp, Averaging regularized estimators, Neural Computation, 9 (1997), pp. 1163- 1178.
+
+Accuracy of mixed-source statistics as affected by classification errors. A Van Delden, S Scholtus, J Burger, Journal of Official Statistics. 32A. van Delden, S. Scholtus, and J. Burger, Ac- curacy of mixed-source statistics as affected by classifi- cation errors, Journal of Official Statistics, 32 (2016), pp. 619-642.
+
+Modeling habitat dynamics accounting for possible misclassification. S Veran, K J Kleiner, R Choquet, J A Collazo, J D Nichols, Landscape Ecology. 27S. Veran, K. J. Kleiner, R. Choquet, J. A. Col- lazo, and J. D. Nichols, Modeling habitat dynam- ics accounting for possible misclassification, Landscape Ecology, 27 (2012), pp. 943-956.
+
+Learning and evaluating classifiers under sample selection bias. B Zadrozny, Proceedings of the 21st International Conference on Machine Learning. the 21st International Conference on Machine LearningBanffB. Zadrozny, Learning and evaluating classifiers un- der sample selection bias, in Proceedings of the 21st International Conference on Machine Learning, Banff, 2004.

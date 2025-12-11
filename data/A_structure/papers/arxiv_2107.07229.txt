@@ -1,0 +1,715 @@
+Trusting RoBERTa over BERT: Insights from CheckListing the Natural Language Inference Task
+
+
+Ishan Tarunesh ishantarunesh@gmail.com 
+Microsoft Research India
+BengaluruSamsung Korea, India
+
+Somak Aditya 
+Microsoft Research India
+BengaluruSamsung Korea, India
+
+Monojit Choudhury monojitc@microsoft.com 
+Microsoft Research India
+BengaluruSamsung Korea, India
+
+Trusting RoBERTa over BERT: Insights from CheckListing the Natural Language Inference Task
+
+The recent state-of-the-art natural language understanding (NLU) systems often behave unpredictably, failing on simpler reasoning examples. Despite this, there has been limited focus on quantifying progress towards systems with more predictable behavior. We think that reasoning capability-wise behavioral summary (proposed in Ribeiro et al.(2020)) is a step towards bridging this gap. We create a CHECK-LIST test-suite (184K examples) for the Natural Language Inference (NLI) task, a representative NLU task. We benchmark state-ofthe-art NLI systems on this test-suite, which reveals fine-grained insights into the reasoning abilities of BERT and RoBERTa. Our analysis further reveals inconsistencies of the models on examples derived from the same template or distinct templates but pertaining to same reasoning capability, indicating that generalizing the models' behavior through observations made on a CheckList is non-trivial. Through an user-study, we find that users were able to utilize behavioral information to generalize much better for examples predicted from RoBERTa, compared to that of BERT.
+
+Introduction
+
+According to sociologists and the XAI literature (Jacovi et al., 2021), a pre-requisite to extrinsic human-AI trust establishment is for users to be able to anticipate the model's behavior. In NLP, while we expect pre-trained language models (PTLM) to power agents interacting with humans, often Transformers-based state-of-the-art architectures (BERT (Devlin et al., 2019) and its variants) behave unpredictably showing poor generalization abilities for simpler non-adversarial examples (Kaushik et al., 2020;Richardson et al., 2020) while achieving state-of-the-art in complex examples requiring composite reasoning (Wang et al., 2018). This has motivated researchers to re-think evaluation * Work done when author was a student at IIT Bombay. methodologies, which is a key component of extrinsic trust. Recently, inspired by behavioral testing (Beizer, 1995), authors in (Ribeiro et al., 2020) proposed creation of template-based test-suites, called CHECKLIST, that has a broader coverage ranging from the minimal expected functionality to more complicated tests across a range of capabilities. Moving beyond capability-wise probing and clozetask formulations, the methodology produces a behavioral summary that aggregates different shortcomings of the SOTA models across capabilities in a disentagled manner. In this work, we hypothesize that the behavioral summary using the CHECKLIST method for a natural language understanding task will help humans form a holistic intuition, that will in turn form the basis of quantifying the predictability of models through humans.
+
+To test this central hypothesis of our work, we choose the Natural Language Inferencing (NLI) task as it tests reasoning capabilities explicitly, and create a CHECKLIST that enables evaluation of whether NLI systems exhibit such reasoning capabilities. In the process, we extend the list of capabilities in Ribeiro et al. (2020) to cover more interesting linguistic and logical reasoning phenomena (such as causal, spatial, pragmatic) required in NLI (or similar tasks). We discuss how we come up with templates for such reasoning capabilities. The evaluation results on CHECKLIST test-suite provide a fine-grained disentangled view of a model's capabilities, untangling the effects of different phenomena. However, for models such as BERT (Devlin et al., 2019) and RoBERTa (Liu et al., 2019b), we discover capability-wise and intra-template inconsistencies. Even though, the average aggregate accuracies tell a clear story, such inconsistencies are found in most systems we evaluated. As a potential resolution, we design a human study and through a simulation experiment (Lage et al., 2019), we see how human judgement can be used to quantify model predictability.
+
+Our contributions are the following. 1) First, we create a template-based test-suite 1 (194 templates, 184k examples) for the NLI task by extending a recently published reasoning taxonomy for NLI (Joshi et al., 2020), and benchmark SOTA NLI systems that reveals new interesting facts about them. 2) We observe inconsistencies in the performance of the models within templates as well as across similar templates (perturbations of the same template), 3) performance inconsistency within templates (across varying lexicon) reveals new biases for BERT, and 4) Through a user study using simulation experiments, we provide an indication of human judgement about how inconsistencies affect predictability of models. Particularly, our experiments collectively indicate that RoBERTa is more "robust" (indeed!) and predictable than BERT.
+
+
+Related Work
+
+The conflicting performance of Transformer-based PTLMs in large natural language understanding benchmarks and targeted phenomena-wise tests have led to a wave of work in probing and attempting to understand these models. Extensive probing tasks have been implemented in order to investigate how and where (within the model) linguistic information has been encoded (Tenney et al., 2019a,b;Hewitt and Manning, 2019;Jawahar et al., 2019;Liu et al., 2019a;Kim et al., 2019). However, the effectiveness of the leading evaluation methodology, aka probing tasks, have come into question. For example, Ravichander et al. (2020) cautions that BERT may not understand some "concepts" even though probing studies may indicate otherwise.
+
+At a semantic level, and more specifically with respect to the NLI task, inference datasets have been curated focusing on testing a range of reasoning capabilities (Poliak et al., 2018;Richardson et al., 2019). Several work (McCoy et al., 2019;Kaushik et al., 2020;Glockner et al., 2018) developed targeted evaluation sets to adversarially challenge these large PTLMs and demonstrated shortcomings. However, these methods rely on the aggregate statistic of accuracy to assess performance, which makes it tricky to pinpoint where exactly the model is failing, and how to remedy the issues (Wu et al., 2019). The recent work by Ribeiro et al. (2020) takes a different route. Inspired by software testing, authors propose creation of a set of model-agnostic test cases that capture basic ex-1 We will make the dataset available for public use. pected functionality from a trained system. The revelation that SOTA systems fail on such minimal functionality tests has motivated the community to look at behavioral testing methodologies more closely, through which we can define capabilities and test them individually in a scalable manner.
+
+Language understanding tasks such as NLI introduces two additional challenges. Understanding requires a set of theoretically well-defined types of reasoning capabilities, as put forward by the theories of semantics and logic (Sowa, 2010;Wittgenstein, 1922). Such types define the necessary capabilities that an NLU (or NLI) system should possess; some of which are missing in the CHECKLIST work (Ribeiro et al., 2020). A goal of evaluation is also to develop a holistic intuition about model's behavior, and the behavioral summary from CHECK-LIST by itself may not be sufficient in achieving such a goal. These central challenges are relevant for all NLU tasks, and constitute the primary focus of our work.
+
+
+A CHECKLIST for the NLI task
+
+The CHECKLIST methodology (Ribeiro et al., 2020) assists users in testing NLP models by creating templates for a variety of linguistic capabilities, coupled with test types (Minimal Functionality tests (MFTs), Invariance tests (INVs), and Directed Expectation tests (DIRs)) which make the corresponding capability easy to test. These templates can then be used to generated multiple examples using the CHECKLIST tool 2 . An example CHECK-LIST template for NLI task, is shown in Table 2   selection of capabilities that represent well-known linguistic and logical taxonomy, and are easily extensible, 2) template creation for such capabilities. Extending TaxiNLI. We extend the taxonomy by adding back the (pruned) Numerical category. We also add a high-level category PRAGMATIC, with two sub-categories pre-supposition and implicatures. Templates belonging to factivity fall under the more general capability pre-supposition.
+
+
+Selection of Capabilities
+
+
+Template Generation for Reasoning Categories
+
+We aim to test the minimal expected functionalities along each reasoning type individually. Paraphrasing is hard to test individually, as most paraphrases in existing-paraphrase corpora (Dolan and Brockett, 2005;Iyer et al., 2017) are not necessarily entailments, and such paraphrases may involve lexical changes as well.
+
+
+Logical.
+
+For Boolean, apart from testing logical and (∧), or (∨); we test ordered resolution as well (T3, T4). Quantifier templates test the understanding of universal (all, ∀), and existential (some, none; ∃, ¬∃) quantification, and the effects of interchanging them. For Coreference, we come up with representative templates to test gendered (T5), animate vs. inanimate resolution. For Spatial templates, we utilize the list of spatial prepositions and adverbs indicating relative positions (near, far, above, below, left, right). We include a set of templates testing cardinal directions (north, east, south and west); and some requiring comparison of distances (T6, requiring both Spatial and Numerical understanding). Temporal templates cover relative occurrences of events using prepositions, such as before, after, and until. Another set of templates test the understanding of time in the day (8AM comes before 2PM), month or year. We add templates for temporally ordered events (A happened and then B happened, T7) which require the inference of earliest or latest events. Causal template creation is tricky since often reasoning beyond form is required. However, with specific controls placed, we can generate accurate causal premise-hypothesis pairs. We use a set of actionverb pairs which are complementary (e.g. givetake, give-receive, etc.) to describe corresponding actions between 2 entities and an object (T8). This still results in limited test cases. Explorations into leveraging knowledge graphs such as ConceptNet, ATOMIC (Speer et al., 2016;Sap et al., 2019) to retrieve appropriate causal action phrases could be a way to tackle the issue. Most LOGICAL category templates implicitly test the Relational (deductive reasoning with relations in text) capability, and hence we add three representative templates. Templates falling under Numerical test a basic understanding of counting (T9, T10), addition, subtraction and numerical comparison.
+
+
+Knowledge.
+
+For Taxonomic, we require templates where a taxonomic hierarchy (external to text) is implicitly required to infer the hypothesis. Templates either require to infer A is a type of B ("P: A has some properties. H: A is a type of B.";) or utilise that information (similar to Talmor et al. (2020)) ("P: B has property P. H: A has property P."). We collect set of properties of common flowers 4 , birds, fishes, and mammals from Wikipedia to generate the templates. The scope of World templates is vast. Here, we create templates that specifically tests basic knowledge of geography (city-country pairs, T11), famous personalities (noble prize winners and their contributions 5 ) along with the understanding of some well-known concepts such as speed (speed decreases when brakes are applied), popularity on social media. Pragmatic. For Pragmatic, we add templates along the lines of Jeretic et al. (2020). For Pre-supposition, templates test the existence of objects (T12), occurrence of events, aspectual verbs (T13), and quantifiers. Implicature templates are constructed by following Grice's cooperative principle (Maxims of quality, quantity, and relevance) (Grice, 1975). Most Implicature templates also require other capabilities such as quantifiers (T14), Boolean (T15), and Numerical (T16).
+
+
+Benchmarking NLI systems
+
+We analyze BERT-base (uncased), DistilBERTbase (uncased) and RoBERTa-large (cased) (Devlin et al., 2019;Liu et al., 2019b) fine-tuned on MultiNLI (referred to as RoBERTa). We also observe the effects of adversarial training using RoBERTa-large fine-tuned on Adversarial NLI dataset (RoBERTa-ANLI; (Nie et al., 2020)), a larger model DeBERTa-large (He et al., 2020). For lack of space, we include a short summary of ob-4 https://bit.ly/3hu2Psn 5 https://bit.ly/2RkIOdk   Capability-wise Performance. The capabilitywise average accuracy of the models are shown in Figure 1( sensitive to the lexical substitution of "before" ("after") with "earlier than" ("later than"). RoBERTa is able to accurately reason "A happened before/after B" over two to three events, whereas BERT and DistilBERT results are unsure. All models fail to detect the "first" or the "last" event in a sequence. Within coreference RoBERTa is able to accurately resolve male and female names. Lastly, for Causal templates, RoBERTa seems more accurate than both BERT and DistilBERT. For knowledge templates, all models consistently suffer. On probing implicature templates, we observe that models vary between logical (P: Silverware and plate lie on the table. Barbara asked for the plate. H: Barbara also asked for the silverware.; predicting neutral over contradiction) and implicative (P: Some of the balls are purple in colour. H: All of the balls are purple in colour.; predicting contradiction over neutral), depending on the template.
+
+
+Observations and Analysis
+
+Intra-Template Performance. In Figure 1( To dive deeper, we first analyze the effect of placeholders on template accuracy using Linear Regression as a surrogate model for feature importance. The feature vector is a one-hot representation created using the concatenation of placeholders, top 20 other words (using BOW) and template label. We show the coefficients for placeholders in Fig. 2 (rare placeholders are omitted). Placeholders COLOR and ACTION have high positive coefficients as they co-occur with quantifier, syntactic, and pre-supposition templates where the models perform well. Similarly, high negative coefficient for YEAR is due to models being unable to compare year of birth. Placeholders MALE NAME and FEMALE NAME turns out to be interesting having negative coefficient for BERT and DistilBERT, and near-zero coefficient for RoBERTa. This is intuitive as RoBERTa is better at resolving gendered coreferences. Interestingly, NAME is more negative in BERT, showing the hidden effect of how varying names can affect BERT more than RoBERTa. Similarly, models perform decently on templates involving comparative (COM ADJ) while struggling in templates involving superlatives (SUP ADJ). The behavioral analysis gives us an indication that RoBERTa-large may indeed be more robust and accurate, but inter-template inconsistencies begs for further exploration.
+
+
+Consulting Humans to Quantify Model Inconsistency
+
+The inconsistencies observed for both BERT and RoBERTa begs the question as to how to quantify the progress towards models with increased predictable behavior 7 .  Local Explanations and Interface Design. From multiple pilot studies using global behavioral summary (such as Template-wise accuracy scores), and relevant template-level local summaries 8 , we observe that global template-wise accuracies have large cognitive load for participants, and templatewise aggregate accuracies are hard to comprehend (and predict) without the knowledge of the lexicon that the keywords represent (owing to intratemplate inconsistencies). Hence, in this study, we fixate on providing local example-based explanations. For the explanations interface design, we follow Lage et al. (2019). Through various pilot studies, authors in Lage et al. (2019) found that the use of three intuitive boxes -namely, the input box, the explanation box, and the question box; makes the information easier to follow. We observe that this vastly improves relative to our earlier pilot studies based on Google Forms-based questionnaire. Task, Metrics and Participants. In this study, we restrict ourselves to simulation questions, where the participants are asked to simulate (anticipate) an underlying blackbox system's (instructions in Fig. 3) prediction given explanation and the input. Since Transformers often show different types of bias and its not known whether they follow human reasoning, we track two metrics: 1) prediction accuracy, 2) mutual agreement score. Consuming such examples and being able to generalize based on explanations on nearest neighbors require a certain amount of analytical reasoning skills. Hence, instead of going to crowd-sourced platforms, we choose a total of 10 International Linguistics Olympiad participants 9 . Such participants are trained on analytical text-based puzzle solving, but not trained in formal Linguistics or Logic. In Figure 4, we report results from Stages 1 and 2 for BERT (referred to as B1, B2) and Stage 2 for RoBERTa (R2). The average prediction accuracy of the participants increase from 58.7 ± 6.8 (out of 125) to 61.4 ± 6.8 from Stage B1 to B2. Similarly, average mutual agreement among participants increases from 74.75 to 79.8, showing that the nearest neighbors from CheckListNLI (representing disentangled phenomena) enable better explanation. Upon interviewing participants, some mentioned their responses in stage B1 was often "random". This is intuitive as MNLI examples are often quite complex with long sentences. So, we repeat only stage 2 for RoBERTa (R2). For R2, we clearly see a 12.5% improvement in prediction accuracy with a 2.62% improvement in agreement score. This indicates that even though inconsistencies exists for both models, participants were able to anticipate RoBERTa's behavior better.
+
+
+Findings and Observations
+
+We also recorded responses about the different stages of study from participants. Most participants found that nearest neighbor examples were most relevant for B2 (5 out of 8) and R2 (4 out of 8). The LIME-based highlights and predicted labels were both useful in B2 and R2. A participant commented that "The highlighted words and predictions were very helpful. Relied completely on both". Interestingly, the participants were only told that the systems are different for B2 and R2, without revealing any further detail. But, most people (60%) found that its easier to predict the system's behavior for R2. Participants mentioned that task interface was easy to navigate and they had no difficulty understanding the instructions.
+
+
+Conclusion
+
+Following the recent XAI literature (Jacovi et al., 2021), we aim to quantify progress towards more predictable natural language understanding models (especially PTLMs). To this end, we select the NLI task which requires reasoning, and conduct detailed behavioral analysis of state-of-the-art NLI systems. We adapt and extend a recently proposed taxonomy for NLI (TAXINLI). Through a templated test-suite (194 templates, 17 reasoning types), we observe that for both BERT and RoBERTa, model inconsistencies can be found both across templates (i.e., logical, lexical perturbation of templates) and within templates while only varying lexicon. Furthermore, we design a human study where we ask humans to predict model behavior given behavioral information about NLI systems. A 12.5% increase in human prediction accuracy for RoBERTa over BERT provides an indication that, despite fine-grained inconsistencies, RoBERTa is more predictable than BERT. Our work shows how behavioral information may help quantify progress towards systems with more predictable (therefore trusted; (Jacovi et al., 2021)) behavior.
+
+
+Ethics Statement
+
+As our work involves human study of the behavior of a blackbox NLI system, we took an Internal Review Board (IRB) approval from our organization for the study and asked for all necessary consent. A consent form was shared with all participants, and all participants formally agreed to participate by electronically signing the form. To the best of our knowledge we ensured that the study did not expose them to any possible harmful content (in text, images or other forms). We also did not collect or share any personally identifiable information.  In Tab. 4, we show accuracies of 5 state-ofthe-art NLI systems. We observe the effect of adversarial training with more data using the RoBERTa-large trained on Adversarial NLI dataset (Nie et al., 2020) (primarily the round 3 model trained on MNLI, SNLI, Fever and ANLI), and using a larger model DeBERTa-large (He et al., 2020) trained on Multi-NLI dataset which is at this point leader in the GLUE leaderboard. Interestingly, our capability-wise analysis in Figure. 5(a) shows that DeBERTa does only marginally better than RoBERTa. It still suffers in spatial, numerical, knowledge and implicature templates. In many cases, DeBERTa shows similar intratemplate inconsistencies (Fig. 5(b)). RoBERTa-ANLI (M+S+F+A) model, only provides a 2.9% accuracy improvement on CheckListNLI, showing the test-suite is quite hard. Similar to DeBERTa, it suffers in spatial, Numerical, knowledge, implicature and some more logical categories. However, we see from Fig. 5(b), that the intra-template inconsistencies decrease even more for RoBERTa-ANLI.
+
+A.    We expand on our analysis of variation within a template arising due to lexicons by discussing two example templates.
+
+Case Study 1 on PROFESSION. The expected label for the template P:
+{NAME1}, but not {NAME2}, is a {PROFESSION}. H: {NAME2} is a {PROFESSION}.
+is "contradiction". We create examples from this template by varying on two dimensions, 1) first we vary the gender of NAME2 (we keep NAME1 to be same gender as NAME2 to avoid any confusion), and then 2) use different values of the PROFESSION lexicon, and then vary only names. For each combination of the above two we sample 100 examples and report BERT's accuracy in Table 5. As mentioned, accuracy varies strongly with the change in lexicon for PROFESSION. Template accuracy varies from low when profession is set to engineer (0%), poet (0%) to high when profession is set to doctor (0.82%), professor (0.92%).  Table 6 shows the accuracy for different combinations of gender and ADJ. Compared to the previous template, we notice that the accuracies are almost unchanged across the gender dimension. This means that compared to ADJ, BERT shows bias towards certain professions PROFESSION conditioned on gender. Here also template accuracy varies from low when adjectives are bigger (0%), sweeter (0.16%) to high when adjectives are tiny (0.99%), creepier (1.00%).
+
+
+B Benchmarking: Detailed Observations from Template Perturbations
+
+We provide a list of interesting templates in Table  9, from where we can glean more fine-grained observations about the underlying systems' behavior.
+
+T2: All models fails on simple boolean template for testing "or". T13,T14: BERT and DistilBERT are unsure on ordered resolution. RoBERTa is able to predict accurately when the label is entailment but unsure when the label is contradiction. The observation remains consistent for chain of length 2, 3 and 4. T21,T22: We modify T13,T14 by introducing "not" in the hypothesis and observe a label shift towards contradiction for all models (even RoBERTa which was accurate for entailment templates). T45,T46: We look at both these templates together and observe that BERT and DistilBERT are biased towards entailment label while not understanding gendered names. RoBERTa on the other hand performs fairly accurately on both templates. T63: DistilBERT fails on this very basic comparative template where the arguments are swapped.
+
+T68,T71: The information within the premise is not sufficient to arrive at hypothesis. All models struggle with templates such as this. T76,T77: This template requires comparative and syntactic understanding. RoBERTa performs accurately on both these template whereas BERT and DistilBERT are unsure. On further analysis we observe that BERT has lexical bias for the placeholder ADJ. T80,T81: All models fail on template related to 2D directions. T88,T89,T92,T93: All models are unsure or biased on this set of templates. Since RoBERTa is able to perform numerical comparison we would expect it to compare year but that is not observed. An interesting observation is BERT being sensitive to the lexical substitution "before" (or "after") to "earlier than" (or "later than"). T98,T99: RoBERTa is able to correctly reason out the relative ordering to events whereas BERT and DistilBERT are unsure T116,T117: Compared to BERT and Dis-tilBERT, RoBERTa is better at understanding causal-verb pairs. T122: A very simple quantifier template on which both BERT and DistilBERT fail. T171,T172: These two are exactly the same template with different label depending on "logical" vs "implicative" reasoning. BERT and DistilBERT are unsure whereas RoBERTa is "logical" . T128,T127: Another pair of exactly same template but this time all the three models predict contradiction which is "implicative" reasoning.
+
+
+C Summary of Pilot Studies
+
+We carry out series of pilot studies varying user interface, explanation granularity and type of behavioral information. We choose 4 (final-year) undergraduate Computer Science students, who have some experience in NLP through projects, but not trained on Linguistics and Logic.
+
+
+C.1 Phase 1: Global Explanation, Template-wise Accuracy Prediction
+
+The first phase of our pilot studies involved a Google Form-based questionnaire as an interface 10 . We envisioned a training stage, where the participants will be shown behavioral summary of a blackbox NLI system; and a testing stage where participants will be asked to place bids (out of 5) on the most accurate bin(s) for unseen templates. First, we chose these 25 test templates, similarly in the final study. Then, we design the three variants (or 10 https://forms.gle/kzqB2Luqub97mKQd6  stages) by varying levels of behavioral information (abstract to fine-grained). In Stage 1, we only provided the NLI label-wise accuracies for the models.
+
+In Stage 2, we provided Template wise accuracies for all remaining templates from the test-suite (at that point 100). Then, on Stage 3, we carefully chose 30 related templates and added short textual description for each. Since, the behavioral information was at a global level, the participants found it very hard to successfully utilize the information for each specific template. Moreover, the underlying system BERT was severely inconsistent even within templates. The combined effects of these factors resulted in particpants' predictions to be near random and the performance hardly improved over the first stage (shown in Table. 7). However, in some cases, the relevant fine-grained behavioral information seemed to improve agreement score among participants.
+
+
+C.2 Phase 2: Local Explanation, Template-level vs. Example-wise Questions
+
+Using the lessons from the first pilot study, we moved on to local explanations. Using a web-based user interface designed according to Lage et al.
+
+(2019), we carried out pilot studies for overall three variations: 1) template-based questions and explanations, 2) template-based questions and examplebased explanations, and 3) example-based questions and explanations. We proceed with same way    
+
+Figure 1 :
+1(a) (Best viewed in color) For each of the 17 reasoning capabilities, we show average accuracy for each model, (b) For 3 models, we show a histogram of number of templates across 5 accuracy bins.
+
+Figure 2 :
+2Figure showing the regression coefficients for common placeholders for all three models.
+
+Figure 3 :
+3Landing Page Instructions to participants. Study in https://bit.ly/3huowZG
+
+Figure 4 :
+4Average Accuracy and Mutual pairwise agreement for participants (out of 125).
+
+Figure 5 :
+5(a) (Best viewed in color) For each of the 17 reasoning capabilities, we show average accuracy for each model (darker the color, higher the accuracy), (b) We show test-suite wide model accuracies divided into 5 bins.
+
+
+T128 P: Some the {OBJS} are {COLOR} in color. H: All of the {OBJS} are {COLOR} in color. cont 100.00 100.00 100.00 Impl P: Some of the balls are purple in colour. H: All of the balls are purple in colour. T127 P: Some the {OBJS} are {COLOR} in color. H: All of the {OBJS} are {COLOR} in color. neutral 0.00 0.00 0.00 Quan P: Some of the cars are green in colour. H: All of the cars are green in colour.
+
+
+. Here NAME, ADJ are placeholders. Corresponding lexicons are:{NAME} = {Alexia, John, Mia,  ...}, {ADJ} = {good, bad, kind, ...}. Synonym(.)   stands for a synonym of the word (from WordNet). The capabilities discussed inRibeiro et al. (2020)   are targeted to test the robustness of NLP systems against a minimal set of properties that are necessary yet feasible to check. However in tasks such as NLI, inferencing often requires (one or more) linguistic and logical reasoning capabilities. Our goal is to test the systems against such reasoning types. Even if some reasoning types are deemed not necessary, such tests cumulatively should inform about the systems' abilities in a holistic manner. This presents us with two challenges for templated test-suite generation for the NLI task (or tasks that require different types of reasoning): 1) careful{NAME1}  is {a/an} {PROF} and {NAME2} is too. H: {NAME2} is {a/an} {PROF}. entail E (1) Synt. P: Kevin is a politician and Steve is too. H: Steve is a politician. Bool. P: George and Michael are from Germany and Australia respectively. H: George is from Germany. Helen and Barbara are from Canada and Brazil respectively. H: Helen is from Brazil. Temp. P: Barbara has a history class then a mathematics class then a seminar. H: The history class is the first event. Katherine taught science to Nancy. H: Nancy learnt science from Katherine. Bill, Patrick, Thomas, Joseph and Scott are the only children of Mark. H: Mark has 5 children. Num. P: Mark is the child of Ruth. Patricia is the child of Ruth. Helen is the child of Ruth. Dorothy is the child of Ruth. Ann is the child of Ruth. H: Ruth has 1 child. Patrick lives in Lahore. H: Patrick lives in Pakistan T12 P: {NAME}'s {RELATION/OBJ} is {ADJ}. H: {NAME} has a {RELATION/OBJ}. entail E (1) PreSup P: Sarah's brother is jolly. H: Sarah has a brother. Martin has stopped drinking. H: Martin used to drink. T14 P: {NAME} {PAST VERB} {some/few} of the {NOUN}. H: {NAME} didn't {VERB} all of the {NOUN}. entail E (1) Implic. P: Helen hired some of the teachers. H: Helen didn't hire all of the teachers. Toothpaste and eyeliner lie on the table. Jane asked for the eyeliner. H: Jane did not ask for the toothpaste. Donald asked if Chris had 200 dollars. Chris had 90 dollars. H: Chris didn't have 200 dollars.# 
+
+Template & Examples 
+Annotations 
+
+T1 
+P: {NAME} is {ADJ}. H: {NAME} is {Antonym(ADJ}. contradict 
+C (1) 
+Lex. 
+P: Jim is responsible. H: Jim is irresponsible. 
+
+T2 
+P: T3 
+P: {NAME1} and {NAME2} are from {CTRY1} and {CTRY2} respectively. H: {NAME1} is from {CTRY1}. entail 
+E (1) 
+T4 
+P: {NAME1} and {NAME2} are from {CTRY1} and {CTRY2} respectively. H: {NAME1} is from {CTRY2}. contradict 
+C (1) 
+Bool. P: T5 
+P: {MALE_NAME} and {FEMALE_NAME} are {friends/collegues/married}. He is {a/an} {PROF1} and she is {a/an} {PROF2}. H: 
+{MALE_NAME} is {a/an} {PROF1}. entail 
+E (.8) 
+
+Coref P: Angelique and Ricardo are collegues. He is a minister and she is a model. H: Angelique is a model. 
+
+T6 
+P: {CITY1} is {N1} miles from {CITY2} and {N2} miles from {CITY3}. H : {CITY1} is {nearer/farther} to {CITY2} than {CITY3}. 
+entail 
+E (1) 
+
+Spatial P: Manchester is 67 miles from Pittsburg and 27 miles from Kansas. H: Manchester is nearer to Kansas than Pittsburg. 
+
+T7 
+P: {NAME} has {EVT1} followed by {EVT2} followed by {EVT3}. H: {EVT1/3} is the {first/last} event. entail 
+E (1) 
+T8 
+P: {NAME1} {bought/taught/...} {OBJ} to {NAME2}. H: {NAME2} {sold/learnt/...} {OBJ} from {NAME1} entail 
+E (1) 
+Causal P: T9 
+P: {NAME1}, {NAME2}, ... {NAMEn} are the only children of {NAME0}. H: {NAME0} has {n} children. entail 
+E (1) 
+Num. P: T10 
+P: {NAME1} is the child of {NAME0}, {NAME2} is the child of {NAME0}, ..., {NAMEn} is the child of {NAME0}. H: {NAME0} has 
+{n1<n} children. contradict 
+C (1) 
+
+T11 
+P: {NAME} lives in {CITY}. H: {NAME} lives in {CTRY}. entail 
+E (.8) 
+World P: T13 
+P: {NAME} has stopped {CONTINUOUS VERB}. H: {NAME} used to {VERB}. entail 
+E (1) 
+PreSup P: T15 
+P: {OBJ1} and {OBJ2} lie on the table. {NAME} asked for the {OBJ1}. H: {NAME} did not ask for the {OBJ2}. entail 
+N (.5) E (.5) 
+Implic. P: T16 
+P: {NAME1} asked if {NAME2} has {N1} dollars. {NAME2} had {N2 < N1} dollars. H: {NAME2} didn't have {N1} dollars. entail 
+E (1) 
+Implic. P: 
+
+Table 1 :
+1We show a few representative Templates (examples), top human annotated label, and associated confidence (0-1). Full list in Appendix. Template: P: {NAME} is {ADJ}. H: {NAME} is {Synonym(ADJ)} Entail Example: P: Alexia is happy . H: Alexia is glad . EntailTemplate 
+Expected 
+
+
+
+Table 2 :
+2An example NLI template testing synonyms.
+
+
+TIC represents NLI examples where inference process is internal to the provided text; further divided into three categories lexical, syntactic and factivity. LOGICAL denotes examples where inference may involve processes external to text, and grouped under Connectives, and Deduction. Connectives involve categories such as negation, boolean, quantifiers, conditionals and comparatives.According to the linguistics literature (Wittgen-
+stein, 1922; Jurafsky and Martin, 2009), decipher-
+ing meaning from natural language form often 
+takes both semantic and pragmatic understanding 
+abilities. From the perspective of Logic (Charles 
+Peirce), there are three pre-dominant forms of rea-
+soning: deductive, inductive, and abductive; that 
+can be employed by an agent to understand and 
+
+interact. Other than a few recent work (Bhaga-
+vatula et al., 2020; Jeretic et al., 2020), most of 
+the NLI datasets have widely covered (monotonic) 
+deductive inferences; and lexical, syntactic and 
+semantic understanding abilities. Recently, Joshi 
+et al. (2020) proposed an (extensible) categoriza-
+tion of the reasoning tasks involved in NLI. This 
+categorization strikes a balance between the high-
+level categorizations from Language and Logic, 
+while refining the categories and their granularity 
+based on their relevance with respect to current 
+public NLI datasets. Authors define three broad 
+groups of reasoning: LINGUISTIC, LOGICAL and 
+KNOWLEDGE, which aligns with our philosophy. 
+Other categorizations (Nie et al., 2020; Wang et al., 
+2018), though relevant, are often incomplete as 
+they are tuned towards analyzing errors. 
+Here, we introduce the categories briefly and 
+show examples (and templates) in Tab. 1. LINGUIS-
+
+De-
+duction involves different types of reasoning 
+such as relational, spatial, causal, 
+temporal, and coreference. KNOWLEDGE 
+indicates examples where external (world) or 
+commonly assumed (commonsense) knowledge 
+is required for inferencing. For detailed definitions, 
+we refer the readers to Joshi et al. (2020). 
+
+
+
+Table 3 :
+3Average accuracy on MNLI-test set and CheckListNLI.servations from RoBERTa-ANLI and DeBERTa 
+in Appendix. For easy reproduction, we use the 
+MNLI fine-tuned models publicly available from 
+the Huggingface Transformers repository 6 (Wolf 
+et al., 2019). 
+
+CheckListNLI Dataset. We created a total of 
+194 templates spanning all 17 capabilities, dis-
+cussed in Section  §3.1. For each template (ex-
+cept KNOWLEDGE), we generate 1000 examples 
+by careful instantiations of the placeholders present 
+in the template. Since KNOWLEDGE category in-
+volves collecting facts from other sources, we gen-
+erate 100 examples per template. The dataset will 
+be released upon acceptance. We ask two inde-
+pendent annotators to annotate the NLI label for 5 
+random examples from each template (970 exam-
+ples). The average Fleiss' κ 0.81 (same as Cohen's) 
+shows very high inter-annotator agreement. 
+
+
+
+Table 3
+3shows the accuracy on MNLI test, and CheckListNLI dataset for all models. Similar to MNLI, RoBERTa clearly outperforms BERT and DistilBERT on CHECKLISTNLI. Further we ana-lyze BERT, DistilBERT and RoBERTa's capabilitywise and intra-template performance.
+
+
+a). We observe that all models perform well on Lexical, Syntactic and Presupposition capabilities. Within the Logical category, the results are comparably poor and inconsistent across both the capabilities and model dimension. The same holds for the Knowledge categories and Implicature templates. For further analysis, we mark a template as passed if the model's accuracy is above 80%, as unsure if the accuracy is in middle bins (20-80%), and failed if less than 20%. For negation, all models fail on template containing "but not" (P: Janet, but not Stephen, is a dancer. H: Stephen is a dancer.) For boolean, we observe that BERT and DistilBERT are unsure on ordered resolution; whereas RoBERTa is biased towards entailment label (unsure for contradiction). Moreover for RoBERTa, the bias shifts towards contradiction with the addition of "not" in the hypothesis even if the correct label is entailment (P: Margaret and Robert are from America and Russia respectively. H: Margaret is not from Russia.). For comparative, all models fail on template with insufficient information (P: Philip is more handsome than Frances. Philip is more handsome than Kevin. H: Kevin is more handsome than Frances.). BERT and Distil-BERT are unsure on reasoning about hypothesis in the presence of superlative adjective in the premise (P: Among Emily, Daniel, and Joseph, the bravest is Daniel. H: Emily is braver than Daniel.) Dis-tilBERT fails on a template (P: John is taller than Mia. H: Mia is taller than John.) when the placeholders are reversed. Such perturbations are more common for Quantifier. BERT and DistilBERT fail when "all" is replaced by "some" in the hypothesis. Within numerical, RoBERTa seems better at counting, however it fails when the hypothesis refers to an incorrect count. BERT and DistilBERT models seems unsure for all counting-related templates. All models struggle with templates related to addition and subtraction (often showing label bias). Under Spatial, all models struggle with cardinal directions and spatial relations (left, right). Interestingly, RoBERTa fails at spatial distance comparisons (while being able to compare number of coins under Numeric). Within Temporal, all models are unable to compare year of birth and time of the day. A surprising observation is that BERT is
+
+
+b), we plot the histogram of number of templates across different accuracy bins. The middle bins (20-80) indicate that models are unsure on the tested phenomena. This happens most often for BERT (58/194) and DistilBERT (52/194) compared to RoBERTa (28/194). We analyzed the bias of BERT across the vocabulary of placeholders. We examine the template P: {NAME1}, but not {NAME2}, is a {PROFESSION}. H: {NAME2} is a {PRO-FESSION}. Template accuracy highly varies when profession is fixed to engineer (0%), dancer (9%) vs. doctor (80%) and professor (92%). Compared to professions, we see only limited variations, when names are restricted to male vs. female names. Similar effects are seen for adjectives in P : {NAME1} is {ADJ}. {NAME2} is {COM ADJ}. H : {NAME2} is {COM ADJ} than {NAME1}. Template accuracy varies when adjectives fixed to bigger (0%), sweeter (16%), vs. creepier (100%).
+
+
+Test Example Selection and Baseline. To choose test examples, we choose 25 test templates from CheckListNLI carefully by balancing templates representing different accuracy buckets, and ensuring inclusion of multiple capability-templates. For each template, we show 5 random test examples. As a baseline, we consider example-based LIME (Ribeiro et al., 2016) explanations. For each test example, five nearest neighbor examples are chosen, where the top three attended words (from Premise and hypothesis) are highlighted using LIME output. The variations are created by varying where the nearest neighbors come from. In Stage 1, we choose the nearest neighbors from the MultiNLI validation set and Stage 2 includes nearest neighbors from CheckListNLI dataset respectively (barring the corresponding test template examples). To calculate nearest neighbors, we use the underlying system's (BERT/RoBERTa) final hidden-layer embeddings (corresp. to [CLS] token) and calculate cosine distances.
+
+
+Jacob Devlin, Ming-Wei Chang, Kenton Lee, andKristina Toutanova. 2019. Bert: Pre-training of 
+deep bidirectional transformers for language under-
+standing. In Proceedings of the 2019 Conference of 
+the North American Chapter of the Association for 
+Computational Linguistics: Human Language Tech-
+nologies, Volume 1 (Long and Short Papers), pages 
+4171-4186. 
+
+Bill Dolan and Chris Brockett. 2005. Automati-
+cally constructing a corpus of sentential paraphrases. 
+In Third International Workshop on Paraphrasing 
+(IWP2005). Asia Federation of Natural Language 
+Processing. 
+
+Leilani H Gilpin, David Bau, Ben Z Yuan, Ayesha Ba-
+jwa, Michael Specter, and Lalana Kagal. 2018. Ex-
+plaining explanations: An overview of interpretabil-
+ity of machine learning. In 2018 IEEE 5th Interna-
+tional Conference on data science and advanced an-
+alytics (DSAA), pages 80-89. IEEE. 
+
+Max Glockner, Vered Shwartz, and Yoav Goldberg. 
+2018. Breaking NLI systems with sentences that re-
+quire simple lexical inferences. In Proceedings of 
+the 56th Annual Meeting of the Association for Com-
+putational Linguistics (Volume 2: Short Papers), 
+pages 650-655, Melbourne, Australia. Association 
+for Computational Linguistics. 
+
+H. P. Grice. 1975. Logic and conversation. In Pe-
+ter Cole and Jerry L. Morgan, editors, Syntax and 
+Semantics: Vol. 3: Speech Acts, pages 41-58. Aca-
+demic Press, New York. 
+
+Pengcheng He, Xiaodong Liu, Jianfeng Gao, and 
+Weizhu Chen. 2020. Deberta: Decoding-enhanced 
+bert with disentangled attention. 
+
+John Hewitt and Christopher D. Manning. 2019. A 
+structural probe for finding syntax in word repre-
+sentations. In Proceedings of the 2019 Conference 
+of the North American Chapter of the Association 
+for Computational Linguistics: Human Language 
+Technologies, Volume 1 (Long and Short Papers), 
+pages 4129-4138, Minneapolis, Minnesota. Associ-
+ation for Computational Linguistics. 
+
+Shankar Iyer, Nikhil Dandekar, and Kornel Csernai. 
+2017. First quora dataset release: Question pairs. 
+
+Alon Jacovi, Ana Marasović, Tim Miller, and Yoav 
+Goldberg. 2021. Formalizing trust in artificial intel-
+ligence: Prerequisites, causes and goals of human 
+trust in ai. In Proceedings of the 2021 ACM Confer-
+ence on Fairness, Accountability, and Transparency, 
+FAccT '21, page 624-635, New York, NY, USA. As-
+sociation for Computing Machinery. 
+
+Ganesh Jawahar, Benoît Sagot, and Djamé Seddah. 
+2019. What does BERT learn about the structure 
+of language? In Proceedings of the 57th Annual 
+Meeting of the Association for Computational Lin-
+guistics, pages 3651-3657, Florence, Italy. Associa-
+tion for Computational Linguistics. 
+
+Paloma Jeretic, Alex Warstadt, Suvrat Bhooshan, and 
+Adina Williams. 2020. Are natural language infer-
+ence models IMPPRESsive? Learning IMPlicature 
+and PRESupposition. In Proceedings of the 58th An-
+nual Meeting of the Association for Computational 
+Linguistics, pages 8690-8705, Online. Association 
+for Computational Linguistics. 
+
+Pratik Joshi, Somak Aditya, Aalok Sathe, and Monojit 
+Choudhury. 2020. Taxinli: Taking a ride up the nlu 
+hill. In CoNLL. 
+
+Daniel Jurafsky and James H. Martin. 2009. Speech 
+and Language Processing: An Introduction to Nat-
+ural Language Processing, Computational Linguis-
+tics, and Speech Recognition, second edition. Pear-
+son Prentice Hall. 
+
+Divyansh Kaushik, Eduard Hovy, and Zachary C Lip-
+ton. 2020. Learning the difference that makes 
+a difference with counterfactually-augmented data. 
+International Conference on Learning Representa-
+tions (ICLR). 
+
+Najoung Kim, Roma Patel, Adam Poliak, Patrick Xia, 
+Alex Wang, Tom McCoy, Ian Tenney, Alexis Ross, 
+Tal Linzen, Benjamin Van Durme, Samuel R. Bow-
+man, and Ellie Pavlick. 2019. Probing what dif-
+ferent NLP tasks teach machines about function 
+word comprehension. In Proceedings of the Eighth 
+Joint Conference on Lexical and Computational Se-
+mantics (*SEM 2019), pages 235-249, Minneapolis, 
+Minnesota. Association for Computational Linguis-
+tics. 
+
+Isaac Lage, Emily Chen, Jeffrey He, Menaka 
+Narayanan, Been Kim, Sam Gershman, and Fi-
+nale Doshi-Velez. 2019. An evaluation of the 
+human-interpretability of explanation. 
+CoRR, 
+abs/1902.00006. 
+
+Hector Levesque, Ernest Davis, and Leora Morgen-
+stern. 2012. The winograd schema challenge. In 
+Thirteenth International Conference on the Princi-
+ples of Knowledge Representation and Reasoning. 
+Citeseer. 
+
+Zachary C Lipton. 2018. The mythos of model inter-
+pretability. Queue, 16(3):31-57. 
+
+Nelson F Liu, Matt Gardner, Yonatan Belinkov, 
+Matthew E Peters, and Noah A Smith. 2019a. Lin-
+guistic knowledge and transferability of contextual 
+representations. In Proceedings of the 2019 Confer-
+ence of the North American Chapter of the Associ-
+ation for Computational Linguistics: Human Lan-
+guage Technologies, Volume 1 (Long and Short Pa-
+pers), pages 1073-1094. 
+
+Yinhan Liu, Myle Ott, Naman Goyal, Jingfei Du, Man-
+dar Joshi, Danqi Chen, Omer Levy, Mike Lewis, 
+Luke Zettlemoyer, and Veselin Stoyanov. 2019b. 
+Roberta: A robustly optimized bert pretraining ap-
+proach. arXiv preprint arXiv:1907.11692. 
+
+Tom McCoy, Ellie Pavlick, and Tal Linzen. 2019. 
+Right for the wrong reasons: Diagnosing syntactic 
+heuristics in natural language inference. In Proceed-
+ings of the 57th Annual Meeting of the Association 
+for Computational Linguistics, pages 3428-3448, 
+Florence, Italy. Association for Computational Lin-
+guistics. 
+
+Yixin Nie, Adina Williams, Emily Dinan, Mohit 
+Bansal, Jason Weston, and Douwe Kiela. 2020. Ad-
+versarial NLI: A new benchmark for natural lan-
+guage understanding. In Proceedings of the 58th An-
+nual Meeting of the Association for Computational 
+Linguistics. Association for Computational Linguis-
+tics. 
+
+Adam Poliak, Aparajita Haldar, Rachel Rudinger, J. Ed-
+ward Hu, Ellie Pavlick, Aaron Steven White, and 
+Benjamin Van Durme. 2018. Collecting diverse nat-
+ural language inference problems for sentence rep-
+resentation evaluation. In Proceedings of the 2018 
+Conference on Empirical Methods in Natural Lan-
+guage Processing, pages 67-81, Brussels, Belgium. 
+Association for Computational Linguistics. 
+
+Abhilasha Ravichander, Eduard Hovy, Kaheer Sule-
+man, Adam Trischler, and Jackie Chi Kit Cheung. 
+2020. On the systematicity of probing contextual-
+ized word representations: The case of hypernymy 
+in BERT. In Proceedings of the Ninth Joint Con-
+ference on Lexical and Computational Semantics, 
+pages 88-102, Barcelona, Spain (Online). Associa-
+tion for Computational Linguistics. 
+
+Marco Tulio Ribeiro, Sameer Singh, and Carlos 
+Guestrin. 2016. " why should i trust you?" explain-
+ing the predictions of any classifier. In Proceed-
+ings of the 22nd ACM SIGKDD international con-
+ference on knowledge discovery and data mining, 
+pages 1135-1144. 
+
+Marco Tulio Ribeiro, Tongshuang Wu, Carlos Guestrin, 
+and Sameer Singh. 2020. Beyond accuracy: Be-
+havioral testing of NLP models with CheckList. In 
+Proceedings of the 58th Annual Meeting of the Asso-
+ciation for Computational Linguistics, pages 4902-
+4912, Online. Association for Computational Lin-
+guistics. 
+
+Kyle Richardson, Hai Hu, Lawrence Moss, and Ashish 
+Sabharwal. 2020. Probing natural language infer-
+ence models through semantic fragments. Proceed-
+ings of the AAAI Conference on Artificial Intelli-
+gence, 34:8713-8721. 
+
+Kyle Richardson, Hai Na Hu, Lawrence S. Moss, 
+and Ashish Sabharwal. 2019. Probing natural lan-
+guage inference models through semantic fragments. 
+ArXiv, abs/1909.07521. 
+
+Maarten Sap, Ronan Le Bras, Emily Allaway, Chan-
+dra Bhagavatula, Nicholas Lourie, Hannah Rashkin, 
+Brendan Roof, Noah A. Smith, and Yejin Choi. 2019. 
+ATOMIC: an atlas of machine commonsense for 
+if-then reasoning. In The Thirty-Third AAAI Con-
+ference on Artificial Intelligence, AAAI 2019, The 
+Thirty-First Innovative Applications of Artificial In-
+telligence Conference, IAAI 2019, The Ninth AAAI 
+Symposium on Educational Advances in Artificial 
+Intelligence, EAAI 2019, Honolulu, Hawaii, USA, 
+January 27 -February 1, 2019, pages 3027-3035. 
+AAAI Press. 
+
+John F Sowa. 2010. The role of logic and ontology in 
+language and reasoning. In Theory and applications 
+of ontology: philosophical perspectives, pages 231-
+263. Springer. 
+
+Robyn Speer, Joshua Chin, and Catherine Havasi. 2016. 
+Conceptnet 5.5: An open multilingual graph of gen-
+eral knowledge. CoRR, abs/1612.03975. 
+
+Alon Talmor, Oyvind Tafjord, Peter Clark, Yoav Gold-
+berg, and Jonathan Berant. 2020. Leap-of-thought: 
+Teaching pre-trained models to systematically rea-
+son over implicit knowledge. In Advances in Neural 
+Information Processing Systems, volume 33, pages 
+20227-20237. Curran Associates, Inc. 
+Tongshuang Wu, Marco Tulio Ribeiro, Jeffrey Heer, 
+and Daniel Weld. 2019. Errudite: Scalable, repro-
+ducible, and testable error analysis. In Proceed-
+ings of the 57th Annual Meeting of the Association 
+for Computational Linguistics, pages 747-763, Flo-
+rence, Italy. Association for Computational Linguis-
+tics. 
+
+A Benchmarking: Additional Results 
+
+Dataset 
+BERT DistilBERT RoBERTa 
+RoBERTa 
+DeBERTa 
+MNLI 
+(M+S+F+A) 
+
+MNLI-test 84.5 
+82.2 
+90.2 
+-
+91.3/91.1 
+
+CheckList 
+59.4 
+54.6 
+68.2 
+71.1 
+69.9 
+
+
+
+Table 4 :
+4Average Accuracies of all systems
+
+Table 5 :
+5Variation in accuracy in BERT for different 
+values of professions and gender 
+
+{ADJ} Male Female 
+
+big 
+0.00 
+0.03 
+sweet 
+0.16 
+0.11 
+smart 
+0.25 
+0.20 
+weird 
+0.38 
+0.40 
+strong 0.41 
+0.40 
+tough 
+0.47 
+0.48 
+old 
+0.56 
+0.55 
+tall 
+0.56 
+0.61 
+tiny 
+0.99 
+0.99 
+creepy 1.00 
+1.00 
+
+
+
+Table 6 :
+6Variation in accuracy of BERT for different values of adjective and gender
+
+
+Case Study 2 on Adjectives. Next, we select another template: P: {NAME1} is {ADJ}. {NAME2} is {COM ADJ}.H: {NAME2} is {COM ADJ} than {NAME1}. For this template, expected label is entailment. Similar to before, we generate examples conditioned on ADJ and gender.
+
+Table 7 :
+7Pearson Correlation is calculated between the bid put in the correct bin by the two participants. "Argmax bin" indicates metrics where we consider where the participants have placed their maximum bid, ignoring the bid value. Consensus is the number of times both participants placed their highest bid in the same bin (not necessarily the correct one).Phase 1 Pilot Study Results using Global 
+observation summaries. Average score (out of 5) is 
+the average bid on the right accuracy bin, across 25 
+test templates. 
+
+Table 8 :
+8Pilot Study Phase 2 (Based on Website Interface): Average accuracy and agreement scores for local question-wise explanations. For first two columns, we stick to template-based questions, where participants are required to predict the correct accuracy bin. For the last, we move to example-based questions and explanations. All scores are out of 25. of selecting 25 test templates and then Templatebased questions are formulated in the similar manner as pilot study 1. In each page (for a Test Template), the user is shown a template (and an example), and asked to predict the most accurate bin for the underlying System X out of 5 accuracy bins. For template-based explanations, we manually chose three useful templates and highlighted a total of 5 examples with LIME output (top 3 words of the premise and the hypothesis). For example-based explanations, we used nearest neighbor examples from CheckListNLI dataset to show 5 nearest examples (again highlighted with LIME output). Lastly, for example-based questions, we removed all information about templates (from instructions and pages). On the questions box, we instead ask participants to predict the entailment labels for 5 random examples from the chosen test template. In the left, we show nearest neighbor example-based explanations, similar to the final study. We clearly see from the pilot study (Tab. 8), that accuracies gradually improved as we moved towards both example-based questions and explanations. Bool P: Ann or Barbara is optimistic. H: Ann is optimisticT13 P: {NAME1} and {NAME2} are from {CTRY1} and {CTRY2} respectively. H: {NAME1} is from {CTRY1}. entail 57.10 59.20 100.00 Bool P: Mary and David are from Canada and Australia respectively. H: Mary is from Canada. T14 P: {NAME1} and {NAME2} are from {CTRY1} and {CTRY2} respectively. H: {NAME1} is from {CTRY2}. cont Bool P: Robert and Charles are from Russia and France respectively. H: Charles is from Russia. T21 P: {NAME1} and {NAME2} are from {CTRY1} and {CTRY2} respectively. H: {NAME1} is not from {CTRY2}. entail Bool P: Margaret and Robert are from America and Russia respectively. H: Margaret is not from Russia. T22 P: {NAME1} and {NAME2} are from {CTRY1} and {CTRY2} respectively. H: {NAME1} is not from {CTRY1}. cont Bool P: John and James are from India and China respectively. H: James is not from China. T45 P: {MALE NAME} and {FEMALE NAME} are {friends/collegues/married}. He is {a/an} {PROF1} and she is {a/an} {PROF2}. H: {MALE NAME} is {a/an} {PROF1}. entail Coref P: Marlen and Rudolf work together. He is a minister and she is professor. H: Rudolf is minister. T46 P: {MALE NAME} and {FEMALE NAME} are {friends/collegues/married}. He is {a/an} {PROF1} and she is {a/an} {PROF2}. H: {MALE NAME} is {a/an} {PROF2}. cont Coref P: Mujtaba and Teresa are collegues. She is a farmer and he is professor. H: Teresa is professor. T63 P: {NAME1} is {COM ADJ} than {NAME2} H: {NAME2} is {COM ADJ} than {NAME1}. cont Comp P: Elizabeth is harsher than Caroline. H: Caroline is harsher than Elizabeth. T68 P: {NAME1} is {COM ADJ} than {NAME2}. {NAME1} is {COM ADJ} than {NAME3}. H: {NAME2/3} is {COM ADJ} than {NAME3/2}. neutral Comp P: Philip is more important than Frances. Philip is more important than Kevin. H: Kevin is more important than Frances. T71 P: Among {NAME1}, {NAME2} and {NAME3} the {SUP ADJ} is {NAME1} H: {NAME3/2} is {COM ADJ} than {NAME2/3}. neutral Comp P: Among Dorothy, Peter and Laura the healthiest is Peter. H: Dorothy is healthier than Laura. T76 P: {NAME1} is {ADJ}. {NAME2} is {COM ADJ}. H: {NAME2} is {COM ADJ} than {NAME1} entail Comp P: Emily is poor. Nancy is poorer. H: Nancy is poorer than Emily. T77 P: {NAME1} is {ADJ}. {NAME2} is {COM ADJ}. H: {NAME1} is {COM ADJ} than {NAME2} cont Comp P: Anna is smart. Julia is smarter. H: Anna is smarter than Julia. T80 P: {NAME} was facing {DIR} and turned towards his/her {left/right/back} H: {NAME} is now facing {DIR} entail Spatial P: Michael was facing east and turned towards his back. H: Michael is now facing west. T81 P: {NAME} was facing {DIR} and turned towards his/her {left/right/back} H: {NAME} is now facing {DIR} cont 30.20 30.20 0.40 Spatial P: Jane was facing north and turned towards her back. H: Jane is now facing north. T82 P: {CITY1} is {N1} miles from {CITY2} and {N2} miles from {CITY3} H: {CITY1} is {nearer/farther} to {CITY2} than Spatial P: Hartford is 99 miles from Phoenix and 45 miles from Philadelphia. H: Hartford is nearer to Philadelphia than Phoenix. T83 P: {CITY1} is {N1} miles from {CITY2} and {N2} miles from {CITY3} H: {CITY1} is {nearer/farther} to {CITY2} than Spatial P: San Diego is 82 miles from Sacramento and 27 miles from Boston. H: San Diego is nearer to Sacramento than Boston. T88 P: {NAME1} was born in {YEAR1} and {NAME2} was born in {YEAR2}. H: {NAME1/2} was born {before/after} Temp P: Grace was born in 2004 and Susan was born in 1998. H: Susan was born before Grace. T89 P: {NAME1} was born in {YEAR1} and {NAME2} was born in {YEAR2}. H: {NAME1/2} was born {before/after} Temp P: Emma was born in 2016 and Harry was born in 1983. H: Harry was born after Emma. T92 P: {NAME1} was born in {YEAR1} and {NAME2} was born in {YEAR2}. H: {NAME1/2} was born {earlier/later} than {NAME1/2} entail Temp P: Christine was born in 2016 and Marie was born in 1985. H: Marie was born earlier than Christine. T93 P: {NAME1} was born in {YEAR1} and {NAME2} was born in {YEAR2}. H: {NAME1/2} was born {earlier/later} than {NAME1/2} cont Temp P: Mark was born in 2007 and Mike was born in 1987. H: Mark was born earlier than Mike. T98 P: {NAME} has {EVENT1} followed by {EVENT2}. H: {EVENT1/2} is {before/after} {EVENT1/2} entail Temp P: Karen has lunch followed by a history class. H: The history class is after lunch. T99 P: {NAME} has {EVENT1} followed by {EVENT2}. H: {EVENT1/2} is {before/after} {EVENT1/2} cont Temp P: Kate has lunch followed by a meeting. H: The meeting is before lunch. T116 P: {NAME1} {bought/taught/...} {OBJ} to {NAME2} H: {NAME2} {sold/learnt/...} {OBJ} from {NAME1} entail Causal P: Jennifer taught physics to Rachel. H: Rachel learnt physics from Jennifer. T117 P: {NAME1} {bought/taught/...} {OBJ} to {NAME2} H: {NAME1} {sold/learnt/...} {OBJ} from {NAME2} cont Causal P: Barbara lent money to Laura. H: Barbara borrowed money from Laura. T122 P: None the {OBJS} are {COLOR} in color. H: Some of the {OBJS} are {COLOR} in color. cont Quan P: None of the wallpapers are green in colour. H: Some of the wallpapers are green in colour. T171 P: {OBJ1} and {OBJ2} lie on the table. {NAME} asked for {OBJ1} H: {NAME} also asked for {OBJ2} cont Impl P: Silverware and plate lie on the table. Barbara asked for the plate. H: Barbara also asked for the silverware. T172 P: {OBJ1} and {OBJ2} lie on the table. {NAME} asked for {OBJ1} H: {NAME} also asked for {OBJ2} neutral Bool P: Pin and pitcher lie on the table. Peter asked for the pitcher. H: Peter also asked for the pin.# 
+
+Template 
+Performance (Accuracy %) 
+
+BERT 
+DistilBERT 
+RoBERTa 
+
+T2 
+P: {NAME1} or {NAME2} is {ADJ}. H: {NAME1/2} is {ADJ}. neutral 
+1.80 
+0.00 
+1.60 
+46.00 
+39.30 
+49.50 
+0.00 
+0.00 
+0.00 
+100.00 
+100.00 
+100.00 
+99.50 
+98.00 
+97.70 
+
+4.70 
+2.40 
+92.60 
+
+85.30 
+0.00 
+100.00 
+0.00 
+0.00 
+0.00 
+
+16.80 
+1.70 
+0.00 
+
+56.30 
+93.70 
+100.00 
+45.90 
+0.00 
+88.90 
+0.00 
+0.00 
+0.00 
+{CITY3} entail 
+99.50 
+82.20 
+88.90 
+
+{CITY3} cont 
+0.80 
+6.70 
+49.70 
+
+{NAME1/2} entail 
+2.70 
+41.50 
+95.60 
+
+{NAME1/2} cont 
+95.80 
+35.60 
+0.00 
+
+93.00 
+98.80 
+99.90 
+
+0.20 
+0.10 
+0.00 
+
+50.00 
+35.40 
+88.60 
+64.20 
+86.30 
+96.00 
+85.20 
+100.00 
+89.40 
+24.00 
+1.70 
+71.50 
+0.00 
+0.00 
+100.00 
+0.00 
+0.00 
+0.00 
+33.80 
+18.40 
+99.80 
+
+
+Table 9 :
+9We show some interesting Templates, and model accuracies on the templates.
+https://github.com/marcotcr/checklist
+The complete list is in Appendix.
+https://github.com/huggingface/ transformers
+Detailed in Appendix. Current study (Stage B1): checklist-nli.herokuapp.com/A
+https://www.ioling.org/
+AcknowledgementWe would like to thank Pratik Joshi for contribution to coreference templates. We would also like to thank Sebastian Santy, Saujas Vadguru and Aalok Sathe for attempting and providing useful insights during human study pilots.
+Black-box testing: techniques for functional testing of software and systems. Boris Beizer, John Wiley & Sons, IncBoris Beizer. 1995. Black-box testing: techniques for functional testing of software and systems. John Wi- ley & Sons, Inc.
+
+Abductive commonsense reasoning. Chandra Bhagavatula, Chaitanya Ronan Le Bras, Keisuke Malaviya, Ari Sakaguchi, Hannah Holtzman, Doug Rashkin, Downey, Yejin Wen Tau Yih, Choi, International Conference on Learning Representations. Chandra Bhagavatula, Ronan Le Bras, Chaitanya Malaviya, Keisuke Sakaguchi, Ari Holtzman, Han- nah Rashkin, Doug Downey, Wen tau Yih, and Yejin Choi. 2020. Abductive commonsense reasoning. In International Conference on Learning Representa- tions.
+
+BERT rediscovers the classical NLP pipeline. Ian Tenney, Dipanjan Das, Ellie Pavlick, 10.18653/v1/P19-1452Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics. the 57th Annual Meeting of the Association for Computational LinguisticsFlorence, ItalyAssociation for Computational LinguisticsIan Tenney, Dipanjan Das, and Ellie Pavlick. 2019a. BERT rediscovers the classical NLP pipeline. In Proceedings of the 57th Annual Meeting of the Asso- ciation for Computational Linguistics, pages 4593- 4601, Florence, Italy. Association for Computational Linguistics.
+
+What do you learn from context? probing for sentence structure in contextualized word representations. Ian Tenney, Patrick Xia, Berlin Chen, Alex Wang, Adam Poliak, Thomas Mccoy, Najoung Kim, Benjamin Van Durme, Samuel Bowman, Dipanjan Das, 7th International Conference on Learning Representations. Ian Tenney, Patrick Xia, Berlin Chen, Alex Wang, Adam Poliak, R Thomas McCoy, Najoung Kim, Benjamin Van Durme, Samuel Bowman, Dipanjan Das, et al. 2019b. What do you learn from con- text? probing for sentence structure in contextual- ized word representations. In 7th International Con- ference on Learning Representations, ICLR 2019.
+
+Glue: A multi-task benchmark and analysis platform for natural language understanding. Alex Wang, Amanpreet Singh, Julian Michael, Felix Hill, Omer Levy, Samuel R Bowman, EMNLP. 353Alex Wang, Amanpreet Singh, Julian Michael, Felix Hill, Omer Levy, and Samuel R Bowman. 2018. Glue: A multi-task benchmark and analysis platform for natural language understanding. EMNLP 2018, page 353.
+
+Tractatus logico-philosophicus. London: Routledge. L Wittgenstein, L. Wittgenstein. 1922. Tractatus logico-philosophicus. London: Routledge, 1981.
+
+Huggingface's transformers: State-of-the-art natural language processing. Thomas Wolf, Lysandre Debut, Victor Sanh, Julien Chaumond, Clement Delangue, Anthony Moi, Pierric Cistac, Tim Rault, Rémi Louf, Morgan Funtowicz, Joe Davison, Sam Shleifer, Clara Patrick Von Platen, Yacine Ma, Julien Jernite, Canwen Plu, Teven Le Xu, Sylvain Scao, Mariama Gugger, Quentin Drame, Alexander M Lhoest, Rush, abs/1910.03771ArXivThomas Wolf, Lysandre Debut, Victor Sanh, Julien Chaumond, Clement Delangue, Anthony Moi, Pier- ric Cistac, Tim Rault, Rémi Louf, Morgan Funtow- icz, Joe Davison, Sam Shleifer, Patrick von Platen, Clara Ma, Yacine Jernite, Julien Plu, Canwen Xu, Teven Le Scao, Sylvain Gugger, Mariama Drame, Quentin Lhoest, and Alexander M. Rush. 2019. Huggingface's transformers: State-of-the-art natural language processing. ArXiv, abs/1910.03771.

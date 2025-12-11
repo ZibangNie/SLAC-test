@@ -1,0 +1,160 @@
+Embracing Safe Contacts with Contact-aware Planning and Control
+
+
+Zhaoting Li 
+Miguel Zamora 
+Hehui Zheng 
+Stelian Coros 
+Embracing Safe Contacts with Contact-aware Planning and Control
+
+Unlike human beings that can employ the entire surface of their limbs as a means to establish contact with their environment, robots are typically programmed to interact with their environments via their end-effectors, in a collision-free fashion, to avoid damaging their environment. In a departure from such a traditional approach, this work presents a contactaware controller for reference tracking that maintains interaction forces on the surface of the robot below a safety threshold in the presence of both rigid and soft contacts. Furthermore, we leveraged the proposed controller to extend the BiTRRT sample-based planning method to be contact-aware, using a simplified contact model. The effectiveness of our framework is demonstrated in hardware experiments using a Franka robot in a setup inspired by the Amazon stowing task. A demo video of our results can be seen here: https://youtu.be/2WeYytauhNg
+
+I. INTRODUCTION
+
+Contact-rich tasks require robots to make contact with their environment. A good example of such tasks is the stowing task in the Amazon warehouses, where elastic bands are mounted on cabinets to prevent objects from falling out, and human operators establish contact with the elastic bands using their entire arms to make room to insert new items in the cabinets. This work focuses on goal-reaching tasks in a similar environment, as shown in Fig. 1. To enable robots to perform this task, safe contact methods need to be developed to ensure secure interactions with the elastic bands.
+
+Collision avoidance is a common method to ensure the robot's safety, but it may not be effective in uncertain environments due to perception errors. Additionally, in cluttered environments, finding a feasible solution that satisfies collision avoidance constraints can be challenging. Contactaware/driven controllers [7], [6], [5], [1] have been proposed to address these issues, utilizing the robot's null space to reach a goal state while maintaining contact forces below a safety threshold. However, these methods assume either known stiffness parameters for soft contact or known rigid contact, lacking a general algorithm for both types. Additionally, local minima can be a problem when using contact-aware controllers, and global planning algorithms are necessary. Due to the possible multi-modal characteristics of the planning problem, the receding horizon planning may also be stuck into the local minimum [5] [9].
+
+To solve the aforementioned limitations, we propose a contact-aware controller that unifies rigid and soft contacts by estimating the stiffness parameters online.  The test environment in this work. During the execution of the goal-reaching task, the robot needs to embrace two types of contacts: contact with elastic bands, which results in their deformation so that the robot can reach the goal state, and possible contact with the cabinet, arising from inaccuracies of the cabinet's position.
+
+We derive a simple yet effective quasi-static dynamics model for soft contacts, which generalizes to the rigid contact dynamics proposed in [7]. Furthermore, we introduce a contact-aware planning method that finds near-optimal trajectories, minimizing the deformation of the environment and preventing our controller from being stuck in local minima, when reaching into the cabinet environment in Fig.  1. The contributions of our work are the following:
+
+• A general contact-aware controller framework that unifies both the soft and rigid contacts. • A global contact-aware planning algorithm that minimizes the deformation of the elastic band in the stowing task while reaching a goal state.
+
+
+II. METHODS: CONTACT-AWARE CONTROL
+
+A. Preliminaries 1) Joint impedance controller: Simple impedance controllers can be modeled as follows [5]: The input of the controller q cmd is called the 'virtual trajectory', as shown in Fig. 2(a). The control law is:
+τ = K q (q cmd − q) − D qq +ĝ(q).
+(1)
+
+2) Contact notation: Denote the number of external contacts as n c . The position Jacobian at the i-th contact point p Ci is J Ci (q, p Ci ). The contact force can be expressed as f Ci = n Ci f Ci , where the n Ci is the unit vector representing the contact direction and f Ci is its norm, as shown in Fig.  2(b). Following [6], the reduced contact Jacobian is defined as J ui = n T Ci J Ci (q, p Ci ), which relates the joint velocity to the linear contact point velocity along the contact direction:
+v Ci = n T Ci v p C i = n T Ci J Ci (q, p Ci )q = J uiq .
+Then the external torque is:
+τ ext = n C i=1 τ exti = J T u f c , where J T u = [J T u1 · · · J T un C ], f c = [f C0 · · · f Cn C ] T .
+3) Quasi-static dynamics for hard contacts: The quasistatic dynamics of hard contact can be expressed as an optimization problem [7], which minimizes the robot's potential energy subject to the constraint of zero contact velocity:
+min q l+1 1 2 ∥q l+1 cmd − q l+1 ∥ 2 Kq s.t. J u (q l )(q l+1 − q l ) = 0, (2)
+where the index l denotes the time stamp. The KKT optimality condition of the QP is: 
+K q (q l+1 − q l+1 cmd ) − J T u f c =0 (3a) J u (q l+1 − q l ) =0 (3b)
+
+B. Problem formulation
+
+In this work, we consider two tasks for the robot to execute: (1) reaching a goal state q goal , (2) ensuring that the contact force does not exceed a predefined safety threshold.
+
+1) Null space as backbone: Denote the task velocity vectorẋ i ∈ R mi×1 , i = 1, . . . , r, m i ≤ n q . As proposed in [8], a generic i-th task can be characterised by the differential kinematic equationẋ i = J i (q)q. Since the primary task Jacobian J 1 has dimension m 1 < n q , there is a kinematic redundancy of n q − m 1 to accomplish low-priority tasks in the null space
+N 1 of J 1 usingq 0 . q = J # 1ẋ 1 + N 1q0 ,(4)
+where N 1 = I − J # 1 J 1 . It can be shown that Eq. 4 is also the solution to the following QP problem
+miṅ q 1 2 ∥q −q 0 ∥ 2 s.t. J 1 (q)q =ẋ 1 .(5)
+Hence,q 0 in Eq. 4 can be viewed as the desired joint velocity given the constraint of satisfying the first task. To describe the force-regulating task, the control law can be defined by
+J 1 (q)q = f c − f d , where f d ∈ [f min , f max ] denotes the desired force value.
+The QP formulation defined in Eq. 5 can then be modified for the contact-aware control task
+min q l+1 1 2 ∥q l+1 − q l+1 ref ∥ 2 s.t. J 1 (q l+1 − q l ) = f l − f d ,(6)
+where the value of the desired force f d should be determined explicitly. Possible situations are shown in Fig. 3. However, determining an accurate value for f d is challenging in practice, and assigning a wrong value to it can lead to dangerous behaviors.
+
+2) Inequality constraint formulation: Inequality constraints can be utilized to keep the contact force inside a safety interval. The general framework is defined as follows:
+min q l+1 1 2 ∥q l+1 − q l+1 ref ∥ 2 s.t. (7a) f l+1 , q l+1 = h(q l+1 ref , q l , f l ) (7b) f min ≤ f l+1 ≤ f max (7c)
+where h(·, ·, ·) is a model of the contact dynamics. Note that the only difference w.r.t the null space framework is the use of a different method to describe the force-regulating task. C. Contact-aware control for unknown stiffness contacts 1) Quasi-static dynamics for soft contacts: In this section, we derive the quasi-static dynamics for the soft contacts, which follow the contact model defined in Eq. 7. Let q 0 be the robot state in contact with the environment with zero deformation. The position of the contact point is denoted by x(·) : q → R 3 . We also make the assumption that the frictional component can be neglected and the contact can be modeled as the linear elastic spring model [5], [1]:
+f l+1 c − f l c = K C n T C (x(q l+1 ) − x(q l )).(8)
+As shown in Fig. 2(d), given the current state q l and the next command state q l+1 cmd , the next state q l+1 can be obtained by minimizing the total energy of the whole system:
+min q l+1 1 2 ∥q l+1 cmd −q l+1 ∥ 2 Kq + 1 2 ∥n T C (x(q l+1 )−x(q 0 ))∥ 2 K C (9)
+For the unconstrained quadratic optimization problem, the optimal solution can be found by letting the gradient be zero. The optimality condition of this unconstrained QP is:
+K q (q l+1 − q l+1 cmd ) − J T u f l+1 c = 0 (10a) f l+1 c − f l c = −K c J u (q l+1 − q l ).(10b)
+Eq. 10a is equivalent to Eq. 3a in the optimality condition of the hard contact model, indicating that the soft contact and hard contact formulations are highly related. As K c → +∞ naturally enforces the constraint that J u (q l+1 − q l ) → 0, which is the zero-velocity constraint of the hard contact case.
+
+2) Online identification of the contact stiffness: When dealing with uncertain environments, such as those involving both soft and rigid contacts, it's necessary to estimate the value of the stiffness matrix K c . The contact stiffness can be identified using the recursive least squares method (RLS). The contact model in Eq. 10b can be seen as a linear system.
+z(k) = H(k)ϕ + w(k), a where z(k) = f k+1 c − f k c , ϕ = −K c , H(k) ∈ R nc×nc .
+We set the estimator's initial stateφ(0) = +∞, P (0) = P ϕ = Var[ϕ]. The estimated stiffness average and variance are updated recursively using the force measurement from a contact detection algorithm.
+
+3) Contact-aware control: This section formulates the contact-aware control for both soft and rigid contacts by combining the general framework in Eq. 7 and the quasistatic dynamics of soft contacts:
+min q l+1 ,q l+1 cmd ,f l+1 c ∥q l+1 cmd − q l+1 ref ∥ 2 + ϵ∥q l+1 cmd − q l cmd ∥ 2 (11a) s.t. K q (q l+1 − q l+1 cmd ) − J T u f l+1 c = 0 (11b) f l+1 c − f l c = −K c J u (q l+1 − q l ) (11c) f l+1 c ≤ f max I (11d)
+|q l+1 cmd − q l cmd | ≤ ∆q max (11e) This quadratic programming problem has two equality constraints (11b) and (11c) that describe the quasi-static dynamics of soft contact. The force regulating task is then described by the inequality constraint (11d), where the lower bound of the force is removed because the contact is uni-lateral. The objective (11a) is modified from Eq. 7, to mitigate the negative effects of neglecting frictional forces, according to [7]. Note that the objective of this QP can be easily changed to other tasks, as detailed in section II-B.2.
+
+
+III. CONTACT AWARE PLANNING
+
+
+A. Problem definition
+
+A robot is denoted as R and its configuration space as C R . For a robot with n qr joints, C R is defined as R nq r . q r ∈ C R represents the robot's joint state in the configuration space. We restrict the contacts to only occur on the allowed links. The robot's link set is denoted as l R = {l i , i = 1, . . . , n l }, where n l is the number of robot's links. We use l i (q r ) to denote the 3d space that the i-th link occupies in state q r . The allowed link set is defined as l a R ∈ l R and can be specified via prior knowledge or by removing all links that may cause the robot blocked when interacting with the world.
+
+1) The configuration space of the elastic band: Let B be an elastic band with configuration space C B . We assume that the start point b 0 and the end point b 1 of the band have the same height in the world frame. Accordingly, we can define the interaction modes σ ∈ C σ = {0, 1, 2}. Mode σ = 0 represents no contacts, while σ = 1 and σ = 2 correspond to the robot being above and below the band, respectively. Examples of these modes are shown in Fig.  4. To simplify the interactions between elastic bands and robot, we assume that the direction of band deformation d b is determined by the interaction mode σ and the direction of the robot link in contact with the elastic band l r . Under these assumptions, the elastic band can be simplified as a tuple
+(b 0 , b 1 , d b , L), where d b = (−1) 1σ (b 0 − b 1 ) × l r ,
+and × denotes the cross product operation. The length L ∈ C L = [L min , L max ] ⊆ R denotes the shortest path between b 0 and b 1 without penetrating the robot surface, which can be obtained by the A* search [3], as shown in Fig. 5. 2) The configuration space of the whole system: The configuration space of the entire system is C = C R × C B , where the state of the system is denoted as q s = [q r , q b ], with q b ∈ C B representing the state of the elastic band.
+
+To determine a valid configuration space of the whole system C valid , we first define C valid B and C valid R . The state q b is valid if the elastic band is not under excessive tension beyond its elastic limit. Define the valid configuration space as C valid
+B = {q b |L ≤ L max }.
+For the robot, the state q r is valid if the robot has no collisions with other obstacles and only allowed links make contacts with the elastic band:
+C valid R = {q r |¬Collision(O, l i (q r )), l i ∈ l R ∪¬Collision(l j (q r ), B), l j ∈ l R \ l a R }.(12)
+Then the valid configuration space of the whole system can be defined as
+C valid = C valid R × C valid B .
+The whole system is under-actuated because the state q b of the elastic band cannot change without moving the robot. Given the b 0 and b 1 , we assume that the q b can be uniquely defined by the robot state q r and the specified mode σ. Therefore, we can define the model of the elastic band as
+q b = f b (q r , σ), where f b (·, ·) : C R × C σ → C B .
+The space of the goal state Q goal s is defined by the Cartesian task of the robot. Denote the initial and goal state of the whole system as q init s and q goal s ∈ Q goal s . The cost of the state q s is defined as a function c(·) : C → R + . Define a sequence of robot configurations, q init r , q 1 r , . . . , q nπ r , which can be linearly interpolated to obtain the path π r (·) : [0, n π ] → C R with π r (0) = q init r . Formally, the contactaware planning problem is formulated as follows: π r = Path(q init r , q 1 r , . . . , q nπ r ) (13b) π s (n π ) ∈ Q goal s (σ) (13c) π s (s) ∈ C valid , ∀s ∈ [0, n π ] (13d) B. Contact-aware control to optimize the joint goal state
+
+In the planning loop, instead of estimating and bounding the contact force, we can minimize the elastic band's deformation while satisfying the end-effector constraints. This approach utilizes the robot's null space to achieve this goal. Mathematically, we want to find the optimal goal state q goal * s (σ) ∈ Q goal s (σ) for a given mode σ. Note that reaching the end-effector position is treated as the first-priority task and used as the constraint of the QP formulation.
+min q l+1 r ∥J u (q l+1 r − q l r ) − γ∆L band ∥ 2 s.t. (14a) J e (q l+1 r − q l r ) = 0 (14b) |q l+1 r − q l r | ≤ ∆q max (14c)
+where J e is the task Jacobian for the end-effector, and J u and ∆L band are obtained by the simplified model of the elastic band. We should also take into account the other obstacles in the environment. Hence, during each iteration of Eq. 14, we need to check whether the robot collides with other obstacles.
+
+C. Contact aware planning to find feasible trajectory to the joint goal state
+
+This section considers the sub-problem of the contactaware planning problem in Eq. 13. For each mode σ, we reduce the search space by restricting the goal state to be the optimal goal state q goal * s (σ) obtained in section III-B. Accordingly, the constraint in Eq. 13b is replaced by π s (n π ) = q goal * s (σ). Our planner builds upon the BiTRRT algorithm (Bidirectional Transition-based RRT [4], [2]) and incorporates modifications to consider potential interactions between the robot and elastic band. The key variation is to sample random robot state q rand r instead of the whole configuration space C. Accordingly, we modify the distance function inside the NearestNeighbor function and the attemptLink function to account for the distance between q b . Denote the distance function for the configuration space C, C R , C B as d s (·, ·), d r (·, ·), d b (·, ·), respectively, where d r (q r1 , q r2 ) = ∥q r1 − q r2 ∥, d b (q b1 , q b2 ) = ∥L 1 − L 2 ∥, σ 1 = σ 2 or σ 1 = 0 or σ 2 = 0 +∞, others then the distance in the whole configuration space C is defined as d s (q s1 , q s2 ) 2 = d r (q r1 , q r2 ) 2 + λ b d b (q b1 , q b2 ) 2 , where λ b > 1 is the scaling factor to emphasize the distance in C B . By considering the mode of C B in the Eq. III-C, it effectively prevents connecting configurations that violate the physics constraint by setting the distance between such configurations to infinity.
+
+
+IV. EXPERIMENTS
+
+We tested the contact-aware control method using a Franka robot. For both the soft and the rigid contact environments ( Fig. 6 and Fig. 1 respectively), our controller can keep the contact force below a predefined threshold while tracking the reference trajectory as closely as possible. Examples of the optimized joint goal states (section III-B) are shown in Fig. 7, and a planned path for mode 1 is shown in Fig. 8. The robot first raises its end-effector to keep it from being blocked by the elastic band. Then it reaches inside the cabinet while deforming the band. Robot with the normal color: the initial goal state obtained by the inverse kinematics. Robot visualized in blue and green: the optimized goal state that minimizes the deformation of the elastic band in modes 1 and 2, respectively. 
+
+
+V. CONCLUSIONS AND FUTURE WORK
+
+Our contact-aware control and planning methods can enable robots to make physical contact via their surface with the environment in a safe manner. Future work includes the extension of the planning algorithm to other types of environments, like cluttered environments, considering safety constraints for objects that might tip over.
+
+Fig. 1 .
+1Left: the Amazon stowing task. Right:
+
+Fig. 2 .
+2(a) An illustration of the joint impedance controller. (b) A contact blocks the robot when it follows the q l+1 cmd command. (c) The robot has soft contact with the environment when following joint commands. (d) The robot's movement causes deformation in the linear spring model.
+
+Fig. 3 .
+3Three cases of explicitly determining f d . The blue lines denote the force-regulating task with f d ∈ [f min , fmax]. The red arrow denotes the particular solution of the force-regulating task, and the yellow arrow denotes the null space correction. The black arrow denotes the final solution.
+
+Fig. 4 .
+4Examples of the elastic band configuration for different modes. The yellow line denotes the elastic band without deformation. The blue and green line denote the band deformed in the mode 1 and 2, respectively.
+
+Fig. 5 .
+5An example of the simplified model of the band. The graph of the robot surface is denoted by yellow lines. Gray lines denote the edges connecting b 0 or b 1 to their valid vertices. The obtained paths of the A* algorithm for modes 1 and 2 are visualized in blue and green curves, respectively.
+
+Fig. 6 .
+6Rigid contact task: (a) the final robot state. (b): the recorded trajectory of the robot before reaching the state (a). (c): the reference trajectory of the robot, which leads to collision with the cabinet.
+
+Fig. 7 .
+7Experiment results of the optimization of the joint state goal.
+
+Fig. 8 .
+8The result of the contact-aware planning under mode 1.
+
+
+zhaotli@student.ethz.ch {miguel.zamora, stelian.coros}@inf.ethz.ch Soft Robotics Lab, Department of Mechanical and Process Engineering, ETH, Zurich, Switzerland. hehui.zheng@srl.ethz.ch1 Computational Robotics Lab, Computer Science Department, 
+ETH, 
+Zurich, 
+Switzerland. 
+
+2 
+
+Exploiting distributed tactile sensors to drive a robot arm through obstacles. Alessandro Albini, Francesco Grella, Perla Maiolino, Giorgio Cannata, IEEE Robotics and Automation Letters. 63Alessandro Albini, Francesco Grella, Perla Maiolino, and Giorgio Cannata. Exploiting distributed tactile sensors to drive a robot arm through obstacles. IEEE Robotics and Automation Letters, 6(3):4361- 4368, 2021.
+
+Enhancing the transition-based rrt to deal with complex cost spaces. Didier Devaurs, Thierry Siméon, Juan Cortés, 2013 IEEE international conference on robotics and automation. IEEEDidier Devaurs, Thierry Siméon, and Juan Cortés. Enhancing the transition-based rrt to deal with complex cost spaces. In 2013 IEEE international conference on robotics and automation, pages 4120-4125. IEEE, 2013.
+
+A formal basis for the heuristic determination of minimum cost paths. E Peter, Nils J Hart, Bertram Nilsson, Raphael, IEEE transactions on Systems Science and Cybernetics. 42Peter E Hart, Nils J Nilsson, and Bertram Raphael. A formal basis for the heuristic determination of minimum cost paths. IEEE transactions on Systems Science and Cybernetics, 4(2):100-107, 1968.
+
+Sampling-based path planning on configuration-space costmaps. Léonard Jaillet, Juan Cortés, Thierry Siméon, IEEE Transactions on Robotics. 264Léonard Jaillet, Juan Cortés, and Thierry Siméon. Sampling-based path planning on configuration-space costmaps. IEEE Transactions on Robotics, 26(4):635-646, 2010.
+
+Reaching in clutter with whole-arm tactile sensing. Advait Jain, D Marc, Aaron Killpack, Charles C Edsinger, Kemp, The International Journal of Robotics Research. 324Advait Jain, Marc D Killpack, Aaron Edsinger, and Charles C Kemp. Reaching in clutter with whole-arm tactile sensing. The International Journal of Robotics Research, 32(4):458-482, 2013.
+
+Contactdriven posture behavior for safe and interactive robot operation. Mikael Jorda, Elena Galbally Herrero, Oussama Khatib, 2019 International Conference on Robotics and Automation (ICRA). IEEEMikael Jorda, Elena Galbally Herrero, and Oussama Khatib. Contact- driven posture behavior for safe and interactive robot operation. In 2019 International Conference on Robotics and Automation (ICRA), pages 9243-9249. IEEE, 2019.
+
+Easing reliance on collision-free planning with contact-aware control. Tao Pang, Russ Tedrake, 2022 International Conference on Robotics and Automation (ICRA). IEEETao Pang and Russ Tedrake. Easing reliance on collision-free planning with contact-aware control. In 2022 International Conference on Robotics and Automation (ICRA), pages 8375-8381. IEEE, 2022.
+
+A general framework for managing multiple tasks in highly redundant robotic systems. B Siciliano, B Slotine, Siciliano, proceeding of 5th International Conference on Advanced Robotics. eeding of 5th International Conference on Advanced Robotics2Siciliano B Slotine and B Siciliano. A general framework for managing multiple tasks in highly redundant robotic systems. In proceeding of 5th International Conference on Advanced Robotics, volume 2, pages 1211-1216, 1991.
+
+Allowing safe contact in robotic goal-reaching: Planning and tracking in operational and null spaces. Xinghao Zhu, Wenzhao Lian, Bodi Yuan, Daniel Freeman, Masayoshi Tomizuka, arXiv:2211.08199arXiv preprintXinghao Zhu, Wenzhao Lian, Bodi Yuan, C Daniel Freeman, and Masayoshi Tomizuka. Allowing safe contact in robotic goal-reaching: Planning and tracking in operational and null spaces. arXiv preprint arXiv:2211.08199, 2022.

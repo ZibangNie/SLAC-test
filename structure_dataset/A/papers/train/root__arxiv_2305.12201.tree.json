@@ -1,0 +1,1429 @@
+{
+  "doc_id": "corpus_258833229",
+  "units": [
+    {
+      "unit_id": 0,
+      "text": "GraVAC: Adaptive Compression for Communication-Efficient Distributed DL Training",
+      "type": "heading",
+      "level": 0,
+      "parent_id": null,
+      "subtype": "doc_title"
+    },
+    {
+      "unit_id": 1,
+      "text": "I. INTRODUCTION",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 2,
+      "text": "Deep Learning (DL) is a supervised machine learning approach that optimizes a loss function over a non-convex surface by comparing model predictions with ground truth.Each training iteration in DL involves forward and backward pass, i.e., generate predictions from input data, assess loss, compute gradients and update model parameters via optimization method like gradient descent.Training is an iterative process, typically involving multiple passes over the entire dataset where each pass is called an epoch.DL is also heavily influenced by certain hyperparameters that affect training speed, quality, or both.Commonly used hyperparameters are learning rate, momentum, batch size, weight decay, epochs, activation function, etc.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 3,
+      "text": "Distributed data-parallel (DDP) methods further scale training across multiple nodes that train a globally shared model with I.I.D. data (independent and identically distributed) by periodically aggregating locally computed gradients at the end of each iteration.The compute requirements to train DL models doubles every 3.5 months [1], while the compute gains in chip design for ML accelerators and bandwidth gains in telecommunications networks double every 24 and 18 months [2], [3].Thus, the infrastructure required to train state-of-the-art models tends to fall behind their compute and networking demands.Since upgrading network stack in the cloud, datacenter and HPC clusters can be infrequent as compared to appending new accelerators in pre-existing systems, gradient communication tends to be the major bottleneck in distributed training [4].",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 4,
+      "text": "Different compression techniques have been proposed in recent years to mitigate this synchronization overhead.However, the optimal compression factor (CF) that minimizes data exchange or end-to-end training time depends on the model itself (i.e., its size, structure and depth), available network bandwidth and the compression overhead itself.Unlike traditional HPC and distributed computing applications that only measure parallel efficiency, DDP training has an additional statistical efficiency associated with it.Although the amount of computation performed on each iteration is the same, some iterations tend to be more crucial than others towards the overall learning of the model.Updates are especially sensitive in early stages and to hyperparameters like learning rate schedule, momentum and weight decay [5].It would thus be intuitive to compare information loss in gradients on account of compression, and use a lower CF when considerably more information is lost and a higher CF when most information is preserved under compression.We can subsequently increase compression as training continues and gradients saturate, and decrease it back during the aforementioned critical stages.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 5,
+      "text": "We take into account the parallel and statistical efficiency aspect of gradient compression in this work: a high CF improves overall throughput (i.e., number of samples processed per second) by reducing communication cost, but increases information loss in the gradients resulting in either slower or insignificant updates.The two metrics in DDP compression are pareto-related as one improves at the detriment of the other.We propose GraVAC: {Gra}dient {V}ariance-based {A}daptive {C}ompression 1 to dynamically adjust CF by comparing information loss from compression with that of the original gradients computed in backpropagation.GraVAC evaluates different CFs in a given search space and determines the CF that best balances parallel and statistical efficiency in DDP training with compression.We validate our approach over a variety of DL models and directly compare with static CF on compressors like Top-k [6], Deep Gradient Compression or DGC [7], Redsync [9] and Random-k [6].DDP training can be implemented either via MPI-based collectives (AllReduce) [10]- [12] or using one or more centralized parameter servers (PS) [13] to accumulate and distribute model updates among workers.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 6,
+      "text": "A. Scaling Efficiency of DDP Training",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 7,
+      "text": "DL training is an iterative process that involves parameter updates at each step via gradient descent (GD) [14].Full GD uses entire training data at every step, making the whole process slow and compute-intensive, while Stochastic GD processes a single sample and does not vectorize multiple samples on fast accelerators.Mini-batch GD is the optimal middle ground between Full and Stochastic GD where b samples are randomly sampled from I.I.D. data.Eqn.(1) describes the update rule in mini-batch GD where parameters w at (i + 1)-th iteration on N workers minimize loss function L(•) on input samples x j of size b from distribution X j with learning rate η.With weak scaling, we can increase the amount of per-iteration work by adding more workers and keeping per-worker batch-size b the same.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 6,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 8,
+      "text": "w i+1 = w i − η 1 N n=N n=1 1 |b| j∈b ∂ ∂w i L(x (j,n) , w i )(1)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 6,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 9,
+      "text": "The ideal throughput of a distributed application T N executed across N workers is N times the throughput of a single worker T 1 .The deviation is measured via \"scaling efficiency\" in Eqn.2a.Assuming negligible IO overhead, iteration time in dense SGD is bounded by computation and communication time (Eqn.(2b)).It may be possible to overlap communication with computation, but only partially since the latter is comparatively much lower on modern GPUs and TPUs.Model communication has been shown to be an order of hundreds or even thousands of magnitudes higher than gradient computation.Thus, frequent synchronization (t sync ) is the bottleneck that halts linear scaling in DDP.Table 1 describes the size, density and convergence target of ResNet101 [15], VGG16 [16] and LSTM [17] with dense SGD communication.Latency is further exacerbated on constrained networks with limited bandwidth as large volumes of data is exchanged by multiple workers simultaneously.For a DL model with a total of M parameters, the time cost based on the α-β communication model (where α is the latency and β is the inverse of bandwidth) for tree-based allreduce is (2αlogN + 2M logN β) [18].For ring-based allreduce, this becomes 2(N −1)α+2M β(N −1)/N .Hence, communication cost increases as more workers are added to the mix in distributed training.Fig. 1a shows how overall throughput deviates from the ideal as cluster-size increases.The scaling efficiency is also influenced by the message size, i.e., total gradients/parameters to be communicated.In dense SGD, we observed scaling to be affected by the tensor-size distributions across the layers of a model as well.For e.g., LSTM has a better η scaling than ResNet101 despite being a larger model.This is because parameters in LSTM are spread across just 2 layers, compared to 101 in ResNet101.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 6,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 10,
+      "text": "η scaling = T N /N • T 1 (2a) t iter ≈ t compute + t sync(2b)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 6,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 11,
+      "text": "B. Gradient Variance in Deep Learning",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 6,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 12,
+      "text": "Prior work has demonstrated that gradient information can help measure the statistical efficiency of distributed training [19], [20].There is a strong correlation between changes in the eigen values of second-order hessian [21] and first-order gradients (i.e., variance).[22], [23] explores how gradients behave in early stages of DL training and during certain critical periods, influenced by hyperparameters like learning rate schedule, gradient clipping and type of SGD used (e.g., zero, first or second-order moments).Fig. 1b attests those findings where we plot variance over the starting iterations and notice how drastically the gradients change and saturate over training.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 13,
+      "text": "C. Gradient Compression",
+      "type": "heading",
+      "level": 4,
+      "parent_id": 11,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 14,
+      "text": "Many lossy compression techniques have been proposed for DDP and federated learning in recent years.Lossy compression incurs a fundamental trade-off between data-size and information loss; one can either reduce message size by losing more information, or preserve data quality by keeping majority of the original bits intact.In the context of DDP, higher CF reduces communication time at the cost of accuracy degradation or more steps/epochs required for the same convergence.CF measures the size of original gradients to the size of compressed tensors.E.g., compressing 10% gradients gives CF of 10x, while 1% gives 100x.Lossy compression can be broadly classified into quantization, sparsification or low-rank approximations.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 13,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 15,
+      "text": "The bit-width of single-precision (32-bit) floats is reduced in gradient quantization.Techniques like automatic mixed precision (AMP) [24] reduces gradients to half-precision, resulting in 2x CF.QSGD [25] balances the trade-off between accuracy and quantization precision.1-bit SGD [26] reduces 32-bit floats to 1-bit and propagates quantization error via error-feedback.Sparsification methods communicate only a fraction of the gradient values along with their indices and set everything else to 0. Top-k sparisifies by extracting the top k% values while Random-k does so randomly with negligible compression overhead.DGC discards gradients below a certain threshold along with using momentum correction and gradient clipping.Methods like Redsync [40] combine quantization and sparsification, but the estimation quality is not accurate [27].Approaches like PowerSGD [28] and Pufferfish [29] achieve compression via low-rank updates.The former can be viewed as adding regularization in DL, while the latter performs lowrank factorization on fully connected, convolutional and LSTM layers.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 13,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 16,
+      "text": "What should be the ideal CF in Compression-based DDP?",
+      "type": "heading",
+      "level": 5,
+      "parent_id": 13,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 17,
+      "text": "The ideal CF is one that reduces communication time without trimming too much gradients which can be detrimental to final model.Compression has its own associated costs depending on the target CF and computational complexity of the mechanism itself.These factors affect both the parallel efficiency of distributed training as well as statistical inefficiency due to information loss from compression.Fig. 2 aptly demonstrates this where the CF that gives maximum speedup varies for each model and compression technique employed.The models are trained to Table 1 targets.ResNet101 on Top-k achieves most speedup at 100x, while VGG16 and LSTM peak at CFs 1000x and 10x respectively.On the other hand, ResNet101 fails to converge for any CF with Random-k compression.VGG16 and LSTM converged with 10x and failed with other CFs.Although a typical ML practitioner may not necessarily need to think about a plethora of compression methods, choosing the right CF with any compressor and DL model that minimizes training time, or even converges successfully, presents a non-trivial challenge.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 16,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 18,
+      "text": "Dynamic compression mechanisms like AdaQS [30] perform quantization using gradient mean to standard deviation ratio (MSDR).Systems like Accordion [31] and ScaDLES [32] switch between low and high compression based on critical regime identification.We tackle the ideal CF exploration problem in GraVAC in a gradient-driven manner by comparing variance of prior and post-compression gradients.For clarity, prior-compression gradients refer to the original tensors computed in backward pass.By measuring the information lost in compression, we dynamically adjust CF over each iteration.Starting with a low CF initially, we gradually increase compression as training progresses.On encountering senstive or critical regions, GraVAC switches to a lower CF that least degrades convergence.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 16,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 19,
+      "text": "III. DESIGN AND IMPLEMENTATION",
+      "type": "heading",
+      "level": 6,
+      "parent_id": 16,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 20,
+      "text": "In this section, we first describe the trade-off between parallel and statistical efficiency of DDP training with compression.Then we describe the metrics \"compression gain\" and \"compression throughput\" to combine the two, and explain GraVAC's adaptive compression algorithm.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 19,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 21,
+      "text": "A. Parallel Efficiency of Gradient Compression",
+      "type": "heading",
+      "level": 7,
+      "parent_id": 19,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 22,
+      "text": "The end goal of gradient compression is to improve DDP scaling efficiency.Application scaling is governed by the DDP mechanism (ring-based, tree-based allreduce or parameter servers), communication library used (MPI, NCCL [11], Gloo [10] or RPC) and available bandwidth.Keeping the latter and network infrastructure aside, speedup in any DL model depends on the target CF, quality of estimation and compression overhead.The overall iteration time in Eqn.2b is adjusted for compression as",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 21,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 23,
+      "text": "t (c) iter ≈ t compute + t (c) sync + t (c) compress + t (c) decompress",
+      "type": "equation",
+      "level": 8,
+      "parent_id": 21,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 24,
+      "text": "where it takes t is the time taken to reconstruct the compressed gradients to the same dimension as the original gradients.A viable compressor must have its compression time considerably lower than synchronization time.",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 21,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 25,
+      "text": "The parallel efficiency of a distributed application suffers with more workers due to higher synchronization costs.Improving the network bandwidth alleviates this to only a certain extent.[4] investigates how DDP throughput improves marginally with higher bandwidth.They observed that ResNet50 peaks to 75% scale-out on a 25 Gbps network and remains the same even for 100 Gbps.Its because network transport implementation of current DL frameworks cannot fully utilize the available network bandwidth.Thus, even though cloud providers like GCP provide anywhere from 10-32 Gbps bandwidth depending on the machine type and VM size, they may not be utilized to their full potential.",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 21,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 26,
+      "text": "Fig. 3 shows how the throughput increases and communication overhead reduces with compression.The results are relative to CF 10x for each model.We perform layerwise DGC compression over a 32 GPU cluster.System throughput is determined only by compression overhead and communication time as the compute time in backpropagation stays the same across all CFs.Based on the compressor used, compression latency may vary with target CF.For e.g., it decreases with larger CF as Top-k uses max-heap and sorts the top k% elements in O(N +k log k ) time.Throughput for ResNet101 and VGG16 saturates at 500x and does not improve thereafter, while LSTM saturates at 1000x (Fig. 3a).Communication savings also diminish at higher CFs due to small message size and network saturation (Fig. 3b).Thus, the highest CF may not necessarily correspond to the largest throughput.",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 21,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 27,
+      "text": "B. Statistical Inefficiency of Gradient Compression",
+      "type": "heading",
+      "level": 8,
+      "parent_id": 21,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 28,
+      "text": "Gradient compression mechanisms rely on error-feedback [35], [36] which essentially acts as delayed updates, as commonly noted in asynchronous training.The gradients ineligible for compression in the current iteration are not discarded, but added to residual gradients which in turn are added to gradients computed in the next iteration.Residual gradients and error-feedback helps preserve important features and is critical to convergence [6]- [8].Applying compression without error-feedback has been shown to achieve lower accuracy in deep learning models [35].At the same time, residual gradients can sometimes degrade generalization performance due to stale updates.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 27,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 29,
+      "text": "DDP training with very high CFs can negatively impact training time, convergence quality, or both if the compressed gradients are too sparse or quantized to update the model in any significant way.It is thus crucial to have an indicator that quantifies information loss between compressed and the original gradients.We do so by comparing variance between the original and compressed tensors on every iteration and see how it relates to actual model convergence.Denoting the original gradients as BC (Before-Compression) and compressed tensors as AC (After-Compression), we compare BC and AC tensors in two separate configurations with CFs 10x and 1000x in Fig. 4, 5 and 6.We compare the convergence curves for the two CFs with Dense SGD (i.e., no compression) to see how much accuracy degrades with compression.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 27,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 30,
+      "text": "AC 10x is nearly identical to its BC counterpart in ResNet101 (Fig. 4a) while there is considerably more information loss in between BC and AC 1000x (Fig. 4b).This translates to their convergence curves in Fig. 4c as well where 10x and dense SGD runs follow a similar convergence trajectory while 1000x achieves considerably lower accuracy for the same iterations.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 27,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 31,
+      "text": "VGG16 follows a similar trend with 10x CF.The BC and AC gradient variance (Fig. 5a) is nearly identical and so are the convergence curves for 10x and Dense SGD (Fig. 5c).We notice a slight deviation between BC and AC at 1000x initially in Fig. 5b, which correlates to slow convergence in the early iterations for 1000x in Fig. 5c.As the deviation BC and AC decreases, we see both CFs converge to the same accuracy as Dense SGD in the same iterations.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 27,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 32,
+      "text": "The AC 10x and 1000x gradients lie on similar scales as BC in LSTM, although the higher CF has slightly higher variance (Fig. 6a and 5b).As seen from Fig. 5c, Dense SGD has the least perplexity (thus, better model quality), followed by 10x and 1000x CFs.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 27,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 33,
+      "text": "To compare the information loss between the original and gradients compressed to CF c, we define a simplistic metric called Compression gain.As part of error feedback, we update the gradients such that g",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 27,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 34,
+      "text": "(i) ef = g (i) 0 + residual gradients (i−1) for i ≥ 1. Here, g (i)",
+      "type": "equation",
+      "level": 9,
+      "parent_id": 27,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 35,
+      "text": "0 are the original gradients calculated via backpropagation at iteration i, while residual gradients (i−1) are left-overs from the last iteration (i − 1) and before, which are added back as part of error-feedback to produce g",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 27,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 36,
+      "text": "(i)",
+      "type": "equation",
+      "level": 9,
+      "parent_id": 27,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 37,
+      "text": "ef for the current iteration.With compression operator C, gradients are compressed as g",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 27,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 38,
+      "text": "(i) c = C[g (i) ef ].",
+      "type": "equation",
+      "level": 9,
+      "parent_id": 27,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 39,
+      "text": "Compression gain is then measured as the ratio of expected variance of compressed gradients g",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 27,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 40,
+      "text": "(i) c",
+      "type": "equation",
+      "level": 9,
+      "parent_id": 27,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 41,
+      "text": "and the original gradients modified with errorfeedback, i.e., g",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 27,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 42,
+      "text": "(i) ef : Compression gain = E[||g (i) c || 2 ] E[||g (i) ef || 2 ]",
+      "type": "equation",
+      "level": 9,
+      "parent_id": 27,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 43,
+      "text": "In prior work, gradient noise has been well studied in deep learning literature pertaining to divergence between locallycomputed and aggregated gradients in DDP [20], [37], [38].These works use gradient information to tweak the global batch-size in DDP to optimize job completion time or allocate optimal resources for a job.Instead of looking at local and global gradients, GraVAC's novelty comes from evaluating the noise between the original and compressed tensors.The gradients computed over each iteration can be noisy.Thus, we keep a moving average of the respective variances of the original and compressed gradients.The computation and memory footprint of this approach is low since the windowsize in moving average is finite and only a single-precision floating point is stored for every iteration.Compression gain is bounded between {0, 1] such that it is low when C trims too much information.As models keep training, gradients saturate and higher compression becomes more viable in later stages of training.Hence, compression gain increases over training as compressed tensors become more aligned with the original gradients.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 27,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 44,
+      "text": "We plot compression gains for the three models when training with fixed CF 10x and 1000x respectively, shown in Fig. 4d, 5d and 6d.In each model, 10x has higher compression gain than 1000x since more information is preserved in the smaller CF.It should also be apparent that Dense SGD training has a constant gain of 1.0.For all models, convergence curve of 10x follows a similar trajectory as Dense SGD.Correspondigly, the compression gain of 10x stays close to 1.0 throughout.In ResNet101, gain of 1000x is low initially and grows in an oscillating manner, although still lower than gains of 10x and Dense SGD.The low gains in the first 1000 iterations of CF 1000x correlates to the considerable gap between BC and AC gradients in Fig. 4b and lower accuracy in Fig. 4c.VGG16 is more robust to higher CFs (Fig. 5c), as also seen from the high compression gains of CF 1000x in Fig. 5d.For LSTM, compression gain for 10x stays close to 1.0 and between 0.8-0.9 for 1000x.The proximity of the two CFs to Dense SGD's gain of 1.0 is equivalent to their perplexity curves in Fig. 6c.From these results we see how compression gain serves as a viable indicator of the statistical efficiency of DDP with compression.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 27,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 45,
+      "text": "C. Combining System Throughput and Compression Gain",
+      "type": "heading",
+      "level": 9,
+      "parent_id": 27,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 46,
+      "text": "As described earlier in II-C as well as Fig. 2, choosing a high CF unintuitively does not necessarily improve training time and may even degrade final model quality.Thus, to account for both the parallel and statistical efficiency DDP training with gradient compression, we combine system throughput (T system ) and compression gain into a single metric called Compression Throughput:",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 47,
+      "text": "T compression = T system × Compression gain",
+      "type": "equation",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 48,
+      "text": "If CF is high, system throughput would be high as well but compression gain would relatively be lower, decreasing the resulting T compression .On the other hand, compression gain will be high for a low CF, but system throughput will be lower due to relatively higher communication overhead.With Compression Throughput, we capture this pareto-relationship between the parallel (system throughput) and statistical efficiency (compression gain) of gradient compression in DDP.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 49,
+      "text": "We build GraVAC as a modular extension on top of PyTorch's [33] DDP module [34] using Python in about 3000 lines of code.A base GravacOptimizer wraps common SGD optimizers implemented in PyTorch by extending the base torch.optim.Optimizer class.The optimizer takes an additional Compressor object that specifies the type of compression technique used.We implement four pre-existing techniques as compressor classes in this paper: Top-k, DGC, Redsync and Random-k.Compression for the appropriate CF and its gain is computed before the optimizer step function which applies the aggregated gradient updates on model parameters.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 50,
+      "text": "GraVAC Algorithm: Alg. 1 describes GraVAC's approach of using compressor C to scale CFs in the exploration space [θ min , θ max ], where each candidate CF is evaluated for window steps and incremented in step-size of θ s w.r.t.θ min .For e.g., scaling from CF 10x to CF 20x means θ s = 20/10 = 2x.The threshold ϵ denotes the minimum compression gain required",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 51,
+      "text": "o , t o = ∇f (x (i) , w i ) ▷ backpropagation 5 g (i) o = g (i) o + residual ▷ error-feedback 6 g (i)",
+      "type": "equation",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 52,
+      "text": "min , t min = C(g",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 53,
+      "text": "(i) o , θ min ) ▷ compress to CF θ min 7 δ min = EWMA( ||g (i) min || 2 ||g (i) o || 2 ) ▷ θ min compression gain 8 g (i) c , t (i) c = C(g (i) min , θ s ) ▷ compress to CF (θ s • θ min ) 9 δ c = EWMA( ||g (i) c || 2 ||g (i) o || 2 ) ▷ gain for CF (θ s • θ min ) 10 t compress = t min + t c ▷ total compression time 11 if δ c ≥ ϵ : 12 g(i) , t s = Aggregate(g (i) c ) ▷ synchronize g (i) c 13 residual = g (i) o − g (i) c",
+      "type": "equation",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 54,
+      "text": "▷ update residual",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 55,
+      "text": "if | ct[−1] − ct[−2] ct[−2]",
+      "type": "equation",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 56,
+      "text": "| ≤ ω : for any CF to be eligible for communication in GraVAC, while threshold ω is used to measure saturation in compression throughputs and for scaling up θ min .We explain this in the following sections in more detail.For every iteration, we compute gradients g",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 57,
+      "text": "(i)",
+      "type": "equation",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 58,
+      "text": "o with model parameters w i on training sample x (i) in time t o (line 4).To incorporate error-feedback,residual holds the leftover gradients not communicated from previous iterations.The shape and memory size of tensors in residual is the same as gradients itself.As shown in line 5, we add residual gradients to the gradients computed in the current iteration.In the first stage, we compress original gradients using C to compressed gradients g (i) min corresponding to minimum CF θ min (line 6).We then compute the compression gain corresponding to θ min (line 7), and smoothen out the interiteration gain through exponential weighted moving average (EWMA) smoothing.In our evaluation, we set the EWMA smoothing factor to N /100, where N is the number of participating workers.We evaluate the next candidate CF by stepping up the previous θ min and further compressing the already compressed gradients g",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 59,
+      "text": "(i)",
+      "type": "equation",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 60,
+      "text": "min by stepsize θ s (line 8).Thus, candidate CF evaluated in this case is θ s • θ min .This is done as part of our multi-level compression strategy to avoid compressing the large, original tensors g",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 61,
+      "text": "(i)",
+      "type": "equation",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 62,
+      "text": "o twice.We measure the time savings of our multi-level approach in section IV-C.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 63,
+      "text": "Next, we compute the gradients and compression gain of candidate CF θ s • θ min (line 8-9), and denote the total compression time t compress as the sum of time to compress original gradients to g  c (line 8).Based on the compression gains obtained and threshold ϵ, we choose the appropriate gradients to call the collective operation on.If the gain of our candidate CF meets ϵ (line 11), we go ahead and communicate compressed gradients g (i) c among workers.We update the residual gradients in accord with g (i) c as well (line 13), calculate the total iteration time (line 14) and update the system as well as compression throughput for CF θ s •θ min via UpdateStep function.T compress is a dictionary or a hashmap that stores compression throughput of each candidate CF, min-max CF as well as dense SGD setting (i.e., CF 1x).",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 64,
+      "text": "If the gain of g",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 65,
+      "text": "(i)",
+      "type": "equation",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 66,
+      "text": "c does not meet the threshold, but gain δ min of θ min does (line 16), we instead synchronize compressed gradients g",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 67,
+      "text": "(i)",
+      "type": "equation",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 68,
+      "text": "min corresponding to θ min .In a similar fashion as before, we update the residuals, this time with g",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 69,
+      "text": "(i) min instead of g (i)",
+      "type": "equation",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 70,
+      "text": "c (line 18), compute iteration time and assess compression throughput.It is important to remember that synchronization overhead to communicate g",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 71,
+      "text": "(i)",
+      "type": "equation",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 72,
+      "text": "min is more than g (i) c due to the former's lower CF.The trade-off we make in GraVAC is to incur higher communication latency for more accurate representation of the original gradients (measured by compression gain) and vice-versa.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 73,
+      "text": "If both θ min and currently evaluated CF do not meet the set threshold, we incur maximum communication latency by transmitting the original gradients via dense SGD (line 22).In this case, residual gradients are set to 0 and no compression overhead is included as part of iteration time and computing system/compression throughput.The CF and compression gain are both 1, as set in the UpdateStep function at line 25.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 74,
+      "text": "Following SGD update (line 26), we evaluate GraVAC to assess the performance of CFs evaluated so far.This happens at a frequency determined by window.Here, we adjust θ s by a certain factor to scale up compression, determined by the chosen ScalingPolicy.The scaling policy tunes compression only until the upper bound θ max .We explore two scaling policies in this paper that we describe in detail under section IV-B.After scaling θ s , we also assess if the minimum CF, i.e., θ min can be scaled up as well.The intuition is that as training progresses, model gradually starts converging as well and we can use higher compression even for the minimum CF later on.In addition to candidate CFs, we thus scale up the minimum CF as well.The transition is made if the current gain δ c is within ω% of the gain of previous θ min (line 34).Once enough CFs are evaluated, we look at the two largest compression throughputs (line 36) and fetch the corresponding CF if they are within the bounds of ω.We do this as it means the compression throughput has saturated and thus, we pick the lower CF as θ ideal (line 38) and send the appropriate step-size (line 39).If the threshold ω is not met, we use θ s as is.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 75,
+      "text": "When does compression scale-up?As seen from Alg. 1, the compression scale-up happens during GraVAC's evaluation phase where we scale the step-size θ s in accordance with a specific scaling policy.At the same time, we escalate the minimum CF θ min to currently evaluated CF if the two compression gains are within ω% of each other.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 76,
+      "text": "When does compression scale-down?Compression scaledown is determined by ϵ (shown via conditional statements lines 11-25).If current CF loses considerably more information in compressed gradients g",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 77,
+      "text": "(i)",
+      "type": "equation",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 78,
+      "text": "c , we use the lower CF θ min .If the latter fails to meet ϵ as well, we send uncompressed gradients g",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 79,
+      "text": "(i)",
+      "type": "equation",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 80,
+      "text": "o as a last resort.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 81,
+      "text": "IV. EVALUATION",
+      "type": "heading",
+      "level": 10,
+      "parent_id": 45,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 82,
+      "text": "A. Cluster Setup and Training Hyperparameters",
+      "type": "heading",
+      "level": 11,
+      "parent_id": 81,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 83,
+      "text": "We evaluate GraVAC on a 32 GPU setup on the Google Cloud Platform (GCP) across 8 VMs.Each VM is a n1standard-8 machine type with 8 vCPUs, 30 GB system memory and 4 NVIDIA V100 GPUs with 16 GB VRAM each.The machines are configured with PyTorch 1.10.1,CUDA 11.3, CUDA driver 465.19.01 and NCCL 2.10.3.",
+      "type": "paragraph",
+      "level": 12,
+      "parent_id": 82,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 84,
+      "text": "We evaluate the three models described in Table 1.ResNet101 is trained with per-worker batch size 32, momentum 0.9, weight decay 0.0001 and SGD optimizer with initial learning rate (lr) 0.1 decayed by a factor of 10 at 9K and 14K iterations respectively.VGG16 is also trained with perworker batch-size 32, weight decay 0.0005, momentum 0.9 and SGD with fixed lr 0.1.Lastly, LSTM is measured with test perplexity (i.e., exponential of test loss) with per-worker batch-size 20, momentum 0.9, weight decay 0.0001 and SGD with fixed lr 0.1.The model is initialized with 1500 embedding dimensions and 2 hidden layers with 35 bptt steps.",
+      "type": "paragraph",
+      "level": 12,
+      "parent_id": 82,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 85,
+      "text": "We evaluate GraVAC with different scaling policies and look at their convergence curves (i.e.test accuracy/perplexity vs. iterations), average compression throughput of candidate CFs and kernel density estimates (KDE) of training iterations using different CFs over the course of training.KDE gives the distribution over the iterations for all CFs and plotted on the log-scale with smoothing bandwidth of 0.1 passed to the gaussian KDE.",
+      "type": "paragraph",
+      "level": 12,
+      "parent_id": 82,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 86,
+      "text": "B. GraVAC's Adaptive Compression Policies",
+      "type": "heading",
+      "level": 12,
+      "parent_id": 82,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 87,
+      "text": "In this section, we look at how GraVAC achieves optimal CF for a given θ min , θ max , ϵ, window, ω and stepsize.To see how a model converges and communication costs vary by evaluating different candidate CFs in the search space, we employ an Exponential policy that upscales CFs aggressively, and a relatively smoother Geometric scaling policy that scales CFs as a geometric progression.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 86,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 88,
+      "text": "1) Exponential scaling policy: In this policy, we implement the ScalingPolicy function from Alg. 1 such that CFs are scaled up in exponents of 2 w.r.t the first initialized θ min .On top of DGC, we set θ min and θ max to 10x and 1000x, window=500 and ω=1%.So we scale up by factors of 2 1 , 2 2 , 2 4 , 2 8 w.r.t 10x up until 1000x.The candidate CFs thus evaluated in this policy are 10x, 20x, 40x, 160x and 1000x.We run GraVAC on two configuration with different thresholds on compression gain, ϵ = 0.7 and 0.9.The lower ϵ relaxes the constraint on the gain for higher CFs to be eligible for communication, thus achieving higher compression.A large ϵ (i.e., close to 1) allows for compression only if the compressed tensors are highly representative of the original gradients.First, we compare these two thresholds with Dense SGD as the latter demonstrates the ideal convergence scenario.Then, we compare GraVAC with different compression techniques on static CFs and look at final model accuracy, communication savings and overall speedup.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 86,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 89,
+      "text": "ResNet101: Fig. 7 shows how GraVAC achieves the same convergence as dense SGD in the same number of iterations.The low and high ϵ reduce overall communication volume by 163× and 19× over dense SGD.We measure communication volume as the ratio of cumulative single-precision floats exchanged among workers in GraVAC relative to dense SGD.Training cycle is slightly more volatile with compression, as seen from the accuracy drop due to lr decay at around 9000-th iteration.The drop is more apparent for ϵ = 0.7 as we continue to train with higher CFs on account of the lower threshold.Comparatively, ϵ = 0.9 is more robust to hyperparameter tuning like lr decay as we tend to train with a lower CF due to higher threshold.This is corroborated from Fig. 7b which shows distribution of training iterations over the CFs.We equally train with 10x and 1000x for ϵ = 0.9, while we mostly train with 1000x for ϵ of 0.7.For the compression throughputs of ϵ = 0.9 in Fig. 7c, it might seem counterintuitive at first that although T compression is maximum for 1000x and minimum for 10x, we still evenly train with the two CFs.This is on account of the high threshold and because θ min did not scale up and remained at 10x for ResNet101.Thus, whenever Iterations  the compression gain of any candidate CF did not meet the threshold, we synchronized gradients compressed at 10x.For ϵ of 0.7, compression throughput was maximum for 1000x and we trained at this CF for most iterations as the corresponding gain easily met that threshold.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 86,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 90,
+      "text": "VGG16: Like ResNet101, VGG16 also converges to the same accuracy as dense SGD within the same iterations, where ϵ = 0.7 and 0.9 reduce communication volume by 80× and 13.5× over dense SGD (Fig. 9).Although T compression is maximum at 1000x for ϵ = 0.9, the corresponding gain was not as high to meet the threshold.Because of this, we switch back to θ min and thus train with 10x for majority iterations as seen from the kernel density estimates in Fig. 8b.However, when ϵ was lower, we were able to find 40x CF to meet that threshold.T compression corresponding to this CF was second largest in our exploration space.As candidate CFs are evaluated over the iterations, the model gradually converges and as a result, compression gain improves even further on larger CFs as training progresses.Ultimately, we arrive on θ ideal = 1000x corresponding to the maximum compression throughput (Fig. 8c).",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 86,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 91,
+      "text": "LSTM: Like the models before, GraVAC with either ϵ converged in the same iterations as dense SGD training, while reducing the communication volume by 279× and 289× for ϵ of 0.9 and 0.7 respectively.Given the dataset, model and training hyperparameters, we already saw from Fig. 6d that compression gain for LSTM was high for both 10x and 1000x.We observed a similar trend here as compression gain corresponding to 1000x easily satisfied both thresholds and thus, we train with the largest available CF for most iterations (Fig. 9b).Correspondingly, the compression throughput is maximum at this CF as well.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 86,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 92,
+      "text": "Further, we compare GraVAC with static CFs running on different compression techniques.In particular, we train our models with Top-k, DGC, Redsync and Random-k at CFs 10x and 1000x.We run each compression technique to report the final accuracy/perplexity until it does not improve any further, difference in convergence compared to dense SGD  For VGG16, we previously observed that the model is already quite robust to high compression (Fig. 5).We see that again here for Top-k, DGC and Redsync at 1000x cross 90% accuracy with 3.22, 3.35 and 3.6× speedup over Top-k 10x.Random-k at 10x also converged, albeit to a lower 87.8% accuracy and slower convergence.Since GraVAC attains 90.48% test accuracy with 1.95× training speedup, other compression schemes were more optimal in this case simply because they used high CFs.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 86,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 93,
+      "text": "In LSTM, GraVAC obtains the least perplexity of 21.25 while still providing maximum speedup of 6.67× over Top-k 10x.Random-k 10x converged to 24.15 perplexity and did not improve further, while Random-k 1000x failed here again.Of all the configurations, only Top-k, DGC and Redsync at 10x CF and GraVAC achieved better perplexity than dense SGD.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 86,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 94,
+      "text": "Thus, we see how GraVAC is able to train models like ResNet101 and LSTM to high accuracy/perplexity and still reduce training time significantly.Static compression schemes achieve high accuracy at low CF at the cost of high communication overhead, thus providing lower speedup.Large CFs considerably reduce communication, but the final model quality is not at par with GraVAC.On the flip side, some over-parameterized models like VGG16 can be robust to compression and still converge successfully at high static CFs.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 86,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 95,
+      "text": "2) Geometric scaling policy: We also propose a relatively smoother compression policy where ScalingPolicy increments CFs as a geometric progression with common ratio 2. We deploy GraVAC with Redsync on ResNet101 and set θ min = 10x, θ max = 2000x, ϵ = 0.7, window = 2000 steps and ω = 1%.Thus, candidate CFs are 10x, 20x, 40x, 80x, 160x, 320x, 640x, 1280x and 2000x.Fig. 10a shows the accuracy curve over the iterations.Compared to dense SGD (Fig. 7a), GraVAC with geometric scaling converged while reducing communication volume by 76×.In contrast to exponential scaling, convergence is relatively slower because we evaluate each candidate CF for a larger window size.As a result, gradients get even smaller as GraVAC gradually arrives at larger CFs and compression gain increases beyond ϵ.Thus, we see similar iteration densities from CF 10x to 640x (Fig. 10b).After the first 7 CFs are evaluated over 2000 steps each, we mostly train with CF 1280x from 16K iterations onward (because 8 × 2000 = 16000).We did not scale to 2000x in our evaluation since compression throughput for 1280x and 2000x was 1029.9 and 1035.4,which falls within ω's bound of 1%.This case highlights the effectiveness of GraVAC such that it does not scale the CF beyond a point when it stop improving the parallel or statistical efficiency of gradient compression.In this case, GraVAC does not compress beyond 1280x as it corresponds to the maximum compression throughput (and at a lower CF of 1280x compared to 2000x).",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 86,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 96,
+      "text": "C. Gains of Multi-level Compression in GraVAC",
+      "type": "heading",
+      "level": 13,
+      "parent_id": 86,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 97,
+      "text": "Alg. 1 explains how at each iteration, GraVAC scales compression from initial θ min to current CF being evaluated (i.e., θ c ), up to the maximum allowed θ max .Thus, compressing the original gradients (computed over backward pass) twice; i.e., once over θ min and then again on θ c can incur significant  overhead, especially on larger models.The latency of a compressor may vary with the size of the tensor to compress as well as the target CF.To reduce the cumulative overhead of compressing original tensors multiple times, we apply a multi-level compression scheme as follows: given a compressor C and tensor X to be compressed to CFs θ 1 and θ 2 such that θ 2 > θ 1 , rather than compressing each CF on X as:",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 96,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 98,
+      "text": "X 1 = C(θ 1 , X ) and X 2 = C(θ 2 , X ) to produce compressed tensors where |X 2 | < |X 1 | < |X |.",
+      "type": "equation",
+      "level": 14,
+      "parent_id": 96,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 99,
+      "text": "In GraVAC, we first compute X 1 and then compress this tensor to θ",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 96,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 100,
+      "text": "′ 2 to produce X ′ 2 : X 1 = C(θ 1 , X ) =⇒ X ′ 2 = C(θ ′ 2 , X 1 ) : θ ′ 2 = θ 2 θ 1 The resulting tensor X ′ 2 is such that X ′ 2 = X 2 for θ ′ 2 = θ 2 /θ 1 .",
+      "type": "equation",
+      "level": 14,
+      "parent_id": 96,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 101,
+      "text": "The appeal of doing so is that the second compression operation is applied on a smaller tensor X 1 instead of X again.We tabulate the savings of multi-level compression in Table 3. Let's consider a scaling case of GraVAC where θ min = 10x and current CF evaluated is 1000x.Then multilevel GraVAC first compresses to 10x and then further compresses the reduced tensors to 100x, i.e., θ 1 = 10x and θ ′ 2 = 100x so that θ 2 = 1000x.In direct approach, we first compress original gradients to 10x, then compress the original gradients again to 1000x.From our results, we see that multi-level compression is at least 1.1× and up to 1.83× faster than directly compressing the original tensors twice.",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 96,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 102,
+      "text": "D. Comparing GraVAC with Prior Art",
+      "type": "heading",
+      "level": 14,
+      "parent_id": 96,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 103,
+      "text": "In this section, we compare GraVAC with another adaptive scheme called Accordion [31].For the three models, we use bounds of Rank-1 and Rank-4 for compression in Accordion, as described in [31]   Accordion is based on detecting critical regions during training, i.e., when inter-iteration gradients computed in backward pass change significantly and cross a certain user-defined threshold.Accordion switches between 2 compression factors such that it uses the low CF in critical regions and the higher CF otherwise.On the other hand, GraVAC looks at information loss on account of compression (i.e., statistical efficiency) and not just relative gradient change in sensitive regions of training.That is, GraVAC looks at intra-iterations gradients as well (between original and gradients compressed at different CFs).Additionally, GraVAC scales compression across a wider range and carefully inspects intermediary CFs as potential compression candidates.Thus, we obtain higher speedups when training with GraVAC.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 104,
+      "text": "1) GraVAC vs. Accordion on Random-k Compression: We previously saw in Fig. 2b and Table 2 that ResNet101 failed to converge at any CF with Random-k compression.In this section, we present a special case of using Random-k under the hood with both GraVAC and Accordion.Although the compression quality of Random-k is lower compared to other compressors, we present this as a special case to demonstrate how GraVAC is more dynamic and operates at a finer granularity.We launch GraVAC with Random-k on θ min = 1.5x, θ max = 1000x, window = 2000 and ϵ = 0.7.The CFs are scaled up via geometric scaling policy.Accordion was also deployed with the same min-max bounds on CF as GraVAC, i. Random-k compression (Fig. 2b) that failed to converge, we were able to achieve to 78% top-1 test accuracy for ResNet101 with GraVAC.The CFs used for training by GraVAC were 1.5x, 3x, 6x, 12x, 24x and 48x.All candidate CFs beyond this were ignored as they did not meet the required threshold of ϵ.CF 12x has the highest density, implying most iterations used this CF for training (Fig. 11b).Correspondingly, compression throughput is maximum for this CF as well.Compared to dense SGD, we reduced overall communication volume by 18×.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 105,
+      "text": "As for Accordion on Random-k, we see in Fig. 11a that training saturates at 20% accuracy.This is because Accordion does not consider the efficacy of the compression technique itself, and only switches between a low and high CF if the uncompressed, inter-iteration gradients change beyond a certain measure.With a low CF 1.5x, information loss in Random-k was too high to update ResNet101 in a meaningful way.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 106,
+      "text": "V. CONCLUSION Gradient noise has previously been used as a scalability indicator for batch and cluster-size scaling in deep learning [19], [20], [37]- [39].Adaptive compression schemes like Accordion [31] switch between two compression levels based on when the inter-iteration gradients change by some margin.GraVAC's key insight is to tweak compression factor over the course of training while balancing the pareto-relationship between parallel and statistical efficiency in gradient compression.We use \"compression gain\" to measure information loss on account of compression and choose a CF appropriately.In our evaluation, we see that GraVAC converges 1.95 to 6.67× faster than choosing a static CF, while converging in the same number of iterations as dense SGD.Compared to Accordion, we observed up to 5.63× reduction in end-to-end training time.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 107,
+      "text": "One should be mindful when training models with GraVAC as it introduces parameters like compression threshold (ϵ) and window size that may affect overall training performance.Setting too small a window size may result in poor convergence as all the candidate CFs may be exhausted while the model is still in early training stages and gradients are still volatile.As for ϵ, choosing a very small threshold may enable high compression but may lead to model degradation by allowing high CF gradients from the beginning that will not update the model in a significant way.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 108,
+      "text": "Fig. 1.Communication overhead and early critical period in DDP training.",
+      "type": "figure",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 109,
+      "text": "Fig. 1.Communication overhead and early critical period in DDP training.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 110,
+      "text": "compress time to reduce gradients to CF c such that it reduces communication time to t",
+      "type": "figure",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 111,
+      "text": "compress time to reduce gradients to CF c such that it reduces communication time to t",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 112,
+      "text": "Fig. 3. Throughput and communication speedup for layerwise DGC compression, normalized by 10x CF.",
+      "type": "figure",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 113,
+      "text": "Fig. 3. Throughput and communication speedup for layerwise DGC compression, normalized by 10x CF.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 114,
+      "text": "Fig. 4. ResNet101: Prior and Post-Compression gradients, test accuracy and compression gain for CFs 10x and 1000x.",
+      "type": "figure",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 115,
+      "text": "Fig. 4. ResNet101: Prior and Post-Compression gradients, test accuracy and compression gain for CFs 10x and 1000x.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 116,
+      "text": "GraVAC's Adaptive Compression 1 Input: θ min , θ max , ϵ, θ s , ω, window, compressor C 2 w o : initial model state, N: total nodes, b: per-worker batch-size, residual = 0; T sys , T compress = empty() 3 Train for i = 1,2,3...",
+      "type": "figure",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 117,
+      "text": "GraVAC's Adaptive Compression 1 Input: θ min , θ max , ϵ, θ s , ω, window, compressor C 2 w o : initial model state, N: total nodes, b: per-worker batch-size, residual = 0; T sys , T compress = empty() 3 Train for i = 1,2,3...",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 118,
+      "text": "ideal = T compress .get(ct[−2])▷ ideal CF 39 return θ ideal /θ min ▷ gives optimal θ s 40 else 41 return θ s ▷ else use old scaling factor",
+      "type": "figure",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 119,
+      "text": "ideal = T compress .get(ct[−2])▷ ideal CF 39 return θ ideal /θ min ▷ gives optimal θ s 40 else 41 return θ s ▷ else use old scaling factor",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 120,
+      "text": "Fig. 7. ResNet101:GraVAC with ϵ = [0.7,0.9] and Dense SGD.",
+      "type": "figure",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 121,
+      "text": "Fig. 7. ResNet101:GraVAC with ϵ = [0.7,0.9] and Dense SGD.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 122,
+      "text": "Fig. 8. VGG16: GraVAC with ϵ = [0.7,0.9] and Dense SGD.",
+      "type": "figure",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 123,
+      "text": "Fig. 8. VGG16: GraVAC with ϵ = [0.7,0.9] and Dense SGD.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 124,
+      "text": "Fig. 9. LSTM: GraVAC with ϵ = [0.7,0.9] and Dense SGD.",
+      "type": "figure",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 125,
+      "text": "Fig. 9. LSTM: GraVAC with ϵ = [0.7,0.9] and Dense SGD.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 126,
+      "text": "T compression and KDE 10.ResNet101: GraVAC with Geometric scaling policy.",
+      "type": "figure",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 127,
+      "text": "T compression and KDE 10.ResNet101: GraVAC with Geometric scaling policy.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 128,
+      "text": "Fig. 11.GraVAC and Accordion on Random-k compression.",
+      "type": "figure",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 129,
+      "text": "Fig. 11.GraVAC and Accordion on Random-k compression.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 130,
+      "text": "GraVAC'S MODEL QUALITY AND SPEEDUP OVER STATIC CFS",
+      "type": "figure",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 131,
+      "text": "GraVAC'S MODEL QUALITY AND SPEEDUP OVER STATIC CFS",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 132,
+      "text": "and compare with GraVAC in terms of communication and time savings (i.e., training speedup) to achieve the same test accuracy/perplexity.The savings are normalized by Accordion's performance for each respective model, shown in Table 4.For ResNet101, GraVAC reduces total communication volume by 44.5× and reduces training time by 1.94× over Accordion.GraVAC speeds up training by 5.63× over Accordion for communication-heavy models like VGG16.In LSTM training, GraVAC converges twice as fast by reducing communication volume up to 104.2×.",
+      "type": "figure",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 133,
+      "text": "and compare with GraVAC in terms of communication and time savings (i.e., training speedup) to achieve the same test accuracy/perplexity.The savings are normalized by Accordion's performance for each respective model, shown in Table 4.For ResNet101, GraVAC reduces total communication volume by 44.5× and reduces training time by 1.94× over Accordion.GraVAC speeds up training by 5.63× over Accordion for communication-heavy models like VGG16.In LSTM training, GraVAC converges twice as fast by reducing communication volume up to 104.2×.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 134,
+      "text": "GraVAC'S MULIT-LEVEL (MTL) COMPRESSION SPEEDUP",
+      "type": "figure",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 135,
+      "text": "GraVAC'S MULIT-LEVEL (MTL) COMPRESSION SPEEDUP",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 136,
+      "text": "VS. ACCORDION: COMMUNICATION AND TIME SAVINGS",
+      "type": "figure",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 137,
+      "text": "VS. ACCORDION: COMMUNICATION AND TIME SAVINGS",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 102,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 138,
+      "text": "References",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "references"
+    },
+    {
+      "unit_id": 139,
+      "text": ". Compute Ai, 2018-05-16",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 140,
+      "text": "Edholm's law of bandwidth. S Cherry, Spectrum, 10.1109/MSPEC.2004.13098102004",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 141,
+      "text": "Moore's Law: Past, Present, and Future. Robert R Schaller, 10.1109/6.5916651997IEEE Press",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 142,
+      "text": "Is Network the Bottleneck of Distributed Training¿. Z Zhang, C Chang, H Lin, Y Wang, R Arora, Jin X , 10.1145/3405671.34058102020NetAI",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 143,
+      "text": "Critical Learning Periods in Deep Neural Networks. Alessandro A Matteo, R Stefano, S , arXiv 1711.088562019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 144,
+      "text": "The Convergence of Sparsified Gradient Methods. Dan A Torsten, H Mikael, J Sarit, K Nikola, K Cédric, R , arXiv 1809.105052018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 145,
+      "text": "Deep Gradient Compression: Reducing the Communication Bandwidth for Distributed Training. L Yujun, H Song, M Huizi, W Yu, Bill D , 2018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 146,
+      "text": "Understanding Top-k Sparsification in Distributed Deep Learning. S Shi, X Chu, K C Cheung, See , S , ArXiv, abs/1911.087722019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 147,
+      "text": "RedSync: Reducing synchronization bandwidth for distributed deep learning training system. J Fang, H Fu, G Yang, C J Hsieh, 10.1016/j.jpdc.2019.05.016Journal of Parallel and Distributed Computing. 2019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 148,
+      "text": ". Facebook Gloo,",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 149,
+      "text": "MPI: A message passing interface. 10.1145/169627.169855Supercomputing '93:Proceedings of the 1993 ACM/IEEE Conference on Supercomputing.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 150,
+      "text": "Scaling Distributed Machine Learning with the Parameter Server. L Mu, G A David, W P Jun, J S Alexander, A Amr, J Vanja, L James, Eugene J Bor-Yiing, S , 11th USENIX Symposium on Operating Systems Design and Implementation. OSDI 14",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 151,
+      "text": "An overview of gradient descent optimization algorithms. S Ruder, 10.48550/ARXIV.1609.04747",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 152,
+      "text": "Deep Residual Learning for Image Recognition. H Kaiming, Z Xiangyu, R Shaoqing, S Jian, arXiv 1512.033852015",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 153,
+      "text": "Very Deep Convolutional Networks for Large-Scale Image Recognition. Karen S Andrew, Z , 2015",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 154,
+      "text": "Long Short-Term Memory. S Hochreiter, J Schmidhuber, 10.1162/neco.1997.9.8.1735Neural Computation. 1997",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 155,
+      "text": "On the Utility of Gradient Compression in Distributed Training Systems. S Agarwal, H Wang, S Venkataraman, D Papailiopoulos, 2022MLSys",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 156,
+      "text": "T B Johnson, P Agrawal, H Gu, C Guestrin, AdaScale SGD: A User-Friendly Algorithm for Distributed Training.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 157,
+      "text": "M Luo, L Guo, W Marcel, F Konstantinos, B Andrei-Octavian, P Peter, Kungfu: Making Training in Distributed Machine Learning Adaptive. 14th USENIX OSDI 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 158,
+      "text": "L Sagun, L Bottou, Y Lecun, 10.48550/ARXIV.1611.07476Eigenvalues of the Hessian in Deep Learning: Singularity and Beyond. 2016",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 159,
+      "text": "Jonathan F David, J S Ari, S M , International Conference on Learning Representations. 2020The Early Phase of Neural Network Training",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 160,
+      "text": "Critical Learning Periods in Deep Neural Networks. Alessandro A Matteo, R Stefano, S , arXiv 1711.088562019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 161,
+      "text": "Mixed Precision Training. M Paulius, N Sharan, A Jonah, D Gregory, E Erich, G David, G Boris, H Michael, K Oleksii, V Ganesh, W Hao, arXiv 1710.037402018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 162,
+      "text": "QSGD: Communication-Efficient SGD via Gradient Quantization and Encoding. Dan A Demjan, G Jerry, L Ryota, T Milan, V , arXiv 1610.021322017",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 163,
+      "text": "1-Bit Stochastic Gradient Descent and Application to Data-Parallel Distributed Training of Speech DNNs. F Seide, H Fu, J Droppo, G Li, D Yu, 2014Interspeech",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 164,
+      "text": "An Efficient Statistical-based Gradient Compression Technique for Distributed Training Systems. M A Ahmed, E Ahmed, A Mohamed-Slim, C Marco, 2021MLSys",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 165,
+      "text": "PowerSGD: Practical Low-Rank Gradient Compression for Distributed Optimization. V Thijs, P K Sai, J Martin, 2019NeurIPS",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 166,
+      "text": "Pufferfish: Communicationefficient Models At No Extra Cost. W Hongyi, A Saurabh, P Dimitris, 2021MLSys",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 167,
+      "text": "Accelerating Distributed Deep Learning By Adaptive Gradient Quantization. J Guo, W Liu, W Wang, J Han, R Li, Y Lu, S Hu, 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 168,
+      "text": "Accordion: Adaptive Gradient Communication via Critical Learning Regime Identification. A Saurabh, W Hongyi, L Kangwook, V Shivaram, P Dimitris, arXiv 2010.16248",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 169,
+      "text": "ScaDLES: Scalable Deep Learning over Streaming data at the Edge. S Tyagi, M Swany, IEEE Big Data. 2022",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 170,
+      "text": "PyTorch: An Imperative Style, High-Performance Deep Learning Library. P Adam, G Sam, M Francisco, L Adam, B James, C Gregory, K Trevor, L Zeming, G Natalia, A Luca, D Alban, K Andreas, Y Edward, D Zach, R Martin, T Alykhan, C Sasank, S Benoit, F Lu, B Junjie, C Soumith, 2019NeurIPS",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 171,
+      "text": "S Li, Y Zhao, R Varma, O Salpekar, P Noordhuis, T Li, A Paszke, J Smith, B Vaughan, P Damania, S , PyTorch Distributed: Experiences on Accelerating Data Parallel Training. 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 172,
+      "text": "Error Feedback Fixes SignSGD and other Gradient Compression Schemes. S P Karimireddy, Q Rebjock, S U Stich, M Jaggi, ICML2019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 173,
+      "text": "Communication-Efficient Distributed Blockwise Momentum SGD with Error-Feedback. S Zheng, Z Huang, J T Kwok, 2019NeurIPS",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 174,
+      "text": "An Empirical Model of Large-Batch Training. M Sam, K Jared, A Dario, Openai Dota, Team , arXiv abs/1812.061622018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 175,
+      "text": "Pollux: Co-adaptive Cluster Scheduling for Goodput-Optimized Deep Learning. Q Aurick, K C Sang, J S Suhas, N Willie, H Qirong, Z Hao, R G Gregory, P X Eric, 202115th USENIX OSDI",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 176,
+      "text": "Scavenger: A Cloud Service for Optimizing Cost and Performance of ML Training. S Tyagi, P Sharma, IEEE/ACM Symposium on Cluster, Cloud and Grid Computing (CCGrid). 2023",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 177,
+      "text": "Accelerating Distributed Deep Learning Training with Gradient Compression. J Fang, H Fu, G Yang, C J Hsieh, 2018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 138,
+      "subtype": "bibentry"
+    }
+  ]
+}

@@ -1,0 +1,1613 @@
+{
+  "doc_id": "corpus_218900625",
+  "units": [
+    {
+      "unit_id": 0,
+      "text": "HPC compact quasi-Newton algorithm for interface problems",
+      "type": "heading",
+      "level": 0,
+      "parent_id": null,
+      "subtype": "doc_title"
+    },
+    {
+      "unit_id": 1,
+      "text": "Introduction",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 2,
+      "text": "Interface problems like, solid-solid contact, fluid-structure interaction (FSI) or heat transfer gained great attention in the last decades due to the broad range of applications in aerospace industry, manufacturing, wind energy production or biomechanics. These problems can be mathematically treated using heterogeneous domain decomposition methods [1]. In each subdomain the problems are defined with their own Neumann and Dirichlet boundary conditions, including the boundary condition at the contact surface. From the algorithmic point of view, the problem can be attacked with the monolithic or the partitioned scheme. On the former, using and ad-hoc solver, one matrix is build including the degrees of freedom for both the fluid and solid [2,3,4]. On the latter, fluid and the solid are computed independently as black-box solvers, exchanging the quantities of interest at certain synchronisation points of the workflow [5,6,7,8]. Both strategies have advantages and drawbacks. Monolithic schemes have less numerical instabilities, but leads to a linear system hard to preconditionate and require to design an specific solver from scratch for every pair of coupled problems [2,4,9,10]. The partitioned scheme allows code reusing, but require convergence iterations at each time step [5,6,7,8].",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 3,
+      "text": "The algorithm presented in this work is based on the interface quasi-Newton method (IQN) [5], improved and extended with a special care in the parallel implementation. The proposed scheme is implemented in Alya [11,12,13], the BSC's in-house tool for multiphysics problems. The uncoupled physics solvers in Alya have an almost linear scalability proven up to a hundred thousand cores [14]. Following a black-box multi-code strategy, the coupled problems are solved by executing two different MPI-based parallel instances of Alya which interchange data in the contact surface.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 4,
+      "text": "The goal of this work is to develop both an accurate and efficient version of the interface quasi Newton algorithm. There are three main motivations to do so. Firstly, we look for a coupling strategy that can deal with large-scale problems on both sides of the coupled problem. Secondly, we need a coupling algorithm that is able to robustly tackle the main issue on the fluid-structure interaction (FSI) problem, namely added mass instability [15,16]. And, finally, the algorithm should be able to deal with more than one coupled interface at the same time (n-field coupling) [17]. When modelling biomechanics, the last two conditions are mandatory, as the densities of the tissues and fluids are similar and multiple cavities are interconnected. A parallel formulation of the coupling algorithm has not been shown in the past, but it is a requirement for massively parallel applications so it does not becomes the bottleneck. Previous publications [5,6,7,8,18,19] assume a negligible cost of the coupling algorithm. This is based on the fact that in some cases the coupled surface might be small compared with the solved volumes. This assumption eases the software development as the code can be written as serial. This hypothesis might be true in some cases, but not in biomechanical applications where the geometrical complexity of the biological structures enormously increases the area of the contact surface.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 5,
+      "text": "Although it is true that the convergence acceleration require less operations than the solvers in the Piccard iteration, the interface quasi-Newton algorithm requires a large number of matrix-matrix multiplications. This is intractable for large problems that must run in distributed memory systems where the interface cannot be stored in a single shared-memory node, so an efficient parallelisation is mandatory.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 6,
+      "text": "This work is organised as follows. Section 2 contains the mathematical development for the algorithm, detailing the included improvements and the parallelisation strategy. Section 3 shows two experiments with remarkably different dynamics and a scalability test. Conclusions can be found in section 4.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 7,
+      "text": "Material and Methods",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 8,
+      "text": "In this section, a compact version of the Interface quasi-Newton algorithm is presented. Section 2.2 shows the original algorithm, and section 2.3 the included improvements. The QR decomposition, a critical step in the algorithm, is thoroughly detailed in section 2.4 and the parallelisation strategy in section 2.5.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 7,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 9,
+      "text": "An explanation of the used Einstein index notation convention can be found in Appendix B.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 7,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 10,
+      "text": "Problem setting",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 7,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 11,
+      "text": "In this work, we focus in surface problems that can be stated as d I+1",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 10,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 12,
+      "text": "α = S(f α ) and f I+1 α = F (d α )",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 10,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 13,
+      "text": ". Each form represents the numerical result of a physical problem and d α and f α are the unknowns at the interface Γ c . This can also be written as the fixed point equation d I+1 α = S(F(d α )), or in a generic manner:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 10,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 14,
+      "text": "x I+1 α = H(x α ),(1)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 10,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 15,
+      "text": "where H(x α ) condenses both solvers. The parallel solvers S(f α ) and F (d α ) can be executed either one after the other in a block-sequential manner (Gauss-Seidel) or at the same time in a block-parallel manner (Jacobi) [20]. While the former is less computationally efficient, it improves convergence of the iterative solver, and therefore will be the used scheme. Performance can be improved with a convergence acceleration algorithm. Examples of them can be found in [21]. In the following section we will develop a high-performance version of an interface quasi-Newton algorithm.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 10,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 16,
+      "text": "General Overview of the Algorithm",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 7,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 17,
+      "text": "The first implementation of the Interface Quasi Newton (IQN) algorithm is described in [5]. Distinctly to other quasi-Newton schemes, in the IQN the Jacobian is approximated by a field defined in the contact surface and depending on the local residual variation over a given number of iterations [22]. The residual of eq. (1) can be defined as For each time   4 step, the problem is converged when r α = 0. If the Jacobian ∂r α /∂x β is known, the increment of the variable x α can be computed as:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 18,
+      "text": "r α = H(x α ) − x α = x α − x α .",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 19,
+      "text": "∂r α ∂x β ∆x β = −r α .(2)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 20,
+      "text": "Therefore, computing the next iterate as x I+1 α = x α + ∆x α . Generally the exact Jacobian cannot be computed or it is computationally expensive to do so.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 21,
+      "text": "This quasi-Newton scheme provides a method to obtain an approximation of the inverse Jacobian. The multi-secant equation for the inverse Jacobian reads:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 22,
+      "text": "∂r α ∂x β −1 V αi ≈ W βi ,(3)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 23,
+      "text": "where:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 24,
+      "text": "V αi = ∆r 1 α , ∆r 2 α , ..., ∆r q α with ∆r I α = r I+1 α − r I α (4) W αi = ∆ x 1 α , ∆ x 2 α , ..., ∆ x q α with ∆ x I α = x I+1 α − x I α . (5)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 25,
+      "text": "where r I+1 α and x I+1 α and r I α and x I α are the current and past values respectively. V αi , W αi ∈ R p×q , where p is the number of contact degrees of freedom and q is the number of saved non-zero iterations where, generally, p >> q. Note that the newest values are stored at the left side of the built matrix, while the older values are moved to the right. The residual increment of the current iteration is approximated as a linear combination of the previous residuals increments:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 26,
+      "text": "∆r α = V αi λ i ,(6)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 27,
+      "text": "where λ i ∈ R q×1 is the solution of the optimisation problem ∆r α − V αi λ i described in [23]. To obtain λ i , the matrix V αi is decomposed in an orthogonal matrix Q αβ ∈ R p×p and an upper triangular U αi ∈ R p×p with a QR decomposition:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 28,
+      "text": "V αi = Q αβ U βi .(7)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 29,
+      "text": "As U αi is upper triangular, only its first q rows are different from zero. With this information we can build a modified QR decomposition with U ij ∈ R q×q 5 and Q αi ∈ R p×q such that:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 30,
+      "text": "V αi = Q αk U ki ,(8)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 31,
+      "text": "reducing the amount of memory and computing effort required, as described ahead in section 2.5. After this decomposition, the vector λ i can be obtained by backsubstitution of the upper triangular matrix U ij :",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 32,
+      "text": "U ij λ j = Q αi ∆r α .(9)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 33,
+      "text": "As Q αi is orthogonal, the inverse is equal to the transpose, avoiding the inversion of this matrix. Also, as ∆r α = r I−1 α − r α and the objective is to get ∆r α = 0 α − r α , we can say:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 34,
+      "text": "U ij λ j = −Q αi r α .(10)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 35,
+      "text": "Once λ i is computed, the increment of the unknown ∆x α can be computed as ∆x α = W αi λ i , and the update of the unknown as:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 36,
+      "text": "x I+1 α = x α + W αi λ i .(11)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 37,
+      "text": "The scheme is summarised in algorithm 1. For each time iteration, an initial guess and residue are computed. As the proposed algorithm requires increments, a first step with fixed relaxation ω 0 is required. After, IQN loop continues until convergence is achieved.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 38,
+      "text": "6 1",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 39,
+      "text": "For each time step, solve:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 40,
+      "text": "2 x 0 α = x ini α 3 x 0 α = H(x 0 α ) 4 r 0 α = x 0 α − x 0 α 5 update x 1 α = x 0 α + ω 0 r 0 α while problem not converged do 6 x α = H(x α ) 7 r α = x α − x α 8 build V αi = ∆r I−1 α , ..., ∆r 0 α ; with ∆r I α = r I α − r α 9 build W αi = ∆ x I−1 α , ..., ∆ x 0 α ; with ∆ x I α = x I α − x α 10 decompose V αj = Q αi U ij (by QR decomposition) 11 solve U ij λ j = −Q αi r α 12 update x I+1 α = x α + W αi λ i end",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 41,
+      "text": "Algorithm 1: Interface quasi-Newton algorithm overview.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 16,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 42,
+      "text": "Improvements on the original scheme",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 7,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 43,
+      "text": "It has been proposed [19] that adding information from iterations from the previous time steps into matrices V αi and W αi improve the convergence properties of the algorithm. To do so, we redefine matrices 4,5, with information of the iterations from previous time steps:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 44,
+      "text": "V αi = V 1 αi , V 2 αi , ..., V T αi , with V t αi as eq. (4)(12)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 45,
+      "text": "W αi = W 1 αi , W 2 αi , ..., W T αi , with W t αi as eq. (5),(13)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 46,
+      "text": "where t ranges from the current processed time step to the last saved time step,",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 47,
+      "text": "T . Note that V αi , W αi ∈ R p×q , but now q is the number of saved non-zero iterations from the current and past time steps. Including this information increases the probability that the columns in V αi are linearly dependent, rendering the QR decomposition unstable. Different filtering techniques have been proposed [19] to remove these columns, but all of them require building dense intermediate matrices, or even finding every associated eigenvalue [24], with its associated expensive computational cost. Moreover there is not a clearly better filtering technique [18,19]. This is why we choose to reuse the simple and paralellised incomplete QR decomposition developed in this work to check the linear dependency of the columns of V αi . If |U ii | < ||U || 2 , where U ij is the upper triangular matrix and a parameter, the i-th column is deleted from V αi and W αi . The column deleted might correspond to the current processed time step (sub-matrix V 1 αi ) or any other column corresponding to any other time step (sub-matrix V j αi ). This requires re-stacking the non-zero columns to obtain again a dense set of matrices.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 48,
+      "text": "QR decomposition",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 7,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 49,
+      "text": "A critical step is the QR decomposition (line 10 in algorithm 1) due to the numerous matrix-matrix products involved in it. In this section the QR decomposition will be explained and through algebraic manipulation these matrix products will be simplified in the following section. The goal of the QR decomposition is to obtain the orthogonal and the upper triangular matrices Q αβ and U αi , with the following shape:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 50,
+      "text": "Q α = 1 B αβ 2 B βγ ... q B γ (14) U αi = q B αβ ... 2 B βγ 1 B γ V i ,(15)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 51,
+      "text": "where B αβ ∈ R p×p are dense intermediate matrices obtained during the iterative decomposition. At each iteration, the matrix V αi is processed column by column. We use a left superscript to identify the corresponding iteration of the QR algorithm but, for easiness on the reading, we avoid using any other time or coupling iteration superscripts. V αi can be considered as a set of q ordered vectors:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 52,
+      "text": "1 V αi =           v 11 v 21 . . .           v 12 v 22 . . .      · · ·      v 1q v 2q . . .           = [v α1 , v α2 , · · · , v αq ] .(16)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 53,
+      "text": "8",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 54,
+      "text": "The algorithm, iteratively makes each column orthogonal to each other column in the matrix. It starts iteration j with a matrix j V αi obtained with data from iteration j-1. To decompose the j-th column of j V αi , a unitary vector u α has to be built:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 55,
+      "text": "u α = n α n α with, n α = v α − v α j e α ,(17)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 56,
+      "text": "where v α is the column to decompose and j e α is a unitary vector with j-th position equal to 1 and to 0 otherwise. Then,",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 57,
+      "text": "j B * αβ = δ αβ − 2u α u β(18)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 58,
+      "text": "is the so called Householder matrix, and δ αβ is the identity matrix.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 59,
+      "text": "If j V αi is premultiplied by j B * αβ , a new matrix j B * αβ j V βi is obtained: 1 B * αβ 1 V αi =         v α1 · · · · · · · · · 0 . . . 2 V βj 0        (19)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 60,
+      "text": "Matrix 19 is upper triangular in the first j columns; and dense everywhere else. A new submatrix j+1 V βj is therefore defined after erasing the first column and row. This process can be repeated until the initial matrix becomes upper triangular.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 61,
+      "text": "Once the algorithm is computed for every column on 1 V αi , a set of q gradually",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 62,
+      "text": "smaller matrices 1 B * αi ∈ R p×p , 2 B * αi ∈ R p−1×p−1 ... j B * αi ∈ R p−(j−1)×p−(j−1) ... q B * αi ∈ R 1×1 are obtained.",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 63,
+      "text": "To properly compute the j-ith iteration of eq. (19), matrices j B αi are completed with the identity:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 64,
+      "text": "j B αi =   I ij 0 0 j B * αi  (20)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 65,
+      "text": "where I ij ∈ R j−1×j−1 . Finally, through eqs. (14) and (15) the matrices U ij and Q αi are obtained. The process is described in algorithm 2.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 66,
+      "text": "1 1 V αi = V αi for j=1...q do 2 choose v α = j V αi with α = j...p and i = j 3 n α = v α − v α e α 4 u α = n α / n α 5 B * αβ = I − 2 u α u β 6 j+1 V αi = B αβ V βi end 7 Q α = 1 B αβ 2 B βγ ... q B γ 8 U αi = q B αβ q−1 B βγ ... 1 B γ V i",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 67,
+      "text": "Algorithm 2: overview of the QR decomposition algorithm.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 48,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 68,
+      "text": "Paralell compact IQN",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 7,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 69,
+      "text": "The distributed memory parallelisation of Alya is based on a domain decomposition [25], a mesh partition is carried out [26], and each partition is assigned to a MPI-process. The mesh partitioner divides the mesh minimising the area between subdomains but without any requirements on the contact surface Γ c (see fig. 1). Therefore, the nodes in Γ c will be distributed among the MPI tasks and so the increment matrix V αi . In order to process V αi in parallel, we look for the subdomain with the largest number of contact nodes, the now called \"leader\" partition. After, V αi and W αi are renumbered so the first rows correspond to the leader partition, so the backsubstitution is only executed there.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 70,
+      "text": "{ { { ⌦ a ⌦ b ⌦ 1 a ⌦ 2 a ⌦ 3 a ⌦ 1 b ⌦ 2 b ⌦ 3 b c",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 71,
+      "text": "To improve computing and memory cost, we propose some modifications for the base algorithm in section 2.4. As j B αβ is obtained by eq. (18), the product j B αβ j V βi can be expanded as:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 72,
+      "text": "j B αβ j V βi = (δ αβ − 2u α u β ) j V βi = j V αi − 2u α u β j V βi .(21)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 73,
+      "text": "So, instead of computing and storing j B αβ ∈ R p×p for each iteration j, we store the vectors u α ∈ R p for the q iterations. Expanding eq. (21):",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 74,
+      "text": "(δ αβ − 2u α u β ) j V βi = δ αβ j V βi − 2u α u β j V βi = j V αi − 2u α u β j V βi . (22)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 75,
+      "text": "So the parallel matrix-vector product u α j V αi can be computed first, then com-",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 76,
+      "text": "pute u α (u β j V βi ) and finally subtract I αβ j V βi − 2u α u β j V βi .",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 77,
+      "text": "To compute eq. (15) we proceed similarly, but starting with (δ αβ − 2 1 u α 1 u β )V βi followed by the premultiplication of the matrices (δ αβ − 2u α u β ) with the same technique as described here.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 78,
+      "text": "Similarly, we can avoid the construction of the dense matrix Q αβ ∈ R p×p , used in the backsubstitution (see eq. (10)). Vector −Q αi r α can be computed with a strategy similar to eq. (21). The difference is that Q α = 1 B αβ · · · q B γ , so after computing q B αi r α as:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 79,
+      "text": "q B αβ r α = (δ αβ − 2 q u α q u β )r β = r β − 2 q u α q u β r β ,(23)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 80,
+      "text": "the rest of the matrices B αβ = δ αβ − 2u α u β are premultiplied. The first multiplication, (eq. (23)) can be expanded as:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 81,
+      "text": "(δ αβ − 2 q u α q u β )r β = δ αβ r β − 2 q u α q u β r β = r α − 2 q u α ( q u β r β )(24)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 82,
+      "text": "The product q u β r β is firstly computed and then r α − 2 q u α ( q u β r β ). The resulting vector is multiplied by δ αβ − 2 (q−1) u α (q−1) u β and followed by every",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 83,
+      "text": "matrix δ αβ − 2 j u α j u β up to δ αβ − 2 1 u α 1 u β .",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 84,
+      "text": "In this way, matrices q B αi are never completely computed.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 85,
+      "text": "The resulting algorithm has as input the V αi matrix and the residuals vectors to operate in the backsubstitution (see eq. (10)), and the output will be the coefficient vector α i . As the boundaries between the IQN and the QR algorithms can't be identified anymore, we refer to the developed algorithm as",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 86,
+      "text": "2 x 0 α = x ini α 3 x 0 α = H(x 0 α ) 4 r 0 α = x 0 α − x 0 α 5 update x 1 α = x 0 α + ω 0 r 0 α while problem not converged do 6 x α = H(x α ) 7 r α = x α − x α 8",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 87,
+      "text": "build V αi and W αi as eqs. (12) and (13) 9 (22) if I am the leader then (22)) if |U jj | < ||U || 2 then remove column j and restart QR loop",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 88,
+      "text": "1 V αi = V αi for j=1...q do QR decomposition loop if j > 1 then j+1 V αi = 1 V βi − 2u α u β 1 V βi as eq.",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 89,
+      "text": "10 v α = j V αi with α = j...p and i = j else 11 v α = j V αi with α = 1...p and i = j end 12 parallel compute v α if I am leader then n α = v α − v α j e α 13 parallel compute n α 14 u α = n α / n α end 15 U ij = (δ iγ − 2 q u i q u γ ) · · · 1 V αj − 2 1 u α 1 u β 1 V βj (as eq.",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 90,
+      "text": "16 −Q αi r α = − δ iγ − 2 1 u i 1 u γ · · · (r β − 2 q u β q u α r α ) (as eq. (24)) if I am leader then backsubstitute U ij λ j = −Q αi r α 17 x I+1 α = x α + W αi λ i variable update end end",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 91,
+      "text": "Algorithm 3: Compact Interface quasi-Newton algorithm. 13",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 68,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 92,
+      "text": "Physics of solved cases",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 7,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 93,
+      "text": "The algorithm in this work has been developed generically for any interface problem. Although that, the main interest of the authors is Fluid-Structure",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 92,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 94,
+      "text": "Interaction (FSI), we briefly describe the governing equations. The Newtonian fluid is modelled with incompressible Navier-Stokes equations using an Arbitrary",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 92,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 95,
+      "text": "Lagrangian-Eulerian (ALE) formulation:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 92,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 96,
+      "text": "ρ f ∂u i ∂t + ρ f u j − u m j ∂u i ∂x j + ∂ ∂x j +pδ ij − µ ∂u i ∂x j + ∂u j ∂x i = +ρ f f i (25) ∂u i ∂x i = 0,(26)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 92,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 97,
+      "text": "where µ is the viscosity of the fluid, ρ f the density, u i the velocity, p is the mechanical pressure, f i the force term and u m j is the fluid domain velocity. The numerical model is based on the Finite Element Method, using the Variational Multiscale [27]. For the Arbitrary Lagrangian-Eulerian (ALE) formulation, the technique used is proposed in [28]. Mesh movement is solved through a Lapla-",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 92,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 98,
+      "text": "cian equation ∂ ∂x j [1 + α e ] ∂b i ∂x j = 0,(27)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 92,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 99,
+      "text": "where b i are the components of the displacement in each point for the domain.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 92,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 100,
+      "text": "The factor α is a diffusive term that, once discretised, controls the mesh distortion. ALE boundary conditions at the contact surface is set through the nodal displacement from solid mechanics problem.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 92,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 101,
+      "text": "Solid mechanics is solved following a transient scheme and using a total Lagrangian formulation in finite strains [13]. The displacement d i form of the linear momentum balance can be modelled as:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 92,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 102,
+      "text": "ρ s ∂ 2 d i ∂ 2 t = ∂P iJ ∂X J + ρ s B i ,(28)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 92,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 103,
+      "text": "where ρ s is the initial density of the body, B i represents the body forces and P iJ is the nominal stress tensor. Solid mechanics boundary conditions at the contact surface is set through the nodal forces from the fluid mechanics problem.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 92,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 104,
+      "text": "Let us label \"CFD\"and \"CSM\" the fluid and solid sides of a coupled FSI problem. At the contact surface, displacements and normal stresses must be 14 continuous:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 92,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 105,
+      "text": "CFD d Γc i = CSM d Γc i (29) n i CFD σ Γc ij = n i CSM σ Γc ij ,(30)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 92,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 106,
+      "text": "where CFD d Γc i and CSM d Γc i are the deformation in the contact boundary for the fluid and for the solid respectively; and n i CSM σ Γc ij and n i CFD σ Γc ij are the normal stresses in the contact boundary.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 92,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 107,
+      "text": "A typical behaviour of the developed algorithm is shown in Appendix C.1 for an FSI case. Solver iteration are decomposed in the different parts: Momentum, continuity and ALE for the fluid domain, and displacement for the solid domain.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 92,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 108,
+      "text": "Results and discussion",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 109,
+      "text": "In this section we present tree cases. Problems in sections 3.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 110,
+      "text": "Algorithm validation",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 111,
+      "text": "Validating the algorithm is a mandatory step to trust the results in this   Although there is already a good agreement, results can be further improved by refining the meshes, as proven in section 4.1 of [30]. With this, we prove the algorithm is correctly implemented and reproduces the physics of the FSI problem.   Results and statistical tendencies relaxing displacement are shown in   Although simple, the problem in this section has been similarly reproduced in other FSI articles [16,31,21,19]. Here we show that, as similarly concluded in [19] adding information from previous time steps improves the rate of con-       fig. 6). On the contrary, and oppositely to the case presented in section 3.2, increasing the rank has a beneficial effect on the convergence properties of the algorithm when little or no filtering is included. The strongest hypothesis for this behaviour is that including histories over-predicts the final position of the interface, hampering the convergence of the algorithm.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 110,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 112,
+      "text": "Scalability",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 113,
+      "text": "The As the main goal is to prove good scalability, the results for the sensibility analysis are shown in Appendix C.4. Table 3 show results for the solver running independently (uncoupled) to ease its comparison with the coupled scalability.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 112,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 114,
+      "text": "To obtain an optimum efficiency E, several cases are run sweeping the core allocation for each physical problem. Figure 8 shows speed-up and efficiency for four fixed values in the fluid solver core count p f . In each case the core count for the solid mechanic solver p s is ranged between 64 and 2048, with increments in power of two. This processes is performed for a core count of 256, 512, 1024, and 2048 in the fluid solver. The results is a set of curves with a peak efficiency E p f given by the optimal balance of cores for each case.   For another large scale use of the algorithm, please refer to [32], where a human heart is solved with the IQN algorithm.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 112,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 115,
+      "text": "Conclusions & future work",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 116,
+      "text": "In this paper, we introduced the compact interface quasi-Newton (CIQN) coupling scheme, optimised for distributed memory architecture. The developed algorithm includes reusing information from the previous time steps (histories) and filtering, but in an efficient scheme that avoids constructing dense matrices and reduces the number of operations. This leads to an algorithm that requires less coupling iterations and computing time per time step.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 115,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 117,
+      "text": "In previous works [18,19] it has been stated that using information from previous time steps together with filtering improve convergence. In this work we show this do not necessarily happen and can only be stated for certain type of dynamic behaviour, while a correct parametrisation requires a fine tuning for each case.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 115,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 118,
+      "text": "In this work we prove that a parallel coupling algorithm is mandatory for massively parallel cases. We also show that reusing histories does not necessarily improves the convergence rate of the algorithm, but is dependant on the dynamics of the problem. As it has been said, there is no a silver bullet algorithm to tackle all the FSI cases. The chosen algorithm and parameters must fit the features of the problem to solve, taking into account the dynamics and the possible numerical instabilities that may arise.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 115,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 119,
+      "text": "Although the developed algorithm has been proved robust and efficient, there is room for optimise the execution with core-overloading. Also, other filtering algorithms (e.g. eigenvalue-based) can be tested to compare performance and computational cost. Finally, the behaviour of the presented algorithm has to be tested in other interface problems like solid-solid contact or heat transmission.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 115,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 120,
+      "text": "These topics will be developed in a future work.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 115,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 121,
+      "text": "Appendix B. Index notation convention",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 115,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 122,
+      "text": "To ease implementation, the Einstein convention on repeated indices will be followed, allowing to describe the mathematics, the physics and the computational implementation aspects depending on the context. For the continuum problem, the indices label space dimensions. On the discretised problem, the lowercase greek alphabet α = 1, · · · p labels the number of degrees of freedom p,",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 121,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 123,
+      "text": "i.e. the matrix rows. The lowercase latin alphabet labels the matrix columns, i = 1, · · · q − 1 where q is the last stored iteration. Additionally, a capital latin subindex labels the FSI solver iteration I = 1, · · · q −1, where q is the last stored iteration. A final rule is how those indices operate: only those of the same kind are contracted. For instance, Q I−1 αi is the Q matrix for iteration I − 1 with rows labelled α and columns i. When this matrix is multiplied by a certain vector B i , it results in a given vector A I−1 α :",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 121,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 124,
+      "text": "A I−1 α = Q I−1 αi B i = q−1 i=1 Q I−1 αi B i ,",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 121,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 125,
+      "text": "where latin indices i are contracted.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 121,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 126,
+      "text": "Appendix C.4. For the scalability",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 121,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 127,
+      "text": "More results for the scalability case. As the objective of this experiment is to prove the HPC performance of the algorithm all the numerical sensitivity analysis is shown here. Figure 7 shows a scheme of the geometry used. Ta",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 128,
+      "text": "Physical subdomains Ωa and Ω b in contact by the wet surface Γc. Each physical subdomain is subdivided in three computational subdomains (partitions). The wet surface, and therefore the vectors in matrix V αi can be distributed along several partitions.",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 129,
+      "text": "show the difference of the behaviour of the algorithm with different dynamics on the physics, while problem in section 3.4 is an scalability test. Every problem in this section can be executed relaxing the force or the displacement. The best (less average iterations) scheme for each case is shown in this section, the rest in Appendix C. For each case, a sensitivity analysis is executed for the number of past saved time steps (histories), iterations on each time step (ranking) and . Also, as a reference, the number of iterations is compared against the popular Aitken algorithm. For this comparison algorithm, results are shown as (e.g.) 17.76 (sd=2.91) where the first figure indicates the mean and the second figure the standard deviation (sd). All cases are executed in Marenostrum IV supercomputer.",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 130,
+      "text": "section. The numerical method is validated with the benchmark FSI3 proposed in section 4.3 of [29]. The experimental set-up involves a flexible rod oscillating in a fluid flow. brown The dimensions of the fluid domain are 41.0 × 250.0[cm], the dimensions of the rod 2.0×35.0[cm] and the radius of the anchoring structure being r = 5.0[cm]. The densities for the fluid and the solid are ρ f = ρ s = 1[g/cm 3 ]. The dynamic viscosity for the fluid is µ f = 10.0[P oise] and the Young modulus and Poisson's ratio for the isotropic solid are E = 5.6E7[Barye] and ν = 0.4[−] respectively. The fluid and solid meshes are composed by 35k and 16k linear triangles respectively and the problem solved with a time step of 1E−3[s]. Oscillation frequency and amplitude at the tip of the rod are measured to compare against numerical results.Results for t=3[s] are shown in fig. 2.",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 131,
+      "text": "Method Validation. Portion of the domain proposed by [29] in time t = 3 [s]. Deformation is represented on the bar and velocity field in the fluid domain.",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 132,
+      "text": "For our code, the obtained amplitude and frequency on the quasi-periodicperiod are A x = −2.60×10 −3 ±2.40×10 −3 [f = 10.8] and A y = 2.3×10 −3 ±33.7×10 −3 [f = 5.4] in concordance with the A x = −2.69×10 −3 ±2.53×10 −3 [f = 10.9] and A y = 1.48×10 −3 ±34.38×10 −3 [f = 5.3] obtained in the cited experiment 1 .",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 133,
+      "text": "The results are presented as in the original experiment: mean ±amplitude[f req].",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 134,
+      "text": "domain, schematised in fig. 3, is an elastic tube, filled with fluid. The densities are ρ f = ρ s = 1[g/cm 3 ] for the fluid and the solid. Fluid viscosity is µ = 0.03[P oise]. The Young modulus and Poisson's ratio for the solid are E = 3E7[Baryes] and ν = 0.3[−]. Inflow velocity is 30[cm/s]. Outflow pressure is p = 0[Baryes]. In the contact surface, continuity of displacement and normal stresses are imposed. Linear tetrahedra are used for the spatial discretisation resulting in 48k elements (10k nodes) and 30k elements (6k nodes) for the fluid and the solid respectively, with 2.7k interface nodes (∼25% of the total). Time step is fixed at ∆t =4E-4[s]. For each case a sensitivity analysis is done with a range of previous time steps, iterations and . Each case run in 24 cores in Marenostrum IV. As a reference for the reader, with the optimal configurations the CIQN algorithm case took 38 minutes and the Aitken case took",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 135,
+      "text": "Scheme with dimensions for the wave propagation in elastic tube experiment.",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 136,
+      "text": "Candle plots for the wave propagation in an elastic tube experiment when displacement is relaxed. Less coupling iterations are required with a larger number of previous time steps and a smaller .",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 137,
+      "text": "vergence of the algorithm (left plot on fig. 4). On the contrary, increasing the ranking does not necessarily have a positive effect. Filtering has the effect of reducing the standard deviation on the number of iteration in each time step (right plot on fig. 4), but it is arguable if it compensates the added computational cost of restarting the QR decomposition. A similar behaviour can be seen if forced is relaxed (see Appendix C.2).3.3. Oscillating rod and flexible wall in a fluid domain The domain, schematised in fig. 5, is composed by a centered oscillating flexible rod and a fixed flexible wall, being the rest the fluid domain. The densities for the fluid and the solid are ρ f = ρ s = 1[g/cm 3 ] . Fluid viscosity is µ = 0.04[P oise]. The Young modulus and poisson ratio for the solid are E = 2E7[Baryes] and ν = 0.3[−]. The tip of the oscillating rod has an imposed dispalcement of d x = sin(2πt). The Inflows velocity is 0.1[cm/s]. Outflows pressures are p = 0[Baryes]. Continuity of displacement and normal stresses are imposed in both contact surfaces. Linear triangles are used for the spatial discretisation resulting in 7.4k elements (4k nodes) and 752 elements (474 nodes) for the fluid and the solid respectively, with 300 interface nodes (∼10% and ∼45% of the total for the fluid and the solid respectively). Time step is fixed at ∆t = 0.1[s]. Each case run in 16 cores in Marenostrum IV. As a reference for the reader, with the optimal configurations, the CIQN algorithm case took 57 seconds and the Aitken case took 7 minutes and 49 Scheme with dimensions for the oscillating rod with flexible wall experiment. Results and statistical tendencies relaxing displacement are shown in table 2 and fig. 6. Similar information, but relaxing force is shown in Appendix C.3. For a qualitative comparison, with the Aitken algorithm, the solver requires 55.46 (sd=41.43) and 69.98 (sd=55.94) iterations in average when relaxed on force and displacement respectively.",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 138,
+      "text": "Candle plots for the oscillating rod experiment when displacement is relaxed. The number of coupling iterations do not seem to improve with filtering or re-usage of previous information.The problem presented in this section, even though being computationally cheaper, is more physically challenging. Compared to problem in section 3.2, there are two surfaces to couple and the deformations are considerably larger. 21 This is reflected in the computational cost, requiring 55.46 (sd=41.43) Aitken iterations 2 . In this case, the behaviour of the IQN algorithm is completely different from the presented in section 3.2. Now we can see scattered diverging simulations in table 2, increasing the number of histories do not bring any advantage (left side of fig. 6) and using filtering doesn't bring any drastic improvement (right side of",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 139,
+      "text": "domain, schematised in fig. 7, is a filled flexible tube lying over a flexible surface which is in contact with a big volume of another fluid. The densities for the fluid and the solid are ρ f = ρ s = 1[g/cm 3 ]. Fluid viscosity is µ = 0.03[P oise]. The Young modulus and Poisson ratio for the solid are E = 1.5E4[Baryes] and ν = 0.3[−]. The Inflow velocites are sin(2πt) and 1[cm/s] for the lower domain respectively. Outflows pressures are p = 0[Baryes]. Continuity of displacement and normal stresses are imposed in both contact surfaces. Linear tetrahedra are used for the spatial discretisation resulting in 60M elements (10.4M nodes) and 40M elements (7.1M nodes) for the fluid and the solid respectively, with 4M interface nodes (∼38% and ∼56% of the total nodes for the fluid and the solid respectively). Time step is fixed at ∆t = 0.1[s]. 2 compared to the 17.76 (sd=2.91) Aitken iterations required by the elastic tube experiment. Scheme with dimensions for the scalability case.",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 140,
+      "text": "Parallel performance analysis. Speed-up and Efficiency for a core allocation of p = p f + ps, where p f = {256, 512, 1024, 2048} in the core count for the fluid, and ps = {64, 128, 256, 512, 1024, 2048} for the solid. The orange line is the fitted curve for each case. An optimal allocation popt which allows to achieve the maximum efficiency Ep f of the coupled system can be found for each curve Sp f .This example demonstrates the necessity of the parallel version of the algorithm, as it would be impossible to fit 11M interface nodes in a single node of a shared-memory high-performance computing infrastructure. Furthermore, we show a scalability up to 4800 cores. Although the scalability of the uncoupled problem do not drop under 87% in the uncoupled case, when coupled, the maximum scalability achieved is 60%. This is due to the staggered scheme used that improves stability, one set of cores is idle while the rest is processing. Although it's out of the scope of this article, this issue can be tackled by using core overloading on the MPI scheme.",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 141,
+      "text": "Appendix C. More results Appendix C.1. Typical behaviour of the coupling residue and solver iterations In Figure C.9 we show the typical behaviour of the coupling residue and solver iterations for a single time step. Particularly, it corresponds to the 20th time step of the case presented in section 3.3 using 5 iterations per time step (ranking=5) and 5 previous time iterations (history=5) and an =1E-Iterations of the different solvers and resiude of the coupling for a typical time step in the CIQN algorithm. Appendix C.2. For the wave propagation in elastic tube",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 142,
+      "text": "Candle plots for the wave propagation experiment when force is relaxed. Appendix C.3. For the oscillating bar and flexible wall in a fluid domain",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 143,
+      "text": "Candle plots for the oscillating rod experiment when force is relaxed.",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 144,
+      "text": "Candle plots for the scalability when displacement is relaxed.",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 145,
+      "text": "Candle plots for the scalability case when force is relaxed.",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 146,
+      "text": "Compact IQN (CIQN). Our main motivation is that a complete QR decomposition would be prohibitive in large cases as a dense Q orthogonal matrix would be extremely expensive to compute and store. The proposed algorithm is a collection of matrix-vector and vector-vector products restricted to the contact. An efficient parallelisation requires a proper point-to-point MPI communication on the modified IQN and QR algorithms. The whole sequence of steps is described 12 in algorithm 3.",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 147,
+      "text": "Table 1: Results for the wave propagation in an elastic tube experiment when displacement is relaxed. Iterations for the scheme depending on the number of previous time steps used (histories), iterations in each time step (ranking) and filter ( ) when relaxing displacement.The average number of iterations is 14.2925 (sd=4.72).",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 148,
+      "text": "Results for the oscillating rod experiment when displacement is relaxed. Iterations",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 149,
+      "text": "Parallel performance analysis. Speed-up and efficiency for both solvers.",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 150,
+      "text": "4 and fig. C.10 show the results when force is relaxed.Table C.4: Results for the wave propagation in an elastic tube experiment when relaxing force. Iterations for the scheme depending on the number of previous time steps used (histories), iterations in each time step (ranking) and filter ( ) when relaxing displacement.caption relaxing force. The average number of iterations is 15.298125(sd=5.58)",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 151,
+      "text": "5 and fig. C.11 show the results when force is relaxed.Table C.5: Results for oscillating rod experiment when force is relaxed. Iterations for the scheme depending on the number of previous time steps used (histories), iterations in each time step (ranking) and filter ( ) when relaxing displacement, F meaning a divergent case. The average number of iterations is 16.04 (sd=3.19).",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 152,
+      "text": "ble C.6 and fig. C.12 show results when displacement is relaxed and table C.7 and fig. C.13 when force is relaxed. For a quantitative comparison, with the Aitken algorithm the scheme requires 19.45 (sd=3.10) and 19.58 (sd=2.16) when relaxing on force and displacement respectively. Each case run in 768 cores in Marenostrum IV. As a reference for the reader, in the optimal configurations, the CIQN algorithm case took 1 hour, 27 minutes and 57 seconds and the Aitken case took 2 hours, 27 minutes and 30 seconds.Table C.6: Results for scalability case when relaxing displacement. Iterations for the scheme depending on the number of previous time steps used (histories), iterations in each time step (ranking) and filter ( ) when relaxing displacement. The average number of iterations is 15.80 (sd=5.52).",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 153,
+      "text": "Table C.7: Results for scalability case when relaxing force. Iterations for the scheme depending on the number of previous time steps used (histories), iterations in each time step (ranking) and filter ( ) when relaxing displacement. F meaning a divergent experiment. The average number of iterations is 18.09 (sd=6.37).",
+      "type": "figure",
+      "level": 4,
+      "parent_id": 126,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 154,
+      "text": "References",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "references"
+    },
+    {
+      "unit_id": 155,
+      "text": "Programme FP7-ICT (agreement nr: 614048) and a FPI-SO grant. agreement nr: SVP-2014-068491Programme FP7-ICT (agreement nr: 614048) and a FPI-SO grant (agreement nr: SVP-2014-068491).",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 156,
+      "text": "Glossary Glossary of acronyms used at the manuscript. A Appendix, Appendix A. Glossary Glossary of acronyms used at the manuscript.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 157,
+      "text": ". • Ale, Arbitrary Lagrangian-Eulerian• ALE: Arbitrary Lagrangian-Eulerian.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 158,
+      "text": ". • Bsc, Barcelona Supercomputing Center• BSC: Barcelona Supercomputing Center.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 159,
+      "text": "• Cfd, Computed Fluid Dynamics. • CFD: Computed Fluid Dynamics.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 160,
+      "text": "• Ciqn, Compact interface quasi. Newton• CIQN: Compact interface quasi-Newton.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 161,
+      "text": ". • Csm, Computed Solid Mechanics• CSM: Computed Solid Mechanics.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 162,
+      "text": ". • E: Young Modulus, • E: Young modulus.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 163,
+      "text": "Fluid-structure interaction. • Fsi, • FSI: Fluid-structure interaction.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 164,
+      "text": ". • Hpc, High Performance Computing• HPC: High Performance Computing.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 165,
+      "text": ". • Iqn, Newton• IQN: Interface quasi-Newton.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 166,
+      "text": "Message Passing Interface. • sd: Standard deviation. • Mpi, • MPI: Message Passing Interface. • sd: Standard deviation.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 167,
+      "text": "• ν: Poisson's ratio. • ν: Poisson's ratio.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 168,
+      "text": "• ρ: Density. • µ: Dynamic viscosity. • ρ: Density. • µ: Dynamic viscosity.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 169,
+      "text": "S Deparis, M Discacciati, G Fourestey, A Quarteroni, Fluid-structure algorithms based on Steklov-Poincaré operators. 195S. Deparis, M. Discacciati, G. Fourestey, A. Quarteroni, Fluid-structure algorithms based on Steklov-Poincaré operators, Computer Methods in Applied Mechanics and Engineering 195 (2006) 5797-5812.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 170,
+      "text": "Truly monolithic algebraicmultigrid for fluidstructure interaction. M W Gee, U Kuttler, W A Wall, International Journal for Numerical Methods in Biomedical Engineering. 85M. W. Gee, U. Kuttler, W. A. Wall, Truly monolithic algebraicmultigrid for fluidstructure interaction, International Journal for Numerical Methods in Biomedical Engineering 85 (2010) 987-1016.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 171,
+      "text": "Fluid structure interaction simulation of aortic blood flow. P Crosetto, P Reymond, S Deparis, D Kontaxakis, N Stergiopulos, A Quarteroni, Computers and Fluids. 43P. Crosetto, P. Reymond, S. Deparis, D. Kontaxakis, N. Stergiopulos, A. Quarteroni, Fluid structure interaction simulation of aortic blood flow, Computers and Fluids 43 (2011) 46-57.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 172,
+      "text": "A monolithic fem/multigrid solver for an ale formulation of fluid-structure interaction with applications in biomechanics. J Hron, S Turek, Fluid-Structure Interaction. 53J. Hron, S. Turek, A monolithic fem/multigrid solver for an ale formula- tion of fluid-structure interaction with applications in biomechanics, Fluid- Structure Interaction 53 (2006) 146-170.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 173,
+      "text": "Performance of a new partitioned procedure versus a monolithic procedure in fluid structure interaction. J Degroote, K Bathe, J Vierendeels, Computers and Structures. 87J. Degroote, K.-j. Bathe, J. Vierendeels, Performance of a new partitioned procedure versus a monolithic procedure in fluid structure interaction, Computers and Structures 87 (2009) 793-801.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 174,
+      "text": "Partitioned strong coupling algorithms for fluid-structure interaction. H G Matthies, J Steindorf, Computers and Structures. 81H. G. Matthies, J. Steindorf, Partitioned strong coupling algorithms for fluid-structure interaction, Computers and Structures 81 (2003) 805-812.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 175,
+      "text": "Partitioned solver for strongly coupled fluid-structure interaction. C Habchi, S Russeil, D Bougeard, J L Harion, T Lemenand, A Ghanem, D D Valle, H Peerhossaini, Computers and Fluids. 71C. Habchi, S. Russeil, D. Bougeard, J. L. Harion, T. Lemenand, A. Ghanem, D. D. Valle, H. Peerhossaini, Partitioned solver for strongly coupled fluid-structure interaction, Computers and Fluids 71 (2013) 306- 319.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 176,
+      "text": "Convergence acceleration for partitioned simulations of the fluid-structure interaction in arteries. L Radtke, A Larena-Avellaneda, E S Debus, A Düster, Computational Mechanics. 57L. Radtke, A. Larena-Avellaneda, E. S. Debus, A. Düster, Convergence acceleration for partitioned simulations of the fluid-structure interaction in arteries, Computational Mechanics 57 (2016) 901-920.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 177,
+      "text": "Unified computational framework for the efficient solution of n-field coupled problems with monolithic schemes. F Verdugo, W A Wall, Computer Methods in Applied Mechanics and Engineering. 310F. Verdugo, W. A. Wall, Unified computational framework for the efficient solution of n-field coupled problems with monolithic schemes, Computer Methods in Applied Mechanics and Engineering 310 (2016) 335-366.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 178,
+      "text": "Modular vs. non-modular preconditioners for fluid-structure systems with large added-mass effect. S Badia, A Quaini, A Quarteroni, Computer Methods in Applied Mechanics and Engineering. 197S. Badia, A. Quaini, A. Quarteroni, Modular vs. non-modular precondi- tioners for fluid-structure systems with large added-mass effect, Computer Methods in Applied Mechanics and Engineering 197 (2008) 4216-4232.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 179,
+      "text": "A massively parallel fractional step solver for incompressible flows. G Houzeaux, M Vázquez, R Aubry, J M Cela, Journal of Computational Physics. 228G. Houzeaux, M. Vázquez, R. Aubry, J. M. Cela, A massively parallel fractional step solver for incompressible flows, Journal of Computational Physics 228 (2009) 6316-6332.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 180,
+      "text": "Extension of fractional step techniques for incompressible flows: The preconditioned Orthomin(1) for the pressure Schur complement. G Houzeaux, R Aubry, M Vázquez, Computers and Fluids. 44G. Houzeaux, R. Aubry, M. Vázquez, Extension of fractional step tech- niques for incompressible flows: The preconditioned Orthomin(1) for the pressure Schur complement, Computers and Fluids 44 (2011) 297-313.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 181,
+      "text": "Alya: Computational Solid Mechanics for Supercomputers. E Casoni, A Jérusalem, C Samaniego, B Eguzkitza, P Lafortune, D D Tjahjanto, X Sáez, G Houzeaux, M Vázquez, Archives of Computational Methods in Engineering. 22E. Casoni, A. Jérusalem, C. Samaniego, B. Eguzkitza, P. Lafortune, D. D. Tjahjanto, X. Sáez, G. Houzeaux, M. Vázquez, Alya: Computational Solid Mechanics for Supercomputers, Archives of Computational Methods in Engineering 22 (2015) 557-576.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 182,
+      "text": ". M Vazquez, G Houzeaux, S Koric, A Artigues, J Aguado-Sierra, R Aris, D Mira, H Calmet, F Cucchietti, H Owen, A Taha, J M Cela, Alya: Towards Exascale for Engineering Simulation Codes. M. Vazquez, G. Houzeaux, S. Koric, A. Artigues, J. Aguado-Sierra, R. Aris, D. Mira, H. Calmet, F. Cucchietti, H. Owen, A. Taha, J. M. Cela, Alya: Towards Exascale for Engineering Simulation Codes (2014) 1-20.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 183,
+      "text": "Artificial added mass instabilities in sequential staggered coupling of nonlinear structures and incompressible viscous flows. C Förster, W A Wall, E Ramm, Computer Methods in Applied Mechanics and Engineering. 196C. Förster, W. A. Wall, E. Ramm, Artificial added mass instabilities in sequential staggered coupling of nonlinear structures and incompressible viscous flows, Computer Methods in Applied Mechanics and Engineering 196 (2007) 1278-1293.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 184,
+      "text": "Added-mass effect in the design of partitioned algorithms for fluid-structure problems. P Causin, J F Gerbeau, F Nobile, Computer Methods in Applied Mechanics and Engineering. 194P. Causin, J. F. Gerbeau, F. Nobile, Added-mass effect in the design of partitioned algorithms for fluid-structure problems, Computer Methods in Applied Mechanics and Engineering 194 (2005) 4506-4527.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 185,
+      "text": "A plug-and-play coupling approach for parallel multi-field simulations. H J Bungartz, F Lindner, M Mehl, B Uekermann, Computational Mechanics. 55H. J. Bungartz, F. Lindner, M. Mehl, B. Uekermann, A plug-and-play coupling approach for parallel multi-field simulations, Computational Me- chanics 55 (2015) 1119-1129.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 186,
+      "text": "Partitioned fluid-structure interaction on massively parallel systems. B W Uekermann, Technische Universität MünchenPh.D. thesisB. W. Uekermann, Partitioned fluid-structure interaction on massively par- allel systems, Ph.D. thesis, Technische Universität München, 2016.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 187,
+      "text": "Improving the performance of the partitioned QN-ILS procedure for fluidstructure interaction problems: Filtering. R Haelterman, A E Bogaers, K Scheufele, B Uekermann, M Mehl, Computers and Structures. 171R. Haelterman, A. E. Bogaers, K. Scheufele, B. Uekermann, M. Mehl, Improving the performance of the partitioned QN-ILS procedure for fluid- structure interaction problems: Filtering, Computers and Structures 171 (2016) 9-17.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 188,
+      "text": "M Mehl, B Uekermann, H Bijl, D Blom, B Gatzhammer, A Van Zuijlen, Parallel coupling numerics for partitioned fluid-structure interaction simulations. 71M. Mehl, B. Uekermann, H. Bijl, D. Blom, B. Gatzhammer, A. Van Zuijlen, Parallel coupling numerics for partitioned fluid-structure interaction simu- lations, Computers and Mathematics with Applications 71 (2016) 869-891.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 189,
+      "text": "J Degroote, Partitioned Simulation of Fluid-Structure Interaction: Coupling Black-Box Solvers with Quasi-Newton Techniques. 20J. Degroote, Partitioned Simulation of Fluid-Structure Interaction: Cou- pling Black-Box Solvers with Quasi-Newton Techniques 20 (2013) 185-238.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 190,
+      "text": "K Scheufele, Robust Quasi-Newton Methods for Partitioned Fluid-Structure Simulations. Ph.D. thesisK. Scheufele, Robust Quasi-Newton Methods for Partitioned Fluid- Structure Simulations, Ph.D. thesis, 2015.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 191,
+      "text": "Implicit coupling of partitioned fluid-structure interaction problems with reduced order models. J Vierendeels, L Lanoye, J Degroote, P Verdonck, Computers and Structures. 85J. Vierendeels, L. Lanoye, J. Degroote, P. Verdonck, Implicit coupling of partitioned fluid-structure interaction problems with reduced order models, Computers and Structures 85 (2007) 970-976.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 192,
+      "text": "Quasi-Newton methods for implicit black-box FSI coupling. A E Bogaers, S Kok, B D Reddy, T Franz, Computer Methods in Applied Mechanics and Engineering. 279A. E. Bogaers, S. Kok, B. D. Reddy, T. Franz, Quasi-Newton methods for implicit black-box FSI coupling, Computer Methods in Applied Mechanics and Engineering 279 (2014) 113-132.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 193,
+      "text": "Extension of the parallel sparse matrix vector product (spmv) for the implicit coupling of pdes on non-matching meshes. G Houzeaux, R Borrell, J Cajas, M Vzquez, Computers and Fluids. 173G. Houzeaux, R. Borrell, J. Cajas, M. Vzquez, Extension of the parallel sparse matrix vector product (spmv) for the implicit coupling of pdes on non-matching meshes, Computers and Fluids 173 (2018) 216 -225.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 194,
+      "text": "Parallel mesh partitioning based on space filling curves. R Borrell, J Cajas, D Mira, A Taha, S Koric, M Vzquez, G Houzeaux, Computers and Fluids. 173R. Borrell, J. Cajas, D. Mira, A. Taha, S. Koric, M. Vzquez, G. Houzeaux, Parallel mesh partitioning based on space filling curves, Computers and Fluids 173 (2018) 264 -272.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 195,
+      "text": "A variational subgrid scale model for transient incompressible flows. G Houzeaux, J Principe, International Journal of Computational Fluid Dynamics. 22G. Houzeaux, J. Principe, A variational subgrid scale model for transient incompressible flows, International Journal of Computational Fluid Dy- namics 22 (2008) 135-152.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 196,
+      "text": "A multiscale stabilized ALE formulation for incompressible flows with moving boundaries. R Calderer, A Masud, Computational Mechanics. 46R. Calderer, A. Masud, A multiscale stabilized ALE formulation for in- compressible flows with moving boundaries, Computational Mechanics 46 (2010) 185-197.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 197,
+      "text": "S Turek, J Hron, Proposal for Numerical Benchmarking of Fluid-Structure Interaction between an Elastic Object and Laminar Incompressible Flow, Fluid-Structure Interaction. S. Turek, J. Hron, Proposal for Numerical Benchmarking of Fluid-Structure Interaction between an Elastic Object and Laminar Incompressible Flow, Fluid-Structure Interaction (2006) 371-385.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 198,
+      "text": "J C Cajas, M Zavala, G Houzeaux, E Casoni, M Vázquez, C Moulinec, Y Fournier, Fluid structure interaction in HPC multi-code coupling. 107Civil-Comp ProceedingsJ. C. Cajas, M. Zavala, G. Houzeaux, E. Casoni, M. Vázquez, C. Moulinec, Y. Fournier, Fluid structure interaction in HPC multi-code coupling, in: Civil-Comp Proceedings, volume 107, 2015, pp. 1-26.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 199,
+      "text": "Stability of a coupling technique for partitioned solvers in FSI applications. J Degroote, P Bruggeman, R Haelterman, J Vierendeels, Computers and Structures. 86J. Degroote, P. Bruggeman, R. Haelterman, J. Vierendeels, Stability of a coupling technique for partitioned solvers in FSI applications, Computers and Structures 86 (2008) 2224-2234.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 200,
+      "text": "Fully coupled fluid-electromechanical model of the human heart for supercomputers. A Santiago, J Aguado-Sierra, M Zavala-Aké, R Doste-Beltran, S Gómez, R Arís, J C Cajas, E Casoni, M Vázquez, International Journal for Numerical Methods in Biomedical Engineering. 34A. Santiago, J. Aguado-Sierra, M. Zavala-Aké, R. Doste-Beltran, S. Gómez, R. Arís, J. C. Cajas, E. Casoni, M. Vázquez, Fully coupled fluid-electro- mechanical model of the human heart for supercomputers, International Journal for Numerical Methods in Biomedical Engineering 34 (2018).",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 154,
+      "subtype": "bibentry"
+    }
+  ]
+}

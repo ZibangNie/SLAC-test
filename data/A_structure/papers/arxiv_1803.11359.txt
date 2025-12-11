@@ -1,0 +1,283 @@
+Automatic Generation of Chinese Short Product Titles for Mobile Display
+
+
+Yu Gong 
+Xusheng Luo 
+Kenny Q Zhu kzhu@cs.sjtu.edu.cn 
+Shanghai Jiao Tong University
+
+
+Wenwu Ou 
+Zhao Li 
+Search Algorithm Team
+Alibaba Group
+
+
+Lu Duan 
+Artificial Intelligence Department
+Zhejiang Cainiao Supply Chain Management Co., Ltd
+
+
+Automatic Generation of Chinese Short Product Titles for Mobile Display
+
+This paper studies the problem of automatically extracting a short title from a manually written longer description of Ecommerce products for display on mobile devices. It is a new extractive summarization problem on short text inputs, for which we propose a feature-enriched network model, combining three different categories of features in parallel. Experimental results show that our framework significantly outperforms several baselines by a substantial gain of 4.5%. Moreover, we produce an extractive summarization dataset for Ecommerce short texts and will release it to the research community.
+
+Introduction
+
+Mobile Internet is fast becoming the primary venue for Ecommerce. People have got used to browsing through collections of products and making transactions on the relatively small mobile phone screens. All major E-commerce giants such as Amazon, eBay and Taobao offer mobile apps that are poised to supersede the conventional websites.
+
+When a product is featured on an E-commerce website or mobile app, it is often associated with a textual title which describes the key characteristics of the product. These titles, written by merchants, often contain gory details, so as to maximize the chances of being retrieved by user search queries. Therefore, such titles are often verbose, over-informative, and hardly readable. While this is okay for display on a computer's web browser, it becomes a problem when such longish titles are displayed on mobile apps. Take Figure 1 as an example. The title for a red sweater on an E-commerce mobile app is "ONE MORE文墨2017夏
+装 新 款 印 花 连 帽 上 衣 长 袖 短 款 喇 叭 袖 百 搭 卫 衣 女".
+Due to the limited display space on mobile phones, original long titles (usually more than 20 characters) will be cut off, leaving only the first several characters "ONEMORE文 墨2017夏装... (ONE MORE 2017 summer woman...)" on the screen, which is completely incomprehensible, unless the user clicks on the product and load the detailed product page.
+
+Thus, in order to properly display product listing on a mobile screen, one has to significantly simplify (e.g., to under 10 characters) the long titles while keeping the most important information. This way, user only has to glance through the search result page to make quick decision whether they want to click into a particular product. Figure  1 also shows as comparison an alternate display of a shortened title for the same product. The short title in the left snapshot is "印花|连帽|短款|喇叭袖|卫衣", which means "printed|hoody|short|flare sleeve|sweater".
+
+In this paper, we attempt to extract short titles from their longer, more verbose counterparts for E-commerce products. To the best of our knowledge, this is the first attempt that attacks the E-commerce product short title extraction problem.
+
+This problem is related to text summarization, which generates a summary by either extracting or abstracting words or sentences from the input text. Existing summarization methods have primarily been applied to news or other long documents, which may contain irrelevant information. Thus, the goal of traditional summarization is to identify the most essential information in the input and condense it into something as fluent and readable as possible.
+
+We would attack our problem with an extractive summarization approach, rather than an abstractive one for these reasons. First, our input title is relatively shorter and contains less noise, (average 27 characters; see Table 1). Some words in the long title may not be important but they are all relevant to the product. Thus, it is sufficient to decide if each word should or should not stay in the summary. Second, the number of words in the output is strictly constrained in our problem due to size of the display. Generative (abstractive) approaches do not perform as well when there's such a constraint. Finally, for E-commerce, it is better for the words in the summary to come from the original title. Using different words may lead to a change of original intention of the merchant.
+
+State-of-the-art neural summarization models (Cheng and Lapata 2016;Narayan et al. 2017) are generally based on attentional RNN frameworks and have been applied on news or wiki-like articles. However, in E-commerce, customers are not so sensitive to the order of the words in a product title. Besides using deep RNN with attention mechanism to encode word sequence, we believe other single-word level semantic features such as NER tags and TF-IDF scores will be as just as useful and should be given more weights in the model. In this paper, we propose a feature-enriched neural network model, which is not only deep but also wide, aiming to effectively shorten original long titles.
+
+The contributions of this paper are summarized below: • We collect and will open source a product title summary dataset (Section 2). • We present a novel feature-enriched network model, combining three different types of word level features (Section 4), and the results show the model outperforms several strong baseline methods, with ROU GE-1 F 1 score of 0.725 (Section 5.4). • By deploying the framework on an E-commerce mobile app, we witnessed improved online sales and better turnover conversion rate in the popular 11/11 shopping season (Section 5.5).
+
+
+Data Collection
+
+Publicly available large-scale summarization dataset is rare. Existing document summarization datasets include DUC2 1 , TAC3 2 and TREC4 3 for English, and LCSTS 4 for Chinese.
+
+In this work, we create a dataset on short title extraction for E-commerce products. This dataset comes from a module in Taobao named "有好货"(Youhaohuo) 5 . Youhaohuo is a collection of high-quality products on Taobao. If you click a product in Youhaohuo, you will be redirected to the detailed product page (including product title). What is different from ordinary Taobao products is that online merchants are required to submit a short title for each Youhaohuo product. This short title, written by humans, is readable and describes the key properties of the product. Furthermore, most of these short titles are directly extracted from the original product titles. Thus, we believe Youhaohuo is a good data source of extractive summarization for product descriptions. Figure 2 shows how we collected the data. On the left is a web page in Youhaohuo displaying several products, each of which contains an image and a short title below. When clicking on the bottom right dress, we jump to the detailed page on the right. The title next to the picture in red box is the manually written short title, which says "MIUCO针织马 甲假两件收腰连衣裙" (MIUCO tight dress with knit vest). This short title is extracted from the long title below in the blue box. Notice that all the characters in the short tile are directly extracted from the long title (red boxes inside blue box). In addition to the characters in the short title, the long title also contains extra information such as "女装2017冬 新" (woman's wear brand new in winter 2017). In this work, we segment the original long titles and short titles into Chinese words by jieba 6 .
+
+The dataset consists of 6,481,623 pairs of original and short product titles, which is the largest short text summarization dataset to date. We call it large extractive summary dataset for E-commerce (LESD4EC), whose statistics is shown in Table 1. We believe this dataset will contribute to the future research of short text summarization 7 . 
+
+
+Problem Definition
+
+In this section we formally define the problem of short title extraction. A char is a single Chinese or English character. A segmented word (or term) x is a sequence of several chars such as "Nike" or "牛仔裤"(jean). A product title, denoted as X, is a sequence of words {x 1 , x 2 , ..., x n }. Let Y be a sequence of labels {y 1 , y 2 , ..., y n } over X, where y i ∈ {0, 1}. The corresponding short title is a subsequence of X, denoted as S = {x i }, where y i = 1 and |S| ≤ n. We regard short title extraction task as a sequence classification problem. Each word is sequentially visited in the original product title order and a binary decision is made. We do this by scoring each word x i within X and predicting a label y i ∈ {0, 1}, indicating whether the word should or should not be included in the short title S. As we apply supervised training, the objective is to maximize the likelihood of all word labels Y = {y 1 , y 2 , ..., y n }, given the input product title X and model parameters θ:
+log p(Y |X, θ) = n i=1 log p(y i |X, θ).
+(1)
+
+
+Feature-Enriched Neural Extractive Model
+
+In this section, we describe our extractive model for product short title extraction. The overall architecture of our neural network based extractive model is shown in Figure 3. Basically, we use a Recurrent Neural Network (RNN) as the main building block of the sequential classifier. However, unlike traditional RNN-based sequence labeling models used in NER or POS tagging, where all the word level features are fed into RNN cell, we instead divide the features into three parts, namely Content, Attention and Semantic respectively. Finally we combine all three features in an ensemble. 
+
+
+Content Feature
+
+To encode the product title, we first look up an embedding matrix E x ∈ R d×v to get the word embeddings X = (x 1 , x 2 , . . . , x n ). Here, d denotes the dimension of the embeddings and v denotes the vocabulary size of natural language words. Then, the embeddings are fed into a bidirectional LSTM networks. To this end, we get two hidden state sequences,
+( − → h 1 , − → h 2 , . . . , − → h n ) from the forward network and ( ← − h 1 , ← − h 2 , . . . , ← − h n )
+from the backward network. We concatenate the forward hidden state of each word with corresponding backward hidden state, resulting in a representa-
+tion [ − → h i ; ← − h i ].
+At this point, we obtain the representation of the product title X.
+
+The content feature of current word x i is then calculated as:
+f cont = W T cont [ − → h i ; ← − h i ] + b cont ,(2)
+where W cont and b cont are model parameters.
+
+
+Attention Feature
+
+In order to measure the importance of each word relevant to the whole product title, we borrow the idea of attention mechanism (Bahdanau, Cho, and Bengio 2014;Luong, Pham, and Manning 2015) to calculate a relevance score between the hidden vector of current word and representation of the entire title sequence. The representation of the entire product title is modeled as a non-linear transformation of the average pooling of the concatenated hidden states of the BiLSTM:
+d = tanh (W d 1 n n j=1 [ − → h i ; ← − h i ] + b d ).(3)
+Therefore, the attention feature of current word x i is calculated by a Bilinear combination function as:
+f att = d T W att [ − → h i ; ← − h i ] + b att ,(4)
+where W att is a parameter matrix.
+
+
+Semantic Feature
+
+Apart from the two hidden features calculated using an RNN encoder, we design another kind of feature including TF-IDF and NER Tag, to capture the deep semantics of each word in a product title.
+
+TF-IDF Tf-idf, short for term frequency-inverse document frequency, is a numerical statistic that is intended to reflect how important a word is to a document in corpus or a sentence in a document.
+
+A simple choice to calculate term frequency of current word x i is to use the number of its occurrences (or count) in the title:
+
+tf(x i , X) = cnt xi n .
+
+In the case of inverse document frequency, we calculate it as:
+idf(x i ) = log(1 + N C xi ),(6)
+where N is the number of product titles in the corpus and C xi is the number of titles containing the word x i . By combining the above two, the tf-idf score of word x i in a product title X, denoted as tf-idf(x i , X), is then calculated as the product of tf(x i , X) and idf(x i ).
+
+We design a feature vector containing three values: tf score, idf score and tf-idf score and the calculate a third feature:
+v tf idf = [tf(x i , X); idf(x i ); tf-idf(x i , X)] (7) f tf idf = W T tf idf v tf idf + b tf idf .(8)
+NER We use a specialized NER tool for E-commerce to label entities in a product title. In total there are 36 types of entities, which are of common interest in E-commerce scenario, such as "颜色"(color), "风格"(style) and "尺寸 规格 "(size). For example, in segmented product title "包 邮 Nike 品牌 的 红色 运动裤" (Nike red sweatpants with free shipping), "包邮 "(Free shipping) is labeled as Marketing Service, "Nike" is labeled as Brand, "红色"(Red) is labeled as Color and "运动裤"(Sweatpants) is labeled as Category. We use one-hot representation to encode NER feature v ner of each word and then integrate it into the model by proposing a fourth feature:
+f ner = W T ner v ner + b ner .(9)
+
+Ensemble
+
+We combine all the features above into one final score of word x i :
+score i = σ(W T f [f cont ; f att ; f tf idf ; f ner ] + b f ),(10)
+where σ is the sigmoid or logistic function, which restrain the score between 0 and 1. Based on that, we set a threshold τ to decide whether we keep word x i in the short title or not. Our model is very much like the Wide & Deep Model architecture . While the content and attention features are deep since they rely on deep RNN structure, the semantic features are relatively wide and linear.
+
+
+Experiments
+
+In this section, we first introduce the experimental setup and the previous state-of-the-art systems as comparison to our own model known as Feature-Enriched-Net. We then show the implementation details and the evaluation results before giving some discussions on the results.
+
+
+Training and Testing Data
+
+We randomly select 500,000 product titles as our training data, and another 50,000 for testing. Each product title X is annotated with a sequence of binary label Y , i.e., each word x i is labeled with 1 (included in short title) or 0 (not included in short title). Readers may refer to Section 2 for the details about how we collect the product titles and their corresponding short titles.
+
+
+Baseline Systems
+
+Since there are no previous work that directly solves the short title extraction for E-commerce product, we select our baselines from three categories. The first one is traditional methods. We choose a keyword extraction framework known as TextRank (Mihalcea and Tarau 2004). It first infers an importance score for each word within the long title by an algorithm similar to PageRank, then decides whether each word should or should not be kept in the short title according to the scores.
+
+The second category is standard sequence labeling systems. We choose the system mentioned by Huang et al.(2015), in which a multi-layer BiLSTM is used. Compared to our system, it does not exploit the attention mechanism and any side feature information. We substitute the Conditional Random Field (CRF) layer with Logistic Regression to make it compatible with our binary labeling problem. We call this system BiLSTM-Net.
+
+The last category of methods is attention-based frameworks, which use encoder-decoder architecture with attention mechanism. We choose Pointer Network (Vinyals, Fortunato, and Jaitly 2015) as a comparison and call it Pointer-Net. During decoding, it looks at the whole sentence, calculates the attentional distribution and then makes decisions based on the attentional probabilities.
+
+
+Implementation Details
+
+We pre-train word embeddings used in our model on the whole product titles data plus an extra corpus called "Ecommerce Product Recommended Reason", which is written by online merchants and is also extracted from YouHao-Huo (Section 2). We use the Word2vec (Mikolov et al. 2013a; 2013b) CBOW model with context window size 5, negative sampling size 5, iteration steps 5 and hierarchical softmax 1. The size of pre-trained word embeddings is set to 200. For Out-Of-Vocabulary (OOV) words, embeddings are initialized as zero. All embeddings are updated during training.
+
+For recurrent neural network component in our system, we used a two-layers LSTM network with unit size 512. All product titles are padded to a maximum sentence length of 15.
+
+We perform a mini-batch cross-entropy loss training with a batch size of 128 sentences for 10 training epochs. We use Adam optimizer, and the learning rate is initialized with 0.01.
+
+
+Offline Evaluation
+
+To evaluate the quality of automatically extracted short titles, we used ROUGE (Lin and Hovy 2003) to compare model generated short titles to manually-written short titles. In this paper, we only report ROUGE-1, mainly because linguistic fluency and word order are not of concern in this task. Unlike previous works in which ROUGE is a recalloriented metric, we jointly consider precision, recall and F1 score, since recall only presents the ratio of the number of extracted words included in ground-truth short title over the total number of words in ground-truth short title. However, due to the limited display space on mobile phones, the number of words (or characters) of extracted short title itself should be constrained as well. Thus, precision is also measured in our experiments. And ROU GE-1 F 1 is considered a comprehensive evaluation metric:
+ROU GE P = |S∩S human | |S| , ROU GE R = |S∩S human | |S human | , ROU GE F 1 = 2·ROU GE P ·ROU GE R ROU GE P +ROU GE R .
+Where S human is the manually written short title, and |S ∩ S human | is the number of overlapping words appearing in short titles generated by model and humans.
+
+Final results on the test set are shown in Table 2. We can find that our method (Feature-Enriched-Net) outperforms the baselines on both precision and recall. Our method achieves the best 0.725 F1 score, which improves by a relative gain of 4.5%. Pointer-Net would achieve higher precision score for its attentive ability to the whole sentence and select the most important words. Our method considers long-short memories, attention mechanism and other abundant semantic features. That is to say, our model has the ability to extract the most essential words from original long titles and make the short titles more accurate and comprehensive.
+
+We also tune the threshold τ used in BiLSTM-Net and our Feature-Enriched-Net. This threshold indicates how large the predicted likelihood should be so that a word will be included in the final short title. We reported the results in Figure 4, in which we set τ as 0.3, 0.4 and 0.5. From the figures, we can conclude that our model stably performs better than the other.
+
+
+Online A/B Testing
+
+This subsection presents the results of online evaluation in the search result page scenario of an E-commerce mobile app with a standard A/B testing configuration. Due to the limited display space on mobile phones, only a fixed number of chars (12 characters in this app) can be shown out and excessive part will be cut off. Therefore, unlike previously mentioned inference approach (with threshold τ in Section 4.4), we regard it as classic Knapsack Problem. Each word Table 2: Final results on the test set. We report ROUGE-1 Precision, Recall and corresponding F1. We use the tuned threshold τ = 0.4 (see Figure 4) for BiLSTM-Net and Feature-Enriched-Net. Best ROUGE score in each column is highlighted in boldface. x i in the product title is an item with weight len(x i ) and value score i , where len(x i ) represents the char length of word x i and score i represents the predicted likelihood of word by our model. The maximum weight capacity of our knapsack (also known as char length limit) is m. Then the target is:
+Models R-1 P R-1 R R-1 F 1TextRankmax n i=1 score i z i , s.t. n i=1 len(x i )z i ≤ m, z i ∈ {0, 1},
+where z i = 1 means x i should be reserved in the short title. Similar to the standard solution to 0-1 Knapsack Problem, we use a Dynamic Programming (DP) algorithm.
+
+In our online A/B testing evaluation, 3% of the users were randomly selected as testing group (about 3.4 million user views (UV)), in which we substituted the original cut-off long title displayed to users with extracted short titles by our model with DP inference. We claim that after showing the short titles with most important keywords, users have much better idea what the product is about on the "search result" page and thus find the product they want more easily. During the popular Double 11 shopping season, we deployed A/B testing for 5 days (from 2017-11-02 to 2017-11-06) and achieved on average 2.31% and 1.22% improvements of sales volume and turnover conversion rate (see Figure 4 for each day). This clearly shows that better short product titles are more user-friendly and hence improve the sales substantially. 
+
+
+Discussions
+
+In Table 3, we show a real case of original long title, along with short title annotated by human beings, predicted by BiLSTM-Net and Feature-Enriched-Net respectively. From the human annotated short title, we find that a proper short title should contain the most important elements of the product, such as category ("dress") and description of properties ("boat neckline and off sleeves"). While some other elements such as brand terms ("XunRuo twin designer brand") or service terms ("open for reservation") should not be kept in the short title. Our Feature-Enriched Net has the ability to generate a satisfying short title, while baseline model tends to miss some essential information. However, there is still room for improvement. Terms with similar meaning may co-occur in the short title generated by our model, when they all happen to be important terms such as a category. For example, "皮衣" and "皮夹克" both mean "jacket" in a long title, and the model tends to keep both of them. However, only one of them is enough and the space saved can be used to display other useful information to customers. We will explore intra-attention (Paulus, Xiong, and Socher 2017) as an extra feature in our future work.
+
+
+Related Work
+
+Extractive summarization methods (Erkan and Radev 2004;McDonald 2007;Wong, Wu, and Li 2008) produce summaries by concatenating several sentences or words found directly in the original texts. Several methods have been used to select the summary-worthy sentences, including binary classifiers (Kupiec, Pedersen, and Chen 1995), Markov models (Conroy and O'leary 2001), graphic model (Erkan and Radev 2004;Mihalcea 2005) and integer linear programming (ILP) (Woodsend and Lapata 2010). Compared to traditional methods which heavily rely on humanengineered features, neural network based approaches (Kågebäck et al. 2014;Cheng and Lapata 2016;Nallapati, Zhai, and Zhou 2017;Narayan et al. 2017) have gained popularity rapidly. The general idea of these methods is to regard the extractive summary as a sequence classification problem and adopt RNN like networks. Besides, attention-based framework can perform better by attending to the whole document when extracting a word (or sentence) (Cheng and Lapata 2016). Our work is based on extractive framework as well. Besides a deep attentional RNN network, we also employ explicit semantic features such as TF-IDF score and NER tags, making our model more informative.
+
+On the other hand, abstractive summarization methods (Chen et al. 2016;Nallapati et al. 2016;See, Liu, and Manning 2017), which have the ability to generate text beyond the original input text, in most cases, can produce more coherent and concise summaries. These approaches are mostly centered on the attention mechanism and augmented with recurrent decoders (Chopra, Auli, and Rush 2016), Abstract Meaning Representations (Takase et al. ), hierarchical networks (Nallapati et al. 2016) and pointer network (See, Liu, and Manning 2017). However, It is not necessary to use abstractive methods in short title extraction problem in this paper as the input is product title, which already contains the required informative words.
+
+Our work can be comfortably set in the area of short text summarization. This line of research is in fact essentially sentence compression working on short text inputs such as tweets, microblogs or single sentence. Recent advances typically contribute to improving seq-to-seq learning, or attentional RNN encoder-decoder structures (Chopra, Auli, and Rush 2016;Nallapati et al. 2016). While these methods are mostly abstractive, we use an extractive framework, combining with deep attentional RNN network and explicit semantic features, due to different scenarios of summarization problem.
+
+The most related work is (Wang et al. 2018), since they also try to compress product title in E-commerce. They use user search log as an external knowledge to guide the model and regard short title as some kind of query, to serve the purpose of improving online business values. Differently, user search log is not necessary in our model, and our goal is to make the short title as real as if it is written by human.
+
+
+Conclusion
+
+To the best of our knowledge, this is the first piece of work that focuses on extractive summarization for E-commerce product title. We propose a deep and wide model, combining attentional RNN framework with rich semantic features such as TF-IDF scores and NER tags. Our model outperforms several popular summarization models, and achieves ROUGE-1 F1 score of 0.725. Besides, the result of online A/B testing shows substantial benefits of our model in real online shopping scenario. Possible future works include handling similar terms that appear in the short titles generated by our model.
+
+Figure 1 :
+1A cut-off long title on an E-commerce mobile app, vs. a corresponding short title.
+
+Figure 2 :
+2Procedure of data collection in Youhaohuo.
+
+Figure 3 :
+3Architecture of Feature-Enriched Neural Extractive Model.
+
+Figure 4 :
+4Offline results of Bi-LSTM-Net and Feature-Enriched-Net under different thresholds; Online A/B Testing of sales volume and Turnover Conversion Rate
+
+Table 1 :
+1Statistics of LESD4EC dataset.No. of summaries 
+6,481,623 
+
+No. of words per text 
+12 
+
+No. of chars per text 
+27 
+
+No. of words per summary 
+5 
+
+No. of chars per summary 
+11 
+
+
+
+Table 3 :
+3A real experimental case with 12-chars length limit. Pointer-Net is not included since encoder-decoder architecture can't directly adapt to character length limit ORIGINAL xunruo 熏 若 双生 设计师 品牌 泡泡 系列 一 字领 掉 袖 连衣裙 预订 款 (Bookable XunRuo twin designer brand bubble series dress with boat neckline and off sleeves.)HUMAN 
+一字领 掉 袖 连衣裙 
+
+(Dress with boat neckline and off sleeves.) 
+
+Feature-Enriched-Net 
+泡泡 系列 一字领 掉 袖 连衣裙 
+
+(Bubble series dress with boat neckline and off sleeves.) 
+
+BiLSTM-Net 
+熏 若 品牌 掉 袖 连衣裙 预订 
+
+(Bookable XunRuo brand dress with off sleeves.) 
+
+
+http://duc.nist.gov/data.html 2 http://www.nist.gov/tac/2015/KBP/ 3 http://trec.nist.gov/ 4 http://icrc.hitsz.edu.cn/Article/show/ 139.html 5 https://h5.m.taobao.com/lanlan/index.html
+https://pypi.python/pypi/jieba/ 7 The dataset will be published after the paper is accepted. Notice all the original data can be crawled online.
+
+Neural machine translation by jointly learning to align and translate. D Bahdanau, K Cho, Y Bengio, arXiv:1409.0473arXiv preprintBahdanau, D.; Cho, K.; and Bengio, Y. 2014. Neural ma- chine translation by jointly learning to align and translate. arXiv preprint arXiv:1409.0473.
+
+Distraction-based neural networks for modeling document. Q Chen, X.-D Zhu, Z.-H Ling, S Wei, H Jiang, IJCAI. Chen, Q.; Zhu, X.-D.; Ling, Z.-H.; Wei, S.; and Jiang, H. 2016. Distraction-based neural networks for modeling doc- ument. In IJCAI, 2754-2760.
+
+Neural summarization by extracting sentences and words. J Cheng, M Lapata, arXiv:1603.07252arXiv preprintCheng, J., and Lapata, M. 2016. Neural summariza- tion by extracting sentences and words. arXiv preprint arXiv:1603.07252.
+
+Wide & deep learning for recommender systems. H.-T Cheng, L Koc, J Harmsen, T Shaked, T Chandra, H Aradhye, G Anderson, G Corrado, W Chai, M Ispir, Proceedings of the 1st Workshop on Deep Learning for Recommender Systems. the 1st Workshop on Deep Learning for Recommender SystemsACMCheng, H.-T.; Koc, L.; Harmsen, J.; Shaked, T.; Chandra, T.; Aradhye, H.; Anderson, G.; Corrado, G.; Chai, W.; Ispir, M.; et al. 2016. Wide & deep learning for recommender systems. In Proceedings of the 1st Workshop on Deep Learning for Recommender Systems, 7-10. ACM.
+
+Abstractive sentence summarization with attentive recurrent neural networks. S Chopra, M Auli, A M Rush, NAACL-HLT. Chopra, S.; Auli, M.; and Rush, A. M. 2016. Abstractive sentence summarization with attentive recurrent neural net- works. In NAACL-HLT, 93-98.
+
+Text summarization via hidden markov models. J M Conroy, D P Leary, Proceedings of the 24th annual international ACM SIGIR conference on Research and development in information retrieval. the 24th annual international ACM SIGIR conference on Research and development in information retrievalACMConroy, J. M., and O'leary, D. P. 2001. Text summarization via hidden markov models. In Proceedings of the 24th an- nual international ACM SIGIR conference on Research and development in information retrieval, 406-407. ACM.
+
+Lexpagerank: Prestige in multi-document text summarization. G Erkan, D R Radev, EMNLP. 4Erkan, G., and Radev, D. R. 2004. Lexpagerank: Prestige in multi-document text summarization. In EMNLP, volume 4, 365-371.
+
+Bidirectional lstm-crf models for sequence tagging. Z Huang, W Xu, K Yu, arXiv:1508.01991arXiv preprintHuang, Z.; Xu, W.; and Yu, K. 2015. Bidirectional lstm-crf models for sequence tagging. arXiv preprint arXiv:1508.01991.
+
+Extractive summarization using continuous vector space models. M Kågebäck, O Mogren, N Tahmasebi, D Dubhashi, Proceedings of the 2nd Workshop on Continuous Vector Space Models and their Compositionality (CVSC)@ EACL. the 2nd Workshop on Continuous Vector Space Models and their Compositionality (CVSC)@ EACLKågebäck, M.; Mogren, O.; Tahmasebi, N.; and Dubhashi, D. 2014. Extractive summarization using continuous vec- tor space models. In Proceedings of the 2nd Workshop on Continuous Vector Space Models and their Compositional- ity (CVSC)@ EACL, 31-39.
+
+A trainable document summarizer. J Kupiec, J Pedersen, F Chen, Proceedings of the 18th annual international ACM SIGIR conference on Research and development in information retrieval. the 18th annual international ACM SIGIR conference on Research and development in information retrievalACMKupiec, J.; Pedersen, J.; and Chen, F. 1995. A trainable document summarizer. In Proceedings of the 18th annual international ACM SIGIR conference on Research and de- velopment in information retrieval, 68-73. ACM.
+
+Automatic evaluation of summaries using n-gram co-occurrence statistics. C.-Y Lin, E Hovy, Association for Computational Linguistics. 1Lin, C.-Y., and Hovy, E. 2003. Automatic evaluation of sum- maries using n-gram co-occurrence statistics. In NAACL- HLT-Volume 1, 71-78. Association for Computational Lin- guistics.
+
+Effective approaches to attention-based neural machine translation. M.-T Luong, H Pham, C D Manning, arXiv:1508.04025arXiv preprintLuong, M.-T.; Pham, H.; and Manning, C. D. 2015. Effec- tive approaches to attention-based neural machine transla- tion. arXiv preprint arXiv:1508.04025.
+
+A study of global inference algorithms in multi-document summarization. R Mcdonald, Advances in Information Retrieval. McDonald, R. 2007. A study of global inference algorithms in multi-document summarization. Advances in Information Retrieval 557-564.
+
+Textrank: Bringing order into text. R Mihalcea, P Tarau, Proceedings of the 2004 conference on empirical methods in natural language processing. the 2004 conference on empirical methods in natural language processingMihalcea, R., and Tarau, P. 2004. Textrank: Bringing order into text. In Proceedings of the 2004 conference on empiri- cal methods in natural language processing.
+
+Language independent extractive summarization. R Mihalcea, Proceedings of the ACL 2005 on Interactive poster and demonstration sessions. the ACL 2005 on Interactive poster and demonstration sessionsAssociation for Computational LinguisticsMihalcea, R. 2005. Language independent extractive sum- marization. In Proceedings of the ACL 2005 on Interactive poster and demonstration sessions, 49-52. Association for Computational Linguistics.
+
+Efficient estimation of word representations in vector space. T Mikolov, K Chen, G Corrado, J Dean, arXiv:1301.3781arXiv preprintMikolov, T.; Chen, K.; Corrado, G.; and Dean, J. 2013a. Efficient estimation of word representations in vector space. arXiv preprint arXiv:1301.3781.
+
+Distributed representations of words and phrases and their compositionality. T Mikolov, I Sutskever, K Chen, G S Corrado, J Dean, Advances in neural information processing systems. Mikolov, T.; Sutskever, I.; Chen, K.; Corrado, G. S.; and Dean, J. 2013b. Distributed representations of words and phrases and their compositionality. In Advances in neural information processing systems, 3111-3119.
+
+Summarunner: A recurrent neural network based sequence model for extractive summarization of documents. R Nallapati, B Zhou, C Gulcehre, B Xiang, arXiv:1602.06023hiP. arXiv preprintAbstractive text summarization using sequence-to-sequence rnns and beyond. yi= 1-hi, si, d) 1:1Nallapati, R.; Zhou, B.; Gulcehre, C.; Xiang, B.; et al. 2016. Abstractive text summarization using sequence-to-sequence rnns and beyond. arXiv preprint arXiv:1602.06023. Nallapati, R.; Zhai, F.; and Zhou, B. 2017. Summarunner: A recurrent neural network based sequence model for ex- tractive summarization of documents. hiP (yi= 1-hi, si, d) 1:1.
+
+Neural extractive summarization with side information. S Narayan, N Papasarantopoulos, M Lapata, S B Cohen, arXiv:1704.04530arXiv preprintNarayan, S.; Papasarantopoulos, N.; Lapata, M.; and Cohen, S. B. 2017. Neural extractive summarization with side in- formation. arXiv preprint arXiv:1704.04530.
+
+R Paulus, C Xiong, R Socher, arXiv:1705.04304A deep reinforced model for abstractive summarization. arXiv preprintPaulus, R.; Xiong, C.; and Socher, R. 2017. A deep rein- forced model for abstractive summarization. arXiv preprint arXiv:1705.04304.
+
+Get to the point: Summarization with pointer-generator networks. A See, P J Liu, C D Manning, arXiv:1704.04368arXiv preprintSee, A.; Liu, P. J.; and Manning, C. D. 2017. Get to the point: Summarization with pointer-generator networks. arXiv preprint arXiv:1704.04368.
+
+Neural headline generation on abstract meaning representation. S Takase, J Suzuki, N Okazaki, T Hirao, M Nagata, Takase, S.; Suzuki, J.; Okazaki, N.; Hirao, T.; and Nagata, M. Neural headline generation on abstract meaning repre- sentation.
+
+Pointer networks. O Vinyals, M Fortunato, N Jaitly, Advances in Neural Information Processing Systems. Vinyals, O.; Fortunato, M.; and Jaitly, N. 2015. Pointer networks. In Advances in Neural Information Processing Systems, 2692-2700.
+
+A multi-task learning approach for improving product title compression with user search log data. J Wang, J Tian, L Qiu, S Li, J Lang, L Si, M Lan, AAAI. Wang, J.; Tian, J.; Qiu, L.; Li, S.; Lang, J.; Si, L.; and Lan, M. 2018. A multi-task learning approach for improving product title compression with user search log data. In AAAI 2018.
+
+Extractive summarization using supervised and semi-supervised learning. K.-F Wong, M Wu, W Li, Proceedings of the 22nd International Conference on Computational Linguistics. the 22nd International Conference on Computational LinguisticsAssociation for Computational Linguistics1Wong, K.-F.; Wu, M.; and Li, W. 2008. Extractive summa- rization using supervised and semi-supervised learning. In Proceedings of the 22nd International Conference on Com- putational Linguistics-Volume 1, 985-992. Association for Computational Linguistics.
+
+Automatic generation of story highlights. K Woodsend, M Lapata, Proceedings of the 48th Annual Meeting of the Association for Computational Linguistics. the 48th Annual Meeting of the Association for Computational LinguisticsAssociation for Computational LinguisticsWoodsend, K., and Lapata, M. 2010. Automatic genera- tion of story highlights. In Proceedings of the 48th Annual Meeting of the Association for Computational Linguistics, 565-574. Association for Computational Linguistics.

@@ -1,0 +1,461 @@
+Describe, Adapt and Combine: Empowering CLIP Encoders for Open-set 3D Object Retrieval
+29 Jul 2025
+
+Zhichuan Wang 
+Huazhong Agricultural University
+
+
+Yang Zhou 
+Shenzhen University
+
+
+Zhe Liu 
+The University of Hong Kong
+
+
+Rui Yu 
+University of Louisville
+
+
+Song Bai 
+Yulong Wang 
+Huazhong Agricultural University
+
+
+Xinwei He xwhe@hzau.edu.cn 
+Huazhong Agricultural University
+
+
+Xiang Bai 
+Huazhong University of Science and Technology
+
+
+Describe, Adapt and Combine: Empowering CLIP Encoders for Open-set 3D Object Retrieval
+29 Jul 2025322282B810590B338D6F7C63DDBFA2ABarXiv:2507.21489v1[cs.CV]
+Open-set 3D object retrieval (3DOR) is an emerging task aiming to retrieve 3D objects of unseen categories beyond the training set.Existing methods typically utilize all modalities (i.e., voxels, point clouds, multi-view images) and train specific backbones before fusion.However, they still struggle to produce generalized representations due to insufficient 3D training data.Being contrastively pre-trained on web-scale image-text pairs, CLIP inherently produces generalized representations for a wide range of downstream tasks.Building upon it, we present a simple yet effective framework named Describe, Adapt and Combine (DAC) by taking only multi-view images for open-set 3DOR.DAC innovatively synergizes a CLIP model with a multi-modal large language model (MLLM) to learn generalized 3D representations, where the MLLM is used for dual purposes.First, it describes the seen category information to align with CLIP's training objective for adaptation during training.Second, it provides external hints about unknown objects complementary to visual cues during inference.To improve the synergy, we introduce an Additive-Bias Low-Rank adaptation (AB-LoRA), which alleviates overfitting and further enhances the generalization to unseen categories.With only multi-view images, DAC significantly surpasses prior arts by an average of +10.01%mAP on four open-set 3DOR datasets.Moreover, its generalization is also validated on image-based and cross-dataset setups.Code is available at https://github.com/wangzhichuan123/DAC.
+
+Introduction
+
+Retrieving 3D objects from a given large 3D repository is an important task in 3D computer vision, whose applications include virtual reality [43], computer-aided design [19] .We empower CLIP encoders with an MLLM model (e.g., InternVL [9]) for open-set 3D object retrieval, which significantly outperforms previous state-of-the-art HGM 2 R [18] (a).Unlike HGM 2 R, which utilizes all modalities (point cloud, voxel, and view images) and involves test data for training, our method relies solely on multi-view inputs and eliminates test data (b).
+
+3D cultural heritage preservation [34].Existing 3D object retrieval (3DOR) algorithms [2,15,25,31,40,45,52,61,62] usually learn discriminative representations on various 3D data formats (e.g., view images [54], voxels [63], and point clouds [48]).Despite progress, the recent SHape REtrieval Contest (SHREC) 2022 competition [17] has shown that these methods have great difficulties in open-set scenarios, where the test labels are unseen during training.Recently, HGM 2 R [18] uses all modalities and incorporates test data for training.Although improvement is achieved, it is complex and impractical in real-world applications.
+
+The challenges of open-set 3DOR are twofold.First, ex-isting methods typically assume the same domain and category shared by training and testing data, resulting in low performance in open-set scenarios.Second, these methods tend to overfit a handful of known categories due to the limited 3D data, leading to poor generalization to unseen ones.
+
+To tackle the issue, we are motivated by the fact that existing pre-trained large vision and language models, such as CLIP, can produce generalized and effective embeddings for a variety of data-scarce downstream tasks [20,29,51].We thus first establish a multi-view CLIP baseline to investigate its potential by plainly aggregating view-wise features from CLIP image encoder.This simple baseline empirically gives promising results, as shown in Figure 1.
+
+But imagine how humans react when faced with a 3D object of an unknown category.Typically, we examine it from various angles to collect visual cues for inference.Yet, in addition to visual analysis, we can articulate descriptions of the object using language, thereby engaging in textual reasoning.For instance, "a horse-like animal but with black and white stripes", these descriptive sentences provide important attributes and greatly facilitate inference (feature matching) of unknown categories.This fact encourages us to further involve textual descriptions of unknown 3D objects to visual features.
+
+In this paper, therefore, we introduce Describe, Adapt, and Combine (DAC), a novel framework empowering CLIP encoders for open-set 3DOR by combining Multi-Modal Large Language Models (MLLM).Specifically, inputting multi-view images, DAC consists of a three-step process:
+
+1) Describe: We utilize a pretrainned MLLM model (e.g., InternVL [9]) to acquire textual information.During training, the MLLM is used to derive expressive category descriptions about the objects, which better aligns with the training objective of CLIP in adaptation.During inference time, we only use it to describe the appearance and semantic cues encoded in the multi-view images, thereby obtaining out-of-box textual knowledge for the feature combination.
+
+2) Adapt: Paired multi-view images with enriched descriptions of seen categories, we introduce Low-Rank Adaptation (LoRA) in both text and visual encoders for efficient adaptation.This step effectively mitigates the domain gap between view projections and natural images with which CLIP is trained.However, we observed that LoRA always easily overfits the seen categories.We analyze it (see Sec. 3.2) and further introduce an additive bias, which effectively enhances the generalization to unseen categories.
+
+3) Combine: After CLIP adaptation, we combine both the multi-view image and textual features for shape retrieval.Thanks to the aligned feature space of CLIP for image and text inputs, we can directly embed the acquired descriptions via CLIP encoder and fuse the visual and textual cues in CLIP space via simple operations like addition.
+
+DAC demonstrates strong performance across four exist-ing open-set 3DOR benchmarks on five retrieval tasks.In particular, it surpasses state-of-the-art by over +10% mAP on average in open-set 3D object retrieval.In summary, we make the following contributions:
+
+
+Related Work
+
+3D Object Retrieval.3D object retrieval is a long-standing task in computer vision [55].While early research focused on hand-crafted descriptors [6,7,33], modern works generally center around learning representations upon 3D data collections.One group learns based on raw 3D formats, including voxel grids [44,56,63], point clouds [10,21,41,48,49,59,68], or meshes [16,36].Although they can leverage 3D geometric information, they often face computation challenges, e.g., cubic computation complexity for voxels and the irregular and unordered issue of point clouds and meshes.Another group [12, 14, 15, 22-24, 32, 35, 54, 60] focuses on learning to aggregate multi-view features, exhibiting superior potential than 3D methods.Besides, images are 2D grid data, which is more computationally efficient.Despite great progress, all above methods concentrate on closed-set conditions and do not generalize well to openset settings involving unseen 3D object categories, as per SHREC'22 [17].Subsequently, Feng et al. [18] proposed jointly learning multi-modal embeddings, including multiview images, point clouds, and voxels, and utilizing hypergraphs to connect seen and unseen category data.Although it leads to improved generalization, involving multi-modal and test set data brings extra complexity.In this work, we take a different route.By leveraging current large vision and language models, we address the generalization challenges in open-set 3DOR, solely based on multi-view images.
+
+Transfering Vision-Language Models in 3D.Pre-trained by large-scale image-text pairs, large vision-language models (VLM) (particularly CLIP [50]) can be utilized to pro-Describe this object in one sentence.
+
+
+Step 1：Describe
+
+Step 2：Adapt
+
+Step 3：Combine
+
+
+Multi-view Images
+
+
+Add
+
+
+Trainable
+
+
+Describe in one sentence what [cls]
+
+should look like.
+
+Airplane: A large, streamlined machine... Table : A flat surface supported by legs...
+
+A chair with a curved back and a round seat.
+
+
+CLIP
+
+A chair with a curved back and a round seat.2. Overview of DAC.Given a 3D object, we first project it into multi-view images and utilize a pretrained MLLM (e.g., InternVL) to describe the shape information.Next, we efficiently finetune a pretrained CLIP ViT model with a additive-bias LoRA to adapt to the multi-view projections.Finally, we combine the textual and multi-view embeddings to derive 3D descriptors for retrieval.
+
+duce discriminative representations for 2D depth/view images of 3D objects.One simple way is to use these pretrained models directly in a zero-shot manner.For instance, MV-CLIP [53] directly extracts multi-view features with pretrained CLIP's visual encoder, while works like ULIP [64] and ULIP-2 [65] incorporate unified embeddings that align language, image, and point data to improve 3D shape analysis across modalities.OpenShape [39] builds on CLIP-based embeddings to jointly learn image, text, and 3D shape features, facilitating robust cross-modal retrieval in open-set scenarios.Some works [29,67,73] apply CLIP to process 2D depth maps of point clouds, reaching promising results.Even so, these methods are still restrained in performance by the amount of 3D data.
+
+When a certain amount of downstream training data is available, it is always desirable to finetune the pretrained models to adapt to the downstream tasks for optimized results.Some works, e.g., CoOp [72], CLIP-Adapter [20], and Tip-Adapter [66], learn a minuscule adapter while keeping the pretrained main model frozen.CG3D [26] replaces the handcrafted prompts with learnable ones.In this paper, we propose to use Low-Rank Adaptation (LoRA) [27] but add a simple bias term, enabling efficiently adapts to multi-view projection images of known categories with reduced overfitting risk.In addition, it brings negligible testing latency after merging.Multi-model Large Language Models.Multi-model Large Language Models (MLLMs) [1,3,4,8,9,37,38,42,47,57,58] possess excellent reasoning abilities on visual content, driving progress in generic visual-linguistic tasks, such as image captioning, visual question answering (VQA), and visual dialogue.Over the past few years, many commercial and open-source MLLMs have been introduced, e.g., GPT-4 [1], LLaVA series [37,38,42] and many others [4,8,47,57,58].In particular, InternVL [9] has made significant strides in enhancing the interaction between visual and language components, which is essential for tasks that require detailed object understanding.For open-set 3D object retrieval, the ability of MLLMs to generate high-level semantic descriptions is particularly beneficial.By combining these descriptions with fine-grained visual features, our model can generalize better to unseen categories, addressing the key challenge in open-set 3DOR.
+
+
+Method
+
+In open-set 3D object retrieval, our goal is to learn discriminative, more importantly, generalizable embeddings for 3D objects of unseen categories.Formally, let D train = {(x i , y i )} Nt i=1 be a training set consisting of N t 3D objects.Here x i represents i-th 3D object, y i are the corresponding known labels.Based on it, we aim to train an embedding network E(•) to produce generalizable embeddings for a retrieval set D ret = {(x i , ŷi )} Nr i=1 , which consists of N r 3D objects belonging to unseen categories.The retrieval set D ret is further split into the query and target sets, denoted by D query and D target .Note that the label ŷi from D ret and y i from D train are drawn from disjoint label sets.
+
+Existing works [17,18] deal with this task by taking advantage of multi-modal inputs of 3D objects (voxels, point clouds, multi-view images).By contrast, our approach simplifies the paradigm by only utilizing view images.We first project each 3D object x i into a set of 2D view images from different viewpoints following the same scheme as HGM 2 R [18].We produce M 2D grey-scale images
+{I i,m ∈ R 1×H×W } M m=1
+, where H and W represent the height and width of the view image I i,m , respectively.These multi-view projections comprehensively capture the object from various angles, ensuring the 3D structure is well-represented.Based solely on multi-view images, we present a simple yet effective framework named Describe, Adapt, and Combine (DAC) (Figure 2), which takes advantage of existing large multi-modal models and turn them into a strong 3D embedding learner for open-set 3D object retrieval.DAC offers a new alternative paradigm for open-set 3D representation learning, structured as a threestep process: Describe, Adapt, and Combine.In the following, we describe each part in detail.
+
+
+Describe: Describe 3D objects
+
+For this step, we utilize an MLLM to generate text descriptions.Note that any off-the-shelf MLLM can be used (see Appendix I for more choices).Here we mainly use InternVL [9] due to its superior instruction-following ability in open-ended tasks like visual question answering.We leverage the MLLM for dual purposes.
+
+To better align with CLIP's contrastive pretraining objective on image-text pairs, we first use the MLLM to enrich the category with detailed descriptions.For a training set D train with L classes {l i } L i=1 , we use prompt: "Describe in one sentence what [cls] should look like", replacing [cls] with each of the L categories, to obtain L sentences {t i } L i=1 .Each sentence serves as a description of the category, involving in the Adapt step to fine-tune CLIP to align with the multi-view images.Compared with handcrafted prompts using templates "a photo of [cls]", using detailed descriptions is conducive to producing more generalized representations reflecting fine-grained aspects of categories.
+
+We further enhance the inference stage by integrating MLLM-generated sentences as external hints.Given multi-view images, we feed them into pretrained InternVL models [9] together with multi-view information-gathering prompt: "There are images of an object from different angles.Describe this object in one sentence."The prompt instructs the models to generate descriptions s i to summarize the object's appearances and semantic features across all views.They are further processed by the adapted CLIP to generate textual embeddings, further improving generalization to unseen categories.
+
+
+Adapt: Adapt CLIP to Multi-view Images
+
+The next step is to embed the multi-view images and the attached category descriptions for retrieval.To achieve this goal, we build upon the released CLIP model [50] which naturally supports multimodal inputs and embeds them into aligned and discriminative feature space.
+
+Nevertheless, CLIP is primarily pretrained on natural images, which are quite different from multi-view projections.To extract suitable 3D representations, it is essential to adapt to the new distributions.To this end, we first introduce Low-Rank Adaptation (LoRA) [27] with additive bias and insert them into the fixed CLIP model in DAC for adaption.A Revisit to LoRA.Low-Rank Adaptation (LoRA) [27] rewrites the updates (∆W) to the pretrained weight matrix W o ∈ R d1×d2 of a linear layer into a product of two small low-rank matrices, denoted by A ∈ R r×d2 and B ∈ R d1×r : W o + γ∆W = W o + γBA.Here A and B forms a LoRA module (see Figure 3 (a)), the rank r << min(d 1 , d 2 ), and γ is a scaling factor.Note that we only train A and B and keep W o frozen.A and B can also be viewed as a reparametrization and merged into W o readily.Given the input z ∈ R d2 , then the output o ∈ R d1 to a linear layer with LoRA is formulated as:
+o = W o z + γ∆Wz = W o z + γBAz.
+Additive-bias LoRA.For open-set 3DOR, we face a severe risk of overfitting on seen categories due to limited training data, which often causes poor generalization to testing unseen categories.To alleviate it, we rethink LoRA and propose to inject a "bias" inside, which has been widely overlooked but has unreasonable effectiveness for improving unseen category generalization.Given loss L, the gradient with ∆W as a whole is: ∂L ∂∆W = γ ∂L ∂o z T .Following the SGD update rule: ∆W ← ∆W −η(γ ∂L ∂o z T ), where η is the learning rate.Note that ∆W directly accumulates information from z, which comes from seen categories.To break this tight linkage, we add a bias term Φ ∈ R d1 to prevent the model from being overfitted quickly and maintain generalization to unseen categories as much as possible:
+o = W o z + γBAz + Φ.(1)
+To initialize, we use a standard normal distribution for A and set B and Φ to zero, which ensures that the model starts without perturbations to the original pre-trained weights.
+
+In our architecture, we use this LoRA variant in both the textual and visual encoders of CLIP ViT models (see Figure 3 (b)).Following LoRA [27], we limit LoRA modules to the weights of the self-attention modules (i.e., W query , W key , W value ).Training Objective.We train both textual and visual encoders in CLIP with contrastive learning, enabling better alignment between multi-view images and their associated category descriptions, with the limited 3D training data.Given L sentences {t i } L i=1 from the first step, we generate L classification weights by forwarding each into the CLIP textual encoder:
+c i = T (t i ) ∈ R d , i = 1, ..., L.(2)
+Next, we feed the multi-view images
+{I k,m } M m=1 of 3D object x k into CLIP visual encoder V(•): f k,m = V(I k,m ) ∈ R d ,(3)
+This will give us M view-wise representations {f k,m } M m=1 .We further aggregate them into a global compact descriptor for the 3D object via mean-pooling:
+g k = 1 M M m=1 f k,m .(4)
+Finally, we apply cross-entropy loss to supervise the training process of LoRA, ensuring that the global features {g k } are aligned with their corresponding text descriptions {c y } closely in the embedding space:
+L CE = − 1 N t Nt k=1 log exp(g k • c y /τ ) L i=1 exp(g k • c i /τ ) . (5)
+where τ is the temperature, and y is the ground-truth category.By efficiently fine-tuning additive bias LoRA with limited 3D training objects, we adapt pre-trained CLIP ViT models to multi-view projections with minimal effort, while demonstrating excellent performance.
+
+
+Combine: Combine Textual-Visual Features
+
+After the processes of description and adaptation, we proceed to combine textual and visual embeddings to form discriminative and generalized descriptors for 3D objects.For this, we utilize the finetuned CLIP model in Sec.3.2 to perform feature extraction for the two modalities (i.e., descriptive text and multi-view images).
+
+With the generated description s and multi-view images {I m } of 3D objects, we easily derive each modality's global representations by forwarding them to the adapted CLIP ViT models:
+f t = T (s), f m = T (I m ).
+Here we aggregate the multi-view representations into g with a simple meanpooling layer.Then, we propose a weighted fusion scheme, which balances visual and textual features with a scalar and then normalizes to enhance discriminativeness:
+h = tanh(g + αf t ). (6)
+where α ∈ [0, 1] is a weighting factor.The tanh activation function is applied for normalization after the fusion of g and f t .Finally, h ∈ R d represents the final descriptor for the 3D object.Without bells and whistles, this simple fusion method gives us surprisingly good performance.For retrieval, we adopt cosine similarity as the metric function.
+
+
+Discussions
+
+Why not directly use InternVL for retrieval?While In-ternVL excels at multi-modal generative tasks, its pretraining is not specifically geared toward producing discriminative features suitable for retrieval.In contrast, CLIP's encoder is designed to produce more discriminative features, which are crucial for distinguishing between categories in open-set scenarios.Empirical evidence from OS-ESB-core shows that using InternVL's embeddings led to an inadequate 38.20% mAP, much lower than CLIP's 53.93% mAP.
+
+Extending to other 3DOR.DAC indeed represents a general framework and can be easily extended to a variety of 3DOR problems such as cross-domain retrieval.By leveraging semantic descriptions from an MLLM and fine-tuning discriminative models like CLIP, DAC can even handle scenarios where domain shifts present.This simple synergy showcases strong performance with minimal complexity, making it a versatile solution for various 3D retrieval tasks.Implementation Details.For a fair comparison, we follow the same rendering scheme as HGM 2 R [18] and project 24 view images of size 256 × 256 for each 3D object, for all the experiments.We experiment on pretrained CLIP models [50] with ViT-B/32 and ViT-L/14 as the backbone, respectively.Empirically, we set the rank r of AB-LoRA to 8 by default.We also regularize its input by a dropout layer with p = 0.25.To train, we utilize Stochastic Gradient Descent (SGD) with a learning rate of 2 × 10 −4 , a batch size of 4, and a cosine learning rate scheduler.The model is trained for 30 epochs on two NVIDIA RTX 4090 GPUs.For the MLLM, we primarily use InternVL-4B [9].For more dataset and implementation details, please refer to Appendix A.
+
+
+Experiments
+
+
+Intra-dataset Open-set 3DOR
+
+Compared Methods.For comprehensive comparisons, we select twelve representative methods, which can be categorized into four groups: 1) Vision-language-based methods, i.e., Uni3D [71], ULIP-2 [65] and OpenShape [39], which leverage CLIP for 3D learning1 .We also reimplement a superior zero-shot method MV-CLIP [53], which requires a ground-truth set for view selection.2) Previous excellent 3DOR methods including TCL [23], SDML [28], and CMCL [31]).They have shown strong performance in close-set settings and are now extended to this challenging setup.3) Auto-encoder-based methods (MM-SAE [62], MCWSA [69]), which aim to learn compressed representations in an unsupervised manner.4) Speciallydesigned open-set methods (PROSER [70], InfoNCE [46] and HGM
+
+
+Analyses
+
+In this section, we study the core design choices of DAC.More ablation studies are induced in Appendix B .Impact of InternVL.We first thoroughly assess the impact of InternVL [9]
+
+
+Cross-dataset Open-set 3DOR
+
+Setup.To evaluate DAC on cross-dataset generalization capacity, We train all the models on OS-MN40-core and evaluate them on OS-ABO-core.
+
+Results.The results are summarized in Table 5.It can be observed that DAC outperforms the other compared methods impressively.Specifically, with the ViT-L/14 backbone, our approach surpasses the previous state-of-the-art by +12.31% mAP.This substantial improvement highlights the effectiveness of our method in cross-dataset scenarios, showcasing its strong ability to process instances of unknown categories from an entirely distinct domain.Table 5. Comparisons (%) on cross-dataset retrieval.
+
+
+Single Image based Open-set 3DOR
+
+Setup.Recall that OS-MN40-core contains synthetic 3D objects, whereas OS-ABO-core includes real-world 3D objects, each with an attached real-world image.Here we only utilize one projected image (Prj.) or one real image (Rel.)depicting each 3D object.We alternate the two datasets for training and retrieval, yielding two setups: MN40 → ABO and ABO → MN40.In each setup, we have two subsettings: Prj.→ Rel.(or Rel.→ Prj.) and Prj.→ Prj.. Results.The results are summarized in Table 6.Encouragingly, DAC still has the best generalization ability despite the great domain gap between real and synthetic data: We note that the results under the Prj.→ Rel.setting are better than the Prj.→ Prj.setting.This can be attributed to both CLIP and InternVL being pre-trained on real images, allowing it to generalize well to real-world 3DOR.It highlights DAC's potential in the challenging real-world 3DOR.2), e.g., 65.84 v.s.63.74 mAP on OS-MN40-core.We plan to explore more training strategies like providing region-level descriptions with MLLM to enhance the training and remove the reliance.2) DAC only fuses global textual and visual embeddings, which fails in some cases when the query and sample have similar global shapes but from hard category pair (e.g., wardrobe and bookshelf) (see Appendix H).We plan to adopt more fine-grained discriminative features to address this issue.
+
+
+Visualization and Discussions on Limitations
+
+
+Conclusion
+
+In this paper, we have presented a simple yet effective framework named DAC for open-set 3D object retrieval.
+
+In contrast to previous methods, we make the first attempt to synergize generative and discriminative large VLLMs to derive discriminative and generalized embeddings for openset 3D object retrieval.We also showed that adapting CLIP with LoRA based on multi-view images can greatly boost performance.Finally, we extended it to other challenging 3D representation learning tasks such as cross-dataset and zero-shot retrieval, further validating its strong generality.
+
+Describe, Adapt and Combine: Empowering CLIP Encoders for Open-set 3D Object Retrieval
+
+
+Supplementary Material
+
+Sec.A provides more implementation details.Sec.B presents additional ablation studies on DAC.Sec.C discusses InternVL prompt choices and their effects.Sec.D demonstrates the applicability of DAC in scenarios where only point cloud data is available.Sec.E showcases more qualitative results.We also present additional experiments on both seen and unseen categories in Sec.F. Sec.G provides more comparisons with the state-of-the-arts by varying view numbers.Sec.H give some retrieval examples to gain some insights about the limitation of our framework.Finally, Sec.I investigates the impact of different multimodal large language models (MLLMs) on DAC performance.
+
+
+A. More Dataset and Implementation Details
+
+The four existing open-set 3DOR datasets, which are curated by Feng et al. [18] are described in detail below.1) OS-ESB-core is created based on ESB [30], which covers CAD objects of high genus (e.g., holes and tunnels) from the mechanical engineering domain.It includes only 98 training objects from 17 seen categories, 120 probe objects and 452 gallery objects from 24 unseen categories.2) OS-NTU-core has 378 training objects in 13 seen classes, 270 probe and 1,271 gallery objects in 54 unseen classes.Each object is coming from NTU [7].3) OS-MN40-core is constructed from ModelNet40 [63].It has 2,821 synthetic objects from 8 seen categories for training, 160 probe objects and 9,329 gallery objects from 32 unseen categories for testing.4) OS-ABO-core is a challenging, large-scale, realword dataset with the 3D objects derived from real-word household items [11].It contains 1,082 training objects in 4 seen categories, 85 probe objects and 5,455 gallery objects divided into 17 unseen categories.
+
+For fair comparisons with off-the-shelf point cloud encoders, we further extend our framework by taking depth maps from point clouds.For this experiment, we have curated a zero-shot ZS-Objaverse-Core based on the largescale Objaverse dataset.The original Objaverse [13] contains 46,832 shapes across 1,156 LVIS categories.We further split each category of Objaverse-LVIS into a query set and a target set with a 20%/80% ratio, resulting in a total of 8,798 query samples and 37,407 target samples.For the experiment, 10 depth maps are projected for each point cloud online following [73].
+
+For a comprehensive comparison, we reimplement MV-CLIP [53] to evaluate its performance on open-set 3D datasets.For textual prompts, we use a pre-defined tem-plate: "a synthetic 3D model view of [cls] with different angles".It is important to note that we must provide groundtruth category to MV-CLIP for view selection, which is not suitable for open-set retrieval, where the category information for unseen categories is unknown.We select M selec views based on entropy and perform mean pooling over them.Following MV-CLIP, M selec is set to 4.
+
+For ULIP-2 [65], we simply use the open-source PointBERT-CLIP ViT-G/14 pre-trained model as the backbone and directly employ the output features from the last layer of the model for retrieval.Similarly, For Open-Shape [39], we use the PointBERT-CLIP ViT-B/32 and PointBERT-CLIP ViT-L/14 models, with the extracted features for retrieval directly.It is worth mentioning that we also experimented with fine-tuning both ULIP-2 and OpenShape for open-set setups.However, fine-tuning leads to worse performance, suggesting that the irregular point clouds are somewhat fragile representations that easily overfit to known categories in open-set setups.
+
+Objaverse [13], for zero-shot point cloud retrieval.For fair comparisons with off-the-shelf point cloud encoders Open-Shape [39] and ULIP series [64,65], our baseline only takes depth images from point clouds with the online projection scheme [73].Results.As shown in Table 13, our method based on depth maps also achieves superior performance, surpassing ULIP-2 by +1.22% mAP.Note that all compared methods require huge resources to train on a large-scale 3D dataset of point cloud, text, and image triplets.By contrast, our baseline offers a much cheaper solution without 3D training.
+
+
+E. Qualitative Results
+
+To further understand how our method improves the representations, we visualize correlation heatmaps.Specifically, we randomly select three categories from OS-ABOcore, with ten samples chosen from each category.We draw three heatmaps: the first represents features extracted from the original CLIP, the second shows features extracted using CLIP with LoRA added, and the third depicts features obtained after fusing with InternVL on top of the LoRAenhanced features.The detailed visual results are illustrated in Figure 6.As shown, we observe that, compared to the original CLIP, the addition of LoRA significantly increases the similarity among samples within the same category while reducing similarity with samples from different categories.This effect becomes even more evident in the third figure, which incorporates text features extracted by InternVL.This indicates that DAC not only enhances intraclass similarity but also effectively diminishes inter-class similarity, thereby markedly improving the discriminative power of the retrieval features.
+
+
+F. Retrieval on Seen and Unseen Categories
+
+In real-world applications, the ability to retrieve 3D objects of both seen and unseen categories is crucial.In this section, we follow HGM 2 R [18] and split the ModelNet40 dataset into two subsets: D S (for seen categories) and D U (for unseen categories).Each subset consists of 20 categories, and the 3D objects within each category are further divided into training sets D tr S /D tr U and retrieval sets D re S /D re U , with 80% of the data used for training and 20% for retrieval.The models are trained on D tr S and evaluated separately on the seen categories D re S and unseen categories D re U .
+
+As shown in Table 14, our method has competitive performance on seen categories compared to other approaches by solely relying on multi-view images.More importantly, we achieve superior results on unseen categories, reaching an mAP of 86.27%, surpassing previous state-of-theart HGM 2 R [18] by a large margin.Notably, our model demonstrates a reduced performance gap between seen and unseen categories, with only a 4.85% performance difference-significantly lower than the 11.87% gap observed with HGM 2 R and the 19.73% gap with InfoNCE.This indicates that our approach is particularly effective for retrieving unknown categories, allowing for an enhancement in unseen performance while maintaining competitive results on seen categories.Thus, our method is especially advantageous in complex environments, where retrieval performance for unseen categories is crucial.
+
+
+G. More Experiments on View Numbers
+
+We further study the impact of the number of view images on the OS-MN40-core dataset.The adjustment of view numbers affects two components: the number of views input into CLIP and the number of views input into InternVL.In our experimental setup, the view counts for both components are kept the same.As shown in Figure 8, the mAP values increase with the number of views across different backbones.It suggests that additional views provide more detailed and accurate information about 3D objects, giving better retrieval performance.We also compare with other competing methods under the same number of views, as summarized in Table 15.The results indicate that our approach, particularly with the ViT-L/14 backbone, outperforms other methods in both the 4view and 12-view settings.Specifically, we achieve 64.12% mAP and 68.08% mAP for the ViT-L/14 backbone, respectively, surpassing the previous best method HGM 2 R greatly.
+
+
+H. More Visualization
+
+To gain more insights into our framework, we provide some retrieval examples of our method, especially including some failure cases, on OS-MN40-core.As shown in Figure 7, for objects of easy categories (e.g., chair), our method produces discriminative 3D representations for accurate retrieval.However, it fails when two objects have similar global appearances but from distinct categories.For in-stance, a tent instance (row 5) globally looks like a laptop object.Yet, notice that a laptop has ver distinct local features on the integrated keyboard.The keyboard serves as a strong discriminative cue for identifying a laptop.In the future, we plan to emphasizing these local features during the representation learning process, which could potentially avoid these failure cases.
+
+Figure 1
+1
+Figure1.We empower CLIP encoders with an MLLM model (e.g., InternVL[9]) for open-set 3D object retrieval, which significantly outperforms previous state-of-the-art HGM 2 R [18] (a).Unlike HGM 2 R, which utilizes all modalities (point cloud, voxel, and view images) and involves test data for training, our method relies solely on multi-view inputs and eliminates test data (b).
+
+
+Figure 3 .
+3
+Figure 3.Comparison of LoRA and Additive-Bias LoRA.
+
+
+Figure 4
+4
+Figure4presents some retrieval examples.Our method can faithfully retrieve related 3D assets for the query.Nevertheless, DAC has the following possible limitations.1) Incorporating MLLM at inference increases costs.Yet, note that DAC already outperforms prior art HGM 2 R even without it during inference (see Table2), e.g., 65.84 v.s.63.74 mAP on OS-MN40-core.We plan to explore more training strategies like providing region-level descriptions with MLLM to enhance the training and remove the reliance.2) DAC only fuses global textual and visual embeddings, which fails in some cases when the query and sample have similar global shapes but from hard category pair (e.g., wardrobe and bookshelf) (see Appendix H).We plan to adopt more fine-grained discriminative features to address this issue.
+
+
+Figure 4 .
+4
+Figure 4. Retrieval example comparisons with other methods on OS-MN40-core.Incorrect matches are in red boxes.
+
+
+Figure 6 .Figure 7 .
+67
+Figure 6.Correlation heatmaps of features from 3 randomly selected classes, each with 10 samples on OS-ABO-core.Darker red indicates higher similarity.
+
+
+Text Encoder Image Encoder P CLIP ⨁ ⨁ Multi-view Images Tanh activation Tanh Tanh Output Descriptions Additive-Bias LoRA …
+𝐡𝐟 𝒕𝐠TextEncoder𝐜 𝟏𝐜 𝟐…𝐜 𝑳𝐠 𝟏PPoolingImage EncoderP𝐠 𝟐𝑳 𝑪𝑬Text feature Multi-view feature𝐠 𝑁Matched3D descriptor Unmatched
+
+MLLM (e.g., InternVL) Figure
+
+
+Table 1 .
+1
+Performance comparisons (%) on open-set 3DOR benchmarks.Bold and underline indicate the best and second best results, respectively.
+4.1. Experimental SetupDatasets and Evaluation Metrics. We conduct extensiveexperiments on four public open-set 3DOR datasets [18]:OS-ESB-core, OS-NTU-core, OS-MN40-core, and OS-ABO-core. Each dataset is divided into training, probe,and gallery sets. The training set consists of seen categoriesfor model training, while the probe and gallery sets containunseen categories for evaluation. Following HGM 2 R [18],we adopt mean Average Precision (mAP), Normalized Dis-
+counted Cumulative Gain (NDCG) and Average Normalized Modified Retrieval Rank (ANMRR) metrics to report the retrieval performance.For both mAP and NDCG, higher values are better; while for ANMRR, lower is better.‡ in gray means we provide ground-truth category sets for the view selection process in MV-CLIP, which is impractical, as category information for unseen classes is unknown in open-set scenarios.PB-CLIP refers to PointBERT-CLIP, while P., I., and V. stand for Point Cloud, Multi-view Images, and Voxel, respectively.
+
+
+Table 2 .
+2
+Effectiveness of the designed modules.Values are presented in mAP/NDCG/ANMRR format.
+Result Analysis. Table 1 compares open-set retrieval per-formance between our DAC and other representative meth-ods. We conduct experiments under two settings: Zero-shotand Open-set. In the zero-shot setup, DAC achieved the bestresults across the OS-ESB-core, OS-NTU-core, and OS-ABO-core datasets, notably surpassing the previous state-of-the-art by over 6% on the OS-ESB-core dataset. Al-though MV-CLIP achieved better results on the OS-MN40-core dataset, it cannot be directly applied to open-set tasks.In MV-CLIP's view selection process, category informationmust be provided, which is incompatible with open-set sce-narios where category labels are inherently unknown in ad-vance. In open-set setup, as shown, DAC is better on OS-ESB-core which only has 98 training objects, while muchworse on the remaining three larger benchmarks. Amongexisting methods, HGM
+[18]8]), which is specifically crafted to handle open-set scenarios. 2 Ris the previous state-of-the-art.However, DAC with ViT-B/32 and ViT-L/14 surpass it significantly by over 6.9% and 6.0% in mAP on OS-ESB-2 R, we do not 1) utilize test data for training and 2) solely make use of multi-view images rather than multi-modality (voxels, point clouds, multi-view images).DAC with stronger ViT-L/14 further enhances the performance, surpassing HGM 2 R greatly.
+
+
+Table 2
+2, incorporating InternVL predictions fortext embeddings leads to consistent improvements acrossall datasets, regardless of backbones. As shown, on thechallenging real-world OS-ABO-core dataset, we siginantlyimprove mAP and ANMRR by +9.65% and +9.21%, re-spectively, when adopting CLIP ViT-B/32 as the backbone.Similar encouraging observations are shown on OS-MN40-core and OS-NTU-core, regardless of the backbones. Wealso note that on OS-ESB-core, incorporating InternVL re-sults in less pronounced improvements. For instance, whenadopting CLIP ViT-B/32, we increase mAP from 57.45 to58.70. It can be attributed to the nature of OS-ESB-core,which contains high-genus objects [30], such as mechani-cal parts, posing great difficulties for InternVL in producingsemantic descriptions. The above experiments show that in-corporating InternVL can offer an effective solution to en-hance DAC for open-set 3DOR.Impact of Adaptation. AB-LoRA enables efficient adap-
+(see Appendix I for more choices) on all four datasets with both CLIP ViT-B/32 and CLIP ViT-L/14.The multi-view features extracted by CLIP after AB-LoRA fine-tuning (DAC w.o InternVL) serve as our baselines.As shown in AB-LoRA v.s LoRA.Open-set 3DOR requires learning robust representations from known categories in the training set to achieve generalization to unknown categories, making it highly susceptible to overfitting on known classes.To mitigate this, we introduce bias into LoRA during training.We conduct experiments on OS-MN40-core to evaluate the impact of introducing bias.As shown in Table3, compared with LoRA without bias, AB-LoRA increases the performance by +2.55% mAP.This empirical evidence validates the surprising effectiveness of a simple bias in enhancing the model's generalization to unknown categories.
+
+
+Table 3 .
+3
+Ablations of Additive Bias LoRA.Add.).As shown in Table4, the Add.method consistently outperforms the Concat.method across all metrics and backbones by a large margin.For the ViT-B/32 backbone, Add.improves mAP from 55.30 to 62.40.Likewise, for the ViT-L/14 backbone, Add.achieves the best results with a mAP of 68.98, NDCG of 77.59, and ANMRR of 33.87.It implies that element-wise addition can more effectively utilize the two modalities to generate more discriminative representations for retrieval.
+Analysis on Fusion Scheme. We analyze two commonparameterless fusion schemes for integrating textual andmulti-view features: concatenation (Concat.) and element-wise addition (
+
+Table 4 .
+4
+Impact of fusion Schemes on different backbones.
+
+
+Table 6 .
+6
+Comparisons (mAP) on single image based open-set 3DOR.Prj.denotes Projected Image, and Rel.denotes Real Image.A → B denotes adopting A for training and B for retrieval.
+MethodMN40 → ABO Prj. → Rel. Prj. → Prj.ABO → MN40 Rel. → Prj. Prj. → Prj.CMCL [31]34.9245.5840.4141.40MMSAE [62]35.9145.2440.1241.80MCWSA [69]32.6344.3538.7841.14PROSER [70]33.6544.3239.6241.14InfoNCE [46]33.4844.2239.6341.12HGM 2 R [18]43.5950.6848.9349.77Ours (ViT-B/32)55.5955.0049.3449.71Ours (ViT-L/14)63.9660.1252.9256.24
+
+Query Retrieved 3D Objects(Top 10) Uni3D dresser dresser dresser dresser dresser dresser dresser tv_stand dresser radio radio dresser guitar plant bed sofa car chair chair desk bottle bookshelf dresser mantel mantel mantel dresser mantel dresser dresser mantel dresser dresser dresser dresser dresser dresser dresser dresser dresser dresser dresser dresser dresser HGM2R CLIP Ours
+
+
+Table 13 .
+13
+Performance on ZS-Objaverse-Core.
+
+
+Table 14 .
+14
+Separate retrieval results on both seen and unseen categories.
+MethodOn Seen Categories On Unseen Categories mAP↑ Recall@100↑ mAP↑ Recall@100↑TCL [23]93.5082.1473.9271.76MMJM [45]91.9980.7873.0771.38SDML [28]88.5078.5074.6972.39CMCL [31]90.9979.6075.2172.49MMSAE [62]88.7278.6176.0372.94MCWSA [69]85.7076.8372.8970.56PROSER [70]87.7177.7874.9372.56InfoNCE [46]93.6582.1973.9271.64HGM 2 R [18]94.1082.4782.2378.21Ours (ViT-B/32) 87.9677.8983.0079.10Ours (ViT-L/14) 91.1280.4686.2781.76
+We directly evaluate released models from them in a zero-shot manner. Yet, we observe worse results after fine-tuning in the open-set setup.
+AcknowledgmentThis work is supported by National Natural Science Foundation of China (No.62302188, 62225603, 62276111 and 62076041); Fundamental Research Funds for the Central Universities (No.2662023XXQD001).B. More Ablations B.1. Impact of Rank NumberWe investigate the effect of decomposed matrix rank numbers in LoRA by setting it to 2, 4, 8, and 12.As shown in Table7, increasing the rank from 2 to 8 leads to consistent improvements in mAP, NDCG, and ANMRR metrics.However, further increasing the rank to 12 results in a slight decline in performance.A rank of 8 strikes the best balance between performance and training complexity, and thus, all experiments are conducted with rank = 8.B.2. Impact of Fusion Weight αThe hyper-parameter α governs the relative weights of text features to image ones.To study its effects, we adjust the fusion ratio α within the range of 0 to 1 and conduct experiments on OS-MN40-core.The results are summarized in Figure5.As shown, an appropriate choice of α is essential for good retrieval performance.For instance, with CLIP ViT-L/14, we observe the performances are gradually improved by increasing α from 0 to 0.25.When α is set to 0.25, we have the best mAP of 68.98%.However, further increasing α results in a decline in performance.Similar phenomena are also observed when using CLIP ViT-B/32, as well as other datasets.In Table8, we further provide the optimal values for α across all the datasets.Interestingly, we find that on the OS-ESB-core dataset, a smaller α gives better results (i.e., 0.1).In contrast, for other datasets, especially the OS-ABO-core dataset, a larger value is preferred.We assume that it is difficult to derive accurate text embeddings for OS-ESB-core, which consists of high-genus mechanical parts[30].In contrast, for common semantic realworld categories, text embeddings from InternVL are more accurate, and thus more weights are needed.We set these values as our default configurations for our experiments.B.3. Impact of NormalizationAfter fusing image and text features with elementwise summation, it is beneficial to further utilize activation functions for normalization.We have evaluated three commonly-used activation functions: ReLU, Tanh, and Sigmoid, on the OS-ABO-core dataset.As shown in Table9, with ReLU, DAC attains inferior results.However, when adopting Sigmoid and Tanh, we observe consistent improvements, with Tanh being more advantageous.Especially, for CLIP ViT-B/32, Tanh brings an improvement of over 1% mAP.It demonstrates that adopting Tanh for normalization is an effective option to further augment the discriminativeness of the derived 3D descriptors.We also analyze why Tanh yields better results.The Tanh function maps input values to the range [−1, 1], aligning well with the vector space used by CLIP for retrieval.This property helps the model produce evenly distributed outputs that are consistent with CLIP's embedding structure.In contrast, ReLU sets negative values to zero, retaining only positive values, which can lead to information loss and disrupt the symmetry required for the relative relationships in CLIP's vector space.On the other hand, Sigmoid restricts outputs to the [0, 1] range, which can weaken vector directionality and produce many low-magnitude weights, making it less compatible with CLIP's feature distribution.Thus, Tanh emerges as the most suitable choice, preserving the necessary feature balance and enhancing the robustness of the 3D descriptors for retrieval.B.4. Training strategyWe further investigate the impact of different textual descriptions during LoRA training and their influence on text fusion during retrieval.We have tested two settings: the first uses a fixed, hand-crafted template ("a synthetic 3D model view of [cls] with different angles"), while the second employs descriptions generated by InternVL[9]for each class.The experimental results are summarized in Table10.As shown, both training strategies yield comparable performance when retrieval is conducted using only image features.However, descriptions generated by InternVL demonstrate superior results in scenarios where text fusion is applied during retrieval.This improvement can be attributed to the consistency between the descriptions used during training and those generated by InternVL for text fusion in the retrieval phase.Fine-tuning with InternVLgenerated descriptions enables more seamless integration of visual and textual features, enhancing the retrieval performance.We have also experimented with providing InternVL with view projections and label information during training, allowing it to generate a description for each training sam-C. More Choices for InternVL PromptsThe selection of prompts is crucial for the responses generated by InternVL, yet finding a universal prompt that fits all scenarios is quite challenging.Using ViT-L/14 as the backbone, we have tested the impact of two different prompts:-Prompt A: " There are images of an object from different angles.Describe this object in one sentence."(This is the default prompt used in our method.)-Prompt B: " There are images of an object from different angles.Describe this object's shape information in one sentence."Prompt A attempts to derive explicit category information, while prompt B attempts to derive descriptive shape information.The experimental results are detailed in Table 12.From the table, we can observe that in the OS-ESBcore, OS-NTU-core, and OS-MN40-core datasets, the results from both prompts are relatively similar.However, in the OS-ABO-core dataset, the effect of the prompt is more pronounced.For instance, the mAP for Prompt A is 68.40%, whereas Prompt B yields a lower mAP of 66.43%.We randomly select a chair object from the OS-ABOcore dataset and input it into InternVL using different prompts, resulting in the following two outputs: "A classic brown leather armchair with a high back and rounded armrests, featuring subtle nailhead trim along its edges," and "This object has a rounded, high-backed shape with a broad seat, armrests, and a slight outward curve on the back and arms."We hypothesize that the statement generated by Prompt A benefits from more explicit label information, leading to superior results.Conversely, inaccurate label information could adversely affect the model's expressiveness.Therefore, identifying a universally applicable prompt is quite challenging, and further exploration into prompt design is essential.Why not just let InternVL judge the categories?We also conduct a simple experiment to evaluate the performance of directly using InternVL for category classification.On the challenging OS-ESB-core dataset, even when provided with ground-truth category options, InternVL achieved only 11% accuracy.Incorrect category predictions in such cases can be catastrophic for our task, as they severely disrupt feature representation and retrieval.Therefore, instead of relying on InternVL for classification, we opted to use it for generating descriptive information, which provides more robust and generalized representations.In conclusion, while prompt selection plays a critical role, the design space for prompts remains vast, and further exploration is required to optimize their effectiveness.D. Extending to Point Cloud RetrievalSetup.For this experiment, we curate ZS-Objaverse-Core based on Objaverse-LVIS, which is an annotated subset ofI. More Choices of MLLMOur framework is compatible with any off-the-self pretrained MLLM, enabling seamless integration of the latest advancements in multimodal learning.To study it, we experiment with different choices for multi-modal large language models (MLLMs).Table16shows that DAC's performance improves progressively as InternVL[9]scales from 1B to 8B parameters.It suggests that MLLMs with stronger reasoning capabilities lead to better results.Furthermore, the use of Qwen2.5-VL[5]
+Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, arXiv:2303.08774Shyamal Anadkat, et al. Gpt-4 technical report. 2023arXiv preprint
+
+Learning representations and generative models for 3d point clouds. Panos Achlioptas, Olga Diamanti, Ioannis Mitliagkas, Leonidas Guibas, 2018
+
+Flamingo: a visual language model for few-shot learning. Jean-Baptiste Alayrac, Jeff Donahue, Pauline Luc, Antoine Miech, Iain Barr, Yana Hasson, Karel Lenc, Arthur Mensch, Katherine Millican, Malcolm Reynolds, NeurIPS. 3532022
+
+Jinze Bai, Shuai Bai, Shusheng Yang, Shijie Wang, Sinan Tan, Peng Wang, Junyang Lin, Chang Zhou, Jingren Zhou, arXiv:2308.12966Qwen-vl: A frontier large vision-language model with versatile abilities. 2023arXiv preprint
+
+Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, Humen Zhong, Yuanzhi Zhu, Mingkun Yang, Zhaohai Li, Jianqiang Wan, Pengfei Wang, Wei Ding, Zheren Fu, Yiheng Xu, Jiabo Ye, Xi Zhang, Tianbao Xie, Zesen Cheng, Hang Zhang, Zhibo Yang, arXiv:2502.13923Haiyang Xu, and Junyang Lin. Qwen2.5-vl technical report. 202517arXiv preprint
+
+Shape matching and object recognition using shape contexts. Serge Belongie, Jitendra Malik, Jan Puzicha, IEEE TPAMI. 2442002
+
+On visual similarity based 3d model retrieval. Ding-Yun Chen, Xiao-Pei Tian, Yu-Te Shen, Ming Ouhyoung, Computer graphics forum. 2003212
+
+Shikra: Unleashing multimodal llm's referential dialogue magic. Keqin Chen, Zhao Zhang, Weili Zeng, Richong Zhang, Feng Zhu, Rui Zhao, arXiv:2306.151952023arXiv preprint
+
+Internvl: Scaling up vision foundation models and aligning for generic visual-linguistic tasks. Zhe Chen, Jiannan Wu, Wenhai Wang, Weijie Su, Guo Chen, Sen Xing, Muyan Zhong, Qinglong Zhang, Xizhou Zhu, Lewei Lu, CVPR. 2024. 1, 2, 3, 4, 6, 7, 1317
+
+Pra-net: Point relation-aware network for 3d point cloud analysis. Silin Cheng, Xiwu Chen, Xinwei He, Zhe Liu, Xiang Bai, IEEE TIP. 3022021
+
+Abo: Dataset and benchmarks for real-world 3d object understanding. Jasmine Collins, Shubham Goel, Kenan Deng, Achleshwar Luthra, Leon Xu, Erhan Gundogdu, Xi Zhang, Tomas F Yago Vicente, Thomas Dideriksen, Himanshu Arora, CVPR. 202212
+
+Siamese cnn-bilstm architecture for 3d shape representation learning. Guoxian Dai, Jin Xie, Yi Fang, IJCAI. 2018
+
+Objaverse: A universe of annotated 3d objects. Matt Deitke, Dustin Schwenk, Jordi Salvador, Luca Weihs, Oscar Michel, Eli Vanderbilt, Ludwig Schmidt, Kiana Ehsani, Aniruddha Kembhavi, Ali Farhadi, CVPR. 20231215
+
+Equivariant multi-view networks. Carlos Esteves, Yinshuang Xu, Christine Allen-Blanchette, Kostas Daniilidis, ICCV. 2019
+
+Gvcnn: Group-view convolutional neural networks for 3d shape recognition. Yifan Feng, Zizhao Zhang, Xibin Zhao, Rongrong Ji, Yue Gao, CVPR. 20181
+
+Meshnet: Mesh neural network for 3d shape representation. Yutong Feng, Yifan Feng, Haoxuan You, Xibin Zhao, Yue Gao, AAAI. 2019
+
+Shrec'22 track: Open-set 3d object retrieval. Yifan Feng, Yue Gao, Xibin Zhao, Yandong Guo, Nihar Bagewadi, Nhat-Tan Bui, Hieu Dao, Shankar Gangisetty, Ripeng Guan, Xie Han, Computers & Graphics. 10742022
+
+Hypergraph-based multi-modal representation for open-set 3d object retrieval. Yifan Feng, Shuyi Ji, Yu-Shen Liu, Shaoyi Du, Qionghai Dai, Yue Gao, IEEE TPAMI. 15172023. 1, 2, 4, 5, 6, 8, 12
+
+3d object retrieval based on similarity calculation in 3d computer aided design systems. Ahmed Fradi, Borhen Louhichi, Mohamed Ali Mahjoub, Benoit Eynard, 2017 IEEE/ACS 14th International Conference on Computer Systems and Applications (AICCSA). 2017
+
+Clip-adapter: Better vision-language models with feature adapters. Peng Gao, Shijie Geng, Renrui Zhang, Teli Ma, Rongyao Fang, Yongfeng Zhang, Hongsheng Li, Yu Qiao, IJCV. 132232024
+
+Deep learning for 3d point clouds: A survey. Yulan Guo, Hanyun Wang, Qingyong Hu, Hao Liu, Li Liu, Mohammed Bennamoun, IEEE TPAMI. 43122020
+
+Aggregating sequential views for 3d global feature learning by cnn with hierarchical attention aggregation. Zhizhong Han, Honglei Lu, Zhenbao Liu, Chi-Man Vong, Yu-Shen Liu, Matthias Zwicker, Junwei Han, Chen Philip, IEEE TIP. 322019
+
+Triplet-center loss for multi-view 3d object retrieval. Xinwei He, Yang Zhou, Zhichao Zhou, Song Bai, Xiang Bai, CVPR. 20181517
+
+View n-gram network for 3d object retrieval. Xinwei He, Tengteng Huang, Song Bai, Xiang Bai, ICCV. 2019
+
+Latformer: Locality-aware pointview fusion transformer for 3d shape recognition. Xinwei He, Silin Cheng, Dingkang Liang, Song Bai, Xi Wang, Yingying Zhu, 2024PR151110413
+
+Clip goes 3d: Leveraging prompt tuning for language grounded 3d recognition. Deepti Hegde, Maria Jose Jeya, Vishal Valanarasu, Patel, ICCV. 2023
+
+LoRA: Low-rank adaptation of large language models. J Edward, Yelong Hu, Phillip Shen, Zeyuan Wallis, Yuanzhi Allen-Zhu, Shean Li, Lu Wang, Weizhu Wang, Chen, ICLR, 2022. 345
+
+Scalable deep multimodal learning for cross-modal retrieval. Peng Hu, Liangli Zhen, Dezhong Peng, Pei Liu, Proceedings of the 42nd international ACM SIGIR conference on research and development in information retrieval. the 42nd international ACM SIGIR conference on research and development in information retrieval20191517
+
+Clip2point: Transfer clip to point cloud classification with image-depth pre-training. Tianyu Huang, Bowen Dong, Yunhan Yang, Xiaoshui Huang, Rynson Wh Lau, Wanli Ouyang, Wangmeng Zuo, ICCV. 202323
+
+Developing an engineering shape benchmark for cad models. Subramaniam Jayanti, Yagnanarayanan Kalyanaraman, Natraj Iyer, Karthik Ramani, Computer-Aided Design. 389132006
+
+Cross-modal center loss for 3d cross-modal retrieval. Longlong Jing, Elahe Vahdani, Jiaxing Tan, Yingli Tian, CVPR. 2021. 1, 6, 8, 1517
+
+Rotationnet: Joint object categorization and pose estimation using multiviews from unsupervised viewpoints. Asako Kanezaki, Yasuyuki Matsushita, Yoshifumi Nishida, CVPR. 2018
+
+Rotation invariant spherical harmonic representation of 3 d shape descriptors. Thomas Michael Kazhdan, Szymon Funkhouser, Rusinkiewicz, Symposium on geometry processing. 2003
+
+Research challenges for digital archives of 3d cultural heritage models. David Koller, Bernard Frischer, Greg Humphreys, Journal on Computing and Cultural Heritage. 232010JOCCH)
+
+Angular tripletcenter loss for multi-view 3d shape retrieval. Zhaoqun Li, Cheng Xu, Biao Leng, AAAI. 2019
+
+Meshmae: Masked autoencoders for 3d mesh data analysis. Yaqian Liang, Shanshan Zhao, Baosheng Yu, Jing Zhang, Fazhi He, ECCV. 2022
+
+Improved baselines with visual instruction tuning. Haotian Liu, Chunyuan Li, Yuheng Li, Yong Jae Lee, CVPR. 2024
+
+Haotian Liu, Chunyuan Li, Qingyang Wu, Yong Jae Lee, Visual instruction tuning. 202436
+
+Openshape: Scaling up 3d shape representation towards open-world understanding. Minghua Liu, Ruoxi Shi, Kaiming Kuang, Yinhao Zhu, Xuanlin Li, Shizhong Han, Hong Cai, Fatih Porikli, Hao Su, NeurIPS. 36152023. 3, 6
+
+Point2sequence: Learning the shape representation of 3d point clouds with an attention-based sequence to sequence network. Xinhai Liu, Zhizhong Han, Yu-Shen Liu, Matthias Zwicker, AAAI. 2019
+
+Relation-shape convolutional neural network for point cloud analysis. Yongcheng Liu, Bin Fan, Shiming Xiang, and Chunhong Pan. 2019CVPR
+
+An empirical study of scaling instruct-tuned large multimodal models. Yadong Lu, Chunyuan Li, Haotian Liu, Jianwei Yang, Jianfeng Gao, Yelong Shen, arXiv:2309.099582023arXiv preprint
+
+3d learning objects for augmented/virtual reality educational ecosystems. Eleni Mangina, 2017 23rd International Conference on virtual system & Multimedia (VSMM). 2017
+
+Voxnet: A 3d convolutional neural network for real-time object recognition. Daniel Maturana, Sebastian Scherer, 2015
+
+Mmjn: Multi-modal joint networks for 3d shape recognition. Weizhi Nie, Qi Liang, An-An Liu, Zhendong Mao, Yangyang Li, ACM MM. 20191517
+
+Representation learning with contrastive predictive coding. Aaron Van Den Oord, Yazhe Li, Oriol Vinyals, arXiv:1807.037482018817arXiv preprint
+
+Kosmos-2: Grounding multimodal large language models to the world. Zhiliang Peng, Wenhui Wang, Li Dong, Yaru Hao, Shaohan Huang, Shuming Ma, Furu Wei, arXiv:2306.148242023arXiv preprint
+
+Pointnet: Deep learning on point sets for 3d classification and segmentation. Hao Charles R Qi, Kaichun Su, Leonidas J Mo, Guibas, CVPR. 20171
+
+Pointnet++: Deep hierarchical feature learning on point sets in a metric space. Charles Ruizhongtai, Qi , Li Yi, Hao Su, Leonidas J Guibas, NeurIPS. 3022017
+
+Learning transferable visual models from natural language supervision. Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, 2021. 2, 4, 6
+
+Clip for all things zero-shot sketch-based image retrieval, finegrained or not. Aneeshan Sain, Ayan Kumar Bhunia, Pinaki Nath Chowdhury, Subhadeep Koley, Tao Xiang, Yi-Zhe Song, CVPR. 2023
+
+Deepvoxels: Learning persistent 3d feature embeddings. Justus Vincent Sitzmann, Felix Thies, Matthias Heide, Gordon Nießner, Michael Wetzstein, Zollhofer, CVPR. 2019
+
+Mv-clip: Multi-view clip for zero-shot 3d shape recognition. Dan Song, Xinwei Fu, Weizhi Nie, Wenhui Li, Anan Liu, arXiv:2311.184022023612arXiv preprint
+
+Evangelos Kalogerakis, and Erik Learned-Miller. Multi-view convolutional neural networks for 3d shape recognition. Hang Su, Subhransu Maji, ICCV. 20151
+
+A survey of content based 3d shape retrieval methods. W H Johan, Remco C Tangelder, Veltkamp, Proceedings Shape Modeling Applications. Shape Modeling Applications2004. 2004
+
+O-cnn: Octree-based convolutional neural networks for 3d shape analysis. Peng-Shuai Wang, Yang Liu, Yu-Xiao Guo, Chun-Yu Sun, Xin Tong, ACM TOG. 3642017
+
+. Weiyun Wang, Min Shi, Qingyun Li, Wenhai Wang, Zhenhang Huang, Linjie Xing, Zhe Chen, Hao Li, Xizhou Zhu
+
+The all-seeing project: Towards panoptic visual recognition and understanding of the open world. Zhiguo Cao, arXiv:2308.019072023arXiv preprint
+
+Large language model is also an openended decoder for vision-centric tasks. Wenhai Wang, Zhe Chen, Xiaokang Chen, Jiannan Wu, Xizhou Zhu, Gang Zeng, Ping Luo, Tong Lu, Jie Zhou, Yu Qiao, NeurIPS. 3632024
+
+Dynamic graph cnn for learning on point clouds. Yue Wang, Yongbin Sun, Ziwei Liu, Sanjay E Sarma, Michael M Bronstein, Justin M Solomon, ACM TOG. 3852019
+
+Teda: Boosting vision-lanuage models for zero-shot 3d object retrieval via testing-time distribution alignment. Zhichuan Wang, Yang Zhou, Jinhai Xiang, Yulong Wang, Xinwei He, Proceedings of the 2025 International Conference on Multimedia Retrieval. the 2025 International Conference on Multimedia Retrieval2025
+
+View-gcn: View-based graph convolutional network for 3d shape analysis. Xin Wei, Ruixuan Yu, Jian Sun, CVPR. 2020
+
+Multimodal semantic autoencoder for cross-modal retrieval. Yiling Wu, Shuhui Wang, Qingming Huang, Neurocomputing. 331172019. 1, 6, 8, 15
+
+3d shapenets: A deep representation for volumetric shapes. Zhirong Wu, Shuran Song, Aditya Khosla, Fisher Yu, Linguang Zhang, Xiaoou Tang, Jianxiong Xiao, CVPR. 1912-1920, 2015112
+
+Ulip: Learning a unified representation of language, images, and point clouds for 3d understanding. Le Xue, Mingfei Gao, Chen Xing, Roberto Martín-Martín, Jiajun Wu, Caiming Xiong, Ran Xu, Juan Carlos Niebles, Silvio Savarese, CVPR. 2023315
+
+Ulip-2: Towards scalable multimodal pre-training for 3d understanding. Le Xue, Ning Yu, Shu Zhang, Artemis Panagopoulou, Junnan Li, Roberto Martín-Martín, Jiajun Wu, Caiming Xiong, Ran Xu, Juan Carlos Niebles, CVPR. 2024. 3, 61215
+
+Renrui Zhang, Rongyao Fang, Wei Zhang, Peng Gao, Kunchang Li, Jifeng Dai, Yu Qiao, Hongsheng Li, arXiv:2111.03930Tip-adapter: Training-free clip-adapter for better visionlanguage modeling. 2021arXiv preprint
+
+Pointclip: Point cloud understanding by clip. Renrui Zhang, Ziyu Guo, Wei Zhang, Kunchang Li, Xupeng Miao, Bin Cui, Yu Qiao, Peng Gao, Hongsheng Li, CVPR. 2022
+
+Pointweb: Enhancing local neighborhood features for point cloud processing. Hengshuang Zhao, Li Jiang, Chi-Wing Fu, Jiaya Jia, CVPR. 2019
+
+Multi-channel weight-sharing autoencoder based on cascade multi-head attention for multimodal emotion recognition. Jiahao Zheng, Sen Zhang, Zilu Wang, Xiaoping Wang, Zhigang Zeng, IEEE TMM. 86172022
+
+Learning placeholders for open-set recognition. Da-Wei Zhou, Han-Jia Ye, De-Chuan Zhan, CVPR. 2021817
+
+Uni3d: Exploring unified 3d representation at scale. Junsheng Zhou, Jinsheng Wang, Baorui Ma, Yu-Shen Liu, Tiejun Huang, Xinlong Wang, ICLR, 2024. 6
+
+Conditional prompt learning for vision-language models. Kaiyang Zhou, Jingkang Yang, Chen Change Loy, Ziwei Liu, CVPR. 2022
+
+Pointclip v2: Prompting clip and gpt for powerful 3d open-world learning. Xiangyang Zhu, Renrui Zhang, Bowei He, Ziyu Guo, Ziyao Zeng, Zipeng Qin, Shanghang Zhang, Peng Gao, ICCV. 20231215
+
+P$3 9L7/ 9L7%.

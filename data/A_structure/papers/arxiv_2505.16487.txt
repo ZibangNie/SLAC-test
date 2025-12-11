@@ -1,0 +1,515 @@
+Implicit Neural Shape Optimization for 3D High-Contrast Electrical Impedance Tomography
+22 May 2025
+
+Junqing Chen jqchen@tsinghua.edu.cn 
+Department of Mathematical Sciences
+Tsinghua University
+100084BeijingP.R. China
+
+Haibo Liu 
+Department of Mathematical Sciences
+Tsinghua University
+100084BeijingP.R. China
+
+Implicit Neural Shape Optimization for 3D High-Contrast Electrical Impedance Tomography
+22 May 202518136B526B4016B4551C9A58FDD35EC4arXiv:2505.16487v1[math.NA]High-Contrast Electrical Impedance TomographyShape OptimizationShape DerivativeImplicit Neural Representation
+We present a novel implicit neural shape optimization framework for 3D high-contrast Electrical Impedance Tomography (EIT), addressing scenarios where conductivity exhibits sharp discontinuities across material interfaces.These high-contrast cases, prevalent in metallic implant monitoring and industrial defect detection, challenge traditional reconstruction methods due to severe ill-posedness.Our approach synergizes shape optimization with implicit neural representations, introducing key innovations including a shape derivative-based optimization scheme that explicitly incorporates highcontrast interface conditions and an efficient latent space representation that reduces variable dimensionality.Through rigorous theoretical analysis of algorithm convergence and extensive numerical experiments, we demonstrate substantial performance improvements, establishing our framework as promising for practical applications in medical imaging with metallic implants and industrial nondestructive testing.
+
+Introduction
+
+Electrical impedance tomography (EIT) has developed into a valuable imaging technique with promising applications in noninvasive medical diagnosis [17,19] and non-destructive industrial testing [12,23].The technique aims to recover the conductivity distribution σ ∈ L ∞ (D) from boundary measurements and is a severely ill-posed inverse problem.In this work, we focus on a specific formulation in which the conductivity exhibits sharp discontinuities across material interfaces, leading to the EIT interface reconstruction problem: recovery of a piecewise constant distribution characterized by an open subset S ⊂ D with smooth boundary ∂S, expressed as σ(x) = σ 1 χ D\S (x) + σ 2 χ S (x).This interface reconstruction approach is particularly relevant in practical scenarios, including detection of metallic implants in biological tissues, localization of tumors with distinct conductivity properties, and identification of industrial defects -contexts where the primary interest lies in determining the geometric boundaries between regions of different electrical properties rather than reconstructing detailed conductivity maps.
+
+A range of approaches have been developed to address the EIT interface reconstruction problem.Regularized Newton methods enhance stability through Tikhonov regularization [15], with extended approaches implementing edge-preserving total variation constraints [21].Integral equation approaches [13] offer computational advantages by avoiding full-domain discretization while establishing Fréchet differentiability of the measurement operator.Shape optimization methods [14] directly evolve the interface geometry using gradient flows derived from shape calculus.The level-set method [30] represents a particularly powerful framework for interface evolution, offering natural handling of topological changes without prior knowledge of the solution structure.
+
+First proposed by Osher and Sethian for curve evolution, the level set methods gained prominence in EIT interface problems through pioneering work [26,32,36].The level-set-based shape optimization method [7,34] combines topological flexibility with rigorous mathematical frameworks, treating the interface Γ = ∂S as a manifold with shape derivatives derived through adjoint analysis.This powerful approach unifies the mathematical rigor of shape calculus with the geometric adaptability of implicit representations, providing theoretical convergence guarantees through Fréchet differentiable shape derivatives [14] while elegantly handling topological changes.Computational advances include second-order curvature acceleration techniques [1] and edge-preserving total variation regularization [21], which significantly outperforms traditional Tikhonov methods in preserving sharp material interfaces.Recent extensions demonstrate the versatility of the method: multi-physics formulations [27], nonstationary approaches for resolving depth ambiguities [28], and incorporation of structural priors for complex industrial applications [2,25].This comprehensive framework, which forms the foundation for our present work, offers a robust solution for both clinical and industrial EIT applications.
+
+Although level-set-based shape optimization methods have significantly advanced EIT interface reconstruction, critical limitations impede their application to comprehensive 3D problems.The explicit discretization of the interface inherent in conventional level set approaches [7] imposes prohibitive memory requirements, largely confining existing EIT studies to 2D or simplified quasi-3D geometries.Current heuristic regularization techniques [21] inadequately preserve complex anatomical features, frequently introducing geometric artifacts that compromise diagnostic precision.Moreover, these methods exhibit marked sensitivity to initial conditions and topological constraints during interface evolution, creating formidable convergence challenges.Recent breakthroughs in deep learning, particularly Implicit Neural Representations [10,31], present promising pathways to overcome these obstacles.Neural implicit functions have exhibited exceptional capabilities in representing intricate 3D geometries through continuous, differentiable mappings [8].Their capacity to encode compact latent representations while preserving fine geometric details makes them especially suitable for EIT interface reconstruction problems.
+
+We develop the implicit neural shape optimization framework, which enhances traditional level-setbased shape optimization methods.The design of our algorithm is motivated by the need for an efficient and accurate representation of complex interfaces in EIT.By parameterizing the conductivity interface as Γ = {x ∈ R 3 |f θ (x) = 0} using a differentiable neural network f θ : R 3 → R, we enable mesh-free optimization.By introducing a latent representation of surfaces, we significantly reduce the dimensionality of optimization variables, making the EIT problem more tractable with faster convergence and improved stability.We derive clear gradient expressions of the loss function with respect to these latent variables, enabling the design of efficient gradient descent algorithms.This integration of interface inverse problems with neural representation of surfaces not only advances 3D EIT reconstruction but also provides a robust framework for addressing general PDE-constrained shape optimization challenges.The key innovations and advantages of this work can be summarized as follows:
+
+• We introduce a novel implicit neural framework for EIT interface reconstruction that parameterizes complex conductivity interfaces using neural networks, effectively reducing the high-dimensional shape optimization problem to a more manageable latent space optimization.
+
+• We derive explicit gradient expressions of the objective function with respect to latent variables, enabling the design of an efficient gradient descent algorithm that navigates the latent space to identify optimal interface configurations.
+
+• We provide a rigorous mathematical analysis which establishes convergence guarantees for our optimization scheme, demonstrating that under appropriate conditions, the algorithm converges to stationary points of the regularized objective function.
+
+The remainder of this paper is organized as follows.Section 2 formulates the EIT interface reconstruction problem as a PDE-constrained shape optimization framework.Section 3 presents our implicit neural paradigm, which incorporates a differentiable neural distance function for efficient shape representation.In Section 4, we establish rigorous convergence guarantees for our optimization scheme, demonstrating that it converges to stationary points of the regularized objective function under appropriate conditions.Section 5 validates our method through comprehensive numerical experiments.Finally, Section 6 discusses the broader implications for inverse problem solving and explores potential extensions to other imaging modalities.
+
+
+The Problem Setting
+
+In Electrical Impedance Tomography (EIT), the conductivity distribution within a domain determines the electric potential field generated by applied currents.The electric potential u satisfies the following elliptic equation [9]:
+−∇ • (σ(x)∇u) = 0 in Ω,(1)
+where σ(x) is the conductivity distribution function within the domain Ω.
+
+We consider a high-contrast conductivity model [7], where conductivity exhibits sharp discontinuities across material interfaces.Let D ⊂ R 3 be a simply connected bounded domain containing an unknown inclusion S with a C 2 -regular boundary, satisfying the geometric separation condition dist(∂S, ∂D) > δ > 0 (see Figure 1).The high-contrast conductivity model is characterized by: This configuration models practical scenarios where highly conductive inclusions are embedded in moderate-conductivity media, such as titanium orthopedic implants (σ ≈ 4 × 10 6 S/m) within muscle tissue (σ ≈ 0.5 S/m) [18].Our framework extends naturally to general conductivity distributions.
+σ(x) = σ + x ∈ S 1 x ∈ D \ S , with σ + ≫ 1.(2)
+The forward problem in EIT involves solving a series of elliptic boundary value problems in the conducting domain Ω.For our analysis, we focus on the current injection scenario, which corresponds to the typical experimental setup.Given current patterns g ∈ H −1/2 (Σ) satisfying Σ g ds = 0 (current conservation), the governing equations for the electric potential u are:
+     −∆u = 0 in Ω u = 0 on Γ ∂ n u = g on Σ .(3)
+The boundary measurements of the voltage f = u| Σ ∈ H 1/2 (Σ) are then collected for the inverse problem.
+
+The inverse problem seeks to recover the interface Γ := ∂S from boundary measurements.The standard approach formulates this as an optimization problem that minimizes the misfit between computed and measured potentials:
+J(Γ) := 1 2 ∥u − f ∥ 2 L 2 (Σ) → inf Γ∈A ,(4)
+where A denotes the admissible set of interfaces defined as:
+A := {Γ ∈ C 2 : dist(Γ, Σ) > δ}.
+
+Boundary Integral Formulation
+
+To efficiently solve the system in equation ( 3), we employ a boundary integral equation (BIE) approach.This powerful methodology reduces the dimensionality of the computational domain from the threedimensional region Ω to its two-dimensional boundaries Γ and Σ, offering significant computational advantages for interface problems.Let G(x, y) = (4π|x − y|) −1 denote the fundamental solution of the 3D Laplacian.For any ϕ ∈ H 1/2 (Γ ∪ Σ), we define the single-layer and double-layer potentials: The boundary integral operators are then defined by taking appropriate traces of these potentials:
+S AB ϕ(x) := B G(x, y)ϕ(y) ds(y), x ∈ A(7)K AB ϕ(x) := B ∂ n(y) G(x, y)ϕ(y) ds(y), x ∈ A(8)
+where (A, B) ∈ {(Γ, Γ), (Γ, Σ), (Σ, Γ), (Σ, Σ)}, representing all possible boundary interactions.
+
+For the system governing u, the BIE formulation takes the elegant block form:
+S ΓΓ −K ΓΣ −S ΣΓ 1 2 I + K ΣΣ ∂ n u| Γ u| Σ = 1 2 I + K ΓΓ −S ΓΣ −K ΣΓ S ΣΣ 0 g .(9)
+This formulation reveals the severe ill-posedness inherent to the EIT problem.The off-diagonal blocks S ΣΓ and K ΣΓ that couple the inclusion boundary Γ to the measurement boundary Σ contain terms that decay exponentially with the distance between these boundaries, as illustrated in Figure 2. Specifically, the fundamental solution G(x, y) decreases as O(|x − y| −1 ), causing rapid attenuation of information from the interior interface to the exterior boundary.Consequently, small perturbations in boundary measurements can correspond to vastly different internal configurations, making the inverse problem extremely sensitive to measurement noise [4].
+
+
+Implicit Neural Shape Optimization
+
+Our approach synergizes classical shape optimization theory with implicit neural representations, creating a powerful framework for reconstructing complex interfaces in EIT problems.
+
+
+Implicit Neural Surfaces Representation and Topology Preservation
+
+Traditional interface representation methods in EIT encounter significant challenges when applied to 3D reconstruction problems.Explicit mesh-based approaches, while intuitive, struggle with topological changes that naturally occur during reconstruction.Level-set methods offer greater flexibility but frequently introduce undesirable artifacts, particularly when working with noisy measurements, a common scenario in practical EIT applications.
+
+To overcome these fundamental limitations, we employ neural implicit shape representations, specifically the Signed Distance Function (SDF) paradigm.An SDF f : R 3 → R elegantly maps each point in space to its signed distance from the nearest point on the interface, following the convention:
+f (x) = −d(x, Γ) if x ∈ S, d(x, Γ) if x ∈ R 3 \ S,(10)
+where d(x, Γ) denotes the Euclidean distance from point x to the interface Γ = ∂S.This mathematically elegant representation implicitly defines the interface as the zero level set:
+Γ = {x ∈ R 3 |f (x) = 0}.
+Following the pioneering DeepSDF approach [31], we parameterize this function using a deep neural network f θ : R 3 → R with parameters θ.This network architecture learns to approximate the signed distance function throughout the domain, enabling a remarkably compact yet highly expressive representation of complex geometrical structures.A key innovation in this framework is the incorporation of a latent code z ∈ R d that efficiently encodes shape information within a low-dimensional manifold:
+f θ : R d × R 3 → R, (z, x) → f θ (z, x).(11)
+While DeepSDF provides a powerful representation framework, they do not inherently guarantee topological consistency during shape manipulation or evolution.While DeepSDF provides a powerful representation framework, they do not inherently guarantee topological consistency during shape manipulation or evolution.This limitation is particularly problematic for EIT interface reconstruction, where preserving the correct topology of anatomical structures or industrial components is essential for accurate diagnosis or defect detection.To address this limitation, we adopt the Neural Diffeomorphic Flow (NDF) framework introduced by Sun et al. [37], which ensures robust topology preservation through carefully designed diffeomorphic constraints.The NDF approach conceptualizes shape deformation as a differentiable flow ψ z : R 3 → R 3 , parameterized by the latent code z.This flow transforms a template shape into the target shape while strictly preserving topological characteristics.
+
+The cornerstone of the NDF framework is its specialized loss function, which integrates SDF approximation with topological preservation guarantees.The original NDF framework [37] utilizes a composite loss function that generally includes:
+L NDF = L SDF + λ 1 L diffeo + λ 2 L reg ,(12)
+where
+L SDF = E x [|f θ (z, ψ z (x)) − SDF target (x)|]
+measures how accurately the transformed SDF matches the target SDF values at sampled points,
+L diffeo = E x [| det(∇ x ψ z )−1|]
+enforces the diffeomorphic property by constraining the Jacobian determinant of the flow ψ z to remain positive and close to unity, and L reg provides additional regularization on the flow field to ensure smoothness.This formulation directly connects the flow field ψ z with the SDF approximation task, ensuring that the transformed shapes maintain their topological structure.
+
+For our EIT application, we leverage a pre-trained NDF model that has already learned to generate topologically consistent shapes within its latent space.This allows us to navigate the latent space during reconstruction while inheriting the topological guarantees provided by the diffeomorphic constraints -a critical advantage for accurate interface representation in both medical imaging and industrial inspection applications where topological errors could lead to misdiagnosis or false detections.
+
+
+Optimization in Latent Space
+
+By introducing the implicit neural representation of surfaces, we transform the challenging surface optimization problem on the infinite-dimensional admissible set A into a more tractable optimization problem in a compact latent space M (Figure 3).This reduction of dimensionality represents a paradigm shift in our approach to EIT interface reconstruction.Given a pre-trained NDF model, we seek the optimal latent code z ∈ M such that min
+z∈M L(z) = J(Γ z ) := 1 2 ∥u − f ∥ 2 L 2 (Σ) ,(13)
+where u solves the state equation (3) with boundary Γ z which is implicitly defined as the zero level set of our neural network:
+Γ z = {x ∈ R 3 |f θ (z, x) = 0}.
+Following [38], we assume the regularity condition that ∇ x f θ (z, x) ̸ = 0 whenever f θ (z, x) = 0, ensuring a well-defined surface with consistent normal vectors.This condition is naturally satisfied by properly trained neural SDF models that accurately approximate true signed distance functions.
+
+This latent representation fundamentally transforms the optimization landscape by dramatically reducing the dimensionality of the problem -from the infinite-dimensional space of all possible interfaces to a compact latent space, typically of dimension d ≈ 256 ≪ ∞.Such a dimensionality reduction not only enhances computational efficiency but also provides implicit regularization that helps mitigate the severe ill-posedness inherent in EIT reconstruction.By constraining the search space to the manifold of plausible shapes encoded by the pre-trained model, we effectively incorporate prior knowledge about realistic shape variations without requiring explicit regularization terms.
+
+
+Latent Space Gradient for Shape Optimization
+
+To solve the optimization problem (13) efficiently, we derive analytical expressions for the gradient of the objective function with respect to the latent variables.This requires extending the classical shape calculus to the neural implicit setting.Let V : R × R 3 → R 3 be a velocity field and let x(t, X) be the solution to
+d dt x(t, X) = V (t, x(t, X)), x(0, X) = X.(14)
+The transformation T t (X) = x(t, X) maps Γ to Γ t = T t (Γ).The shape derivative in direction V is defined as:
+dJ(Γ; V ) = lim t→0 + J(Γ t (V )) − J(Γ) t .(15)
+By bridging this classical framework with our neural implicit representation, we derive the following key result:
+
+Theorem 3.1 (Gradient Representation).Let Ω z be a bounded domain of class C 2 , and let L(z) be defined in (13).If ∇ x f θ does not vanish on Γ z , then:
+∇L(z) = Γz ∂u ∂n ∂w ∂n ∇ z f θ ∥∇ x f θ ∥ ds, (16)
+where w solves the adjoint equation:
+     ∆w = 0 in Ω z , w = 0 on Γ z , ∂ n w = u − f on Σ. (17)
+Proof.The proof follows from the chain rule and the shape derivative formula in [6].Specifically, we use the relation between variations in the latent space and the corresponding shape variations through the implicit neural representation, applying the adjoint method to derive (16).This elegant gradient formulation reveals the intricate relationship between latent space variations and interface geometry changes.The integrand in (16)  Generate interface Γ k = {x|f θ (z k , x) = 0} via marching cubes.
+
+
+5:
+
+Solve forward problem (3) for u k on Ω k .
+
+
+6:
+
+Solve adjoint problem (17) for w k .
+
+
+7:
+
+Generate an unbiased estimate g k of ∇L(z k ) using the expression in ( 16).
+
+
+8:
+
+Update z using a stochastic gradient descent method with the estimate g k .
+
+
+9:
+
+if convergence criteria met then end if 12: end for 13: return Reconstructed interface Γ N .mapping ∇zf θ ∥∇xf θ ∥ .This formulation provides a mathematically rigorous bridge between neural network parameters and geometric optimization, allowing efficient navigation of the latent manifold toward solutions that match the physical measurements.
+
+Building on this established gradient expression, we can update z using a stochastic gradient descent algorithm.In our experiments, we adopt the Adam method, which is an efficient optimization method based on gradient and moment, although other gradient descent methods could also be employed.The complete algorithm description is presented in Algorithm 1.Our approach offers several key advantages, including efficient optimization in a low-dimensional latent space and topology preservation inherited from the pre-trained neural distance function (NDF).This combination enhances the overall performance and effectiveness of our method, particularly for challenging 3D high-contrast EIT reconstruction problems, where maintaining correct topology is crucial for accurate interpretation.
+
+
+Convergence Analysis
+
+We now establish the convergence properties of Algorithm 1 in the stochastic gradient descent(SGD) framework [5,22].Given an initial guess z 0 , the SGD algorithm updates the latent variable by
+z k+1 = z k − α k g k , k = 0, 1, 2, • • •
+where α k is the stepsize at iteration k and g k is an unbiased estimate of ∇L(z k ).The key component of the convergence analysis is the shape derivative regularity estimate.
+
+First, we define the second-order shape derivative.Let V 1 , V 2 : R × R 3 → R 3 be two differentiable velocity fields.Let the objective J(Γ) be shape differentiable in the sense of Hadamard [11].Then we define the second derivative by
+d 2 J(Γ; V 1 ; V 2 ) = lim t→0 + dJ(Γ t (V 1 ); V 2 (t)) − dJ(Γ; V 2 (0)) t .(18)
+Following [11, Theorem 6.2, Chapter 9], we have
+d 2 J(Γ; V 1 ; V 2 ) = d 2 J(Γ; V 1 (0); V 2 (0)) + dJ(Γ; V ′ 1 (0)),(19)
+where
+d 2 J(Γ; V 1 (0); V 2 (0)) := lim t→0 + dJ(T t (Γ, V 1 ); V 2 (0)) − dJ(Γ; V 2 (0)) t ,(20)
+dJ(Γ; V (0)) := lim
+t→0 + J((T t (Γ, V )) − J(Γ) t ,(21)T t (Γ, V ) = {x + tV (0, x)|x ∈ Γ},(22)
+and
+V ′ (0) = lim t→0+ V (t, x) − V (0, x) t . (23)
+For a detailed discussion of second-order shape derivatives, we refer to [11,35] and [20,Appendix].
+
+We begin with a key estimate on the shape derivatives.
+
+Theorem 4.1 (Shape Derivative Bounds).Let Γ be of class C 5 .Then there exists C > 0 independent of V such that:
+|dJ(Γ; V (0))| ≤ C∥V (0)∥ C(Γ;R 3 ) , ∀V ∈ C([0, ε); C(Ω, R 3 )) (24)|d 2 J(Γ; V 1 (0); V 2 (0))| ≤ C∥V 1 (0)∥ C 3 (Γ,R 3 ) ∥V 2 (0)∥ C 3 (Γ,R 3 ) ,(25)for all V 1 , V 2 ∈ C([0, ε); C 4 (Ω, R3
+)), where ε > 0 is sufficiently small.
+
+The proof requires several preliminary results.
+
+
+Lemma 4.2 (Energy Estimate).
+
+Let Ω ⊂ R n be a bounded Lipschitz domain with boundary ∂Ω = Γ ∪ Σ.
+
+Consider the following problem
+     ∆u = 0 in Ω, u = f on Γ, ∂ n u = 0 on Σ, (26)
+where f ∈ H 1/2 (Γ).Then there exists C = C(Ω) such that
+∥u∥ H 1 (Ω) ≤ C∥f ∥ H 1/2 (Γ) .(27)
+Proof.By the integral by parts, we can easily get
+Ω |∇u| 2 dx = Γ f ∂ n u dS.(28)
+Then using Cauchy-Schwarz and trace theorems, we have
+Γ f ∂ n u dS ≤ ∥f ∥ H 1/2 (Γ) ∥∂ n u∥ H −1/2 (Γ) ≤ C 1 ∥f ∥ H 1/2 (Γ) ∥u∥ H 1 (Ω) .(29)
+The modified Poincaré inequality gives that
+∥u∥ L 2 (Ω) ≤ C 2 ∥∇u∥ L 2 (Ω) + ∥f ∥ L 2 (Γ) .(30)
+Combining these inequalities and applying Young's inequality yields the result.
+
+To prove Theorem 4.1, we analyze the measurement operator F : A → R:
+F (Γ) = u(x 0 )(31)
+which maps an admissible boundary Γ to the value of state function u at x 0 ∈ Σ.By [1, Theorem 2], F is twice continuously differentiable with
+d 2 F (Γ; V 1 (0); V 2 (0)) = u ′′ (x 0 ),(32)
+where (33) with boundary data
+u ′′ solves      ∆u ′′ = 0 in Ω, u ′′ = ψ on Γ, ∂ n u ′′ = 0 on Σ,ψ =(V 1,n V 2,n H − V 1,τ • (DnV 2,τ ))∂ n u − (V 1,n ∂ n u ′ 2 + V 2,n ∂ n u ′ 1 ) + (V 1,τ τ • ∇V 2,n + V 2,τ τ • ∇V 1,n )∂ n u, (34)
+where u is the solution of the state problem, and n denotes the unit outward normal to the boundary Γ.The notation V j,n = V j (0) • n and V j,τ = V j (0) • τ denote the normal and tangential components of the vector V j (0), respectively, and H denotes the mean curvature of the boundary Γ.Moreover, u ′ j for j = 1, 2, is the solution to the following boundary value problem
+     ∆u ′ = 0 in Ω, u ′ = V n ∂ n u on Γ, ∂ n u ′ = 0 on Σ. (35)
+Still by [1][Theorem 1], we have dF
+(Γ; V 1 (0); V 2 (0)) = u ′ (x 0 ).(36)
+For the operator F, we have the following useful estimates.
+
+Lemma 4.3.Under the assumption of Theorem 4.1, the following estimates hold
+|dF (Γ; V (0))| ≤ C∥V (0)∥ C(Γ;R 3 ) , ∀V ∈ C([0, ε); C(Ω, R 3 )), (37)|d 2 F (Γ; V 1 (0); V 2 (0))| ≤ C V 1 (0)∥ C 3 (Γ,R 3 ) ∥V 2 (0)∥ C 3 (Γ,R 3 ) , ∀V 1 , V 2 ∈ C([0, ε); C 4 (Ω, R 3 )). (38)
+Proof.First, the C 5 regularity of the boundary Γ implies that, for any bounded subdomain
+Ω + = R 3 \Ω, u ∈ H 5 (Ω + ), γu ∈ H 9/2 (Γ) and ∂ n u ∈ H 7/2 (Γ).(39)
+By (35), we have
+|dF (Γ; V (0))| = |u ′ (x 0 )| ≤ max x∈Σ |u ′ (x)| = ∥u ′ ∥ C 0 (Σ) .(40)
+We consider a neighborhood of Σ within Ω, denoted as Ω ′ , such that dist(Ω ′ , Γ) > 0. By the classical elliptic regularity theory (see [16]) and the trace theorem, there exists a constant C > 0 such that
+∥u ′ ∥ C 0 (Σ) ≤ C∥u ′ ∥ H 3/2 (Σ) ≤ C∥u ′ ∥ H 2 (Ω ′ ) ≤ C∥u ′ ∥ H 1 (Ω)(41)
+where we've used the fact that for harmonic functions, interior regularity implies that u ′ ∈ H 2 (Ω ′ ) given that u ′ ∈ H 1 (Ω).Next, we estimate ∥u ′ ∥ H 1 (Ω) .By the variational theory of elliptic equations and Lemma 4.2, considering that u ′ satisfies equation (35) with Dirichlet condition on the internal boundary Γ and Neumann condition on the external boundary Σ, we have
+∥u ′ ∥ H 1 (Ω) ≤ C∥u ′ ∥ H 1/2 (Γ) (42)
+where C is a constant depending only on the domain Ω.Noting the boundary condition u ′ | Γ = V n ∂ n u on the internal boundary Γ, we have
+∥u ′ ∥ H 1/2 (Γ) = ∥V n ∂ n u∥ H 1/2 (Γ)(43)
+By the product rule in Sobolev spaces, when V n ∈ C 1 (Γ) and ∂ n u ∈ H 1/2 (Γ), we have
+∥V n ∂ n u∥ H 1/2 (Γ) ≤ C∥V n ∥ C 1 (Γ) ∥∂ n u∥ H 1/2 (Γ)(44)
+Since under the regularity assumption (39), ∂ n u ∈ H 7/2 (Γ) → H 1/2 (Γ) and the norm is bounded, i.e., there exists a constant C > 0, independent of V (0), such that ∥∂ n u∥ H 1/2 (Γ) ≤ C, we obtain
+∥V n ∂ n u∥ H 1/2 (Γ) ≤ C∥V n ∥ C 1 (Γ)(45)
+Combining the above inequalities, we have
+max x∈Σ |u ′ (x)| ≤ C∥u ′ ∥ C 0 (Σ) ≤ C∥u ′ ∥ H 1 (Ω) ≤ C∥u ′ | Γ ∥ H 1/2 (Γ) ≤ C∥V n ∥ C 1 (Γ) (46) thus |dF (Γ; V (0))| ≤ max x∈Σ |u ′ (x)| ≤ C∥V n ∥ C 1 (Γ) ≤ C∥V (0)∥ C 1 (Γ;R 3 )(47)
+This shows the first assertion.Next, from ( 33)
+|d 2 F (Γ; V 1 (0); V 2 (0))| =|u ′′ (x 0 )| ≤ max x∈Σ |u ′′ (x)| ≤ C∥u ′′ ∥ H 1/2 (Γ) (48) =C∥ψ∥ H 1/2 (Γ) (49) =∥(V 1,n V 2,n H − V 1,τ • (DnV 2,τ ))∂ n u∥ H 1/2 (Γ) (50) +∥V 1,n ∂ n u ′ 2 ∥ H 1/2 (Γ) + ∥V 2,n ∂ n u ′ 1 ∥ H 1/2 (Γ) (51) +∥(V 1,τ (τ • ∇V 2,n )∂ n u∥ H 1/2 (Γ) + ∥V 2,τ (τ • ∇V 1,n )∂ n u∥ H 1/2 (Γ) (52) =I 1 + I 2 + I 3 + I 4 + I 5 .(53)
+Then we can prove the second assertion term by term.For the first term I 1 ,
+I 1 =∥(V 1,n V 2,n H − V 1,τ • (DnV 2,τ ))∂ n u∥ H 1/2 (Γ) (54) ≤C∥(|V 1,n V 2,n | + |V 1,τ V 2,τ |)∂ n u∥ H 1/2 (Γ) .(55)
+Using the product rule for Sobolev spaces, for functions f, g where f ∈ H 1/2 (Γ) and g ∈ C 1 (Γ), we have:
+∥f g∥ H 1/2 (Γ) ≤ C∥f ∥ H 1/2 (Γ) ∥g∥ C 1 (Γ)(56)
+Applying this to our case, and noting that ∂ n u ∈ H 7/2 (Γ) ⊂ H 1/2 (Γ) with bounded norm due to (39), we get:
+∥(|V 1,n V 2,n | + |V 1,τ V 2,τ |)∂ n u∥ H 1/2 (Γ) ≤ C∥|V 1,n V 2,n | + |V 1,τ V 2,τ |∥ C 1 (Γ) ∥∂ n u∥ H 1/2 (Γ) (57) ≤ C∥|V 1,n V 2,n | + |V 1,τ V 2,τ |∥ C 1 (Γ)(58)
+For products of functions in C 1 , we have:
+∥|V 1,n V 2,n | + |V 1,τ V 2,τ |∥ C 1 (Γ) ≤ ∥V 1,n V 2,n ∥ C 1 (Γ) + ∥V 1,τ V 2,τ ∥ C 1 (Γ) (59) ≤ ∥V 1,n ∥ C 1 (Γ) ∥V 2,n ∥ C 1 (Γ) + ∥V 1,τ ∥ C 1 (Γ) ∥V 2,τ ∥ C 1 (Γ)(60)
+The components V j,n and V j,τ are projections of V j onto the normal and tangential directions, respectively.These projections involve the geometry of the boundary through the normal vector n and tangent vectors.Since the boundary Γ is C 5 , the normal and tangent vectors are at least C 4 .When we project a vector field onto these directions and take derivatives, we need to account for derivatives of both the vector field and the direction vectors.
+
+For a vector field V j ∈ C k (Γ; R 3 ), its normal component V j,n = V j • n satisfies:
+∥V j,n ∥ C 1 (Γ) ≤ C∥V j ∥ C 2 (Γ;R 3 )(61)
+This is because computing ∇ Γ (V j • n) involves both ∇ Γ V j and ∇ Γ n, requiring one more degree of smoothness.
+
+Similarly, for the tangential component:
+∥V j,τ ∥ C 1 (Γ) ≤ C∥V j ∥ C 2 (Γ;R 3 )(62)
+Therefore:
+∥|V 1,n V 2,n | + |V 1,τ V 2,τ |∥ C 1 (Γ) ≤ C(∥V 1 ∥ C 2 (Γ;R 3 ) ∥V 2 ∥ C 2 (Γ;R 3 ) ) (63) ≤ C∥V 1 ∥ C 2 (Γ;R 3 ) ∥V 2 ∥ C 2 (Γ;R 3 )(64)
+For the term I 1 , we now have:
+I 1 ≤ C∥V 1 ∥ C 2 (Γ;R 3 ) ∥V 2 ∥ C 2 (Γ;R 3 )(65)
+The terms I 2 through I 5 involve higher derivatives of the vector fields and the boundary, and their analysis requires even higher regularity.In particular, terms like V j,τ • ∇V k,n involve third derivatives of the vector fields, which is why we ultimately need:
+I j ≤ C∥V 1 ∥ C 3 (Γ;R 3 ) ∥V 2 ∥ C 3 (Γ;R 3 ) , j = 1, 2, 3, 4, 5(66)
+Combining all these estimates, we conclude:
+|d 2 F (Γ; V 1 (0); V 2 (0))| ≤ C∥V 1 ∥ C 3 (Γ;R 3 ) ∥V 2 ∥ C 3 (Γ;R 3 ) (67)
+This completes the proof of the second assertion.
+
+Proof of Theorem 4.1.With the help of Lemma 4.3, we can prove Theorem 4.1 similarly to [6], here we omit the details.Now, we can give the convergence of the SGD algorithm.
+
+Theorem 4.4.Let {z k } ∞ k=0 ⊂ R d be a sequence of latent codes generated by Algorithm 1, where each z k implicitly represents a shape through the neural network f θ (z k , •).Assume that this sequence is uniformly bounded.Let the step size α k be fixed, such that α k = ᾱ for all k ∈ N. We also consider the shape derivatives approximated by stochastic gradients g k in the latent space, with the following properties:
+
+(i) There exist scalars µ G ≥ µ > 0 such that for all k ∈ N:
+∇L(z k ) T E[g k ] ≥ µ∥∇L(z k )∥ 2 2 and ∥E[g k ]∥ 2 ≤ µ G ∥∇L(z k )∥ 2 . (68)
+(ii) There exist scalars M ≥ 0 and M V ≥ 0 such that for all k ∈ N:
+V[g k ] ≤ M + M V ∥∇L(z k )∥ 2 2 , (69)
+where V[g k ] denotes the variance of the stochastic gradient g k .
+
+Then, there exists a constant C such that if 0 < ᾱ ≤ min{C, µ Lµ 2
+
+
+G
+
+, µ LM V }, the following estimate holds:
+E 1 K K k=1 ∥∇L(z k )∥ 2 2 ≤ ᾱLM µ + 2(L(z 1 ) − L inf ) Kµᾱ K→∞ − −−− → ᾱLM µ , (70)
+where L inf is a lower bound on L(z).
+
+Proof.Our proof consists of two key parts: first establishing how the properties of the neural shape representation affect the Lipschitz continuity of the objective gradient, and then analyzing the convergence of the resulting stochastic optimization process in the latent space.
+
+Step 1: Establishing Lipschitz Continuity From Theorem 4.1, we know that the second-order shape derivative is bounded
+|d 2 J(Γ; V 1 (0); V 2 (0))| ≤ C∥V 1 (0)∥ C 3 (Γ;R 3 ) ∥V 2 (0)∥ C 3 (Γ;R 3 ) . (71)
+In our implicit neural representation, perturbations in the latent space z induce shape perturbations through the zero level set of f θ (z, x).Using the chain rule and the structure of our neural network, we can establish that
+∥∇ 2 L(z)∥ 2 ≤ L,(72)
+where L depends on the shape derivative bounds from Theorem 4.1 and the properties of our neural network f θ .This yields the Lipschitz continuity of the gradient in the latent space:
+∥∇L(z + ∆z) − ∇L(z)∥ 2 ≤ L∥∆z∥ 2 . (73)
+Step 2: Convergence Analysis With the Lipschitz continuity established, we now analyze the convergence of our algorithm.Following the approach of [5] but adapted to our context, we proceed as follows.
+
+The Lipschitz continuity implies
+L(z + ∆z) ≤ L(z) + ∇L(z) T ∆z + L 2 ∥∆z∥ 2 2 . (74)
+For our update z k+1 = z k − ᾱg k , where g k approximates the shape derivative in the latent space, taking conditional expectation, we have
+E[L(z k+1 )|z k ] ≤ L(z k ) − ᾱ∇L(z k ) T E[g k |z k ] + Lᾱ 2 2 E[∥g k ∥ 2 2 |z k ]. (75)
+In our algorithm, the stochastic gradient g k is computed by sampling points on the interface Γ z k when approximating the shape derivative integral.This sampling, combined with boundary integral equation (BIE) solutions for the state and adjoint variables, gives us the following properties:
+∇L(z k ) T E[g k |z k ] ≥ µ∥∇L(z k )∥ 2 2 (76) E[∥g k ∥ 2 2 |z k ] = ∥E[g k |z k ]∥ 2 2 + V[g k |z k ] (77) ≤ µ 2 G ∥∇L(z k )∥ 2 2 + M + M V ∥∇L(z k )∥ 2 2 (78) = (µ 2 G + M V )∥∇L(z k )∥ 2 2 + M (79)
+Substituting back:
+E[L(z k+1 )|z k ] ≤ L(z k ) − ᾱµ∥∇L(z k )∥ 2 2 + Lᾱ 2 2 ((µ 2 G + M V )∥∇L(z k )∥ 2 2 + M ) (80) = L(z k ) − ᾱ µ − Lᾱ(µ 2 G + M V ) 2 ∥∇L(z k )∥ 2 2 + Lᾱ 2 M 2 (81)
+In our neural shape optimization framework, additional constraints arise from the need to preserve topology.Taking these into account, we choose:
+ᾱ ≤ min µ Lµ 2 G , µ LM V(82)
+This ensures:
+E[L(z k+1 )|z k ] ≤ L(z k ) − ᾱµ 2 ∥∇L(z k )∥ 2 2 + Lᾱ 2 M 2(83)
+Taking total expectation and rearranging:
+ᾱµ 2 E[∥∇L(z k )∥ 2 2 ] ≤ E[L(z k )] − E[L(z k+1 )] + Lᾱ 2 M 2(84)
+Summing over k = 1, 2, . . ., K:
+ᾱµ 2 K k=1 E[∥∇L(z k )∥ 2 2 ] ≤ E[L(z 1 )] − E[L(z K+1 )] + KLᾱ 2 M 2 (85) ≤ L(z 1 ) − L inf + KLᾱ 2 M 2(86)
+Dividing by K and by ᾱµ 2 :
+E 1 K K k=1 ∥∇L(z k )∥ 2 2 ≤ 2(L(z 1 ) − L inf ) K ᾱµ + ᾱLM µ(87)
+As K → ∞:
+lim K→∞ E 1 K K k=1 ∥∇L(z k )∥ 2 2 ≤ ᾱLM µ(88)
+This completes the proof, establishing convergence of our implicit neural shape optimization algorithm in the average gradient sense, with a bound that reflects both the shape optimization aspects and the neural network representation characteristics of our approach.
+
+Remark.Theorem 4.4 establishes convergence guarantees for the SGD method with fixed step size.These results can be extended to the Adam algorithm, which is used in our implementation (Algorithm 1).Adam combines momentum and adaptive step sizes, requiring additional analysis of the momentum accumulation and second moment estimation.Following the approach in [24] and [33], one can show that, under similar assumptions but with appropriate modifications to account for the momentum terms and adaptive step sizes, Adam converges with comparable guarantees.Specifically, the key modification involves analyzing how the momentum terms affect the descent direction alignment and how the adaptive scaling affects the effective step size.The extended analysis would yield similar asymptotic behavior but with potentially improved constants due to the adaptive nature of the algorithm.
+
+
+Numerical Results
+
+We present comprehensive numerical experiments to validate the effectiveness of our implicit neural shape optimization approach to high-contrast EIT reconstruction in Algorithm 1.The experiments are designed to evaluate both the accuracy of the reconstruction and the robustness of the algorithm under various challenging conditions.
+
+
+Implementation Details
+
+The outer boundary Σ is defined as the sphere of radius 1.5.For discretization, we employ a regular grid with a spacing of 0.06 for the marching cube algorithm.Our implementation uses the BEMPP-CL package [3] to solve boundary integral equations in the forward problem.The optimization process relies on the Adam algorithm with an initial learning rate of 0.01, operating in a latent space of dimension 256 for the representation of the shape.
+
+To simulate realistic measurement conditions, we introduce Gaussian noise into the boundary measurement data:
+f δ = (1 + δξ ml )f exact , ξ ml ∼ N (0, 1),(89)
+where δ controls the noise level.
+
+We employ three complementary metrics to quantitatively assess reconstruction quality:
+
+1. Indicator Error: Measures the volumetric difference between the reconstructed and target shapes:
+e( Ŝ) = xi ∥ Ŝ(x i ) − S † (x i )∥ 2 ,(90)
+where Ŝ and S † are the characteristic functions of the reconstructed and target shapes, respectively.
+
+
+Hausdorff Distance:
+
+Captures the maximum geometric deviation between surfaces:
+d H (S 1 , S 2 ) = max sup a∈S1 inf b∈S2 ∥a − b∥, sup b∈S2 inf a∈S1 ∥b − a∥ .(91)
+3. Volume Difference: Provides a global measure of shape accuracy:
+d V (S 1 , S 2 ) = |V 1 − V 2 |,(92)
+where V 1 and V 2 denote the volumes enclosed by surfaces S 1 and S 2 respectively.
+
+
+Experimental Results
+
+We evaluate our method on two distinct scenarios to demonstrate its versatility and effectiveness in different reconstruction contexts.These scenarios are carefully designed to assess both the accuracy and robustness of our algorithm under varying geometric conditions.The dataset used is Abdomen1k dataset [29].We randomly select training samples from the dataset and evaluate on held-out test cases.
+
+
+Scenario I: Pancreas Reconstruction
+
+The first scenario focuses on the pancreas model.Two examples are included in this scenario.In Figure 4, the first row shows the initial guess for Algorithm 1, the second row the final reconstructions, and the third row the reconstruction target.The reconstructions are shown at four different view angles: perspective view (first column), superior view (second column), anterior view (third column), and lateral view (fourth column).Each perspective reveals different anatomical features.This example demonstrates the ability of the algorithm to reconstruct complex pancreas structures.The convergence of the algorithm versus the iteration number is shown in Figure 5, where we observe a rapid initial decrease in the loss function followed by gradual refinement, indicating efficient optimization in the latent space.The indicator error, Hausdorff distance, and volume distance metrics show consistent improvement throughout the optimization process, confirming the progressive geometric convergence towards the target shape.To evaluate the stability of our method under realistic measurement conditions, we examined the reconstruction performance with significant noise (20%) added to the boundary measurement data.Figure 6 presents the reconstruction results under noisy conditions.Despite the considerable measurement noise, our method successfully recovers the core geometric features of the target shape, preserving both the general curved structure and the approximate proportions.The convergence metrics in Figure 7 further confirm the robustness of our algorithm.Figure 8-10 present our second test case for Scenario I, which focuses on the reconstruction of a complex pancreas model with its distinctive anatomical morphology.The multi-view comparison clearly demonstrates our method's ability to accurately capture the intricate geometry of the pancreatic structure, including challenging features such as the pancreatic head, body, and tail regions with their varying thickness and curvature.The convergence behavior of this reconstruction is shown in Figure 9, where we can observe the progressive reduction in the four quantitative error metrics.The loss function exhibits rapid initial descent followed by gradual refinement, while the indicator error shows a steady decrease throughout the process.Particularly noteworthy is the Hausdorff distance curve, which reveals how our method systematically reduces geometric discrepancies, achieving a final value of 0.1834.The volume difference metric demonstrates the most dramatic improvement, with early fluctuations eventually stabilizing to reach an impressive final value of 0.0093-confirming the high volumetric accuracy of our reconstruction, which is critical for pancreatic applications.
+
+Figure 10 shows the target and intermediate recovery results at different iterations for our test case, focusing on reconstructing a complex anatomical structure.The visualization presents the progressive shape evolution from a lateral viewpoint, capturing key developmental stages at iterations 0, 30, 60, 90,   120, 150, and 399 (ordered from left to right and from top to bottom), with the final panel showing the exact target shape.The transformation begins with a simple initialization (iteration 0) that roughly approximates the general contour, but lacks anatomical details.As the optimization progresses through iterations 30-60, we observe the emergence of the characteristic curved profile and the initial definition of both the upper and lower regions.By iterations 90-120, the algorithm successfully refines the proportions between different anatomical sections, with noticeable improvements in the representation of the elongated structure and curvature.At iteration 150, most of the key morphological features have been established.The final reconstruction at iteration 399 demonstrates remarkable fidelity to the ground truth model, accurately capturing the distinctive curved shape, varying thickness, and the characteristic bending features that are particularly challenging to reconstruct due to their complex topology.This visual progression clearly illustrates how our method systematically builds anatomical detail through the optimization process.
+
+
+Scenario II: Cardiac Reconstruction
+
+In the second scenario, we evaluated our method on more challenging cardiac structures that exhibit complex morphological features and intricate surface topology.
+
+Figure 11 presents the reconstruction results from the first test case in this scenario, where we demonstrate the progressive evolution of the cardiac model across multiple iterations.The multi-view comparison clearly illustrates how our method transforms from an initial approximation to the final reconstruction, which closely resembles the ground truth model.Particularly impressive is the reconstruction's ability to capture the distinctive ventricular contours, atrial appendages, and the subtle surface variations that are characteristic of cardiac anatomy.When viewed from multiple perspectives-perspective, superior, anterior, and lateral-the reconstruction maintains high fidelity across all viewpoints, confirming the volumetric consistency of our approach.
+
+Quantitative analysis in Figure 12 reveals that major structural elements converge within the first 100 iterations, with the loss function decreasing by over 90% during this initial phase.The Hausdorff distance metric exhibits an interesting temporary fluctuation around iteration 50, which corresponds to the algorithm's transition from global shape optimization to local detail refinement-a critical phase in accurately reconstructing the complex cardiac geometry.In the final iteration, our method achieves impressive error metrics with a Hausdorff distance of 0.2228 and volume difference of 0.0344, representing a 99.9% improvement from the initial state.These quantitative results, coupled with the visual evidence of accurate reconstruction, validate the effectiveness of our approach for complex anatomical structures where precise geometry is essential for clinical applications such as surgical planning and functional assessment.
+
+In our second test case of Scenario II, we evaluate the reconstruction performance on a more anatomically complex cardiac model, which presents significant challenges due to its intricate chamber geometry, valvular structures, and detailed myocardial surface features.This particular model incorporates both ventricular and atrial components with varying wall thickness and exhibits complex topological features at the vessel junction areas.Figure 13 illustrates the multi-view comparison between our reconstruction result and the ground truth model from four complementary perspectives (perspective, superior, anterior, and lateral views).The visual comparison clearly demonstrates our method's ability to accurately recover the complex morphological features, with the reconstructed model (middle row) closely approximating the ground truth (bottom row) across all viewpoints.Notably, our approach successfully captures the distinctive contours of the major vessels and the subtle surface curvatures of the ventricular regions, representing a substantial improvement over the initial estimation (top row).The superior view particularly highlights the accurate reconstruction of the atrial structures, while the lateral view demonstrates the precise recovery of the anatomy of the ventricular outflow tract.Figure 14 displays the error metrics throughout the optimization process, revealing insightful convergence patterns.The loss function shows exceptional efficiency, rapidly decreasing from 0.42 to below 0.1 within the first 30 iterations and ultimately converging to 0.0006.The indicator error exhibits a distinctive two-phase convergence pattern with an initial rapid descent followed by more gradual refinement, eventually stabilizing at 55.1362.Most  interestingly, the Hausdorff distance curve reveals a characteristic temporary increase around iteration 40, corresponding to the transition between global and local optimization phases, before steadily decreasing to a final value of 0.1934.The volume difference metric demonstrates the most dramatic improvement, rapidly reducing to below 0.01 and ultimately achieving an impressive final value of 0.0041 -confirming the high volumetric accuracy of our reconstruction, which is particularly critical for cardiac applications where precise chamber volumes directly impact clinical measurements and functional assessments.
+
+
+Conclusion
+
+This paper presents an implicit neural shape optimization framework for high-contrast EIT reconstruction.Our primary contribution lies in reformulating the shape optimization problem through implicit neural representation, which transforms the original interface reconstruction into an optimization problem in a low-dimensional latent space.This transformation significantly reduces the number of optimization variables while enhancing both computational efficiency and numerical stability.We establish a rigorous theoretical foundation through detailed convergence analysis, providing mathematical guarantees for reconstruction quality under suitable regularity conditions.
+
+Although our approach shows promising results, several aspects need further investigation, including the extension to anisotropic conductivity distributions, adaptation to time-dependent interface evolution, and theoretical analysis of the minimum number of measurements required for stable reconstruction.These directions could further enhance the applicability of the method to more challenging real-world scenarios.
+
+Figure 1 :
+1
+Figure 1: Geometric configuration of the 3D EIT problem (2D cross-sectional view): The conducting domain Ω = D \ S (shaded) is bounded externally by Σ := ∂D and internally by the interface Γ := ∂S.Current injection electrodes and voltage measurement points are distributed on Σ.
+
+
+5 )
+5
+Sϕ(x) := Γ∪Σ G(x, y)ϕ(y) ds(y), x ∈ Ω (Kϕ(x) := Γ∪Σ ∂ n(y) G(x, y)ϕ(y) ds(y), x ∈ Ω (6)
+
+
+Figure 2 :
+2
+Figure 2: Illustration of boundary integral coupling: The operators S AB and K AB capture the interaction between boundaries A and B through the fundamental solution G(x, y).
+
+
+Figure 3 :
+3
+Figure 3: Integration of NDF with EIT reconstruction: (a) Pre-trained NDF model encodes anatomical shapes into a low-dimensional manifold M via diffeomorphic flows.(b) Our physics-informed optimization in M minimizes the EIT data misfit while inheriting NDF's topology preservation properties.
+
+
+Figures 4 - 7
+47
+are for the first example and Figures 8-10 are for the second example.
+
+
+Figure 4 :
+4
+Figure 4: The reconstructions for Scenario I: the first, second, and third rows refer to the initial, the optimal recovery, and the ground truth target, respectively.
+
+
+Figure 5 :
+5
+Figure 5: Convergence of the algorithm for Scenario I in terms of the loss L(z) (upper left), the indicator error e (upper left), the volume error (lower left) and the Hausdorff error (lower right).
+
+
+Figure 6 :
+6
+Figure 6: Reconstruction results with 20% noise in measurement data: initial guess (first row), final reconstruction (middle row), and ground truth (third row).The different columns show different viewing angles of the same reconstruction.
+
+
+Figure 7 :
+7
+Figure 7: Convergence metrics for the noisy reconstruction (20% noise level): loss function L(z) (upper left), indicator error (upper right), volume difference (lower left), and Hausdorff distance (lower right).
+
+
+Figure 8 :
+8
+Figure 8: The reconstructions for the second example in Scenario I with exact data: the first, middle, and third rows refer to the initial, the optimal recovery, and the ground truth target, respectively.
+
+
+Figure 9 :
+9
+Figure 9: Convergence of the algorithm for the second example in Scenario I in terms of the loss L(z) (upper left), the indicator error e (upper right), the volume error e (lower left) and the Hausdorff error (lower right).
+
+
+Figure 10 :
+10
+Figure 10: The convergence of the optimization algorithm for the second example in Scenario I: the intermediate reconstruction at iterations: 0, 30, 60, 90, 120, 150, and 399 (ordered from left to right and from top to bottom), and the last plot denotes the ground truth.
+
+
+Figure 11 :
+11
+Figure 11: Progressive evolution of 3D shape reconstruction for the first test case in Scenario II.
+
+
+Figure 12 :
+12
+Figure 12: Error curves for the first test case in Scenario II, corresponding to the reconstruction sequence illustrated previously.
+
+
+Figure 13 :
+13
+Figure 13: Cardiac model reconstruction in the second test case of Scenario II, shown from multiple viewpoints.The comparison includes the initial model (top row), final reconstruction result (middle row), and ground truth (bottom row) across four different views: perspective, superior, anterior, and lateral.The reconstruction successfully captures the complex morphological features of the cardiac anatomy, including the ventricular regions, atrial structures, and the distinctive contours of the major vessels.
+
+
+Figure 14 :
+14
+Figure 14: Convergence metrics for the cardiac model reconstruction in the second test case of Scenario II.The plots show the progression of four key error measurements during optimization: Loss Function (top left), Indicator Error (top right), Hausdorff Distance (bottom left), and Volume Difference (bottom right).Each metric demonstrates distinctive convergence patterns, with the loss function and volume difference showing particularly rapid improvement.
+
+AcknowledgmentsThis work was partially supported by National Key R&D Program of China 2019YFA0709600, 2019YFA0709602.
+On second order shape optimization methods for electrical impedance tomography. L Afraites, M Dambrine, D Kateb, SIAM journal on control and optimization. 4732008
+
+Spatial regularization and level-set methods for experimental electrical impedance tomography with partial data. A M A Alghamdi, M S Carøe, J M Everink, J S Jørgensen, K Knudsen, J T K Nielsen, A K Rasmussen, R K H Sørensen, C Zhang, Applied Mathematics for Modern Challenges. 222024
+
+Bempp-cl: A fast python based just-in-time compiling boundary element library. T Betcke, M Scroggs, J. Open Source Software. 6592021
+
+L Borcea, Electrical impedance tomography. Inverse Problems. 200218
+
+Optimization methods for large-scale machine learning. L Bottou, F E Curtis, J Nocedal, SIAM review. 6022018
+
+Solving inverse obstacle scattering problem with latent surface representations. J Chen, B Jin, H Liu, Inverse Problems. 406650132024
+
+A level set method to reconstruct the discontinuity of the conductivity in eit. W Chen, J Cheng, J Lin, L Wang, Science in China Series A: Mathematics. 5212009
+
+Learning implicit fields for generative shape modeling. Z Chen, H Zhang, Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. the IEEE/CVF conference on computer vision and pattern recognition2019
+
+Electrical impedance tomography. M Cheney, D Isaacson, J C Newell, SIAM review. 4111999
+
+Implicit functions in feature space for 3d shape reconstruction and completion. J Chibane, T Alldieck, G Pons-Moll, Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. the IEEE/CVF conference on computer vision and pattern recognition2020
+
+M C Delfour, J.-P Zolésio, Shapes and Geometries. SIAM, Philadelphia, PA2011second edition
+
+Electrical resistance tomography for process applications. F Dickin, M Wang, Measurement Science and Technology. 732471996
+
+Nonlinear integral equations for the inverse electrical impedance problem. H Eckel, R Kress, Inverse Problems. 2324752007
+
+Shape optimization for 3d electrical impedance tomography. K Eppler, H Harbrech, Free and moving boundaries. Chapman and Hall/CRC2007
+
+A regularized newton method in electrical impedance tomography using shape hessian information. K Eppler, H Harbrecht, Control and Cybernetics. 3412005
+
+Partial differential equations. L C Evans, 2022American Mathematical Society19
+
+Monitoring lung function with electrical impedance tomography. I Frerichs, S Pulletz, H Wrigge, Critical Care. 1432000
+
+The dielectric properties of biological tissues: III. parametric models for the dielectric spectrum of tissues. S Gabriel, R W Lau, C Gabriel, Phys. Med. Biol. 41111996
+
+Electrical impedance tomography for monitoring brain activity. Y Gao, Y Zhang, Y Wang, Journal of Biomedical Optics. 206612022015
+
+A second degree method for nonlinear inverse problems. F Hettlich, W Rundell, SIAM J. Numer. Anal. 3722000
+
+Robust edge-preserving electrical impedance tomography. M Hintermüller, K Lau, SIAM J. Imaging Sci. 832015
+
+On the convergence of stochastic gradient descent for nonlinear ill-posed problems. B Jin, Z Zhou, J Zou, SIAM Journal on Optimization. 3022020
+
+Electrical resistance tomography imaging of concrete. K Karhunen, A Seppänen, A Lehikoinen, P J Monteiro, J P Kaipio, Cement and concrete research. 4012010
+
+D P Kingma, arXiv:1412.6980Adam: A method for stochastic optimization. 2014arXiv preprint
+
+Incorporating structural prior information and sparsity into eit using parallel level sets. V Kolehmainen, M J Ehrhardt, S R Arridge, Inverse Problems and Imaging. 1322019
+
+A parametric level set method for electrical impedance tomography. D Liu, A K Khambampati, J Du, IEEE transactions on medical imaging. 3722017
+
+Multi-phase flow monitoring with electrical impedance tomography using level set based method. D Liu, A K Khambampati, S Kim, K Y Kim, Nuclear Engineering and Design. 2892015
+
+Nonstationary shape estimation in electrical impedance tomography using a parametric level set-based extended kalman filter approach. D Liu, D Smyl, J Du, IEEE Transactions on Instrumentation and Measurement. 6952019
+
+Abdomenct-1k: Is abdominal organ segmentation a solved problem?. J Ma, Y Zhang, S Gu, C Zhu, C Ge, Y Zhang, X An, C Wang, Q Wang, X Liu, S Cao, Q Zhang, S Liu, Y Wang, Y Li, J He, X Yang, IEEE Transactions on Pattern Analysis and Machine Intelligence. 44102022
+
+Level set methods and dynamic implicit surfaces. S Osher, R Fedkiw, K Piechor, Appl. Mech. Rev. 5732004
+
+Deepsdf: Learning continuous signed distance functions for shape representation. J J Park, P Florence, J Straub, R Newcombe, S Lovegrove, 2019 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). 2019
+
+Level-set-based reconstruction algorithm for eit lung images: first clinical results. P Rahmati, M Soleimani, S Pulletz, I Frerichs, A Adler, Physiological measurement. 3357392012
+
+S J Reddi, S Kale, S Kumar, arXiv:1904.09237On the convergence of adam and beyond. 2019arXiv preprint
+
+Solving inverse problem for electrical impedance tomography using topological derivative and level set method. T Rymarczyk, K Szulc, International Interdisciplinary PhD Workshop (IIPhDW). 2018. 2018IEEE
+
+Second variations for domain optimization problems. J Simon, Control Theory of Distributed Parameter Systems and Applications. BaselBirkhäuser198991
+
+A narrow-band level set method applied to eit in brain for cryosurgery monitoring. M Soleimani, O Dorn, W R Lionheart, IEEE transactions on biomedical engineering. 53112006
+
+Topology-preserving shape reconstruction and registration via neural diffeomorphic flow. S Sun, K Han, D Kong, H Tang, X Yan, X Xie, 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). 2022
+
+L Younes, Shapes and Diffeomorphisms. Berlin, HeidelbergSpringer2019second edition

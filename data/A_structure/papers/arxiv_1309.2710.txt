@@ -1,0 +1,426 @@
+Accelerating moderately stiff chemical kinetics in reactive-flow simulations using GPUs
+May 11, 2014
+
+Kyle E Niemeyer kyle.niemeyer@oregonstate.edu 
+Department of Mechanical and Aerospace Engineering
+Case Western Reserve University
+44106ClevelandOHUSA
+
+Department of Mechanical Engineering
+University of Connecticut
+06269StorrsCTUSA
+
+Chih-Jen Sung cjsung@engr.uconn.edu 
+Department of Mechanical Engineering
+University of Connecticut
+06269StorrsCTUSA
+
+
+School of Mechanical
+Industrial and Manufacturing Engineering
+Oregon State University
+
+
+Accelerating moderately stiff chemical kinetics in reactive-flow simulations using GPUs
+May 11, 201487692235E8BCE32EB4C9D36B1B0C8FE7arXiv:1309.2710v2[physics.comp-ph]Preprint submitted to Journal of Computational PhysicsReactive-flow modelingGPUChemical kineticsStiff chemistryCUDA
+The chemical kinetics ODEs arising from operator-split reactive-flow simulations were solved on GPUs using explicit integration algorithms.Nonstiff chemical kinetics of a hydrogen oxidation mechanism (9 species and 38 irreversible reactions) were computed using the explicit fifth-order Runge-Kutta-Cash-Karp method, and the GPU-accelerated version performed faster than single-and six-core CPU versions by factors of 126 and 25, respectively, for 524,288 ODEs.Moderately stiff kinetics, represented with mechanisms for hydrogen/carbon-monoxide (13 species and 54 irreversible reactions) and methane (53 species and 634 irreversible reactions) oxidation, were computed using the stabilized explicit second-order Runge-Kutta-Chebyshev (RKC) algorithm.The GPU-based RKC implementation demonstrated an increase in performance of nearly 59 and 10 times, for problem sizes consisting of 262,144 ODEs and larger, than the single-and six-core CPU-based RKC algorithms using the hydrogen/carbon-monoxide mechanism.With the methane mechanism, RKC-GPU performed more than 65 and 11 times faster, for problem sizes consisting of 131,072 ODEs and larger, than the single-and six-core RKC-CPU versions, and up to 57 times faster than the six-core CPU-based implicit VODE algorithm on 65,536 ODEs.In the presence of more severe stiffness, such as ethylene oxidation (111 species and 1566 irreversible reactions), RKC-GPU performed more than 17 times faster than RKC-CPU on six cores for 32,768 ODEs and larger, and at best 4.5 times faster than VODE on six CPU cores for 65,536 ODEs.With a larger time step size, RKC-GPU performed at best 2.5 times slower than six-core VODE for 8192 ODEs and larger.Therefore, the need for developing new strategies for integrating stiff chemistry on GPUs was discussed.
+
+Introduction
+
+The heavy computational demands of high-fidelity computational fluid dynamics (CFD) simulations, caused by fine grid resolutions and time step sizes in addition to complex physical models, are the primary bottleneck preventing most industrial and academic researchers from performing and using such studies.Reactive-flow simulations considering detailed chemistry in particular pose prohibitive computational demands due to (1) chemical stiffness, caused by rapidly depleting species and/or fast reversible reactions, and (2) the large and ever-increasing size of detailed reaction mechanisms.While reaction mechanisms for fuels relevant to hypersonic engines, such as hydrogen or ethylene, may contain 10-70 species [1,2], a recent surrogate mechanism for gasoline consists of about 1550 species and 6000 reactions [3]; a surrogate mechanism for biodiesel contains almost 3300 species and over 10,000 reactions [4].Strategies for incorporating such large, realistic reaction mechanisms in reactive-flow simulations are beyond the scope of this paper; for example, Lu and Law [5] recently reviewed strategies for mechanism reduction.
+
+Even compact mechanisms pose challenges due to stiffness.In the presence of stiffness, explicit integration algorithms generally require time step sizes on the same order as the fastest chemical time scales, which can be many orders of magnitude smaller than the flow time scale [5].Due to the resulting computational inefficiency, most reactive-flow simulations rely on specialized integration algorithms such as high-order implicit solvers based on backward differentiation formulas (BDFs) [6,7].However, these implicit solvers involve expensive linear algebra operations, so techniques for removing stiffness via reduced chemistry have also been developed [5].
+
+Exploiting graphics processing unit (GPU) acceleration offers another avenue for enabling the use of accurate, detailed reaction mechanisms in high-fidelity reactive-flow simulations.Most reactive-flow codes rely on the operator-splitting or fractional-step method [8][9][10][11][12][13][14][15], where the large system of governing partial differential equations (PDEs) is separated such that different physical processes are evaluated separately.For the chemistry-typically the most timeconsuming portion of the simulation, accounting for 90% or more of the total simulation time in some cases-this results in a system of independent ordinary differential equations (ODEs) for the conservation of species mass in each spatial location (i.e., at each grid point or volume).
+
+Due to the independent nature of the integration for the systems of ODEs governing chemistry in all locations, the entire set can be integrated simultaneously.One option is to parallelize the chemistry integration on multiple central processing unit (CPU) cores or processors using the Message Passing Interface (MPI) [16] or OpenMP [17][18][19], but the massive parallelism and increasing performance of GPUs-as well as the potential to reduce capital costs through improved energy efficiency-make them an attractive option for accelerating reactive-flow codes.General CFD applications also benefit from GPU acceleration due to the inherent data parallelism of most calculations for both finite difference and finite volume methods.Vanka et al. [20] surveyed some of the literature on using GPUs to accelerate general CFD simulations; more recently, Niemeyer and Sung [21] comprehensively reviewed advances in this area for both nonreactive and reactive flows.In the following, we will summarize important results related to GPU-based reactive-flow simulations.
+
+The first effort in this area came from Spafford et al. [22], who accelerated the species rate evaluations in the direct numerical simulation (DNS) code S3D [23,24] on the GPU.In their approach, the CPU handles the time integration of the chemical source terms using an explicit fourth-order Runge-Kutta method.Each integration step requires four species rate evaluations, and for each evaluation the CPU invokes the GPU to evaluate the species rates of change for all grid points simultaneously.Using an ethylene reaction mechanism with 22 species, Spafford et al. [22] achieved performance speedups of around 15× and 9× for single-and double-precision calculations, respectively.
+
+Most recent efforts follow the spatially-independent acceleration paradigm introduced by 2
+
+Spafford et al. [22], beginning with Niemeyer et al. [25], who developed a GPU-based explicit integration algorithm for nonstiff chemistry.Using a compact hydrogen mechanism with 9 species and 38 irreversible reactions [26], Niemeyer et al. [25] demonstrated a computational speedup of up to 75× compared to a single-core CPU over a wide range of independent ODE systems.Shi et al. [27] presented a hybrid CPU/GPU chemistry integration strategy where the GPU simultaneously integrates nonstiff chemistry in grid cells using an explicit algorithm and the CPU handles spatial locations with stiff chemistry using a standard implicit integrator.This combined approach, paired with a reactive-flow code, achieved an overall performance speedup of 11-46× over the algorithms executed on a single CPU core.Le et al. [28] developed the first reactive-flow solver where the GPU evaluates both the fluid transport and chemical kinetics terms.As with most other approaches, they used operator splitting to decouple and independently solve the fluid transport and chemistry terms.They handled the stiff chemical kinetics terms in parallel on the GPU using a first-order implicit method (the backward Euler method), employing a direct Gaussian elimination to solve the resulting linear system of equations.Compared against an equivalent CPU version executed on a single processor core, their combined GPU solver performed up to 40 times faster using a reaction mechanism for methane with 36 species and reversible 308 reactions, on a grid with greater than 10 4 cells.However, the low order of the chemistry solver-first order-should be noted.
+
+Stone et al. [29] implemented two chemistry integrators on the GPU: (1) a fourth-order adaptive Runge-Kutta-Fehlberg (RKF45) method and (2) the standard fifth-order accurate implicit CVODE method.Applied to a reduced mechanism for ethylene with 19 species and 15 global reaction steps [30] and compared against equivalent single-core CPU versions over a range of ODE numbers, the RKF45 and CVODE methods achieved up to 28.6× and 7.7× speedup, respectively.The GPU-based RKF45 method performed 20.2× faster than the CPU-based DVODE solver operating on a single core.It should be noted that the reduced mechanism used by Stone et al. [29] may not exhibit much stiffness, since it was developed by applying the quasi-steady-state approximation to certain radical species and eliminating fast elementary reactions [30].
+
+Alternative approaches for GPU acceleration of chemical kinetics have also been presented that exploit other areas of data independence.Shi et al. [31] used the GPU to (1) simultaneously calculate all the reaction rates for a single kinetic system (i.e., a single computational volume/ grid point) and (2) accelerate the matrix inversion step of the implicit time integration using a commercial GPU linear algebra library, CULA [32].They found this approach beneficial for large reaction mechanisms (e.g., more than 1000 species), accelerating homogenous autoignition simulations up to 22×, but for moderate-size mechanisms (e.g., less than 100 species) their GPU-based implementation performed slower than the original CPU version.More recently, Sankaran [33] presented a new approach for accelerating the chemistry in turbulent combustion simulations where the GPU solves the unsteady laminar flamelet equations; the controlling CPU handles the main flow solver.This method involves three levels of concurrency on the GPU: (1) the solution of species reaction rates, thermochemical properties, and molecular transport rates;
+
+(2) the solution of the discretized flamelet equations in an regular grid in the mixture fraction space; and (3) the solution of multiple flamelets.
+
+Here, we demonstrate new strategies for accelerating chemical kinetics with moderate levels of stiffness using GPU-based explicit integration algorithms.Building upon our earlier work using the standard fourth-order Runge-Kutta algorithm [25], we demonstrate the potential performance improvement using a related explicit fifth-order adaptive method for nonstiff chemical kinetics.In addition, we introduce a stabilized explicit Runge-Kutta method that can handle moderate stiffness, and show that it can be used on GPUs to achieve significant computational speedup.
+
+The rest of the paper is structured as follows.First, we discuss some topics related to GPU computing in Section 2.1.Next, in Section 2.2 we provide the governing equations for chemical kinetics in reactive-flow simulations, then in Sections 2.3 and 2.4 we describe the explicit integration algorithms used in this study.In Section 3 we demonstrate the performance of the GPU-accelerated integration algorithms using four reaction mechanisms with increasing levels of stiffness and discuss these results.Finally, we summarize our work in Section 4 and outline future research directions.
+
+
+Methodology
+
+
+GPU computing
+
+While an in-depth discussion about GPU computing is beyond the scope of this work, we will briefly introduce important concepts.Interested readers should see the textbooks, e.g., by Kirk and Hwu [34] and Sanders and Kandrot [35].The current generation of application programming interfaces, such as CUDA [36] and OpenCL [37], enables a C-like programming experience while exposing the massively parallel architecture of graphics processors.This avoids programming in the graphics pipeline directly.Our efforts are based in CUDA, a programming platform created and supported by NVIDIA, but the programming model of OpenCL, an opensource framework, is similar.
+
+In addition, recently a new avenue for GPU parallelization has been introduced: OpenACC [38,39], which uses compiler directives (e.g., #pragma statements) placed in Fortran, C, and C ++ codes to identify sections of code to be run in parallel on GPUs.This approach is similar to OpenMP [17][18][19] for parallelizing work across multiple CPUs or CPU cores that share memory.
+
+GPUs operate on the "single instruction, multiple thread" (SIMT) parallelization paradigm, similar to vector computing, where a large number of processing units independently and simultaneously execute the same instructions on different data elements.A parallel GPU function is a kernel, which-in the CUDA programming model-consists of a grid of thread blocks.Each block is made up by threads, the fundamental CUDA processing unit.Physically, GPUs consist of a number of streaming multiprocessors (e.g., 14), which can each execute 32 operations simultaneously.Thread blocks are subdivided into warps consisting of 32 threads; the streaming multiprocessors execute instructions for threads in a particular warp simultaneously.For optimal performance, all 32 threads within a warp should follow the same instruction pathway.If threads in a warp encounter different instructions (e.g., through a conditional branch), the warp diverges and significant loss in performance may result-in the worst case, by a factor of 32, if each thread follows a different instruction pathway.
+
+
+Governing equations
+
+Given a vector of state variables Φ = {φ 1 , . . ., φ n }, the governing equations for scalars in a general reactive-flow simulation are
+∂φ i ∂t = ∇ • (A i + D i ) + R i , i = 1, 2, . . . , n,(1)
+where A and D represent the advective and diffusive fluxes, respectively, and R represents the change due to chemical reactions.Solving this stiff, coupled system for a large number of grid points/volumes is challenging, so many reactive-flow modeling approaches rely on operator splitting (also known as the fractional step method) [8][9][10][11][12][13][14][15].This technique separates the integration of the stiff reaction terms from the spatially discretized transport terms, resulting in a large number of independent systems of ODEs-one for each spatial location-to solve.
+
+When the reaction terms are separated from physical transport, the species equations are
+dY i dt = W i ω i ρ , i = 1, 2, . . . , n S ,(2)ω i = n R j=1 ν i j − ν i j Ω j ,(3)
+where Y i denotes the mass fraction of the ith chemical species, n S and n R are the numbers of species and reactions, respectively, ρ is the mixture density, W i is the molecular weight of the ith species, Ω j is the rate of progress of reaction j, and ν i j and ν i j are the reverse and forward stoichiometric coefficients for the ith species in reaction j.The rate of progress of an irreversible reaction without pressure dependence is given by
+Ω j = k j n S k=1 C ν k j k ,(4)
+where C k is the concentration of species k.Third-body and pressure-dependent reactions were also considered, depending on the formulation given for the particular reaction; see, for example, Law [40], or the Chemkin manual [41], for details.The reaction rate coefficient k j follows the Arrhenius formulation
+k j = A j T β j exp −E j RT , (5)
+where R is the universal gas constant, A j is the pre-exponential factor, β j is the temperature exponent, and E j is the activation energy for reaction j.In general, reactions may be reversible; those without explicitly defined Arrhenius reverse rate parameters (i.e., A, β, and E) require evaluation of the equilibrium constant to obtain their reverse rate coefficients.To avoid the conditional statements that may cause thread divergence on GPUs (as will be discussed in Section 3) required by this evaluation, we converted all such reversible reactions into two irreversible reactions for each following the procedure given in Appendix A.
+
+In addition to the species equations, we consider a constant-pressure energy equation
+dT dt = − 1 ρc p n S i=1 h i ω i W i ,(6)
+where c p is the mass-averaged constant-pressure specific heat and h i is the specific enthalpy of the ith species.Together, the coupled mass and energy equations model the time-dependent behavior of an adiabatic, homogenous gas mixture in a closed system.The number of unknowns is equal to the number of species plus one (temperature), N = n S + 1, and the vector of dependent variables consists of temperature and the species mass fractions,
+y(t) = {T, Y 1 , Y 2 , . . . , Y n S }.
+Typically, reactive-flow simulation codes use BDF-based implicit algorithms to solve Eqs. ( 2) and (6).While explicit algorithms tend to offer greater general efficiency and lower startup costs-important in operator-split formulations where the transport terms modify the thermochemical conditions and invalidate any saved information, such as the Jacobian matrix, between Table 1: Coefficients for the fifth-order Runge-Kutta-Cash-Karp method, adopted from Press et al. [43].
+
+reaction integration steps-stiffness-induced instabilities force the use of extremely small time step sizes.Implicit algorithms offer greater stability and therefore allow larger time step sizes in the presence of stiffness, resulting in better performance overall.However, implicit methods involve complex control algorithms and linear algebra subroutines, with logical tests for convergence and controlling error.As such, these implicit methods may not be suitable for operating on GPUs, where the complex control flow in such operations could cause threads in a warp to diverge due to slightly different conditions.Stone et al. [29] ported the implicit CVODE solver to GPU operation, and found that it performed only slightly better than a multi-core CPU version would.Explicit algorithms, on the other hand, involve simpler logical flow, and may be bettersuited for GPU operation, especially with little-to-moderate stiffness in the chemical kinetics.
+
+
+Runge-Kutta-Cash-Karp method
+
+When the chemical kinetics exhibits little to no stiffness, we can solve the system of equations given by Eqs. ( 2) and ( 6) using an explicit integration method such as the fifth-order Runge-Kutta method developed by Cash and Karp [42], namely, the RKCK method.This approach uses an embedded fourth-order method to determine the truncation error and adaptively select the step size; our methodology is taken from Press et al. [43].
+
+If y n is the approximation to the exact solution y(t) at t = t n , and δt n = t n+1 − t n is the current step size, then the RKCK formulas, which also apply to any general fifth-order Runge-Kutta method, are
+k 1 = δt f (t n , y n ) (7) k 2 = δt f (t n + a 2 δt, y n + b 21 k 1 ) ,(8)k 3 = δt f (t n + a 3 δt, y n + b 31 k 1 + b 32 k 2 ) ,(9)k 4 = δt f (t n + a 4 δt, y n + b 41 k 1 + b 42 k 2 + b 43 k 3 ) , (10) k 5 = δt f (t n + a 5 δt, y n + b 51 k 1 + b 52 k 2 + b 53 k 3 + b 54 k 4 ) ,(11)k 6 = δt f (t n + a 6 δt, y n + b 61 k 1 + b 62 k 2 + b 63 k 3 + b 64 k 4 + b 65 k 5 ) ,(12)y n+1 = y n + c 1 k 1 + c 2 k 2 + c 3 k 3 + c 4 k 4 + c 5 k 5 + c 6 k 6 ,(13) y* n+1 = y n + c * 1 k 1 + c * 2 k 2 + c * 3 k 3 + c * 4 k 4 + c * 5 k 5 + c * 6 k 6 ,(14)
+where y n+1 is the fifth-order solution and y * n+1 is the solution of the embedded fourth-order method.The vector f(t, y) = dy(t, y)/dt represents the evaluation of the right-hand side of Eqs. ( 2) and ( 6).The RKCK coefficients are given in Table 1.The fourth-and fifth-order solutions are used to estimate the error of the step ∆ n+1 ,
+∆ n+1 = y n+1 − y * n+1 = 6 i=1 c i − c * i k i . (15)
+This error is then compared against a desired accuracy, ∆ 0 , defined by
+∆ 0 = (|y n | + |δt f (t n , y n )| + δ) ,(16)
+where is a tolerance level and δ represents a small value (e.g., 10 −30 ).If the estimated error of the current step is larger than the desired accuracy (∆ n+1 > ∆ 0 ), the step is rejected and a smaller step size is calculated; if the error is smaller than the desired accuracy (∆ n+1 ≤ ∆ 0 ), the step is accepted and the step size for the next step is calculated.The following is used to calculate a new step size based on error and the current step size:
+δt new =                    S δt n max i ∆ 0,i ∆ n+1,i 1/5 if ∆ n+1 ≤ ∆ 0 , S δt n max i ∆ 0,i ∆ n+1,i 1/4 if ∆ n+1 > ∆ 0 .(17)
+Here, i represents the ith element of the related vector and S denotes a safety factor slightly smaller than unity (e.g., 0.9).Eq. ( 17) is used to calculate the next time step size for an accepted step and a new, smaller step size when the error is too large (and therefore the step is rejected).
+
+In practice, step size decreases and increases are limited to factors of ten and five, respectively.
+
+
+Runge-Kutta-Chebyshev method
+
+For stiff problems, standard explicit integration methods become unsuitable due to stability issues, requiring unreasonably small time step sizes [7].Traditionally, implicit integration algorithms such as those based on BDFs have been used to handle stiff problems, but these require expensive linear algebra operations on the Jacobian matrix.In addition, the complex logical flow would result in highly divergent instructions across different initial conditions, making implicit algorithms unsuitable for operation on GPUs.One alternative to implicit algorithms for problems with moderate levels of stiffness is a stabilized explicit scheme such as the Runge-Kutta-Chebyshev (RKC) method [44][45][46][47][48][49].While the RKC method is explicit, it is capable of handling stiffness through additional stages-past the first two required for second-order accuracy-that extend its stability domain along the negative real axis.
+
+Our RKC implementation is taken from Sommeijer et al. [48] and Verwer et al. [49].Following the same terminology as in the description of the RKCK method in Section 2.3, where y n is the approximation to the exact solution y(t) at t = t n and δt n = t n+1 − t n is the current step size, the formulas for the second-order RKC are
+w 0 = y n ,(18)w 1 = w 0 + μ1 δt f 0 , (19) w j = (1 − µ j − ν j )w 0 + µ j w j−1 + ν j w j−2 + μ j δt f j−1 + γ j δt f 0 , j = 2, . . . , s,(20)y n+1 = w s , (21)
+where s is the total number of stages.The w j are internal vectors for the stages, and f j are evaluations of the right-hand-side function of the governing equations at each stage, where f j = f(t n + c j δt, w j ).Note the recursive nature of w j , which requires only five arrays for storage.The coefficients used in Eqs. ( 19) and ( 20) are available analytically for any s ≥ 2:
+μ1 = b 1 ω 1 ,(22)µ j = 2b j ω 0 b j−1 , ν j = −b j b j−2 , μ j = 2b j ω 1 b j−1 , γ j = −a j−1 μ j (23) b 0 = b 2 , b 1 = 1 ω 0 , b j = T j (ω 0 ) T j (ω 0 ) 2 ,(24)w 0 = 1 + κ s 2 , ω 1 = T s (ω 0 ) T s (ω 0 ) ,(25)
+where κ ≥ 0 is the damping parameter (we used κ = 2/13 [48,49]).T j (x) are the Chebyshev polynomials of the first kind, defined recursively as
+T j (x) = 2xT j−1 (x) − T j−2 (x), j = 2, . . . , s,(26)
+where T 0 (x) = 1, T 1 (x) = x, and T j (x) and T j (x) are the first and second derivatives of T j (x), respectively.The c j used in the function evaluations are
+c 1 = c 2 T 2 (ω 0 ) ≈ c 2 4 ,(27)c j = T s (ω 0 ) T s (ω 0 ) T j (ω 0 ) T j (ω 0 ) ≈ j 2 − 1 s 2 − 1 , 2 ≤ j ≤ s − 1,(28)c s = 1. (29)
+The RKC method can also be used with an adaptive time stepping method for error control, as given by Sommeijer et al. [48].After taking the step t n+1 = t n + δt n and calculating y n+1 , the error in the calculation at the current step is estimated using
+∆ n+1 = 4 5 (y n − y n+1 ) + 2 5 δt n (f n + f n+1 ). (30)
+These error estimates are used with absolute and relative tolerances to define the weighted RMS norm of error:
+∆ n+1 rms = ∆ n+1 T √ N 2 ,(31)T = A + R • max (|y n |, |y n+1 |) ,(32)
+where N represents the number of unknown variables (here, N = n S + 1 as defined previously), A is the vector of absolute tolerances, and R is the relative tolerance.The norm • 2 indicates the Euclidean or L 2 norm.The step is accepted if ∆ n+1 rms ≤ 1; otherwise, it is rejected and redone using a smaller step size.The weighted RMS norm of error for the current and prior steps, and the associated step sizes, are then used to predict the new step size, using
+δt n+1 = min (10, max(0.1, f )) δt n ,(33)f = 0.8       ∆ n 1/(p+1) rms ∆ n+1 1/(p+1) rms δt n δt n−1       1 ∆ n 1/(p+1) rms , (34)
+where p is the order of the algorithm-two, in this case.When a step is rejected, we use a similar equation to calculate a new step size:
+f = 0.8 ∆ n 1/(p+1) rms . (35)
+In order to determine the initial time step size, we first use a tentative step size calculated as the inverse of the spectral radius σ-the magnitude of the largest eigenvalue-of the Jacobian.After predicting the error associated with this tentative step, we then set the initial step size as one-tenth of the step size that would satisfy error control based on the tentative step:
+δt 0 = 1 σ ,(36)∆ 0 = δt 0 (f(t 0 + δt 0 , y 0 + δt 0 f(t 0 , y 0 )) − f(t 0 , y 0 )) ,(37)δt 1 = 0.1 δt 0 ∆ 0 1/2 rms ,(38)
+where ∆ 0 rms is evaluated in the same manner as ∆ n+1 rms using Eq. ( 31).After selecting the optimal time step size to control local error, the algorithm then determines the optimal number of RKC stages in order to remain stable.Due to stiffness, too few stages would lead to instability.The local stiffness is determined using the spectral radius and time step size.The number of stages are determined by
+s = 1 + 1 + 1.54 δt n σ,(39)
+as suggested by Sommeijer et al. [48], where the value 1.54 is related to the stability boundary of the algorithm.Note that s may vary between time steps due to a changing spectral radius and time step size.In our RKC implementation, we used a nonlinear power method [48] to calculate the spectral radius; this choice costs an additional vector to store the computed eigenvector, but avoids storing or calculating the Jacobian matrix.Depending on the problem type, alternative methods such as the Gershgorin circle theorem [50,51] could be used to obtain an upper-bound estimate for the spectral radius.In our experience, however, the circle theorem tended to overestimate the spectral radius, resulting in unnecessarily large numbers of stages-this induced greater computational expense compared to using the power method.Following Sommeijer et al. [48], in our RKC implementation the spectral radius is estimated every 25 (internal) steps or after a step rejection.In addition, the computed eigenvector is saved to be used as the initial guess in the next evaluation.
+
+
+Results and discussion
+
+In order to study the performance of the GPU-based RKCK and RKC solvers (termed RKCK-GPU and RKC-GPU, respectively), we tested their performance with four reaction mechanisms, representing different levels of stiffness.We varied the problem size, meaning number of chemical kinetics ODEs, over a wide range from 10 2 to 10 6 , representing a wide range of grid resolutions in an operator-split reactive-flow code.
+
+First, we studied the performance of RKCK-GPU using a nonstiff hydrogen mechanism.Next, we considered (separately) mechanisms for hydrogen/carbon monoxide and methane with moderate levels of stiffness and use these to study the performance of RKC-GPU.Finally, we examined the performance of RKC-GPU in a case where stiffness is more severe, using an ethylene mechanism.In all four cases, we compared the performance of the GPU algorithm against an equivalent CPU version.In the presence of stiffness, we also compared the performance of RKC-GPU against an implicit CPU-based code, VODE F90 [52], a Fortran 90 version of the well-known VODE solver.
+
+In both the CPU and GPU algorithms used here, we generated the subroutines needed for chemical kinetics source terms (e.g., species rates, reaction rates, thermodynamic properties) using an open-source Python tool that we created [53], which takes Chemkin-format reaction mechanisms as input.Further, we converted all reversible reactions in the reaction mechanisms used here into two irreversible reactions for each in order to avoid the computation of equilibrium constants, as described in Appendix A. We developed an additional Python tool implementing this procedure that is also available online [54].We paired VODE with CHEMKIN-III [41] to evaluate the chemical kinetics and species thermodynamic properties.All calculations were performed in double precision and at constant pressure-although the generated subroutines are also capable of constant volume conditions.
+
+All calculations reported here were performed using a single GPU and single CPU; we measured the serial CPU performance using a single core as well as parallelized CPU performancevia OpenMP [19]-on six cores.The GPU calculations were performed using an NVIDIA Tesla c2075 GPU with 6 GB of global memory.An Intel Xeon X5650 CPU, running at 2.67 GHz with 256 kB of L2 cache memory per core and 12 MB of L3 cache memory, served as the host processor for the GPU calculations and ran the CPU single-and six-core OpenMP calculations.We used the GNU Compiler Collection (gcc) version 4.6.2(with the compiler options "-O3 -ffast-math -std=c99 -m64") to compile the CPU programs and the CUDA 5.0 compiler nvcc version 0.2.1221 ("-O3 -arch=sm 20 -m64") to compile the GPU versions.The function cudaSetDevice() was used to hide any device initialization delay in the CUDA implementations prior to the timing.
+
+Imposing identical initial conditions for all ODEs would not represent the situation in a reactive-flow simulation where conditions vary across space, so we generated initial conditions for the ODEs by sampling the solutions obtained from constant pressure homogeneous ignition simulations.For all four fuels studied, we used starting conditions of 1600 K, 1 atm, and an equivalence ratio of one.This resulted in a set of initial conditions covering a wide range of temperatures and species mass fractions.For example, some data points came from the preignition induction period, some from the transient regime when temperature increases rapidly, and some from the post-ignition stage where conditions approach equilibrium.We distributed the resulting initial conditions in two ways.First, we assigned initial conditions sequentially to ODEs, where consecutive data points-taken from consecutive time steps-contain similar conditions.This emulated adjacent spatial locations with similar but not identical conditions.Further, this procedure represents a more realistic performance measure compared to the previous work of Niemeyer et al. [25], where identical initial conditions and a constant time step size were used.For the GPU-based algorithms, similar-but not identical-initial conditions will result in threads within warps that may follow divergent pathways, due to varying time step sizes, for example.In order to further explore the impact of divergence on performance, we also assigned initial conditions to threads in a second manner: randomly shuffling the order.Compared to using similar conditions, randomly selected initial conditions represent a worst-case potential for divergence.
+
+Other potential sources of thread divergence could be conditional statements in the source terms, because, e.g., thermodynamic properties are typically fitted as polynomials across different temperature ranges, certain reaction pressure-dependence formulations are described in different pressure ranges.We attempted to minimize the occurrence of such conditional statements by converting each reversible reaction in the reaction mechanisms into a pair of irreversible reactions (as described above).This avoided the temperature conditional statement required for evaluating the Gibbs function polynomial, in turn needed for the equilibrium constants.Regarding the conditional statements required to evaluate the species thermodynamic properties for the energy equation or reaction rates for particular pressure-dependence formulations, in the current work, neither of these contributed to thread divergence because (1) all temperatures experienced by threads fell within the same polynomial fitting range and (2) none of the pressure-dependent reactions considered in the reaction mechanisms were formulated using multiple pressure ranges.However, in general cases, conditional statements on temperature or pressure could cause additional thread divergence.
+
+The integration algorithms take as input initial conditions and a global time step, performing internal sub-stepping as necessary.The computational times, or wall-clock times, reported represent the average over ten global time steps.For the GPU implementations, the reported computational time per global time step included the overhead required for transmitting data between the CPU and GPU before and after each integration step.The integrator restarts at each global time step, not storing any data from the previous step-although any sub-stepping performed by the algorithm within these larger steps does benefit from retained information from prior sub-steps.This is done to emulate a true operator-split code, where the transport integration step would update the thermochemical conditions independently from the chemistry and therefore invalidate any retained information between global steps.This reduces the efficiency somewhat, by forcing the integrator to take initially large test steps, but the startup costs of the explicit integration algorithms considered here pale in comparison to those of implicit integrators such as VODE, where the Jacobian matrix must be re-evaluated.
+
+In the GPU-based algorithms, threads independently integrated each chemical kinetics ODE.The total number of threads then equaled the number of ODEs; blocks consisted of 64 threads each.For problem sizes of 4,194,304 or larger, where a block size of 64 threads would exceed the maximum limit on number of blocks per grid (65,535) in one dimension, we used a block size of N t /32,768, where N t is the total number of threads.We kept the block size as a multiple of 32 to ensure blocks contained whole thread warps.
+
+
+Hydrogen kinetics
+
+First, we considered a case where stiffness in the chemical kinetics does not pose a challenge, using the hydrogen oxidation mechanism of Yetter et al. [26] with 9 species and 38 irreversible reactions.We employed the explicit RKCK method, with a tolerance level of 1 × 10 −10 , and performed 10 global integration steps of 1 × 10 −8 s (or 10 ns) each.The average time needed per step is reported.This application is relevant particularly for DNS and studies of high-speed flows, which use extremely short time step sizes in order to resolve the Kolmogorov scales and capture the short time scales due to high flow velocity, respectively.Adjacent ODEs used similar initial conditions as described in the previous section.11 Performance comparison of (single-and six-core) CPU and GPU integration of the nonstiff hydrogen mechanism using the explicit RKCK method.Note that both axes are displayed in logarithmic scale.
+
+The lack of stiffness in this case was due to both the particular chemistry considered and the short global time step sizes used.Quantifying stiffness is somewhat difficult [7], but in general explicit methods are more efficient for nonstiff problems than implicit or other stiff integrators (e.g., stabilized explicit methods like RKC).In terms of computational time, RKCK-GPU performed nearly 2.3× and 2.6× faster than RKC-GPU for problem sizes of 65,536 and 262,144 independent ODEs, respectively, so we consider this case nonstiff.
+
+Figure 1 shows the performance results of the CPU-and GPU-based RKCK algorithms for problem sizes ranging from 64 to 8,388,608.RKCK-GPU performed faster than the single-core RKCK-CPU for problem sizes of 128 ODEs and larger, and faster than the six-core CPU version when the number of ODEs is 512 or larger.Note that the speedup of the GPU implementation increased with growing problem size.For the largest problem sizes, RKCK-GPU ran up to 126× and 25× faster than the single-and six-core RKCK-CPU versions.On six cores RKCK-CPU ran between five and six times faster than on a single core, due to the data independent nature of the problem.
+
+We also studied the effect of different initial conditions on the performance of RKCK-GPU, by randomly shuffling the data points used for this purpose such that neighboring threads no longer contained similar data.This resulted in thread divergence, since different threads in each warp will require different inner time step sizes-therefore some threads will require a greater number of steps, while others will finish sooner.Figure 2 shows the comparison of performance for RKCK-GPU between threads with similar initial conditions and threads where initial conditions were randomly selected (and are therefore different).The divergence caused by randomized initial conditions reduced performance by up to a factor of 2.3, with a greater reduction at larger problem sizes.We note that some divergence was also present for threads with similar-but not identical-initial conditions.12   In order to quantify this divergence, we introduce a measure for the divergence in a thread warp, D, proposed by Stone [55] and Sankaran [56], defined by
+D = 32 i=1 d i 32 max i d i , (40)
+where d i denotes the number of right-hand function (i.e., derivative) evaluations in the ith thread over a certain number of global time steps.We used this to represent the cost of integration per global step for each thread within a warp.Values of D approaching one represent a warp with completely converged threads, while values approaching zero represent a situation where a small number of threads perform significantly more work than other threads.However, it should be noted that D is not a perfect measure of divergence in general applications, where threads may follow different instructions but perform similar amounts of work.Figure 3 shows the distribution of D for 65,536 ODEs, corresponding to 2048 thread warps, where the sum of the derivative evaluations over ten global time steps was used to evaluate D. For similar initial conditions, the divergence remained low as measured by D, while with randomized initial conditions the divergence was greater, with D ranging between 0.3-0.8 and showing peaks around 0.4 and 0.65.This divergence likely caused the reduced performance of RKCK-GPU with randomly chosen initial conditions compared to similar initial conditions.
+
+
+Hydrogen/carbon monoxide kinetics
+
+Next, we studied a kinetic system with moderate stiffness, using the hydrogen/carbon monoxide reaction mechanism of Burke et al. [1], which consists of 13 species and 27 reversible (converted to 54 irreversible) reactions.Here, we chose a global time step size of 1 × 10 −6 s and reported the average computational time for ten steps.This value represents step sizes used in large-eddy simulations of reactive flows [57,58].We consider this problem to be "moderately" stiff because RKC-GPU performed more than three times faster than RKCK-GPU.For RKC, we used a relative tolerance of 1 × 10 −6 and an absolute tolerance of 1 × 10 −10 .Adjacent ODEs used similar initial conditions.
+
+Figure 4 shows the performance comparison between the single-and six-core RKC-CPU and RKC-GPU for problem sizes ranging from 64 to 4,194,304.As with the RKCK algorithm, at smaller problem sizes RKC-GPU compared less favorably against RKC-CPU, but the speedup increased with increasing problem size.RKC-GPU outperformed RKC-CPU on a single CPU core for the entire range of ODE numbers considered here, while it performed faster than the six-core version for problem sizes of 512 ODEs and larger.While the exact speedup varied, for ODE numbers of 262,144 and higher RKC-GPU demonstrated performance speedups of 59× and 10× compared to RKC-CPU on one and six CPU cores, respectively.
+
+Similar to our analysis of divergence for RKCK-GPU, we also studied the effect of randomized initial conditions on the performance of RKC-GPU.In this case, there are now three potential sources of thread divergence: (1) varying numbers of iterations for the nonlinear power method used to estimate the spectral radius, (2) varying numbers of stages due to different spectral radii, and (3) varying numbers of steps due to different time step sizes.Figure 5 shows the performance comparison for RKC-GPU between threads with similar and randomized initial conditions.Thread divergence caused by random initial conditions reduced the performance of RKC-GPU by up to a factor of 3.3.As expected, RKC-GPU exhibited a greater performance loss than RKCK-GPU, where the major source of thread divergence was varying numbers of time steps.14    The greater divergence of RKC-GPU is also demonstrated in Fig. 6, where the number of occurrences of D is counted for 65,536 ODEs (2048 warps).In this case, even similar initial conditions caused some divergence.This was likely the reason for the reduced performance speedup of RKC-GPU compared to that of RKCK-GPU relative to their respective CPU versions.With randomly distributed initial conditions, D is distributed normally around ∼0.55.Compared to the distribution of D for RKCK, RKC shows a higher incidence of low values, likely the cause behind the greater reduction in performance for the randomized initial condition case with RKC.
+
+
+Methane kinetics
+
+Next, we analyzed the performance of the CPU and GPU versions of RKC in another case with moderate stiffness, using the GRI-Mech 3.0 [59] mechanism for methane oxidation, which consists of 53 species and 325 reaction steps (converted to 634 irreversible reactions).As in the previous section, we chose a global time step size of 1 × 10 −6 s and reported the average computational time for ten steps.Adjacent ODEs used similar initial conditions.In this case, RKC-GPU performed nearly eight times faster than RKCK-GPU in terms of computational time, suggesting more significant stiffness compared to Section 3.2.Consequently, we also compared the performance of RKC-GPU with the CPU-based implicit solver VODE.In both RKC and VODE, we selected a relative tolerance of 1 × 10 −6 and an absolute tolerance of 1 × 10 −10 .
+
+Figure 7 shows the performance comparison between the single-and six-core RKC-CPU and RKC-GPU for problem sizes ranging from 64 to 2,097,152.As before, RKC-GPU performed better at larger problem sizes.Similar to the hydrogen/carbon monoxide mechanism results, RKC-GPU outperformed RKC-CPU using a single CPU core for all ODE numbers considered here and faster than the six-core version for problem sizes of 512 and larger.At larger problem 16 sizes, RKC-GPU compared slightly more favorably than in the previous section, performing up to 69× and 13× faster than RKC-CPU on one and six CPU cores, respectively.The jump in computational time between 512 and 1024 ODEs corresponded to the addition of initial conditions with greater stiffness.Since this problem exhibited greater stiffness compared to the previous case, we also studied the performance of VODE on the CPU compared against RKC-GPU.Figure 8 shows the computational time for VODE on six CPU cores and RKC-GPU for problem sizes ranging from 64 to 1,048,576.At all numbers of ODEs considered, RKC-GPU performed faster than VODE, demonstrating a speedup of up to 57×.Though it is not shown here, we also note that RKC-CPU outperformed VODE-both on six CPU cores-by a factor of three to six.
+
+Figure 9 shows the performance of RKC-GPU for methane kinetics when the initial conditions in neighboring threads were similar and randomized.The behavior demonstrated here was similar to that in the previous section, with increasing disparity in performance for larger numbers of ODEs.In this case, with randomly selected initial conditions RKC-GPU performed up to nearly four times slower than when threads contained similar initial conditions.This drop in performance can also be seen in the distribution of D for 65,536 ODEs (2048 warps) in Fig. 10.The divergence, as measured by D, showed similar behavior to that of hydrogen/carbon monoxide in Fig. 6.Here, for similar conditions, D is clustered near one, and for randomized initial conditions normally distributed around 0.45-slightly lower than with the hydrogen/carbon monoxide mechanism.This likely explains the slightly greater drop in performance for randomly ordered initial conditions, compared to the previous section.
+
+
+Ethylene kinetics
+
+Finally, we studied the performance of RKC-GPU in a case where stiffness is more severe: ethylene oxidation using the USC Mech version II mechanism [60], which consists of 111 species and 784 reactions (converted to 1566 irreversible reactions).In both RKC and VODE, we selected a relative tolerance of 1 × 10 −6 and an absolute tolerance of 1 × 10 −10 .Adjacent ODEs used similar initial conditions.
+
+Figure 11 shows the computational time for RKC-CPU, RKC-GPU, and VODE for numbers of ODEs ranging from 64 to 131,072.As before, we chose a global time step size of 1 × 10 −6 s and reported the average computational time for ten steps.Both CPU-based algorithms were executed on six CPU cores.Here, we omit the single-core RKC-CPU results; the performance ratio between the single-and six-core version showed similar scaling (4-6×) to that shown in the previous sections.At problem sizes smaller than 256 ODEs, both RKC-CPU and VODE performed faster than RKC-GPU.RKC-GPU and VODE showed nearly indistinguishable performance for 1024 and 2048 ODEs.For numbers of ODEs greater than 8192, RKC-GPU performed 12-18× faster than RKC-CPU and 2.5-4.5×faster than VODE.
+
+Next, we increased the global time step size to 1 × 10 −4 s to further increase the severity of stiffness.Figure 12 shows the performance of RKC-GPU and six-core VODE for numbers of ODEs ranging from 64 to 65,536.For all problem sizes here, RKC-GPU is slower than VODE.At best, RKC-GPU ran 2.5× slower than VODE for 16,384 ODEs.
+
+
+Discussion
+
+The results shown above demonstrate that GPUs may be used to significantly reduce the cost of incorporating detailed chemistry in reactive-flow simulations.When stiffness is low due   to the chemistry or small time step sizes used-such as those used in high-speed flow or DNS studies-explicit algorithms such as RKCK offer significantly higher performance on CPUs than implicit methods.Implementing RKCK on the GPU compounds this performance benefit over an order of magnitude, performing up to factor of 25 faster than the equivalent six-core CPU version in this study.As such, GPU-accelerated explicit methods are an attractive choice for nonstiff problems.
+
+However, many chemical kinetics problems exhibit stiffness and therefore implicit algorithms are typically chosen to integrate the chemistry terms.As shown here, though, stabilized explicit methods such as RKC offer another option when stiffness is moderate.Demonstrated with methane kinetics, the RKC-GPU solver performed up to nearly 60× faster than the implicit VODE solver on six CPU cores.In fact, even the CPU implementation of RKC outperformed VODE.Based on these results, we suggest that a GPU-accelerated stabilized explicit method like RKC should be used in place of the standard implicit solvers in reactive-flow simulations-when stiffness is moderate.Typically, high-fidelity simulations use mechanisms with less than around 100 species-the size of those used in this study-so applying the GPU-based RKC integrator could significantly reduce the cost of chemistry in such studies.In addition, it could allow the use of larger, more complex mechanisms.
+
+In the presence of more severe stiffness, as with the ethylene oxidation mechanism here, the GPU-accelerated RKC still showed significant speedup over the CPU version.Unfortunately, the comparison between VODE (on six CPU cores) and RKC-GPU became less favorable, with the speedup dropping to a factor of 4.5 for a global time step size of 1 × 10 −6 .The performance of RKC-GPU compared to VODE dropped further when the global time step size was increaseddue to the greater stiffness this induced.For example, a time step size of 1 × 10 −4 s may be used for engine simulations; in this case, RKC-GPU performed at best 2.5× slower than VODE (on six CPU cores).As Stone et al. [29] demonstrated, porting VODE to the GPU may not yield much benefit over a multi-core CPU implementation.Therefore, for problems with severe stiffness, an integration algorithm appropriate for GPU acceleration needs to be developed.
+
+In all cases shown here, the speedup of the GPU-based algorithm compared to the equivalent CPU-based algorithm improved with increasing numbers of ODEs; at the smallest numbers, the six-core CPU-based algorithms performed better.This trend agrees with that observed in previous efforts using various integration algorithms [25,27,29].At smaller problem sizes, the overhead due to memory transfer between the GPU and controlling CPU dominates, while at larger problem sizes the time required for actual computation comprises most of the total wallclock time.
+
+Further, we observed a general trend of increasing RKC-GPU to RKC-CPU speedup with increasing mechanism size.For mechanisms with 13, 53, and 111 species, RKC-GPU performed up to 10×, 13×, and 18× faster, respectively, than the six-core RKC-CPU for a global time step size of 1 × 10 −6 s.
+
+We also found that the the performance of both RKCK-GPU and RKC-GPU dropped by factors of up to 2.5 and 4.0, respectively, when adjacent threads (corresponding to spatial locations) used randomly shuffled-rather than similar-initial conditions.This was due to divergence from threads following different instruction pathways, since different conditions will result in varying inner time step sizes.RKC-GPU exhibited greater thread divergence due to additional sources from the spectral radius estimation and varying number of stages, and correspondingly with randomized initial conditions this method displayed a larger reduction in performance compared to RKCK-GPU relative to the respective CPU versions.In general, we consider the case of threads with similar initial conditions more realistic, since in reactive-flow simulations-particularly with structured grids-neighboring volumes/grid points will contain similar thermochemical states.However, a reduction in performance due to divergence could result in some cases, such as with unstructured grids, where neighboring locations may not be stored consecutively in memory.
+
+
+Conclusions
+
+In the present work we demonstrated new strategies for accelerating reactive-flow simulations using graphics processing units (GPUs).Most approaches for such simulations rely on the operator-splitting technique, which separates the chemistry and transport terms in each time step for separate evaluation.This results in a large number of ordinary differential equations (ODEs) governing the evolution of the species mass fractions for each discretized spatial location (i.e., grid point or volume) that need to be solved each time step.Here, we demonstrated that explicit algorithms used to integrate the chemistry ODEs in parallel on GPUs can perform significantly faster than equivalent CPU versions.We employed the explicit fifth-order Runge-Kutta-Cash-Karp (RKCK) and second-order Runge-Kutta-Chebyshev (RKC) methods for nonstiff and moderately stiff kinetics, respectively.
+
+We studied the performance of the RKCK algorithm using a nonstiff hydrogen mechanism with with 9 species and 38 irreversible reactions [26], and the performance of the RKC algorithm using three mechanisms with increasing sizes and levels of stiffness: (1) hydrogen/carbon monoxide with 13 species and 54 irreversible reactions [1], (2) methane with 53 species and 634 irreversible reactions [59], and (3) ethylene with 111 species and 1566 irreversible reactions [60].By comparing the performance of the CPU and GPU versions of RKCK and RKC, as well as the CPU-based implicit VODE solver, over a wide range of problem sizes (i.e., number of chemistry ODEs), we drew the following conclusions:
+
+• For cases without stiffness, the GPU-based RKCK outperformed the six-core CPU version by a factor of 25 at best.
+
+• For cases with moderate levels of stiffness, the GPU-based RKC performed faster than the six-core RKC-CPU by, at best, factors of 10 with a hydrogen/carbon monoxide mechanism, 13 with a methane mechanism, and 18 with an ethylene mechanism.
+
+• In the presence of moderate stiffness in the methane mechanism, RKC-GPU outperformed the implicit VODE solver-on six CPU cores-by a maximum factor of 57.
+
+• For cases with moderate stiffness, even the CPU-based RKC outperformed VODE.
+
+• With increased stiffness in the case of the ethylene mechanism, RKC-GPU performed only 4.5× faster at best than VODE on six CPU cores.
+
+• When stiffness became more severe due to a larger time step size used with the ethylene mechanism, RKC-GPU became less efficient than six-core VODE, performing at best 2.5× slower.
+
+• At small problem sizes (less than 512 ODEs), the six-core RKC-CPU was more efficient, but RKC-GPU outperformed the serial (single-core) CPU version in all cases considered here.
+
+• Due to thread divergence, the performance of the GPU solvers degraded with randomized (and therefore different) initial conditions in adjacent memory locations, by up to a factor of four slower compared to using similar initial conditions.
+
+Finally, we note that while we used a second-order accurate RKC algorithm here, higher order RKC methods exist.For example, Abdulle [61] developed a fourth-order RKC with similar traits to the current method.Our future work will involve implementing these higher order algorithms where such accuracy is needed, as well as developing a GPU-based stiff integrator that can handle severe stiffness.Inserting Eq. (A.9) into Eq.(A.7) for T ar , and letting a 1 = ln k r1 , a 2 = ln k r2 , and a 3 = ln k r3 , leads to:
+a 1 − a 2 = β r (x 1 − x 2 ) − T 2 − T 1 T 1 T 2 T 2 T 3 T 3 − T 2 (β r (x 2 − x 3 ) − a 2 + a 3 )a 1 − a 2 + T 2 − T 1 T 1 T 2 T 2 T 3 T 3 − T 2 (a 3 − a 2 ) = β r x 1 − x 2 − (x 2 − x 3 ) T 2 − T 1 T 1 T 2 T 2 T 3 T 3 − T 2
+Then, solving for β r ,
+
+Figure 1 :
+1
+Figure1: Performance comparison of (single-and six-core) CPU and GPU integration of the nonstiff hydrogen mechanism using the explicit RKCK method.Note that both axes are displayed in logarithmic scale.
+
+
+Figure 2 :
+2
+Figure 2: Performance comparison of RKCK-GPU integration of the nonstiff hydrogen mechanism where neighboring threads have similar and randomized initial conditions.
+
+
+Figure 3 :
+3
+Figure 3: Warp thread divergence comparison of RKCK-GPU for nonstiff hydrogen kinetics for similar and random initial conditions, where the number of occurrences of the divergence measure D is plotted for 2048 thread warps.
+
+
+Figure 4 :
+4
+Figure4: Performance comparison of (single-and six-core) CPU and GPU integration of the moderately stiff hydrogen/ carbon monoxide mechanism using the stabilized explicit RKC method.
+
+
+Figure 5 :
+5
+Figure 5: Performance comparison of RKC-GPU integration of the hydrogen/carbon monoxide mechanism where neighboring threads have similar and randomized initial conditions.
+
+
+Figure 6 :
+6
+Figure 6: Warp thread divergence comparison of RKC-GPU for hydrogen/carbon monoxide kinetics for similar and random initial conditions, where the number of occurrences of the divergence measure D is plotted for 2048 thread warps.
+
+
+Figure 7 :
+7
+Figure7: Performance comparison of (single-and six-core) CPU and GPU integration of the moderately stiff methane mechanism using the stabilized explicit RKC method.
+
+
+Figure 8 :
+8
+Figure 8: Performance comparison between VODE running on six CPU cores and RKC-GPU with the moderately stiff methane mechanism over a wide range of problem sizes (i.e., number of ODEs).
+
+
+Figure 9 :
+9
+Figure 9: Performance comparison of RKC-GPU integration of the methane mechanism where neighboring threads have similar and randomized initial conditions.
+
+
+Figure 10 :
+10
+Figure 10: Warp thread divergence comparison of RKC-GPU for methane kinetics for similar and random initial conditions, where the number of occurrences of the divergence measure D is plotted for 2048 thread warps.
+
+
+Figure 11 :
+11
+Figure 11: Average computational time required for a 1 × 10 −6 s global time step using RKC-CPU, RKC-GPU, and VODE with the ethylene oxidation mechanism, for a wide range of ODE numbers.Both RKC-CPU and VODE were performed on six CPU cores.
+
+
+Figure 12 :
+12
+Figure 12: Performance comparison between VODE running on six CPU cores and RKC-GPU with the ethylene mechanism over a wide range of problem sizes for a global time step size of 1 × 10 −4 s.
+
+
+Let x 1 == β r x 1 1 − 1 T 2 = 2 − 1 T 3 =
+11112213
+ln T 1 , x 2 = ln T 2 , and x 3 = ln T 3 .Then, dividing by A and taking the natural logarithm of each side,ln k r1 A r = ln k r1 − ln A r ln k r3 − ln A r = β r x 3 − T ar T 3 (A.6)SubtractingEq. (A.5) from Eq. (A.4) and Eq.(A.6) from Eq. (A.5) givesln k r1 − ln k r2 = β r (x 1 − x 2 ) − T ar 1 T β r (x 1 − x 2 ) − T ar T 2 − T 1 T 1 T 2 (A.7) ln k r2 − ln k r3 = β r (x 2 − x 3 ) − T ar 1 T β r (x 2 − x 3 ) − T ar T 3 − T 2 T 2 T 3 (A.8)Then,solving Eq. (A.8) for T ar ,T 2 T 3 T 3 − T 2 (ln k r2 − ln k r3 ) = T 2 T 3 T 3 − T 2 β r (x 2 − x 3 ) − T ar T ar = T 2 T 3 T 3 − T 2 (β r (x 3 − x 2 ) − ln k r2 + ln k r3 ) (A.9)
+
+
+β r = a 1 T 1 (T 3 − T 2 ) + a 2 T 2 (T 1 − T 3 ) + a 3 T 3 (T 2 − T 1 ) x 1 T 1 (T 3 − T 2 )
+1132221333211132
++ x 2 T 2 (T 1 − T 3 ) + x 3 T 3 (T 2 − T 1 ) (A.10)T ar is thenT ar = T 1 T 2 T 3 (a 1 (x 2 − x 3 ) + a 2 (x 3 − x 1 ) + a 3 (x 1 − x 2 )) x 1 T 1 (T 3 − T 2 ) + x 2 T 2 (T 1 − T 3 ) + x 3 T 3 (T 2 − T 1 ) (A.11)
+
+Acknowledgements This work was supported by the National Science Foundation under grant number 0932559, the US Department of Defense through the National Defense Science and Engineering Graduate Fellowship program, the National Science Foundation Graduate Research Fellowship under grant number DGE-0951783, and the Combustion Energy Frontier Research Center-an Energy Frontier Research Center funded by the US Department of Energy, Office of Science, Office of Basic Energy Sciences under award number DE-SC0001198.Appendix A. Irreversible reaction mechanism converterIn order to avoid the conditional statements associated with the equilibrium constants required to calculate reverse reaction rate coefficients during a simulation, we can calculate reverse Arrhenius parameters (A r , β r , T ar = E r /R) a priori.Our procedure is similar to that of Turányi[62].Evaluating the reverse rate coefficients via the forward rates and equilibrium constants at three temperatures (T 1 , T 2 , T 3 ) results in three equations to solve for the three unknown reverse Arrhenius parameters:To solve for A r , substitute the expressions for β r and T ar into Eq.(A.4),We wrote a Python tool implementing the above conversion for Chemkin-format reaction mechanisms.This software is freely available online[54].
+Comprehensive H 2 /O 2 kinetic model for high-pressure combustion. M P Burke, M Chaos, Y Ju, F L Dryer, S J Klippenstein, Int. J. Chem. Kinet. 442011
+
+Combustion chemistry of propane: a case study of detailed reaction mechanism optimization. Z Qin, V V Lissianski, H Yang, W C Gardiner, S G Davis, H Wang, Proc. Combust. Inst. 282000
+
+Kinetic modeling of gasoline surrogate components and mixtures under engine conditions. M Mehl, W J Pitz, C K Westbrook, H J Curran, Proc. Combust. Inst. 332011
+
+Detailed chemical kinetic mechanism for the oxidation of biodiesel fuels blend surrogate. O Herbinet, W J Pitz, C K Westbrook, Combust. Flame. 1572010
+
+Toward accommodating realistic fuel chemistry in large-scale computations. T Lu, C K Law, Prog. Energy Combust. Sci. 352009
+
+Stiff ODE solvers: a review of current and coming attractions. G D Byrne, A C Hindmarsh, J. Comput. Phys. 701987
+
+Solving Ordinary Differential Equations II. E Hairer, G Wanner, Springer Series in Computational Mathematics. 2010Springer-Verlag2nd ed.
+
+On the construction and comparison of difference schemes. G Strang, SIAM J. Numer. Anal. 51968
+
+A semi-implicit numerical scheme for reacting flow II. stiff, operator-split formulation. O M Knio, H N Najm, P S Wyckoff, J. Comput. Phys. 1541999
+
+Numerical simulation of laminar reacting flows with complex chemistry. M S Day, J B Bell, Combust. Theor. Model. 42000
+
+An analysis of operator splitting techniques in the stiff case. B Sportisse, J. Comput. Phys. 1612000
+
+E S Oran, J P Boris, Numerical Simulation of Reactive Flow. Cambridge University Press20012nd ed.
+
+High-order multi-implicit spectral deferred correction methods for problems of reactive flow. A Bourlioux, A T Layton, M L Minion, J. Comput. Phys. 1892003
+
+Modeling low mach number reacting flow with detailed chemistry and transport. H N Najm, O M Knio, J. Sci. Comput. 252005
+
+Second-order splitting schemes for a class of reactive systems. Z Ren, S B Pope, J. Comput. Phys. 2272008
+
+MPI: A Message-Passing Interface Standard. Version 2.2. 2009
+
+OpenMP: An industry-standard API for shared-memory programming. L Dagum, R Menon, IEEE Comput. Sci. Eng. 51998
+
+. R Chandra, L Dagum, D Kohr, D Maydan, J Mcdonald, R Menon, Parallel Programming in OpenMP. 2001Academic Press
+
+. OpenMP Architecture Review Board. 2008
+
+S P Vanka, A F Shinn, K C Sahu, Computational fluid dynamics using graphics processing units: challenges and opportunities, ASME Conf. Proc. 2011. 2011
+
+Recent progress and challenges in exploiting graphics processors in computational fluid dynamics, Manuscript submitted for publication. K E Niemeyer, C J Sung, 2013
+
+K Spafford, J Meredith, J Vetter, J H Chen, R Grout, R Sankaran, Accelerating S3D: A GPGPU case study, in: Euro-Par 2009 Parallel Processing Workshops. Berlin, HeidelbergSpringer-Verlag20106043
+
+Direct numerical simulation of turbulent combustion: fundamental insights towards predictive models. E R Hawkes, R Sankaran, J C Sutherland, J H Chen, Journal of Physics: Conference Series. 162005
+
+Terascale direct numerical simulations of turbulent combustion using S3D. J H Chen, A Choudhary, B De Supinski, M Devries, E R Hawkes, S Klasky, W K Liao, K L Ma, J Mellor-Crummey, N Podhorszki, R Sankaran, S Shende, C S Yoo, Comput. Sci. Discovery. 2150012009
+
+Turbulence-chemistry closure method using graphics processing units: a preliminary test. K E Niemeyer, C J Sung, C G Fotache, J C Lee, 7th Fall Technical Meeting of the Eastern States Section of the Combustion Institute. Storrs, CT2011
+
+A comprehensive reaction mechanism for carbon monoxide/hydrogen/oxygen kinetics. R A Yetter, F L Dryer, H Rabitz, Combust. Sci. Tech. 791991
+
+Accelerating multi-dimensional combustion simulations using hybrid CPU-based implicit/GPU-based explicit ODE integration. Y Shi, W H Green, H Wong, O O Oluwole, Combust. Flame. 1592012
+
+GPU-based flow simulation with detailed chemical kinetics. H P Le, J Cambier, L K Cole, Comput. Phys. Comm. 1842013
+
+Techniques for solving stiff chemical kinetics on GPUs. C P Stone, R L Davis, B Sekar, AIAA 2013-036951st AIAA Aerospace Sciences Meeting. 2013
+
+Explicit reduced reaction models for ignition, flame propagation, and extinction of C 2 H 4 /CH 4 /H 2 and air systems. A C Zambon, H K Chelliah, Combust. Flame. 1502007
+
+Redesigning combustion modeling algorithms for the graphics processing unit (GPU): Chemical kinetic rate evaluation and ordinary differential equation integration. Y Shi, W H Green, H Wong, O O Oluwole, Combust. Flame. 1582011
+
+CULA: Hybrid GPU accelerated linear algebra routines. J R Humphrey, D K Price, K E Spagnoli, A L Paolini, E J Kelmelis, 10.1117/12.850538Proc. SPIE. E J Kelmelis, SPIE20107705770502
+
+GPU-accelerated software library for unsteady flamelet modeling of turbulent combustion with complex chemical kinetics. R Sankaran, AIAA 2013-037251st AIAA Aerospace Sciences Meeting. 2013
+
+Programming Massively Parallel Processors: A Hands-on Approach. D B Kirk, W W Hwu, 2010Morgan KaufmannBurlington, MA
+
+J Sanders, E Kandrot, CUDA by Example: An Introduction to General-Purpose GPU Programming. Addison-Wesley Professional20101st ed.
+
+. Cuda C Programming Nvidia, Guide, 20110 ed.
+
+The OpenCL specification. A Munshi, 2011Khronos Group
+
+OpenACC application programming interface. Openacc, 2011
+
+Directive-based programming for GPUs: A comparative study. R Reyes, I López, J J Fumero, F De Sande, IEEE 14th International Conference on High Performance Computing and Communications. 2012
+
+C K Law, Combustion Physics. New YorkCambridge University Press2006
+
+CHEMKIN-III: A FORTRAN Chemical Kinetics Package for the Analysis of Gas-Phase Chemical and Plasma Kinetics. R J Kee, F M Rupley, E Meeks, J A Miller, SAND96-82161996Sandia National LaboratoriesTechnical Report
+
+A variable order Runge-Kutta method for initial value problems with rapidly varying right-hand sides. J R Cash, A H Karp, ACM Trans. Math. Software. 161990
+
+W H Press, S A Teukolsky, W T Vetterling, B P Flannery, Numerical Recipes in Fortran 77. The Art of Scientific Computing. Cambridge University Press19922nd ed.
+
+P J Van Der Houwen, B P Sommeijer, On the internal stability of explicit, m-stage Runge-Kutta methods for large m-values. 198060
+
+Convergence properties of the Runge-Kutta-Chebyshev method. J G Verwer, W Hundsdorfer, B P Sommeijer, Numer. Math. 571990
+
+The development of Runge-Kutta methods for partial differential equations. P J Van Der Houwen, Applied Numerical Mathematics. 201996
+
+Explicit Runge-Kutta methods for parabolic partial differential equations. J G Verwer, Appl. Numer. Math. 221996
+
+RKC: An explicit solver for parabolic PDEs. B P Sommeijer, L F Shampine, J G Verwer, J. Comput. Appl. Math. 881997
+
+RKC time-stepping for advection-diffusion-reaction problems. J G Verwer, B P Sommeijer, W Hundsdorfer, J. Comput. Phys. 2012004
+
+Über die abgrenzung der eigenwerte einer matrix. S Geršgorin, Bulletin de l'Académie des Sciences de l'URSS. Classe des sciences mathématiques et na. 1931
+
+R A Horn, C R Johnson, Matrix Analysis. Cambridge University Press1990
+
+. G D Byrne, S Thompson, Vode F90, 2006
+
+K E Niemeyer, create rate subs. 2013
+
+. K E Niemeyer, irrev mech. 2013
+
+. C P Stone, 2013Personal communication
+
+. R Sankaran, 2013Personal communication
+
+Large eddy simulation/probability density function modeling of a turbulent jet flame. H Wang, S B Pope, Proc. Combust. Inst. 332011
+
+Large eddy simulation of an industrial gas-turbine combustion chamber using the sub-grid PDF method. G Bulat, W P Jones, A J Marquis, Proc. Combust. Inst. 342013
+
+. G P Smith, D M Golden, M Frenklach, N W Moriarty, B Eiteneer, M Goldenberg, C T Bowman, R K Hanson, S Song, W C GardinerJr, V V Lissianski, Z. Qin, GRI-Mech. 2010
+
+H Wang, X You, A V Joshi, S G Davis, A Laskin, F Egolfopoulos, C K Law, USC Mech Version II. Hightemperature combustion reaction model of H 2 /CO/C 1 -C 4 compounds. 2007
+
+Fourth order Chebyshev methods with recurrence relation. A Abdulle, SIAM J. Sci. Comput. 232002
+
+MECHMOD: program for the modification of gas kinetic mechanisms. T Turányi, 2003

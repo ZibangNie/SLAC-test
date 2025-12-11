@@ -1,0 +1,509 @@
+Training Acceleration Method Based on Parameter Freezing
+30 May 2024
+
+Hongwei Tang tanghongwei16@mails.ucas.ac.cn 
+Aerospace Information Research Institute
+Chinese Academy of Sciences
+100190BeijingChina
+
+University of Chinese Academy of Sciences
+100190BeijingChina
+
+School of Electronic
+Electrical and Communication Engineering
+University of Chinese Academy of Sciences
+100190BeijingChina
+
+Institute of Electronics
+Key Laboratory of Network Information System Technology (NIST)
+Chinese Academy of Sciences
+100190BeijingChina
+
+Jialiang Chen chenjl@aircas.ac.cn 
+Aerospace Information Research Institute
+Chinese Academy of Sciences
+100190BeijingChina
+
+Institute of Electronics
+Key Laboratory of Network Information System Technology (NIST)
+Chinese Academy of Sciences
+100190BeijingChina
+
+Wenkai Zhang 
+Aerospace Information Research Institute
+Chinese Academy of Sciences
+100190BeijingChina
+
+Institute of Electronics
+Key Laboratory of Network Information System Technology (NIST)
+Chinese Academy of Sciences
+100190BeijingChina
+
+Zhi Guo 
+Aerospace Information Research Institute
+Chinese Academy of Sciences
+100190BeijingChina
+
+Institute of Electronics
+Key Laboratory of Network Information System Technology (NIST)
+Chinese Academy of Sciences
+100190BeijingChina
+
+Training Acceleration Method Based on Parameter Freezing
+30 May 202430A107ADE9DE14288135F70DE5283F2D10.3390/electronics13112140Received: 31 March 2024 Revised: 24 May 2024 Accepted: 28 May 2024training accelerationparameter freezingobject detectiondeep learningneural network
+As deep learning has evolved, larger and deeper neural networks are currently a popular trend in both natural language processing tasks and computer vision tasks.With the increasing parameter size and model complexity in deep neural networks, it is also necessary to have more data available for training to avoid overfitting and to achieve better results.These facts demonstrate that training deep neural networks takes more and more time.In this paper, we propose a training acceleration method based on gradually freezing the parameters during the training process.Specifically, by observing the convergence trend during the training of deep neural networks, we freeze part of the parameters so that they are no longer involved in subsequent training and reduce the time cost of training.Furthermore, an adaptive freezing algorithm for the control of freezing speed is proposed in accordance with the information reflected by the gradient of the parameters.Concretely, a larger gradient indicates that the loss function changes more drastically at that position, implying that there is more room for improvement with the parameter involved; a smaller gradient indicates that the loss function changes less and the learning of that part is close to saturation, with less benefit from further training.We use ViTDet as our baseline and conduct experiments on three remote sensing target detection datasets to verify the effectiveness of the method.Our method provides a minimum speedup ratio of 1.38×, while maintaining a maximum accuracy loss of only 2.5%.
+
+Introduction
+
+With the advancement of remote sensing technology, the resolution of remote sensing images has been continuously improved and their coverage has become more extensive, allowing for a greater amount of information to be extracted.Object detection in remote sensing images is one of the focal issues in the field of remote sensing image interpretation [1].Its objective is to identify and precisely classify and locate various objects in complex remote sensing images, such as airplanes, ships, vehicles, and more.This technology plays an irreplaceable role in a large number of applications.
+
+In recent years, there has been rapid development in object detection methods based on deep learning [2].Compared with traditional object detection algorithms, deep learningbased algorithms utilize deep neural networks with large amounts of data for training, allowing them to learn the distinctive features of objects.As a result, they achieve a higher detection accuracy and a greater efficiency compared to handcrafted feature extraction algorithms.Broadly speaking, deep learning-based algorithms can be categorized into two main categories.The first type is two-stage region proposal algorithms, including R-CNN [3], Fast R-CNN [4], and Faster R-CNN [5].These algorithms extract candidate regions in the image, then classify and localize the objects through these regions.Although they demonstrate a good performance, their complex structure and slower speed may be their drawback.The other type is one-stage object detection algorithms based on regression, such as YOLO [6], SSD [7], and RetinaNet [8].These algorithms transform the localization and classification task into a regression problem, reducing spatial and temporal overhead.They have a higher speed but a lower detection accuracy compared to two-stage algorithms.
+
+Deep neural networks benefit greatly from their parameter size, ranging from millions to billions, as well as the stacked non-linear activation layers, which enable the models to have much better capabilities of nonlinear system modeling.Larger and deeper deep neural networks are currently a popular trend in both natural language processing tasks and computer vision tasks [9,10].With the increasing parameter size and model complexity in deep neural networks, it is also necessary to have more data available for training to avoid overfitting and to achieve better results.In the field of remote sensing object detection, large-scale datasets with more than twenty thousand remote sensing images, such as LEVIR [11], DOTA [12], and DIOR [13], are commonly used for model training.
+
+The expansion in the size of datasets and model parameters leads to a growing demand for time and resources during model training.Researchers need to debug models and compare and analyze the results of the experiments.In the case of practical applications, the models need to rapidly adapt to new application scenarios and new data in order to ensure the effectiveness of the models.Therefore, time-consuming training processes that may take days or even months significantly slow down the progress of research and application.Conventional methods for accelerating the training of deep neural networks based on parameter and model structure compression are always difficult to design and have limited generalizability.Therefore, we aim to explore a training acceleration method that can be applied to different models by focusing on training strategies.
+
+The main contribution of this paper is summarized as follows:
+
+• We design a training strategy based on freezing the parameters of models according to the convergence trend during the training of deep neural networks; • We implement a linear freezing algorithm, which can help save at least 19.4% of training time; • We present an adaptive freezing algorithm according to the information provided by the gradient, achieving a speedup ratio of up to 1.38×.
+
+
+Related Works
+
+
+Remote Sensing Object Detection
+
+Extensive research has been devoted to object detection in optical remote sensing images, inspired by the great success of deep learning-based object detection methods in the computer vision community.Many improvements from multiple perspectives have been made in order to ameliorate the performance of deep neural networks applied to remote sensing object detection.
+
+The excellent performance of R-CNN for natural scene object detection leads to the adoption of the R-CNN pipeline in remote sensing object detection.Cheng et al. [14] proposed a rotation-invariant CNN (RICNN) model by adding a new rotation-invariant layer to the standard CNN model, which is used for the multi-class detection of geospatial objects.In order to further improve the performance of remote sensing object detection, Cheng et al. [15] imposed a rotation-invariant regularizer and a Fisher discrimination regularizer on the CNN features to train a rotation-invariant and Fisher-discriminative CNN (RIFD-CNN) model.Long et al. [16] presented an unsupervised score-based bounding box regression method for the accurate localization of geospatial objects and to optimize the bounding box of the objects with non-maximum suppression.
+
+With the introduction of Faster R-CNN, remote sensing object detection also had an advancement.Based on Faster RCNN, Li et al. [17] presented a rotation-insensitive RPN that can effectively handle the problem of rotation variations of geospatial objects by introducing multi-angle anchors into the existing RPN.In addition, a dual-channel feature combination network is designed to learn local and contextual properties to address the problem of appearance ambiguity.Xu et al. [18] proposed a deformable CNN to model the geometric variations of objects; the increase in false region proposals was reduced with non-maximum suppression constrained by aspect ratio.Zhong et al. [19] introduced a fully convolutional network based on the residual network to solve the dilemma between the translation variance in object recognition and the translation invariance in image classification.Pang et al. [20] argue that most detectors suffer from the issue of imbalance at the sample level, feature level, and objective level.At the sample level, IoU-Balanced Sampling guides the selection of samples to ensure that more hard negative samples are chosen during the training process, as the hard negative samples play a more significant role in model training.At the feature level, the Balanced Feature Pyramid resizes all the feature maps to a uniform size and then combines them, aiming to fully utilize feature maps at various scales.At the objective level, Balanced L1 Loss judges and weighs between the classification task and localization task.With these modules, their model can have better results.Qin et al. [21] use an Arbitrary-Oriented Region Proposal Network to generate rotational candidate regions.In order to obtain a more accurate bounding box, a multihead network divides the bounding box regression into several tasks such as center point location, scale prediction, etc.
+
+Methods based on regression-based models also have development in remote sensing object detection.Liu et al. [22] replaced the traditional bounding box with a rotatable bounding box (RBox) embedded in the SSD framework, which is, thus, a rotation invariant due to its ability to estimate the orientation angles of objects.Tang et al. [23] used a regression-based object detector to detect vehicle targets, which is a similar idea to SSD.Specifically, a set of default boxes with different scales per feature map location are employed to generate the detection bounding boxes.Furthermore, the offsets are predicted to better fit the object shape for each default box.Liu et al. [24] have designed a framework for the detection of arbitrarily oriented ships.By using the YOLOv2 architecture as the underlying network, the model can directly predict rotated bounding boxes.Zhong et al. [25] propose a cascaded detection model combining two independent convolutional neural networks with different functionalities to improve the detection accuracy.Xu et al. [26] attributed the poor detection performance of objects with large aspect ratios and different scales to the problem of feature misalignment and proposed a method for the detection of feature alignment.
+
+Although most of the existing deep-learning based methods have demonstrated considerable success on the task of object detection in remote sensing, they have been transferred from the methods designed for natural scene images.Indeed, remote sensing images differ significantly from natural scene images, in particular regarding rotation, scaling, and complex and cluttered backgrounds.Although existing methods have partially addressed these problems by introducing prior knowledge or designing proprietary models, the task of object detection in remote sensing images remains an important question that deserves further research.
+
+The above methods improve the performance of remote sensing object detection, mostly by adding new modules that specifically focus on the characteristics of remote sensing images.However, more modules often increase the complexity of the models, which can affect the training speed of the model.
+
+
+Deep Neural Network Training Acceleration
+
+Common methods for deep neural network training acceleration typically focus on model design.The compression of parameters and model structures is used for the purpose of reducing the training time of deep neural networks.
+
+
+Compression of Parameters
+
+Deep neural networks typically have a large number of parameters and always perform computations in 32-bit floating-point numbers, which is the main computational cost during the training process.
+
+Parameter pruning involves evaluating the model parameters or parameter combinations and removing parameters that contribute little to the training process [27,28].It can also prune connections between layers in the deep neural network [29].
+
+Parameter quantization targets the storage of parameters by replacing 32-bit floatingpoint numbers with 16-bit or 8-bit floating-point numbers.In appropriate cases, binary or ternary quantization can even be applied [30,31], significantly reducing the storage space and memory usage of the parameters.
+
+Low-rank decomposition decomposes the convolutional kernel matrix by merging dimensions and imposing low-rank constraints.It utilizes a small number of basis vectors to reconstruct the convolutional kernel matrix [32], thereby reducing storage and computational requirements.
+
+Parameter sharing is similar to parameter pruning and takes advantage of the redundancy in model parameters.It develops a method to map all parameters to a small amount of data and performs computations using this limited data.
+
+
+Compression of Model Structures
+
+There are two main categories of methods for compressing the structure of deep neural networks.
+
+The first method is lightweight model design, which involves directly redesigning components of the deep neural network to optimize its structure.Some classic examples include SqueezeNet [33], which uses smaller convolutional kernels; MobileNet [34], which splits common convolutions into depth-wise convolutions and point-wise convolutions to reduce the number of multiplications; and ShuffleNet [35], which utilizes point-wise group convolution and channel shuffle.
+
+The other method is knowledge distillation, by transferring the knowledge from a pre-trained large teacher model to a smaller student model.This allows the student model to achieve a performance similar to that of the teacher model, while maintaining a smaller size.Knowledge distillation methods are typically categorized into response-based distillation [36], feature-based distillation [37], and relation-based distillation [38].
+
+All of the above methods are effective in improving the training speed of deep neural networks.However, these methods always face the challenge of design complexity.Additionally, training acceleration methods specifically designed for model architecture often require tailored optimizations, resulting in limited generalizability.Therefore, this paper aims to explore a training acceleration method that can be applied to different models by focusing on training strategies.
+
+
+Similarity Measure between Deep Neural Network Representations
+
+Although deep learning has made significant progress in many fields, there has been a lack of in-depth research on how to describe and understand the representations learned by deep neural networks during the training process.To this end, Raghu et al. [39] proposed the Singular Vector Canonical Correlation Analysis (SVCCA) method.It measures the similarity between two intermediate layer activations in two deep neural networks by computing their linear correlation, allowing for the observation of the representations learned by deep neural network models.
+
+Furthermore, Kornblith et al. [40] introduced the Centered Kernel Alignment (CKA) method for measuring the similarity between deep neural networks.This method calculates the alignment of kernel matrices computed from the activations of the intermediate layers in two deep neural networks.It captures the structural and topological information of the deep neural networks and effectively evaluates the representational capacity of models.
+
+With these methods, it is possible to observe and analyze the training process of deep neural networks.
+
+
+Pre-Experiment: Observation of Training Process
+
+To directly represent the convergence process of deep neural networks, we utilize the CKA method to compare the similarity of models at different stages during the training process.Firstly, the model loads two different weights and uses the same samples to obtain two representations, X and Y, from the corresponding layers.Then, we calculate their Gram matrices as follows:
+M = XX T , N = YY T .(1)
+A centering matrix H is constructed to calculate the Hilbert-Schmidt Independence Criterion (HSIC):
+H = I n − 1 n 1 n 1 n T ,(2)HSIC(M, N) = 1 (n − 1) 2 tr(MHNH)(3)
+Finally, normalization is performed to obtain the CKA score:
+CKA(M, N) = HSIC(M, N) HSIC(M, M)HSIC(N, N) . (4)
+First, we choose the image branch of VSE++, a typical multimodal retrieval model.Every few epochs, the weight of the model is stored.After all the training, the CKA was used to calculate the similarity between the weights during training and the weight obtained after complete training.The results are shown in Figure 1.From the graph, it can be observed that as the training progresses, the parameters of the shallow layers tend to converge earlier compared to the parameters of the deep layers.However, the convergence process does not strictly follow a linear relationship with the training process, making quantitative analysis difficult to perform.
+
+
+Parameter Freezing Algorithm
+
+From the conclusion in Section 3, it is clear that the parameters of deep neural networks follow an order of convergence from shallow to deep during training.Our goal is to freeze the parameters based on the order of convergence so that we can accelerate the training process with as little loss of performance as possible.
+
+
+Linear Freezing Algorithm
+
+The training of deep neural networks can easily be divided into two main processes.The first process is the forward propagation phase, which is performed from the training data as input to the resultant output.Using the designed deep neural network, features are extracted from a batch of labeled samples through operations such as convolution, pooling, and full connectivity; then, the extracted features are used to compute and obtain the output of the network.What we are interested in is the backpropagation stage.
+
+
+Parameter Freezing Algorithm
+
+From the conclusion in Section 3, it is clear that the parameters of deep neural networks follow an order of convergence from shallow to deep during training.Our goal is to freeze the parameters based on the order of convergence so that we can accelerate the training process with as little loss of performance as possible.
+
+
+Linear Freezing Algorithm
+
+The training of deep neural networks can easily be divided into two main processes.The first process is the forward propagation phase, which is performed from the training data as input to the resultant output.Using the designed deep neural network, features are extracted from a batch of labeled samples through operations such as convolution, pooling, and full connectivity; then, the extracted features are used to compute and obtain the output of the network.What we are interested in is the backpropagation stage.Backpropagation is a process performed in the opposite direction to forward propagation.The purpose of training is to optimize the model performance.Thus, in order to make the error between the prediction value and the actual labeled value as small as possible, the loss function is calculated based on the comparison error between the prediction value and the ground truth; then, the gradient of the parameters is calculated according to the loss function.When calculating the gradient of the parameters, the value of the intermediate result of the corresponding layer's forward propagation needs to be used.This stage usually takes more time than the forward propagation.
+
+Therefore, according to the parameter convergence trend of the deep neural networks, after a certain amount of training, we freeze the parameters of the shallow layers so that they are no longer involved in the backpropagation process in training, thus saving this part of the computational overhead and speeding up the training.As shown in Figure 4, the Linear Freezing Algorithm (LFA) freezes a fixed number of blocks after every several epochs.If necessary, the range of each block and when to freeze can be flexibly defined so that common deep neural networks can use this approach.
+
+
+Adaptive Freezing Algorithm
+
+In the process of backpropagation, by calculating the gradient of the loss function with respect to the model parameters, it is possible to understand the direction and rate of change of the model at the current parameter values.Based on the information provided by the gradient, parameter updates are made to the model to improve its performance.Specifically, a larger gradient indicates that the loss function changes more drastically at this position, implying that there is more space for improvement with the parameter involved; a smaller gradient indicates that the loss function changes less and the learning of this part is close to saturation, with less benefit from further training.
+
+Therefore, we propose an adaptive method to judge the progress of parameter freezing by comparing the gradients of parameters at different layers, aiming to further accelerate the training of deep neural networks.
+
+After a certain amount of training, the number of frozen layers at timestep T is decided as follows:
+
+( 1) ( ) arg min ( )
+f f n F N T n N N T g T − ≤ ≤ = , 1 T ≥ , (0) 0 f N = .
+(5) ( ) n g T is the gradient of layer n at timestep T; the Frobenius norm of the gradients If necessary, the range of each block and when to freeze can be flexibly defined so that common deep neural networks can use this approach.
+
+
+Adaptive Freezing Algorithm
+
+In the process of backpropagation, by calculating the gradient of the loss function with respect to the model parameters, it is possible to understand the direction and rate of change of the model at the current parameter values.Based on the information provided by the gradient, parameter updates are made to the model to improve its performance.Specifically, a larger gradient indicates that the loss function changes more drastically at this position, implying that there is more space for improvement with the parameter involved; a smaller gradient indicates that the loss function changes less and the learning of this part is close to saturation, with less benefit from further training.
+
+Therefore, we propose an adaptive method to judge the progress of parameter freezing by comparing the gradients of parameters at different layers, aiming to further accelerate the training of deep neural networks.
+
+After a certain amount of training, the number of frozen layers at timestep T is decided as follows:
+N f (T) = argmin N f (T−1)≤n≤N ∥g n (T)∥ F , T ≥ 1, N f (0) = 0.(5)
+g n (T) is the gradient of layer n at timestep T; the Frobenius norm of the gradients ∥g n (T)∥ F is gathered and compared.To avoid the effect of random initialization and errors, the upper limit of the freezing parameter at timestep T is set to be as follows:
+N max (T) = kN + (1 − k)N f (T − 1), 0 < k ≤ 1, (6)
+where N is the total number of layers, and hyper-parameter k controls the freezing speed during training.With Equation ( 5), the model can judge the number of frozen layers at certain timesteps in the training process.Figure 5 shows that the Adaptive Freezing Algorithm (AFA) can freeze the model at a much faster pace, leading to a better effect of acceleration.The pseudo code is shown in Algorithm 1.With Equation ( 5), the model can judge the number of frozen layers at certain timesteps in the training process.Figure 5 shows that the Adaptive Freezing Algorithm (AFA) can freeze the model at a much faster pace, leading to a better effect of acceleration.The pseudo code is shown in Algorithm 1.  for layer index =
+
+( 1)
+f N T − to N do 5:
+( ) arg min ( )
+f n F N T g T = ;
+
+Model
+
+We selected ViTDet [41] as the baseline model in our experiments.ViTDet utilizes Vision Transformer as the backbone, which has a larger number of parameters, allowing for the presentation of the acceleration effect of the freezing algorithm much better.We use ViT-B with 12 encoders as the backbone and define each encoder as one block.
+
+
+Datasets
+
+In a wide variety of datasets for remote sensing object detection, three datasets of different sizes have been used.DIOR has 23,463 remote sensing images of 800 × 800 resolution with 20 categories, including airplane, airport, ship, etc. SIMD contains 15 categories, most of which are different kinds of cars.It has 5000 images selected from Google Earth.RSOD is a small dataset with only 976 images and 4 categories including aircraft, oil tank, overpass, and playground.More details of these datasets can be seen in Table 1.
+
+
+Evaluation Metrics
+
+When calculating precision and recall metrics, the results of the model outputs are categorized into four groups based on true labeling-true positives (TPs), true negatives (TNs), false positives (FPs), and false negatives (FNs).
+
+Precision is a statistical measure that evaluates the model's ability to classify objects.It represents the ratio of correctly predicted instances to all predicted instances in the detection results; it is calculated as follows:
+precision = TP TP + FP . (7)
+Recall is a performance metric that measures the ability of a model to correctly identify all positive instances.Recall is defined as the proportion of true positives correctly predicted by the model out of all the actual positive instances.It can be calculated as follows:
+recall = TP TP + FN ,(8)
+The value of recall ranges from 0 to 1, with higher values indicating a better performance.A recall value closer to 1 means that the model can more accurately identify positive instances and has a lower rate of missing positive samples.
+
+Average Precision (AP) is derived by the method of averaging the precision values along the precision-recall (PR) curve.It is computed by integrating the area under the precision-recall curve, as follows:
+AP = 1 0 p(r)dr.(9)
+The mean Average Precision (mAP), as the average of the Average Precision (AP) values, is the most commonly used evaluation statistic in object detection.The value of mAP represents the model's overall performance in all the categories.
+
+As for the effect of acceleration, we compare the training time with or without parameter freezing.With T 0 as the training time without parameter freezing and T f as the other, the speedup is calculated as follows:
+speedup = T 0 T f .(10)
+
+Results
+
+We trained the model on each of the three datasets with a maximum of 65 epochs and froze part of the model with the Linear Freezing Algorithm (LFA) and the Adaptive Freezing Algorithm (AFA) every 5 epochs.The hyper-parameter k in Equation ( 6) was determined as 0.3, because higher values lead to serious performance degradation.To make the results more accurate, each experiment was repeated five times and the average of the results was taken as the final result.
+
+The trend of time consumption for each epoch is shown in Figure 6.In the early stages of training, the AFA has an aggressive performance compared to the LFA, so that the AFA finishes freezing all the blocks earlier than the LFA.
+
+Electronics 2024, 13, x FOR PEER REVIEW 11 of 17
+
+
+Results
+
+We trained the model on each of the three datasets with a maximum of 65 epochs and froze part of the model with the Linear Freezing Algorithm (LFA) and the Adaptive Freezing Algorithm (AFA) every 5 epochs.The hyper-parameter k in Equation ( 6) was determined as 0.3, because higher values lead to serious performance degradation.To make the results more accurate, each experiment was repeated five times and the average of the results was taken as the final result.
+
+The trend of time consumption for each epoch is shown in Figure 6.In the early stages of training, the AFA has an aggressive performance compared to the LFA, so that the AFA finishes freezing all the blocks earlier than the LFA.Tables 2-4 show all the results of our experiments.With the same freezing algorithms, the difference in acceleration ratios is small.In total, the LFA saves 19.4% of training time, while the AFA saves 28.6%.As for the performance of object detection, the training on DIOR has been influenced to some extent.We believe that the model needs more training on the larger datasets, so the freezing operation in the early stages of the training process may lead to inadequate training on the larger datasets.Conversely, training without a freezing algorithm on small datasets like RSOD probably suffers from overfitting at the shallow layers of the model; thus, the freezing algorithm may provide a benefit to the increase of mAP.The same pattern shows up in the effect of the freezing algorithms on the recall rate.Tables 2-4 show all the results of our experiments.With the same freezing algorithms, the difference in acceleration ratios is small.In total, the LFA saves 19.4% of training time, while the AFA saves 28.6%.As for the performance of object detection, the training on DIOR has been influenced to some extent.We believe that the model needs more training on the larger datasets, so the freezing operation in the early stages of the training process may lead to inadequate training on the larger datasets.Conversely, training without a freezing algorithm on small datasets like RSOD probably suffers from overfitting at the shallow layers of the model; thus, the freezing algorithm may provide a benefit to the increase of mAP.The same pattern shows up in the effect of the freezing algorithms on the recall rate.The confusion matrixes of the results on the DIOR dataset are shown in Figure 7.The data on the diagonal is the Precision, while the last column is the False Negative Rate (FNR), and the rest is the False Positive Rate (FPR).As indicated by the different color blocks, the Precision, FPR, and FNR are similar in the three figures in Figure 7, which means the parameter freezing algorithms do not interfere with the training process when specific to each category.The confusion matrixes of the results on the DIOR dataset are shown in Figure 7.The data on the diagonal is the Precision, while the last column is the False Negative Rate (FNR), and the rest is the False Positive Rate (FPR).As indicated by the different color blocks, the Precision, FPR, and FNR are similar in the three figures in Figure 7, which means the parameter freezing algorithms do not interfere with the training process when specific to each category.
+
+
+Limitations and Further Work
+
+Gaining a deeper understanding of the intricate convergence process during the training of deep neural networks is crucial for optimizing freezing algorithms, especially when it comes to quantitative analysis.The current landscape of our comprehension regarding the training dynamics of these networks is still fragmented, posing limitations to the effectiveness and efficiency of parameter freezing methods.
+
+As we strive to improve the overall performance of deep learning models, a more refined analysis of the convergence process becomes paramount.This would not only allow us to comprehend the behavior of the networks more accurately, but also help us to identify potential bottlenecks or areas for improvement.
+
+In our future work, we aim to explore innovative ways to dissect and analyze the training process of deep neural networks.Through a combination of novel techniques and rigorous experimentation, we hope to gain a better understanding of the fundamental principles that govern the behavior of these networks.A comprehensive analysis of the convergence process in deep neural networks holds immense potential for advancing the field of deep learning.By improving our understanding of this process, we can develop more efficient and effective freezing algorithms, paving the way for faster and more accurate training of deep neural networks.
+
+
+Conclusions
+
+This paper presented a training strategy based on parameter freezing for accelerating the training of deep neural networks.By observing the convergence trend during the training of deep neural networks, we freeze part of the parameters so that they are no longer involved in subsequent training and reduce the time cost of training.The
+
+
+Limitations and Further Work
+
+Gaining a deeper understanding of the intricate convergence process during the training of deep neural networks is crucial for optimizing freezing algorithms, especially when it comes to quantitative analysis.The current landscape of our comprehension regarding the training dynamics of these networks is still fragmented, posing limitations to the effectiveness and efficiency of parameter freezing methods.
+
+As we strive to improve the overall performance of deep learning models, a more refined analysis of the convergence process becomes paramount.This would not only allow us to comprehend the behavior of the networks more accurately, but also help us to identify potential bottlenecks or areas for improvement.
+
+In our future work, we aim to explore innovative ways to dissect and analyze the training process of deep neural networks.Through a combination of novel techniques and rigorous experimentation, we hope to gain a better understanding of the fundamental principles that govern the behavior of these networks.A comprehensive analysis of the convergence process in deep neural networks holds immense potential for advancing the field of deep learning.By improving our understanding of this process, we can develop more efficient and effective freezing algorithms, paving the way for faster and more accurate training of deep neural networks.
+
+
+Conclusions
+
+
+Limitations and Further Work
+
+Gaining a deeper understanding of the intricate convergence process during the training of deep neural networks is crucial for optimizing freezing algorithms, especially when it comes to quantitative analysis.The current landscape of our comprehension regarding the training dynamics of these networks is still fragmented, posing limitations to the effectiveness and efficiency of parameter freezing methods.
+
+As we strive to improve the overall performance of deep learning models, a more refined analysis of the convergence process becomes paramount.This would not only allow us to comprehend the behavior of the networks more accurately, but also help us to identify potential bottlenecks or areas for improvement.
+
+In our future work, we aim to explore innovative ways to dissect and analyze the training process of deep neural networks.Through a combination of novel techniques and rigorous experimentation, we hope to gain a better understanding of the fundamental principles that govern the behavior of these networks.A comprehensive analysis of the convergence process in deep neural networks holds immense potential for advancing the field of deep learning.By improving our understanding of this process, we can develop more efficient and effective freezing algorithms, paving the way for faster and more accurate training of deep neural networks.
+
+
+Conclusions
+
+This paper presented a training strategy based on parameter freezing for accelerating the training of deep neural networks.By observing the convergence trend during the training of deep neural networks, we freeze part of the parameters so that they are no longer involved in subsequent training and reduce the time cost of training.The information reflected by the gradient of the parameters plays a significant role in determining the speed of parameter freezing.Through various experiments, the effectiveness of the parameter freezing algorithm has been demonstrated.The results consistently showed that a freezing algorithm can help saving 28.6% of the training time, with little effect on model performance.
+
+17 Figure 1 .
+171
+Figure 1.Convergence trends of VSE++ image branch.
+
+
+Figure 1 .
+1
+Figure 1.Convergence trends of VSE++ image branch.Another experiment is conducted with the classic object detection model Faster R-CNN.As shown in Figure 2, the convergence speed of the model is faster due to loading the pre-trained model of Resnet50.The same pattern is presented in this part of the experiment.
+
+
+Figure 1 .
+1
+Figure 1.Convergence trends of VSE++ image branch.Another experiment is conducted with the classic object detection model Faster R-CNN.As shown in Figure2, the convergence speed of the model is faster due to loading the pre-trained model of Resnet50.The same pattern is presented in this part of the experiment.
+
+
+Figure 2 .
+2
+Figure 2. Convergence trends of Faster R-CNN with pretrained model of Resnet50.We also directly compare the weights during training and the weight obtained after complete training.We save the weights after each epoch and calculate the difference between each weight and the weight of the last epoch by subtracting them and calculating the norm of the results.Combining the results in Figure3and the CKA Similarity score, it can be seen that the deeper the layers of the model in which the parameters are located, the greater the difference with the parameters after complete training, i.e., more adequate training is needed to obtain better results.On the other hand, the parameters at the shallow layers change less during the training process, which means that they have less impact on the model performance in the later stages of training.
+
+
+Figure 2 .
+2
+Figure 2. Convergence trends of Faster R-CNN with pretrained model of Resnet50.We also directly compare the weights during training and the weight obtained after complete training.We save the weights after each epoch and calculate the difference between each weight and the weight of the last epoch by subtracting them and calculating the norm of the results.Combining the results in Figure3and the CKA Similarity score, it can be seen that the deeper the layers of the model in which the parameters are located, the greater the difference with the parameters after complete training, i.e., more adequate training is needed to obtain better results.On the other hand, the parameters at the shallow layers change less during the training process, which means that they have less impact on the model performance in the later stages of training.Electronics 2024, 13, x FOR PEER REVIEW 7 of 17
+
+
+Figure 3 .
+3
+Figure 3.The difference between parameters during training and after complete training.
+
+
+Figure 3 .
+3
+Figure 3.The difference between parameters during training and after complete training.
+
+
+Electronics 2024 ,
+2024
+13, x FOR PEER REVIEW 8 of 17
+
+
+Figure 4 .
+4
+Figure 4. Flow chart of the Linear Freezing Algorithm (LFA).
+
+
+Figure 4 .
+4
+Figure 4. Flow chart of the Linear Freezing Algorithm (LFA).
+
+
+Algorithm 1
+1
+Adaptive Freezing Algorithm (AFA) Input: number of layers N, number of layers N f (T − 1), time T, the Frobenius norm of the gradients ∥g n (T)∥ F the upper limit of the freezing layers N max (T) Output: number of layers N f (T) 1: T ← 0; 2: while one epoch is finished do 3: T = T + 1; 4:for layer index = N f (T − 1) to N do 5:N f (T) = argmin N f (T−1)≤n≤N ∥g n (T)∥ F ; 6: if N f (T) > N max (T) do 7:N f (T) = N max (T); 8:for layer index = N f (T − 1) to N f (T) do 9:freeze the layers;Electronics 2024, 13, x FOR PEER REVIEW 9 of 17
+
+
+Figure 5 .
+5
+Figure 5. Flow chart of the Adaptive Freezing Algorithm (AFA).
+
+
+Algorithm 1
+1
+Adaptive Freezing Algorithm (AFA) Input: number of layers N , number of layers ( 1) f N T − , time T , the Frobenius norm of the gradients ( ) n F g T the upper limit of the freezing layers max ( ) N T Output: number of layers ( ) f N T 1: T ← 0; 2: while one epoch is finished do 3
+
+
+Figure 5 .
+5
+Figure 5. Flow chart of the Adaptive Freezing Algorithm (AFA).
+
+
+
+
+5.1.1.Experimental EnvironmentThe experiments were carried out in a Linux environment using the Ubuntu 20.04 operating system.The device for experiments has an NVIDIA Tesla V100 GPU with 32 GB of RAM, Python 3.8.0,Pytorch 1.8.0, and CUDA 11.1 with CUDNN 8 loaded to assist the experiments.
+
+
+Figure 6 .
+6
+Figure 6.Time cost of one epoch after every time the freezing algorithm works, with the dotted line as time cost of one epoch without freezing algorithm: (a) the Linear Freezing Algorithm (LFA); (b) the Adaptive Freezing Algorithm (AFA).
+
+
+Figure 6 .
+6
+Figure 6.Time cost of one epoch after every time the freezing algorithm works, with the dotted line as time cost of one epoch without freezing algorithm: (a) the Linear Freezing Algorithm (LFA); (b) the Adaptive Freezing Algorithm (AFA).
+
+
+Figure 7 .
+7
+Figure 7. Cont.
+
+
+Figure 9 .Figure 10 .
+910
+Figure 9. Visual detection results of ViTDet with the Linear Freezing Algorithm (LFA): (a) aircraft; (b) oil tank; (c) playground.
+
+
+Figure 9 .Figure 9 .Figure 10 .
+9910
+Figure 9. Visual detection results of ViTDet with the Linear Freezing Algorithm (LFA): (a) aircraft; (b) oil tank; (c) playground.
+
+
+
+
+This paper presented a training strategy based on parameter freezing for accelerating the training of deep neural networks.By observing the convergence trend during the training of deep neural networks, we freeze part of the parameters so that they are no longer involved in subsequent training and reduce the time cost of training.The
+
+
+Figure 10 .
+10
+Figure 10.Visual detection results of ViTDet with the Adaptive Freezing Algorithm (AFA): (a) aircraft; (b) oil tank; (c) playground.
+
+
+
+
+
+
+
+
+
+
+
+
+Table 1 .
+1
+Details of remote sensing object detection datasets.
+DatasetCategoriesImagesInstancesImage WidthDIOR2023,463192,472800SIMD15500045,0961024RSOD49766950~1000
+
+Table 2 .
+2
+Experimental results on DIOR.
+Freezing Algo-rithmTime Cost at Epoch 1 (s)Time Cost at Epoch 31 (s)Time Cost at Epoch 61 (s)Average Time per Epoch (s)Total Train-ing Time (s)AR@10 mAP SpeedupWithout6904.836959.956642.456895.93448,235.560.5078.81×LFA6875.815527.054075.565554.59361,048.180.4976.71.24×AFA6891.454763.514074.375010.23325,664.900.4875.91.38×
+
+Table 3 .
+3
+Experimental results on SIMD.
+Freezing Algo-rithmTime Cost at Epoch 1 (s)Time Cost at Epoch 31 (s)Time Cost at Epoch 61 (s)Average Time per Epoch (s)Total Train-ing Time (s)AR@10 mAP SpeedupWithout2369.532405.232313.782381.71154,811.110.6087.11×
+
+Table 2 .
+2
+Experimental results on DIOR.
+Freezing AlgorithmTime Cost at Epoch 1 (s)Time Cost at Epoch 31 (s)Time Cost at Epoch 61 (s)Average Time per Epoch (s)Total Training Time (s)AR@10 mAPSpeedupWithout6904.836959.956642.456895.93448,235.560.5078.81×LFA6875.815527.054075.565554.59361,048.180.4976.71.24×AFA6891.454763.514074.375010.23325,664.900.4875.91.38×
+
+Table 3 .
+3
+Experimental results on SIMD.
+Freezing AlgorithmTime Cost at Epoch 1 (s)Time Cost at Epoch 31 (s)Time Cost at Epoch 61 (s)Average Time per Epoch (s)Total Training Time (s)AR@10 mAPSpeedupWithout2369.532405.232313.782381.71154,811.110.6087.11×LFA2370.681898.201380.301909.06124,088.890.6188.01.25×AFA2369.441637.211381.681712.61111,319.420.6087.81.39×
+
+Table 4 .
+4
+Experimental results on RSOD.
+Freezing AlgorithmTime Cost at Epoch 1 (s)Time Cost at Epoch 31 (s)Time Cost at Epoch 61 (s)Average Time per Epoch (s)Total Training Time (s)AR@10 mAPSpeedupWithout443.98451.22435.28444.2928,878.980.5390.51×LFA446.96360.38252.15357.7223,251.980.5492.11.24×AFA447.04302.75250.98316.8720,596.850.5491.91.40×
+
+Table 4 .
+4
+Experimental results on RSOD.
+Freezing Algo-rithmTime Cost at Epoch 1 (s)Time Cost at Epoch 31 (s)Time Cost at Epoch 61 (s)Average Time per Epoch (s)Total Train-ing Time (s)AR@10 mAP SpeedupWithout443.98451.22435.28444.2928,878.980.5390.51×LFA446.96360.38252.15357.7223,251.980.5492.11.24×AFA447.04302.75250.98316.8720,596.850.5491.91.40×
+Data Availability Statement:In this paper, the DIOR dataset was downloaded from Google Drive (https://drive.google.com/drive/folders/1UdlgHk49iu6WpcJ5467iT-UqNPpx__CC,accessed on 29 March 2024), the SIMD dataset was downloaded from Github (https://github.com/ihians/simd,accessed on 29 March 2024), and the RSOD dataset was downloaded from Github (https://github.com/RSIA-LIESMARS-WHU/RSOD-Dataset-, accessed on 29 March 2024).Conflicts of Interest:The authors declare no conflicts of interest.We compare our parameter freezing algorithms with the state-of-the-art object detection approaches on all three datasets.From Tables 5-7, we can see that although the We compare our parameter freezing algorithms with the state-of-the-art object detection approaches on all three datasets.From Tables 5-7, we can see that although the freezing algorithms may lead to some degradation on performance, they still achieve better results.In the figures below, freezing algorithms may lead to some degradation on performance, they still achieve better results.Funding: This research received no external funding.
+FAIR1M: A benchmark dataset for fine-grained object recognition in high-resolution remote sensing imagery. X Sun, P Wang, Z Yan, F Xu, R Wang, W Diao, J Chen, J Li, Y Feng, T Xu, ISPRS J. Photogramm. Remote Sens. 1842022
+
+Object detection in 20 years: A survey. Z Zou, K Chen, Z Shi, Y Guo, J Ye, 10.1109/JPROC.2023.3238524Proc. IEEE 2023. IEEE 2023111
+
+Rich feature hierarchies for accurate object detection and semantic segmentation. R Girshick, J Donahue, T Darrell, J Malik, Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition. the IEEE Conference on Computer Vision and Pattern RecognitionColumbus, OH, USAJune 2014
+
+Fast r-cnn. R Girshick, Proceedings of the IEEE International Conference on Computer Vision. the IEEE International Conference on Computer VisionSantiago, Chile7-13 December 2015
+
+Faster r-cnn: Towards real-time object detection with region proposal networks. S Ren, K He, R Girshick, J Sun, 10.1109/TPAMI.2016.2577031Adv. Neural Inf. Process. Syst. 282015
+
+You only look once: Unified, real-time object detection. J Redmon, S Divvala, R Girshick, A Farhadi, Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition. the IEEE Conference on Computer Vision and Pattern RecognitionLas Vegas, NV, USA26 June-1 July 2016
+
+Single shot multibox detector. W Liu, D Anguelov, D Erhan, S Christian, S Reed, C.-Y Fu, A C Berg, Ssd, Proceedings of the Computer Vision-ECCV 2016: 14th European Conference. the Computer Vision-ECCV 2016: 14th European ConferenceAmsterdam, The NetherlandsOctober 2016Part I 14
+
+Focal loss for dense object detection. T Y Lin, P Goyal, R Girshick, K He, P Dollár, Proceedings of the IEEE International Conference on Computer Vision. the IEEE International Conference on Computer VisionVenice, ItalyOctober 2017
+
+Language models are few-shot learners. T Brown, B Mann, N Ryder, M Subbiah, J Kaplan, P Dhariwal, A Neelakantan, P Shyam, G Sastry, A Askell, Adv. Neural Inf. Process. Syst. 332020
+
+Scaling vision transformers to 22 billion parameters. M Dehghani, J Djolonga, B Mustafa, P Padlewski, J Heek, J Gilmer, A Steiner, M Caron, R Geirhos, I Alabdulmohsin, arXiv:2302.054422023
+
+Random access memories: A new paradigm for target detection in high resolution aerial remote sensing images. Z Zou, Z Shi, 10.1109/TIP.2017.2773199IEEE Trans. Image Process. 272017
+
+DOTA: A large-scale dataset for object detection in aerial images. G S Xia, X Bai, J Ding, Z Zhen, S Belongie, J Luo, M Datcu, M Pelillo, L Zhang, Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition. the IEEE Conference on Computer Vision and Pattern RecognitionSalt Lake City, UT, USAJune 2018
+
+Object detection in optical remote sensing images: A survey and a new benchmark. K Li, G Wan, G Cheng, L Meng, J Han, 10.1016/j.isprsjprs.2019.11.023ISPRS J. Photogramm. Remote Sens. 1592020
+
+Learning rotation-invariant convolutional neural networks for object detection in VHR optical remote sensing images. G Cheng, P Zhou, J Han, 10.1109/TGRS.2016.2601622IEEE Trans. Geosci. Remote Sens. 542016
+
+Learning rotation-invariant and fisher discriminative convolutional neural networks for object detection. G Cheng, J Han, P Zhou, D Xu, 10.1109/TIP.2018.2867198IEEE Trans. Image Process. 282018
+
+Accurate object localization in remote sensing images based on convolutional neural networks. Y Long, Y Gong, Z Xiao, Q Liu, 10.1109/TGRS.2016.2645610IEEE Trans. Geosci. Remote Sens. 552017
+
+Rotation-insensitive and context-augmented object detection in remote sensing images. K Li, G Cheng, S Bu, X You, 10.1109/TGRS.2017.2778300IEEE Trans. Geosci. Remote Sens. 562017
+
+Deformable convnet with aspect ratio constrained nms for object detection in remote sensing imagery. Z Xu, X Xu, L Wang, R Yang, F Pu, 10.3390/rs9121312Remote Sens. 2017, 9, 1312. [CrossRef
+
+Multi-class geospatial object detection based on a position-sensitive balancing framework for high spatial resolution remote sensing imagery. Y Zhong, X Han, L Zhang, 10.1016/j.isprsjprs.2018.02.014ISPRS J. Photogramm. Remote Sens. 1382018
+
+Libra r-cnn: Towards balanced learning for object detection. J Pang, K Chen, J Shi, H Feng, W Ouyang, D Lin, Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. the IEEE/CVF Conference on Computer Vision and Pattern RecognitionLong Beach, CA, USA16-20 June 2019
+
+MRDet: A multihead network for accurate rotated object detection in aerial images. R Qin, Q Liu, G Gao, D Huang, Y Wang, 10.1109/TGRS.2021.3113473IEEE Trans. Geosci. Remote Sens. 602021
+
+Learning a rotation invariant detector with rotatable bounding box. L Liu, Z Pan, B Lei, arXiv:1711.094052017
+
+Arbitrary-oriented vehicle detection in aerial imagery with single convolutional neural networks. T Tang, S Zhou, Z Deng, L Lei, H Zou, 10.3390/rs9111170Remote Sens. 2017, 9, 1170. [CrossRef
+
+Arbitrary-oriented ship detection framework in optical remote-sensing images. W Liu, L Ma, H Chen, 10.1109/LGRS.2018.2813094IEEE Geosci. Remote Sens. Lett. 152018
+
+Robust vehicle detection in aerial images based on cascaded convolutional neural networks. J Zhong, T Lei, G Yao, 10.3390/s17122720Sensors. 172017. 2720
+
+ASSD: Feature aligned single-shot detection for multiscale objects in aerial imagery. T Xu, X Sun, W Diao, L Zhao, K Fu, H Wang, 10.1109/TGRS.2021.3089170IEEE Trans. Geosci. Remote Sens. 6056071172021
+
+Optimal brain damage. Y Lecun, J Denker, S Solla, Adv. Neural Inf. Process. Syst. 21989
+
+Learning structured sparsity in deep neural networks. W Wen, C Wu, Y Wang, Y Chen, H Li, Adv. Neural Inf. Process. Syst. 292016
+
+Learning both weights and connections for efficient neural network. S Han, J Pool, J Tran, W J Dally, Adv. Neural Inf. Process. Syst. 282015
+
+Training deep neural networks with binary weights during propagations. M Courbariaux, Y Bengio, J P David, Binaryconnect, Adv. Neural Inf. Process. Syst. 282015
+
+F Li, B Liu, X Wang, B Zhang, J Yan, arXiv:1605.04711Ternary weight networks. 2016
+
+Sparse convolutional neural networks. B Liu, M Wang, H Foroosh, M Tappen, M Penksy, Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition. the IEEE Conference on Computer Vision and Pattern RecognitionBoston, MA, USAJune 2015
+
+F N Iandola, S Han, M W Moskewicz, K Ashraf, W J Dally, K Keutzer, Squeezenet, arXiv:1602.07360AlexNet-level accuracy with 50× fewer parameters and< 0.5 MB model size. 2016
+
+A G Howard, M Zhu, B Chen, D Kalenichenko, W Wang, T Weyand, M Andreetto, H Adam, Mobilenets, arXiv:1704.04861Efficient convolutional neural networks for mobile vision applications. 2017
+
+Shufflenet: An extremely efficient convolutional neural network for mobile devices. X Zhang, X Zhou, M Lin, J Sun, Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition. the IEEE Conference on Computer Vision and Pattern RecognitionSalt Lake City, CA, USAJune 2018
+
+Model compression. C Buciluǎ, R Caruana, A Niculescu-Mizil, Proceedings of the 12th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining. the 12th ACM SIGKDD International Conference on Knowledge Discovery and Data MiningPhiladelphia, PA, USAAugust 2006
+
+Fitnets: Hints for thin deep nets. R Adriana, B Nicolas, K S Ebrahimi, A Chassang, C Gatta, Y Bengio, Proc. ICLR 2015. ICLR 201521
+
+A gift from knowledge distillation: Fast optimization, network minimization and transfer learning. J Yim, D Joo, J Bae, J Kim, Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition. the IEEE Conference on Computer Vision and Pattern RecognitionHonolulu, HI, USAJuly 2017
+
+Singular vector canonical correlation analysis for deep learning dynamics and interpretability. M Raghu, J Gilmer, J Yosinski, J Sohl-Dickstein, Svcca, Adv. Neural Inf. Process. Syst. 302017
+
+Similarity of neural network representations revisited. S Kornblith, M Norouzi, H Lee, G Hinton, Proceedings of the International Conference on Machine Learning (PMLR). the International Conference on Machine Learning (PMLR)Long Beach, CA, USA9-15 June 2019
+
+Exploring plain vision transformer backbones for object detection. Y Li, H Mao, R Girshick, K He, Proceedings of the European Conference on Computer Vision. the European Conference on Computer VisionTel-Aviv, IsraelOctober 2022
+
+Disclaimer/Publisher's Note: The statements, opinions and data contained in all publications are solely those of the individual author(s) and contributor(s) and not of MDPI and/or the editor(s). MDPI and/or the editor(s) disclaim responsibility for any injury to people or property resulting from any ideas, methods. instructions or products referred to in the content

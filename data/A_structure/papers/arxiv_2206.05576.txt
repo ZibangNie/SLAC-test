@@ -1,0 +1,1125 @@
+Optimal Solutions for Joint Beamforming and Antenna Selection: From Branch and Bound to Graph Neural Imitation Learning
+
+
+Sagar Shrestha 
+Xiao Fu 
+Mingyi Hong 
+Optimal Solutions for Joint Beamforming and Antenna Selection: From Branch and Bound to Graph Neural Imitation Learning
+1Index Terms-BeamformingAntenna SelectionGlobal Opti- mumMachine LearningGraph Neural Networks
+This work revisits the joint beamforming (BF) and antenna selection (AS) problem, as well as its robust beamforming (RBF) version under imperfect channel state information (CSI). Such problems arise due to various reasons, e.g., the costly nature of the radio frequency (RF) chains and energy/resource-saving considerations. The joint (R)BF&AS problem is a mixed integer and nonlinear program, and thus finding optimal solutions is often costly, if not outright impossible. The vast majority of the prior works tackled these problems using techniques such as continuous approximations, greedy methods, and supervised machine learning-yet these approaches do not ensure optimality or even feasibility of the solutions. The main contribution of this work is threefold. First, an effective branch and bound (B&B) framework for solving the problems of interest is proposed. Leveraging existing BF and RBF solvers, it is shown that the B&B framework guarantees global optimality of the considered problems. Second, to expedite the potentially costly B&B algorithm, a machine learning (ML)-based scheme is proposed to help skip intermediate states of the B&B search tree. The learning model features a graph neural network (GNN)-based design that is resilient to a commonly encountered challenge in wireless communications, namely, the change of problem size (e.g., the number of users) across the training and test stages. Third, comprehensive performance characterizations are presented, showing that the GNN-based method retains the global optimality of B&B with provably reduced complexity, under reasonable conditions. Numerical simulations also show that the ML-based acceleration can often achieve an order-of-magnitude speedup relative to B&B.
+
+I. INTRODUCTION
+
+Beamforming lies at the heart of transmit signal design of multiple antenna systems. In the past decade, a plethora of beamforming algorithms have been proposed under various scenarios; see, e.g., [1]- [7]. Among the most challenging scenarios is the joint beamforming and antenna selection (BF&AS) problem (see, e.g., [5]- [7]), which often arises due to various reasons-such as the costly nature of radio frequency (RF) chains [5], [8]- [10], energy consumption considerations [11], [12], problem size reduction [13], overhead minimization [14], and algorithm accommodations [15]. Jointly designing the beamformers and selecting antennas is a mixed integer and nonlinear program, which is known to be NP-hard [16], [17]. A large portion of the literature tackles this problem using continuous programming-based approximations. For example, [5]- [7], [18] used convex and nonconvex group sparsity-promoting regularization to encourage turning off antenna elements. However, the continuous approximations are often NP-hard problems as well (especially when the sparsity promotion is done via nonconvex quasi-norms as in [5]), and thus it is unclear if they can solve the problem of interest optimally. In addition, works using greedy methods to assist antenna selection also exist (see, e.g., [16], [19]- [22]). But the optimality of joint (R)BF&AS is still not addressed in these works.
+
+In recent years, machine learning (ML) approaches are employed to handle the joint BF and AS problem. In [23], a supervised learning approach was proposed. The basic idea is to use a continuous optimization algorithm to produce training pairs (i.e., channel matrices and sparse beamformers), and then learn a neural network-based regression function using such pairs. Similar ideas were used in [24], [25] with various settings. This type of approach in essence mimics the training pair-generating algorithms at best, and thus the optimality of their solutions is again not guaranteed. Contributions. In this work, we revisit the joint BF and AS and its extension under imperfect channel state information (CSI), namely, the joint robust beamforming (RBF) and AS problem. We are interested in the unicast BF and RBF formulations in [46] and [26], respectively. The goal is to satisfy the users' quality-of-service (QoS) constraints while minimizing the power consumption, with only a subset of the antenna elements activated. Our detailed contributions are as follows:
+
+• Optimal Joint (R)BF&AS via Branch and Bound. Our first contribution lies in an optimal computational framework to attain the global optimal solutions to the joint (R)BF&AS problems. To this end, we propose a Branch and Bound (B&B) [27], [28] framework that is tailored for the problems of interest. Our design leverages problem structures of unicast BF and RBF, which allows for branching only on a subset of the optimization variables-thereby having reduced complexity and being effective. Unlike continuous optimization-based approximations in [5]- [7], [18] whose solutions are often suboptimal or infeasible, the proposed B&B is guaranteed to return an optimal solution. • An ML-based Acceleration Scheme. B&B is known for its relatively weak scalability. To improve efficiency, an idea from the ML community (see, e.g., [7], [30]) is to learn a binary classifier offline using multiple problem instances. The classifier determines whether or not any encountered intermediate state of the B&B algorithm could be "skipped", as skipping these states saves computational resources and expedites the B&B process. Generic ML learning functions (e.g., support vector machines (SVM)) used in existing works like [7], [31] do not reflect the problem structure in wireless communications. In this work, we propose a graph neural network (GNN) [32] based learning function designed to exploit the physics of the (R)BF problem-which offers an enhanced classification accuracy. More importantly, the GNN is agnostic to the change of scenarios (e.g., problem size) during training and testing. This feature is designed to meet the need of wireless communication systems, as the number of users served by a base station could change quickly in practice.
+
+• Theoretical Understanding. We present comprehensive performance characterizations for the proposed approaches. In particular, we show that the ML-based acceleration retains the global optimality of the B&B procedure with high probability, under reasonable conditions. ML-based B&B acceleration has limited theoretical studies, and the results were developed under often overly ideal settings (e.g., convex classifier) [5], [7]. There is a lack of understanding of the impacts of key factors such as nonconvexity, limited training samples, and the employed ML model's structure. Our analysis takes important aspects into consideration, such as the nonconvexity of the GNN learning process, the GNN's structure and complexity, the GNN's function approximation error, and the amount of available samples. As a consequence, the analysis offers insights to reveal key trade-offs in practice.
+
+A shortened version was submitted to ICASSP 2023 [34]. The conference version included the B&B design and ML acceleration for the perfect CSI case. The journal version additionally presents the imperfect CSI case, the detailed analysis of the B&B algorithm, the performance characterizations for the ML acceleration, and more extensive simulations. Related Works. B&B was proposed for beamforming problems in [35], [36], and antenna selection problems in [37]- [39]. Particularly, the work in [35] considered a single group multicast beamforming problem, the work in [38] considered a joint power allocation and antenna selection problem, the work in [37] considered antenna selection-assisted rate maximization in wiretap channels, and [10], [39] considered receive antenna selection for sum rate maximization. However these are different from the QoS-constrained downlink transmit beamfroming formulation considered in our work, which requires new B&B designs. ML-based B&B acceleration so far has been mostly used for mixed integer and linear programs (MILPs) in the ML community, e.g., [7], [8], where the B&B design is standard. Such methods have also been adopted in wireless communications in [31], [41] where resource allocation tasks are framed as mixed integer and nonlinear programs (MINPs). However, the joint (R)BF&AS problem has not been considered. In addition, comprehensive theoretical understanding to such ML-acceleration procedures has been elusive.
+
+Notation: x, x and X denote a scalar, a vector, and a matrix, respectively. x n denotes the nth column of X. We use the matlab notation X(n, :) to denote the nth row of X.
+
+[N ] denotes the set {1, 2, . . . , N }. x 2 , x ∞ , X 2 , X F , X row−0 denote the vector 2 norm, vector ∞ norm, matrix spectral norm, matrix Frobenius norm, and the number of non-zero rows in the matrix, respectively. Tr(X), X H , and X denote the trace, hermitian, and transpose of X. |X | denotes the cardinality of the set X . E[·] denotes the expectation operator. X 0 denotes that X is positive semi-definite matrix. X(S, :) with S ⊆ [N ] denotes the submatrix of X ∈ C N ×M containing only the rows of X contained in the set S. X −n denotes the submatrix of X with the nth column removed.
+f (·) is C-Lipschitz continuous iff f (x) − f (y) 2 ≤ C x − y 2 .
+II. BACKGROUND Consider a classic single-cell downlink communication scenario where the base station (BS) has N antennas [42], [46]. The BS serves M single antenna users. Denote w m ∈ C N as the beamforming vector for serving user m. In this work, our interest lies in a scenario where the BS only activates L anntennas. Hence, we aim to select a subset A ⊆ {1, . . . , N } such that |A| ≤ L and w m (i) = 0 only when i ∈ A. The message signal for user m is represented by s m (t). Given the channel h m ∈ C N between the BS and user m, the signal received by user m can be expressed as follows:
+y m (t) = h H m w m s m (t) + =m h H m w s (t) + n m ,
+where n m is zero-mean circular symmetric white Gaussian noise with variance σ 2 m . Assume w.l.o.g. that {s m (t)} M m=1 are mutually uncorrelated and temporally white with zero-mean and unit-variance. Then, the total transmission power is given by
+M m=1 w m 2 2 := W 2 F , where W = [w 1 , . . . , w M ].
+The signal to interference and noise ratio (SINR) at the mth receiver is expressed as:
+SINR m = |w H m h m | 2 2 =m |w H h m | 2 2 + σ 2 m .(1)
+A. Unicast Beamforming and SOCP One of the most popular formulations for beamforming is the so-called QoS formulation [43]- [45] that tries to maintain a pre-specified SINR level for all users. When h m is known, the unicast BF problem can be formulated as follows:
+minimize W W 2 F (2a) subject to |w H m h m | 2 =m |w H h m | 2 + σ 2 m ≥ γ m , m ∈ [M ]. (2b)
+Problem (2) is called "unicast" BF because every user receives its own message. Problem (2) appears to be nonconvex, but it can be recast as a second-order cone program (SOCP): 46]). Eq. (2b) can be equivalently written as a second-order cone constraint:
+Lemma 1 ( [1 γ m σ 2 m Re(w H m h m ) ≥ =m |w H h m | 2 + 1,(3)
+for all m ∈ [M ]. Therefore, any algorithm for solving SOCP can be used to solve (2) optimally.
+
+
+B. Robust Beamforming and SDR
+
+When the BS only has imperfect CSI, the following worstcase RBF formulation is often considered [26], [42], [47]- [49]:
+minimize W W 2 F (4a) subject to min hm∈Um |w H m h m | 2 =m |w H h m | 2 + σ 2 m ≥ γ m , ∀m ∈ [M ],(4b)
+where U m := {h m + e m | e m 2 ≤ ε m }, h m is the approximate channel vector available at the BS, and ε m is the bound on the approximation error. Problem (4) cannot be directly converted to a convex program as in the perfect CSI case (cf. Lemma 1). However, Problem (4) can be tackled by a convex relaxation technique, namely, semidefnite relaxation (SDR) [50]. Let W m := w m w H m . Then the SDR of (4) is given by
+minimize {Wm∈C N ×N } M m=1 M i=1 Tr(W m ) (5a) subject to min hm∈Um h H m W m h m j =m h H m W j h m + σ 2 m ≥ γ m , (5b) W m 0, ∀m ∈ [M ].
+Note that (5) and (4) are equivalent if the constraint W m = w m w H m (or, rank(W m ) = 1) has not been relaxed. Problem (5) can be further re-expressed as a standard semidefinite program (SDP) using the S-Lemma; see details in [42]. Interestingly, this relaxation procedure turns out to be tight under reasonable conditions:
+Lemma 2 ( [42, Theorem 1]). Suppose that Problem (4) is feasible. Let Π m := I − H −m (H H −m H −m ) −1 H H −m be the orthogonal complement projector of H −m . If Π m h m 2 2 ε 2 m > 1 + M + (M − 1 M )γ m , ∀m,(6)
+then the optimal solution of (4) can be obtained using SDR.
+
+The condition in (6) means that if the downlink channels associated with different users are sufficiently different, then the SDR is tight.
+
+
+C. Joint (R)BF&AS: Existing Approaches
+
+The joint (R)BF&AS problem frequently arises in practice for many reasons. For example, due to the the costly and power-hungry nature of RF chains, in some antenna arrays, the number of RF chains may be fewer than that of the antenna elements [5], [8]- [10]. Furthermore, AS is also used for energy-efficiency considerations [11], problem size reduction, overhead control, and algorithm design accommodationssee, e.g., [9], [13]- [15], [51] and the discussions therein. The problem considered in this work is as follows:
+minimize W W 2 F (7a) subject to C(w m , h m , ε m , σ m ) ≥ γ m , (7b) W row-0 ≤ L. (7c)
+where the row-0 function · row-0 counts the number of nonzero rows in W and (7) is a non-convex combinatorial problem, and it is NP-hard [17]. Some representative approaches for tackling joint (R)BF&AS problems are as follows:
+C(w m , h m , ε m , σ m ) :=    |w H m hm| 2 =m |w H hm| 2 +σ 2 m , if BF is considered, min h∈Um |w H m hm| 2 =m |w H hm| 2 +σ 2 m , if RBF is considered. Problem
+1) Continuous Approximations: In the literature, Problem (7) and other joint (R)BF&AS formulations are often handled by continuous approximation. For example, a representative continuous approximation technique was used in [5] for handling a multicast version of (7). Using the idea from [5], one can recast the unicast problem in (7) as a regularized formulation as follows:
+minimize W W 2 F + λ W row-0 (8) subject to C(w m , h m , ε m , σ m ) ≥ γ m , m ∈ [M ].
+The idea in [5] is to approximate the row-0 function using a group sparsity-inducing norm, namely, the ∞,1 norm, i.e., W row-0 ≈ N n=1 W (n, :) ∞ and its nonconvex counterpart W row-0 ≈ N n=1 log ( W (n, :) ∞ + ε) [52]. Similar ideas were used in [18]. Such continuous approximations allow the use of standard nonlinear program techniques to tackle (8). However, as mentioned, these methods do not provide any optimality guarantees. In addition, the feasiblity of W is often not met by the approximate solutions.
+
+2) Greedy Methods: A number of greedy approaches also exist for tackling various formulations of the joint (R)BF&AS problem; see, e.g., [16], [19]- [22]. The major idea is to activate or shut down an antenna in every iteration using a certain criterion that is often defined by the optimization problem's objective function-see an example in Sec. V-B1. Notably, such greedy algorithms are not necessarily computationally light, as will be seen in our simulations.
+
+3) Supervised Learning: More recently, a number of learning-based approaches are proposed to tackle the joint (R)BF&AS problem; see, e.g., [23], [53], [54]. In [23], a multicast version of (7) was considered. The idea is to use an existing joint multicast BF&AS algorithm (e.g., the algorithm from [5]) to generate "training pairs" {H t , W t } T t=1 by simulating a large number of problem instances, where t is the instance index, W t is a (row-sparse) solution produced by the training pair-generating algorithm, and H t is the channel matrix of instance t. Note that the training pairs can take other forms, e.g., {H t , z t } where z t ∈ R M is a binary vector found by the training pair-producing algorithm, indicating which antenna is activated [23], [24]. Then, a deep neural network (DNN) f θ (·) is trained via
+θ ← arg min θ 1 T T t=1 ( W t , f θ (H t )),(9)
+where θ represents the parameters of the DNN and (x, y) measures the divergence between x and y. When a new H is seen in the test stage, one can use the learned DNN to predict the solution, i.e., W = f θ (H). This "supervised learning" idea is similar to a line of work in deep learning-based wireless system design; see, e.g., [55], [56]. Notably, it cannot exceed the performance of the algorithm that produces the training pairs or ensure producing a feasible solution in the test stage.
+
+Other deep learning-based ideas were seen in [25], [53], [54], [57] using either supervised learning or unsupervised learning variants, but similar challenges remain.
+
+
+III. OPTIMAL JOINT (R)BF&AS VIA B&B
+
+A natural idea for solving hard optimization problems is to employ a global optimization technique, e.g., the B&B procedure [27], [28], [58]. Designing a practically working B&B algorithm is often an art-it normally involves judicious exploitation of problem structures. That is, not every hard problem enjoys an efficient B&B algorithm. Nonetheless, as we will see, the special properties of BF and RBF allows for an effective B&B design.
+
+
+A. Preliminaries of B&B
+
+We follow the notations from the tutorial in [58] to give a brief overview of B&B's design principles. Consider a nonconvex problem:
+minimize x f (x) (10a) subject to x ∈ X .(10b)
+where both the objective function and the constraint can be nonconvex. Suppose that there is a partition of the space X = X 1 ∪ . . . ∪ X S , and that lower and upper bounds of f (x) over each X i are easier to find (relative to directly solving (10)). Let Φ lb (X i ) and Φ ub (X i ) be the algorithms that return lower and upper bounds of the optimal solution of (10) over the set X i , respectively. Then, the following holds:
+min 1≤i≤S Φ lb (X i ) ≤ Φ(X ) ≤ min 1≤i≤S Φ ub (X i ).(11)
+where Φ(X ) represents the optimal solution of (10) over the feasible region X . A premise of the success of B&B is that one could find a partition X i for i = 1, . . . , S and a pair of functions Φ lb and Φ ub which can make the following hold:
+min 1≤i≤S Φ ub (X i ) − min 1≤i≤S Φ lb (X i ) ≤(12)
+where > 0 is a pre-specified error tolerance parameter. The effectiveness of B&B relies on two key factors. First, the design of the lower and upper bounding algorithms represented by Φ lb (X i ) and Φ ub (X i ), respectively, plays a central role. Second, the way of partitioning the space X also matters. It often requires a problem-specific way to progressively and judiciously partition the constraint set X (usually from rough to fine-grid), so that the difference in (12) could shrink quicker than exhaustive search. Meeting either of the design requirements is not necessarily easy. Moreover, the key designs in B&B algorithms (e.g., the X partition strategies) are highly problem-dependent; that is, there is hardly a "standard recipe" for B&B algorithm design.
+
+B. Proposed B&B for Joint (R)BF&AS Problem (7) involves optimization in discrete and continuous spaces in the constraints. Designing a B&B algorithm for such problems can be difficult due to the large search space that consists of both types of constraints. However, the special structure of (R)BF in (7) allows us to efficiently obtain bounds over the entire range of the values of the continuous (beamforming) parameters once the discrete (antenna selection) parameters have been chosen; this will be clearer in (14) and (15). As such, we only need to construct a B&B tree over the discrete space.
+
+1) B&B Tree Construction: We illustrate the idea of systematically partitioning the feasible region of Problem (7) in Fig. 1. Here, N ( ) i denotes the feasible region corresponding to the ith node at the th level. In the sequel, we will use the term "node" and the associated feasible region interchangeably. The root is denoted as N (0) , and we have
+N (0) = {W | W satisfies (7b), (7c)}.
+In the first level, the region represented by the root node is split into two regions represented by two child nodes, namely,
+N (1) 1 = {W | W (n 1 , :) = 0, W satisfies (7b), (7c)} N (1) 2 = {W | W (n 1 , :) ∈ C M , W satisfies (7b), (7c)}.
+where n 1 ∈ [N ] is an antenna index selected by a designed antenna selection criterion (e.g., via random sampling). Up to the first level of the tree, the status ("include (activate)" or "exclude (shut down)") of all antennas other than antenna n 1 have not been decided.
+
+Note that the nodes in the B&B tree could constitute a partition in various forms. For example, for nodes in the same level, we have
+N ( ) 1 ∪ . . . ∪ N ( ) S = N (0) ,
+where S = 2 is the number of nodes in the th level of the tree. In addition, we have The B&B algorithm starts from the first level to compute lower and upper bounds of (7) over the node-defined regions. Then, the B&B algorithm picks a node to "branch", i.e., to further partition oftentimes using a heuristic-based metric; see [27]. Going deeper in the tree towards the final leaves will allow us to progressively decide which antennas to activate or shut off. Let t denote the iteration index of the B&B algorithm, where an iteration corresponds to a branching (partitioning a node) operation. Use P (t) to denote the collection of (s, ) corresponding to the unbranched nodes. Then, the union of N ( ) s 's for (s, ) ∈ P (t) represents a partitioning of the root in iteration t. In each iteration t, the stopping criterion in (12) is evaluated. It follows that the following two quantities need to be evaluated:
+N ( ) s = N ( +1) s1 ∪ N ( +1) s2 ,(13)l (t) G = min (s, )∈P (t) Φ lb (N ( ) s ), u (t) G = min (s, )∈P (t) Φ ub (N ( ) s ), where l (t) G and u (t)
+G are the global lower and upper bounds in iteration t. In particular, the lower and upper bounds over the newly created two child nodes need to be found-since other nodes have been evaluated in a certain previous iteration. The hope is that one would not need to visit all nodes of tree before reaching the stopping criterion in (12).
+
+2) Lower and Upper Bounds: In order to compute
+Φ lb (N ( ) s ) and Φ ub (N ( ) s ), let us define A ( ) s ⊆ [N ] and B ( ) s ⊆ [N ]\A ( ) s
+to be the index sets of the antennas that have been activated and shut down at node s in level , respectively. Note that A ( )
+s ∪ B ( ) s ⊆ [N ]
+constitute the set of decided antennas at the node. Then, finding the upper and lower bounds of W 2 F at this node amounts to finding those of the following optimization problem:
+minimize W W 2 F (14) subject to C(w m , h m , ε m , σ m ) ≥ γ m , ∀m, W (n, :) = 0, ∀n ∈ B ( ) s , W (n, :) ∈ C M , ∀n ∈ A ( ) s , W row−0 ≤ L, n ∈ [N ].
+For any given node N ( ) s , the lower bound can be obtained by solving the following relaxation of (14):
+Φ lb (N ( ) s ) = minimize W W 2 F (15a) subject to C(w m , h m , ε m , σ m ) ≥ γ m , ∀m,(15b)
+W (n, :
+) = 0, ∀n ∈ B ( ) s , where we have dropped W row−0 ≤ L. If Problem (15) is not feasible, Φ lb (N ( ) s ) is set to +∞.
+In the following lemma, we show that (15) can be optimally solved for all nodes in the B&B tree. It also helps derive a procedure for Φ ub (·). Lemma 3. Regarding (15), the following hold: (a) Consider the BF case where perfect CSI is given. Then, (15) can be optimally solved by using SOCP. (b) Consider the RBF case where imperfect CSI is given.
+
+Assume that
+Π m h m 2 2 ε 2 m > 1 + M + (M − 1 M )γ m , ∀m,(16)
+where
+Π m := I − H −m ( H H −m H −m ) −1 H H −m , holds for H ∈ {H(S, :)|∀S ∈ [N ], |S| ≥ L}. Then, Problem (15)
+can be optimally solved using SDR. (c) Under the same conditions of (a) and (b), solving the following gives a valid upper bound of (14) under the BF and RBF cases, respectively:
+Φ ub (N ( ) s ) = minimize W W 2 F (17a) subject to C(w m , h m , ε m , σ m ) ≥ γ m , ∀m, (17b) W (n, :) = 0, ∀n ∈ B ( ) s , where B ( ) s = C ( ) s ∪ B ( ) s represents the set of N − L antennas to be excluded, and C ( ) s ⊆ [N ]\(A ( ) s ∪ B ( ) s )
+is the index set of undecided antennas that have been assigned the minimum power in the solution of (15).
+If Problem (17) is not feasible, Φ ub (N ( ) s ) is notationally set to +∞.
+The proof of Lemma 3 is relegated to Appendix B.
+
+3) Node Selection and Branching: After (15) and (17) are computed in iteration t, l
+(t+1) G and u (t+1) G are updated. If the stopping criterion u (t) G − l (t)
+G ≤ ε is not met, one needs to pick a node in P (t) to further partition. To this end, we employ the "lowest lower bound first" principle that is often used in the literature [27]. To be specific, we pick a non-leaf node N ( ) s such that
+( , s ) ∈ arg min (s, )∈P (t) \S leaf Φ lb (N ( ) s ),(18)
+where
+S leaf := {( , s) : |A ( ) s | = L, |B ( ) s | = N − L} is the set of leaf nodes. To partition the region N ( ) s
+, we need to pick an undecided antenna and decide whether to include or exclude it in our solution. We select the antenna that has been assigned the largest power among the undecided antennas in iteration t, i.e.,
+n = arg max i∈[N ]\(A ( ) s ∪B ( ) s ) W ( ) s (i, :) 2 2 ,(19)
+where W 
+B ( +1) s 1 = B ( ) s ∪ {n }, A ( +1) s 1 = A ( ) s , A ( +1) s 2 = A ( ) s ∪ {n }, B ( +1) s 2 = B ( ) s .
+Note that if any of the child nodes, have L included or N − L excluded antennas, we apply the following update:
+B ( +1) s i = [N ]\A ( +1) s i if |A ( +1) s i | = L A ( +1) s i = [N ]\B ( +1) s i if |B ( +1) s i | = N − L.(20)
+This ensures that we do not generate any new nodes that do not satisfy (7c). Finally, the two children replace N
+( ) s in P (t) to form P (t+1) .
+Note during the process, some nodes in the B&B tree can be simply discarded, or, "fathomed"-as in the standard terminologies of B&B [27]. After iteration t, one can potentially find a set of (s , ) such that
+Φ lb (N ( ) s ) > u (t) G .
+The above means that N ( ) s needs not to be further partitioned in the next iteration. Hence, we can form a set F (t) in each iteration, which only contains the nodes that need to be further considered, i.e.,
+F (t) = (s , ) ∈ P (t) Φ lb N ( ) s ≤u (t) G
+This is arguably the most important for attaining efficiency against exhaustive search. A summary of the B&B procedure can be found in Appendix A.
+
+4) An Alternative B&B Method: It is interesting to note that there is often more than one way to come up with a B&B procedure for a given problem. For example, a commonly used approach for deriving B&B of mixed integer and linear programs (MILPs), and more generally, subset selection problems (see, e.g., [31], [59]) can also be used for our problem (7). The method is by introducing auxiliary Boolean variables. Specifically, problem (7) can be expressed as follows:
+minimize W ,z W 2 F (21a) subject to C(w m , h m , ε m , σ m ) ≥ γ m , z ∈ {0, 1} N , (21b) z 1 ≤ L, W (n, :) 2 ≤ Cz(n), ∀n ∈ [N ].
+where C < ∞ is a large positive constant and z(n) = 0 means that the nth antenna is excluded whereas z(n) = 1 indicates the opposite. The constraint in (21b) can be relaxed to be z ∈ [0, 1] N for finding the lower bound (see Appendix C-B2 for details). In this procedure, the branching operations are imposed on the new variable z [31], [59]. The reason that we do not choose formulation (21) to design B&B for our joint (R)BF&AS problem is that this approach could be computationally (much) less efficient compared to the proposed approach (see a proof in Theorem 1 in the next subsection). The computational efficiency of our method comes from the fact that the computation of upper and lower bounds in (15) and (17) can be reused for many nodes; see the proof of Theorem 1. However, it is not obvious if such kind of computation reduction is still possible for the formulation in (21).
+
+
+C. Optimality
+
+We show that the proposed algorithm will produce optimal solutions for the problem of interest: Theorem 1. Regarding the proposed B&B procedure (see Appendix A), the following statements hold: (a) When BF is considered, the proposed B&B solves (7) optimally.
+(b) When RBF is considered, if the conditions in Lemma 3(b)
+are satisfied, the proposed B&B solves (7) optimally. (c) The total number of SOCPs/SDRs solved by the proposed B&B is upper bounded by
+Q Compute = N L + N −L+1 i=2 N − i L − 1 .
+The number of SOCPs/SDRs needed by the B&B associated with the alternative formulation in Sec. III-B4 is upper bounded by Q Compute = 2 N L − 1. The proof of Theorem 1 is in Appendix C. At the first glance, it feels a bit surprising that the B&B algorithms could use more than N L SOCP/SDRs to find the optimal solution, since this seems to be worse than exhaustive search. This is because, in the worst case, B&B visits many more intermediate states in the search tree-but exhaustive search only visits the leaves. Nonetheless, in practice, B&B is often much more efficient than exhaustive search since B&B does not really exhaust all the nodes. Theorem 1 (c) spells out the advantage of our B&B design relative to the more classic B&B idea as in (21)  When the condition is violated, it is possible that the SDR in (14) might return solutions whose rank is higher than one in theory-which would hinder the optimality of the B&B procedure. Nonetheless, such higher-rank solutions were never seen in our simulations-which is consistent with observations from the literature [26], [42], [48], [49]. Our conjecture is that the sufficient condition in Lemma 3(b) is far from necessary. In rare cases where rank-one solutions do not exist for (14), standard procedures like randomization [50] may be resorted to for finding rank-one approximations.
+
+
+IV. ACCELERATED JOINT (R)BF&AS VIA ML
+
+The challenge of any B&B algorithm lies in the large number of nodes in the tree. This means that in the worst case, many SOCPs and SDRs need to be solved. An idea from the ML community is to "train" a classifier to recognize the relevant nodes, i.e., nodes that lead to leaves containing the optimal solution [7]. If a node is deemed to be "irrelevant", the B&B algorithm would simply skip branching on this node, and thus could save a substantial amount of time. In this section, we will show that a similar idea can be used for accelerating our B&B based joint (R)BF&AS algorithm-with carefully designed neural models to meet the requirements arising in wireless communications. More importantly, we will present comprehensive performance characterizations, including sample complexity and global optimality retention, which are currently lacking in the existing literature.
+
+A. Preliminaries: Node Classification and Imitation Learning 1) Node Classification: Let us denote
+π θ : R P → [0, 1]
+as the node classifier parameterized by θ, which returns the probability of a node being relevant. Let
+φ(N ( ) s ) ∈ R P
+be the mapping from a node to its feature representation. When π θ (φ(N ( ) s )) < 0.5, then the node is deemed irrelevant. Otherwise, the node is branched.
+
+To train such a classifier, denote {(N s , y s )} T s=1 as the (node, label) training data, where we have removed the level indices of the nodes for notation simplicity. To create the training pairs, one could run random problem instances of (7) using the B&B procedure. Note that the label y s is annotated according to the following rule:
+y s = 1, A s ⊆ A and B s ⊆ [N ]\A , 0, otherwise,(22)
+where A s and B s are the index sets of included and excluded antennas at node s, respectively, and A is the index set of the active antennas of the optimal solution found by B&B of the associated problem instance.
+
+2) Imitation Learning: The simplest supervised learning paradigm would learn π θ using the following risk minimization criterion:
+minimize θ 1 T T s=1 L (π θ (φ s ) , y s ) + r(θ),(23)
+where φ s := φ(N s ), L(x, y) is a certain loss function, e.g., the logistic loss, and r(θ) is a regularization term, e.g., r(θ) = λ θ 2 2 . Unfortunately, such a supervised learning approach often does not work well, since it ignores the fact that the node generating process is sequential and interactive with the node classifier in the test stage. In ML-based MILP, the remedy is to adopt the imitation learning (IL) [5] approach, where π θ is integrated in the training data generating process [7]. To be more specific, the training data generation process is done in a batch-by-batch manner with online optimization.
+
+The IL training criterion is as follows (see Section IV-C for data generation and training process):
+θ (i+1) =(24)
+arg min where D t is the tth batch of training pairs. The learned model parameter θ is selected from θ (i) 's via the following:
+θ 1 i i t=1 1 |D t | (φs,ys)∈Dt L (π θ (φ s ), y s ) + r(θ),θ = arg min θ∈{θ (i) } I i=1 E (φs,ys) [L (π θ (φ s ), y s )] ,(25)
+where I is the total number of batches generated during the training process. In practice, one can use a validation set to approximate the above expectation. In the test stage, the proposed B&B algorithm is run with the assistance of π θ .
+
+The key of using IL to accelerate the proposed B&B for joint (R)BF&AS is twofold, namely, a practical node classifier tailored for wireless communications and a convergent online training algorithm. We will detail our designs to address the two requirements in the next subsections.
+
+
+B. GNN-based Node Classifier for Joint (R)BF&AS
+
+To design the node classifier, a critical consideration in wireless communications is that the number of users to serve could drastically change from time to time. This requires us to design an ML model that is agnostic to such changes, as re-training a model when change happens is not affordable. Towards this end, we design a GNN-based node classifier [32]. Note that GNNs learn aggregation operators over a graph, and thus is naturally robust to the change of entities on the graph. We will leverage this property to design our node classifier.
+
+To describe the GNN-based node classifier, we first define a graph to represent N ( ) s . Fig. 2 illustrates the idea, where the antennas and users represent the vertices, and the channel represent the edge between the vertices. It is important to design the features of the vertices and the edges, so that they represent the essential information of the node N ( ) s . To be specific, we let
+x n ∈ R Va , n ∈ [N ], x N +m ∈ R Vu , m ∈ [M ], and e n,N +m ∈ R Ve , n ∈ [N ], m ∈ [M ](26)
+represent the feature vectors of antenna n (a vertex), user m (a vertex), and the channel between the antenna n and the user m (an edge), respectively. Layer d of the GNN "aggregates" the embedding of graph neighbors to update the uth vertex for
+all u ∈ [M + N ].
+The definition of such aggregation can be flexible. For example, in the message passing neural network [60], the aggregation is done by the following:
+q (d) u = ξ(Z 1 q (d−1) u + v∈Eu ξ(Z 2 q (d−1) v + Z 3 e u,v )),(27)
+where q
+(0) u = x u ; Z i for i = 1, 2, 3
+are the aggregation operators of the GNN; ξ(·) represents the activation functions of layer d; and E u is the index set of all the one-hop neighbors of vertex u on the graph. The output of the GNN is
+π θ (φ s ) = 1 U u∈[U ] ζ β q (D) u , φ s = φ(N s ) ∈ R P where U = M + N is the total number of vertices; φ(N s ) = [x 1 , . . . , x N +M , e 1,N +1 , . . . , e N,N +M ] ; and ζ(·)
+is a sigmoid function. Here, the parameter to be optimized is given by θ : Table I shows the detailed feature descriptions. We design two types of features to represent the B&B nodes. To be specific, Type I features represent the features whose dimensions are not affected by the problem size parameters N, M, L. For example, Φ lb is a Type I feature as it is always a scalar under any (N, M, L). Type II features are those whose dimensions change when (N, M, L) changes. For instance, the channel matrix H ∈ C M ×N is a Type II feature.
+= [vec(Z 1 ) , vec(Z 2 ) , vec(Z 3 ) , β ] .
+Appendix G details the conversion from the features in Table I to x n and e u,v . Note that the special structure of GNN allows us to employ both Type I and Type II features. The reason is that the change of M, N and L only changes the number of vertices/edges of the graph in Fig. 2. This does not necessarily change V a , V e and V u that determines the size of Z i [cf. Eq. (26)]-if x n and and e n,m are designed properly under the GNN framework (see Appendix G). However, if one uses SVM as in [7] or other types of neural networks (e.g., fully connected network (FCN) and convolutional neural network (CNN)), Type II features are much less flexible to use. We should remark that our feature design is not "optimal" in any sense, but using Type II features arguably provides more comprehensive information about the node and could often enhance the node classification accuracy. Table II shows numerical evidence to support our postulate. There, different classifiers are trained by IL using problem instances as described in Sec. V. The FCN has two hidden layers with 32 hidden units in each layer, a sigmoid activation function on the output layer, and ReLU activations on the remaining layers. The architecture of the GNN is described in Appendix F. The SVM and FCN could only use the Type I features. The GNN with both types of features clearly offers a lower node classification error. . This property of GNN will be vital for applying the proposed method in real-world scenarios where the problem size changes constantly (as the number of users to be served by a BS changes all the time). It also helpd scale up the proposed method for coping with large (N, M, L) using a θ trained from small problem sizes, which could save a substantial amount of computational resources.
+
+We should emphasize that GNN is "insenstive" to the change of problem size across training and testing. However, 
+
+
+Type I Features
+
+Type II Features l
+(t) G A ( ) s u (t) G B ( ) s Φ lb (N ( ) s ) [ W ,s (1, :) 2 2 , . . . , W ,s (N, :) 2 2 ] Φ ub (N ( ) s ) H W incumbent (see Algorithm 3) 1(Φ ub (N ( ) s ) − u (t) G < ).
+W ,s |W ,s (:, m) H hm| 2 . Aggregate Interference using W ,s . drastic change of other aspects (e.g., channel model and noise level) across the two stages does affect the performance more substantially. In other words, beyond the problem size, our GNN-based method still expects that the training and testing data to share similar characteristics, as other machine learning models do.
+
+
+C. Data Generation and Online Training
+
+We use an IL framework to train the GNN, which is summarized in Algorithm 1. The framework is based on the online learning method in [5]. The work in [5] was proposed for convex learning criteria. Necessary modifications are made in Algorithm 1 to accommodate our nonconvex learning problem.
+
+Algorithm 1 consists of two steps in each iteration: data collection and classifier improvement. In the ith iteration, the accumulated dataset D i is obtained by solving B&B on R problem instances using the current classifier learned from the previous data batches, π θ (i) . Then, the classifier is retrained using ∪ i t=1 D i and
+θ (i+1) = arg min θ∈Θ g i (θ) + r(θ)
+where Θ specifies the constraints of the GNN parameters [cf.
+
+Eq (29)]; the loss function g i (·) is defined as follows:
+g i (θ) := 1 i i t=1 1 |D t | (φs,ys)∈Dt L(π θ (φ s ), y s );(28)
+additionally, we select r(θ) = −ψ θ in which ψ is sampled from exponential distribution in each iteration. This specific choice of r(θ) plays an important role in our nonconvex learning problem (where the nonconvexity arises due to the use of GNN). To be more specific, such a random perturbationbased r(θ) is advocated by recent developments from nonconvex online learning [6]. It was shown in [6] that using r(θ) = −ψ θ ensures no-regret type convergence of nonconvex online learning. This property is a critical stepping stone towards establishing learning guarantees of our GNNbased framework. This will become clearer in the proofs of Theorem 2.
+
+The training data generation subroutine is given in Algorithm 2. To generate D i , the algorithm first runs B&B on a given problem instance to find the optimal solution. Next, B&B is run again but with π θ (i) to generate nodes. The training pairs (φ s , y s ) are annotated by utilizing the optimal solution obtained in the first run.
+
+The overall GNN-accelerated B&B procedure is summarized in Algoirthm 3. The algorithm is termed as MachINe learning-based joInt beaMforming and Antennas seLection (MINIMAL) The node classifier is used in Line 11.
+
+
+D. Performance Characterizations
+
+Our goal is to characterize the performance of MINIMAL, e.g., under what conditions (e.g., the amount of training 
+G ← W (0) 1 2 F , u (0) G ← W incumbent 2 F ; 6 F (0) ← {(0, 1)}; 7 t ← 0; 8 while |F (t) | > 0 and u (t) G −l (t) G /l (t) G > do 9
+Select a non-leaf node ( , s ) using (18); 10 Remove the selected node F (t) ← F (t) \N  (13) and append to F (t) ;
+14 k ← arg min i∈{1,2} Φ ub N ( +1) s i ; 15 if Φ ub N ( +1) s k ≤ u (t) G then 16 u (t+1) G ← Φ ub N ( +1) s k ; 17 W incumbent ← solution to (17) for N ( +1) s k ; 18 end 19 l (t+1) G ← min ( ,s)∈F (t) Φ lb N ( ) s ; 20 end 21 F (t+1) ← (s , ) ∈ F (t) | Φ lb N ( ) s ≤ u (t+1) G ; 22 t ← t + 1; 23 end 24 Return W incumbent ;
+samples and the complexity of the GNN) MINIMAL can accelerate the proposed B&B without losing its optimality. To our best knowledge, such performance characterization have not been provided for ML-based B&B acceleration, even when the learning problem is convex.
+
+To proceed, we will use the following assumptions: Let us define the set of parameters Θ as follows:
+Θ := θ = [vec(Z 1 ) , vec(Z 2 ) , vec(Z 3 ) , β ] | Z i 2 ≤ B Z , β ≤ B β , i ∈ {1, 2, 3} .(29)
+Using the above, we first characterize the generalization error of the GNN with the following Lemma:
+
+Lemma 4 (Generalization Error of GNN). Consider a GNN π θ in Sec. IV-B and G = {φ k , y k } K k=1 of i.i.d. samples. Then, for θ ∈ Θ, the following holds with probability at least 1 − δ:
+Gap(δ, K)(30):= E[L(π θ (φ), y)] − 1 /K (φ k ,y k )∈G L(π θ (φ k ), y k ) ≤ 8C L K + 24C L B L √ K (3E 2 + E) log Λ + 3B L log (2/δ) 2K , where α = ((1 + U C ξ )C ξ B Z ), Λ = 1 + 12 √ EKB Z max{Σ Z1 , Σ Z2 , Σ Z3 , B β/B Z Σ β }, Σ Z1 = C ζ B β U C 3 ξ B Z B x α (D+1) − 2α + 1 (α − 1) 2 , Σ Z2 = U C ξ Σ Z1 , Σ Z3 = C ζ B β U C 2 ξ B Z B x α D − 1 α − 1 , Σ β = C ζ B x α D + C ζ U C 2 ξ B Z B x α D − 1 α − 1 ,
+where the expectation is taken w.r.t. the distribution of (φ k , y k ).
+
+Note that our GNN generalization error bound is rather different from some existing results, e.g., [62], as edge features (i.e., e u,v ) were not considered in their work. Lemma 4 can be used to understand the GNN's performance with a single batch. To characterize the node classification accuracy of the GNN learned through the described imitation learning algorithm, we need the following assumptions:  To present our main theory, we compute the expected number of nodes that will be visited (with the associated SOCPs/SDRs solved) by Algorithm 3 when run with π θ in the testing stage. Let us denote ρ θ as the probability with which the classifier accurately classifies a node. Also denote S as the set of all possible B&B trees that can be realized by Algorithm 3 under a given instance. Let Pr(s; θ), s ∈ S be the probability with which a particular tree s is realized. Let Q s θ denote the number of visited nodes in tree s.
+Let Q θ = E[Q s θ ]
+where the expectation is taken over the probability mass function Pr(s; θ), s ∈ S. In the following theorem, we characterize the classification accuracy, ρ θ , and present a bound on Q θ . Theorem 2. Suppose that Assumptions 2-3 hold, and that the GNN in MINIMAL is prameterized by θ in (25). In addition, assume that every single batch D i consists of i.i.d. samples, and that Algorithm 1 is used for GNN learning. Then, we have
+Q θ ≤ 2N 2ρ θ − ρ N θ 2ρ θ − 1 + 1.
+Further, when θ is selected using (25), with a probability at least 1 − δ,
+E p θ ,ψ L π θ (φ s ), y s(31)≤ ν + O 1/I 1/3 + Gap δ 2 , J 2 log(2/δ) I .
+Assume the logistic loss function L is employed. Then, the node classification accuracy
+ρ θ ≥ exp −E p θ ,ψ L π θ (φ s ), y s .
+In addition, MINIMAL returns an optimal solution with probability at least ρ N θ . The proof of Theorem 2 is relegated to Appendix E. This result bounds the number of nodes visited by the proposed algorithm under a given classification accuracy. It also characterizes the classification accuracy that can be achieved by the proposed training procedure. One can see that when the batch size is large enough, Gap is close to zero. Additionally, when the GNN is expressive (and thus ν is small) and the algorithm is run for large enough iterations I, the accuracy of the classifier, i.e., ρ θ , approaches 1 [cf. Eq. (31)]. Consequently, the total number of nodes visited will be close to 2N + 1 at most. This shows linear dependence of the computational complexity of the proposed method on N , which is a significant saving compared to N L for the exhaustive search. Remark 3. We should remark that the results in Theorem 2 has a couple of caveats. First, we assumed that the samples in each D i are i.i.d. If every node created by π θ (i) in Algorithm 2 is used, then the samples in D i are likely not i.i.d., as the nodes in the same B&B tree are generated in a sequential manner. Nonetheless, simple remedies can assist creating an i.i.d. batch D i -e.g., by taking only one random node from a B&B tree. This is inevitably more costly, and seems not to be necessary in practice-as using nodes from Algorithm 2 for training works fairly well in our simulations. Second, the expectation based criterion (25) is only approximated in practice, e.g., via using empirical averaging. Characterizing the empirical version of (25) can be done via concentration theorems in a straightforward manner. However, this would substantially complicate the expressions yet reveals little to no additional insight. Hence, we leave it out of this work.
+
+
+V. NUMERICAL RESULTS
+
+In this section, we showcase the effectiveness of the proposed B&B algorithm and its machine learning based acceleration using numerical simulations. We use CVXPY [63] which calls MOSEK [64] to solve the SOCPs/SDRs in (15) and (17)  Implementation of the proposed methods can be found on the authors' website 1 .
+
+
+A. Evaluation of B&B for Joint (R)BF&AS
+
+In Fig. 3, we verify the convergence of the proposed B&B algorithm under both the perfect and the approximate CSI cases. The figure shows the convergence of the global upper and lower bounds (i.e., u  (8,4,4). One can see that the global bounds converge to the optimal objective value in both the perfect and approximate CSI case. This verifies our optimality claim in Theorem 1. Note that the B&B algorithm for both cases converges in less than 24 iterations (i.e., visiting ≤ 48 nodes). This is much less than the worst-case complexity of B&B, i.e., visiting 139 nodes. The empirical complexity is also better than the worst-case complexity of exhaustive search, which is 70 node visits in this case. Table III gives a closer look at the effectiveness of the proposed B&B framework. Specifically, Table III shows the performance of the proposed B&B procedure for various problem sizes, compared to the exhaustive search strategy for the perfect CSI case. The result is averaged over 30 Monte Carlo trials. One can see that the B&B algorithm can constantly attain reduced complexity, in terms of the number of nodes visited (i.e., the number of SOCPs solved). In particular, when the number of users is relatively small, the B&B can attain an around 8-fold acceleration (cf. the case where (N, M, L) = (12, 2, 8)). Similar results can be seen in Table IV, where the imperfect CSI case is considered.
+
+Table V compares our B&B and the alternative B&B using the formulation (21) in the perfect CSI case. One can see that the proposed procedure consistently solves fewer SOCPs. This supports Theorem 1 (c).
+
+
+B. Evaluation of ML-accelerated B&B for Joint (R)BF&AS
+
+In this section, we demonstrate the efficacy of MINIMAL. 1) Baselines: A number of baselines are as follows: Supervised Learning: We follow the supervised learning (SL) ideas in [23], [24] to train a neural network for antenna selection (cf. Sec. II-C). Specifically, we use the proposed B&B algorithm to generate training pairs with optimal antenna selection as the labels, i.e., {H t , z t } T t=1 , where z t is a binary vector representing optimal antenna selection for the tth training instance. The learned deep model predicts a vector z which may not satisfy z 0 ≤ L, and thus we take the L elements that have the largest magnitude as in [23]. For this baseline, we use an f θ that is a 3-layer neural network, where the first two layers are convolutional layers with ReLU activations and the last layer is a fully connected layer with sigmoid activation. Greedy Method: A plethora of greedy algorithms exist for different variants of joing BF&AS problems; see, e.g., [16], [19]- [22]. We design a greedy baseline for (7) following the general idea of [19], which is described as follows: (i) Let We call this method Greedy. Note that Greedy's computational burden is not necessarily light, as a total amount of O(N 2 ) SOCPs have to be solved (e.g., ≈ 1000 SOCPs have to be solved for N = 32). Continuous Approximation: As the third baseline, we use the continuous optimization-based idea in [5] and modify it to solve the unicast cases in this work. Although [5] did not explore their method for the approximate CSI case, we note that the same idea can be used after proper modifications to the subproblems (i.e., using the S-lemma to come up with an SDR formulation of the subproblem). We term this method iteratively reweighted convex relaxation-based optimization (IrCvxOpt).
+
+Following the implementation instruction of [5], we run IrCvxOpt for at most 30 iterations with its bisection-based λ-tuning method for 30 iterations as well. The algorithm is stopped if the relative change of the reweighting matrix is smaller than 10 −4 or a solution comprising of ≤ L antennas is found. If the algorithm returns > L antennas, we select the L antennas from the returned antennas that is assigned the maximum power in the returned beamforming solution W . All of the evaluation metrics (see Sec V-B3) are computed using the final L antennas and W output by the algorithms.
+
+2) Training Setups: We use a GNN tailored for our beamforming setting (see details in Appendix F). We set (R, I) = (30,20) in Algorithms 1-2. The loss function L is selected to be the binary cross-entropy loss, i.e., L(x, y) = −y log(x) − (1 − y) log(1 − x). In batch i, the parameters of the classifier is initialized with θ (i) , and updated using the Adam algorithm [65] for 10 epochs, where the sample size of Adam is set to be 128. The initial step size of Adam is set to 0.001. As described in Section IV-A2, we select θ from θ (1) , . . . , θ (I) using 30 validation problem instances using a sample average version on (25).
+
+In order to account for the class imbalance (number of relevant nodes usually much smaller than number of irrelevant nodes in the training set), we apply a larger positive weight on the "positive" training pairs. Further, premature/early pruning of the B&B tree (i.e., when is small) should be discouraged as it is more risky. Hence, we weight each term
+L(π θ (i) (φ ( ) s ), y ( ) s ) using (q1[y ( ) s = 1] + 1) 1 , where q ∈ R
+offsets the imbalance ratio, and 1[·] denotes the indicator function. We select q = 11 via trial and error, and use the same q in all experiments.
+
+3) Evaluation Metrics: We define the optimality gap (Ogap) as follows:
+Ogap := W 2 F − W 2 F W 2 F × 100%,
+where W is the optimal solution provided by the B&B algorithm and W is the solution provided by an algorithm under test. We also define the runtime speedup as follows:
+
+speedup := Run-time of B&B (seconds) Run-time of method under test (seconds) . One can see that MINIMAL consistently attains a very small Ogap (< 3% for all cases), whereas the baselines have much larger Ogaps. The SL method only requires solving a single SOCP, as the antenna selection part is done by the learned f θ . However, the solution quality is not acceptable, indicating that the learned neural network for AS performs poorly. Notably, in our simulations, we observed that SL needs a large amount of problem instances to generate its training data for a given (N, M, L). For example, under the settings in Table VI, T = 12, 000 instances were used for SL, but only 600 instances were used for the proposed method. Table VII shows the performance of the algorithms in cases where N ≥ 32. Note that generating training samples for SL is too costly in these case, and thus we drop this baseline in this table. This is because for each (N, M, L), one has to re-train f θ from scratch under SL-but generating training examples for large size N is not affordable. For the proposed algorithm, we use the GNN trained on smaller problem size, i.e., (N, M, L) = (16,8,8) (cf. Remark 2), which allows us to avoid re-training. In this simulation, we test all methods under limited computational budget (i.e., every method is allowed to use up to 2N SOCPs), for controlling the runtime. Unlike the previous cases where the Ogap is presented, we could only compare the objective values in this simulation, as obtaining the optimal solution is very costly. One can see that the proposed method attains objective values that are oftentimes order-of-magnitude smaller than those of the baselines.
+
+IrCvxOpt sometimes attains small objective values (e.g., when (N, M, L) = (128, 8, 8)), but the performance is not consistent across different cases. Table VIII shows the performance of the algorithms under imperfect CSI using the RBF constraints. For (N, M, L) = (16,8,8), we use the model trained on (N, M, L) = (10, 5, 5), and limit the number of SDRs to 2N . Similar to the perfect CSI case, the proposed method attains the smallest Ogap/objective value compared to all baselines. The IrCvxOpt again sometimes outputs acceptable results, but could not maintain consistently good performance over all cases. Table IX tests the algorithms' ability of finding feasible solutions of (7). Note that finding a feasible solution for QCQP problems is often highly nontrivial [66]. As making W row−0 ≤ L [cf. Eq. (7c)] can be easily done via simple post-processing (e.g., by thresholding some rows of the solution W to zeros), we primarily examine if the algorithms could find W 's that satisfy the SINR specifications in (7b). To be specific, the algorithms are tested using various γ m 's. Naturally, higher values of γ m may make all the SINR constraints hard to satisfy. We run 50 random trials. One can see that under γ m =30dB, all the problem instances have at least a feasible solution for (7b). Both MINIMAL and Greedy can find solutions that are feasible for all instances, but MINIMAL enjoys a much smaller Ogap. When γ m grows, the problem admits fewer infeasible instances. However, MINIMAL always returns a feasible solution, as long as the instance has one. Greedy also works fine for finding feasible solutions, but the Ogap becomes much larger when γ m increases. IrCvxOpt is less competitive in terms of both Ogap and feasibility.
+
+
+VI. CONCLUSION AND DISCUSSION
+
+In this work, we revisited the joint beamforming and antenna selection problem under perfect and imperfect CSI and proposed a machine learning-assisted B&B algorithm to attain its optimal solution. Unlike the vast majority of existing algorithms that rely on continuous optimization to approximate the hard mixed integer and nonconvex optimization problem without optimality guarantees, our B&B algorithm leverages the special properties of joint (R)BF&AS to come up with optimal solutions. More importantly, we proposed a GNNbased machine learning method to help accelerate the B&B algorithm. Our analysis showed that the design ensures provable acceleration and retains optimality with high probability, under proper GNN design and given a sufficiently enough sample size. To our best knowledge, this is the first comprehensive characterization for ML-based B&B. Our GNN design also easily handles a commonly seen challenge in communications, namely, the problem size change across training and test sets, without visible performance losses. Simulations corroborated our design goals and theoretical analyses.
+
+Moving forward, a natural question is if the proposed MLaccelerated B&B method can be extended to offer efficient and optimal solutions to other joint (R)BF&AS criteria, e.g., those in [1], [4]- [7], [67]. This can in principle be done, but the caveat lies in designing an effective B&B algorithm for the problem of interest. In our case, our B&B design leveraged the fact that (7) is optimally solvable when given a fixed set of antennas, which is a property that not all the joint BF&AS formulations enjoy-e.g., the multicast version of (7) cannot be handled by a similar B&B. Therefore, a meaningful future direction is to consider such more challenging cases and come up with a ML-assisted (near)-optimal method.
+
+
+APPENDIX A PROPOSED B&B PROCEDURE
+
+The proposed B&B procedure is essentially Algorithm 3 without any pruning of the nodes based on node classifier. The B&B procedure is outlined in Algortihm 4
+
+Algorithm 4: BB 1 Input: Problem instance (hm, σm, γm, εm), ∀m, trained pruning policy π θ , relative error ; // Add the root node first 
+G ← W (0) 1 2 F , u (0) G ← W incumbent 2 F ; 6 F (0) ← {(0, 1)}; 7 t ← 0; 8 while |F (t) | > 0 and u (t) G −l (t) G /l (t) G > do 9
+Select a non-leaf node ( , s ) using (18) append to F (t) ;
+13 k ← arg min i∈{1,2} Φ ub N ( +1) s i ; 14 if Φ ub N ( +1) s k ≤ u (t) G then 15 u (t+1) G ← Φ ub N ( +1) s k ; 16 W incumbent ← solution to (17) for N ( +1) s k ; 17 end 18 l (t+1) G ← min ( ,s)∈F (t) Φ lb N ( ) s ; 19 F (t+1) ← (s , ) ∈ F (t) | Φ lb N ( ) s ≤ u (t+1) G ; 20 t ← t + 1; 21 end 22 Return W incumbent ; APPENDIX B POOF OF LEMMA 3 (a)
+The BF setting implies that C(w m , h m , ε m , σ m ) is from (2b). Then, the equivalence of (2b) and (3) implies that (15) for any node N ( ) s can be optimally solved using SOCP. Hence Lemma 3(a) holds due to Lemma 1. Note that if the SOCP and SDR return optimal solutions to every leaf node of the B&B tree, then the B&B procedure is ensured to find the optimal solutions of the the joint BF/RBF&AS problems. The reason is that the B&B tree only has a finite number of leaves.
+
+For the BF setting with perfect CSI, the subproblem at a leaf node ( , s) can be expressed as s (:, m) by slightly abusing the notation. Since Problem (33) can be recast as a convex problem as detailed in (3), the solution to the above is indeed optimal.
+minimize W W 2 F (32) subject to |w H m h m | 2 =m |w H h m | 2 + σ 2 m ≥ γ m ,
+Similarly, under the RBF setting with imperfect CSI, the subproblem at a leaf node can be written as B. Proof of (c) 1) Amount of SOCPs/SDRs Solved by Proposed B&B: In our B&B procedure, (15) and (17) are equivalent for any node and its right child node, i.e., (17) is determined using the solution to (15). Hence, one can avoid redundant computations in the nodes by storing and reusing the results of (15) and (17). Using this observation, we derive an upper bound of the number of SOCPs/SDRs that need to be solved by the B&B.
+minimize W W 2 F (34) subject to min hm∈Um h H m W m h m j =m h H m W j h m + σ 2 m ≥ γ m ,Φ lb N ( ) s = Φ lb N ( +1) s2 , Φ ub N ( ) s = Φ ub N ( +1) s2 .
+
+The first equation is because B
+( ) s = B ( +1) s2 and the second because B ( ) s , ∀( , s) in
+Consider a B&B tree where none of the nodes are fathomed (Fig. 4). Note that there are Q Leaf = N L leaf nodes (squares in Fig. 4). Therefore, there are Q Total = 2 N L − 1 nodes in total (all circles and squares). Each non-leaf node (circles) is branched into a right child node and a left child node. Hence, there are Q Right = N L − 1 right child nodes (shaded solid circles and squares) and Q Left = N L − 1 left child nodes (unshaded solid circles and squares).
+
+The constraints of the SOCPs/SDRs corresponding to the leaf nodes can be different from that of its parent even if they correspond to a right child node, i.e., shaded squares. This is because of the update step in (20) for the leaf nodes. To explain, a right child node, N s will be different from that of its parent node, the solutions of (15) and (17) can be different from that of its parent node. Therefore, only the non-leaf right child nodes (shaded solid circles) can reuse previously stored upper bound and lower bound solutions from their parents. Let Q RightLeaf denote the number of right child leaf nodes (shaded squares). Then, the total number of nodes whose associated SOCPs/SDRs that need to be solved in the worst case is Q Compute = Q Total − Q Right + Q RightLeaf .
+
+To count Q RightLeaf , notice that the right and left child nodes of a parent node correspond to 'including' and 'excluding' an antenna, respectively. A parent node is branched into a right child leaf node if it contains exactly L − 1 included antennas and fewer than or equal to N − L − 1 excluded antennas. This implies that there can be fewer than or equal to (L − 1) + (N − L − 1) = N − 2 decided antennas. Hence, a right child leaf node is created whenever a node has ≤ N − 2 decided antennas, where L − 1 of them are included, is branched. Therefore, we have the following holds:
+Q RightLeaf = N − 2 L − 1 + N − 3 L − 1 + · · · + L − 1 L − 1 = N −L+1 i=2 N − i L − 1 .
+Consequently,
+Q Compute = N L + N −L+1 i=2 N − i L − 1 .
+Note that Q Compute nodes may correspond to 2Q Compute SOCPs/SDRs (cf. (15) and (17) for each node). However, for the leaf nodes (15) and (17) are identical. Hence there are only Q Compute − N L instances of (15). Moreover, there can be at most N L instances of (17), since N L correspond to selecting L out of N antennas. Therefore, there are at most Q Compute SDRs/SOCPs solved by the B&B procedure.
+
+2) The SOCPS/SDRs Needed in B&B for Problem (21): To complete the proof, let us examine the number of SOCPs/SDRs that are needed to exhaust the B&B tree of the formulation in (21).
+
+A node problem of (21), for the node N The lower bound is obtained by solving the convex relaxation of the above, i.e., z ∈ {0, 1} is relaxed to z ∈ [0, 1] N . One can see that the lower bounds obtained at the parent node and both child nodes may be different.
+
+It is because (36) depends upon both A instances of (17) and N L − 1 instances of (15)).
+
+Due to page limitations, the proofs of Lemmas 4-6 and Theorem 2, the details of the GNN design, and the details of node feature design can be found in the supplementary materials (download under "Media" of the IEEE Xplore page of this paper). They can also be found online at https://arxiv.org/abs/2206.05576. We use the empirical Rademacher complexity of the GNN class to assist finding the expected risk's error, which is a classic way of establishing generalization bounds [1]- [3]. To proceed, let us define the sets
+X φ := φ = x 1 , . . . , x U , e 1,1 , . . . , e U,U x u 2 , e u,v 2 ≤ B x , ∀u, v ∈ [U ] , X Z := {Z ∈ R E×E | Z 2 ≤ B Z }, and X β := {a ∈ R E | a 2 ≤ B β }.
+First, consider the following lemma:
+Lemma 5 ( [1, Theorem 3.1]). Let T be a family of functions mapping from X φ × {0, 1} to [−b, b]. Assume G consists of K i.i.d. samples {φ k , y k } K k=1 .
+With probability at least 1 − δ over the samples G, for any τ ∈ T ,
+E[τ (φ, y)] − 1 K (φ k ,y k )∈G τ (φ k , y k ) ≤ 2 R G (T ) + 3b log 2/δ 2K ,
+where R G (T ) is the empirical Rademacher complexity [1] of the set T with respect to the samples G.
+
+Let us define the set T := {(φ, y) → L(π θ (φ), y) | θ ∈ Θ}, a class of functions that maps from X φ × {0, 1} to [−B L , B L ]. Then, applying Lemma 5 to T over the set G ensures that with probability at least 1 − δ over G, ∀θ ∈ Θ,
+E[L(π θ (φ), y)] − 1 K i∈[K] L(π θ (φ i ), y i ) ≤ 2 R G (T ) + 3B L log 2/δ 2K ,(37)
+In the following, we derive an upper bound on R G (T ). To this end, we instead define a set Π := {φ → π θ (φ)|θ ∈ Θ}, and derive R G (Π). With this, we can use Talagrand's Lemma
+[1, Lemma 4.2] to obtain R G (T ) as R G (T ) = C L R G (Π).
+In order to derive R G (Π), we use Dudley's entropy integral [2,Lemma A.5], which provides an upper bound on the empirical Rademacher complexity by using the covering number of Π. To clarify, a µ-cover of Π is any set C ⊆ Π such that ∀π θ ∈ Π, ∃π θ ∈ C such that
+max φ∈X φ π θ (φ) − π θ (φ) ≤ µ.
+Similarly, the covering number of the set Π at scale µ is denoted by N(Π, µ) and defined as the minimum cardinality of a µ-cover set of Π. The following lemma summarizes the Dudley's entropy integral that uses the covering number of a set to bound its empirical Rademacher complexity. Lemma 6 ( [2, Lemma A.5]). Given samples G of size K, the empirical Rademacher complexity of the set Π with respect to the samples G is upperbounded as follows:
+R G (Π) ≤ inf a>0 4a √ K + 12 K √ K a log N(Π, µ)dµ . (38)
+To proceed with the derivation of log (N(Π, µ)), we first characterize the Lipschitz constants of the GNN with respect to its parameters. Consider parameters θ and θ, which correspond to (Z 1 , Z 2 , Z 3 , β) and ( Z 1 , Z 2 , Z 3 , β), respectively. Let q (d) u and q (d) u denote the embeddings learned for the uth vertex at the end of dth layer of the GNN with parameters θ and θ, respectively. Then, for any input φ, the absolute difference between the outputs of the two GNNs can be written as
+π θ (φ) − π θ (φ)(39)= 1 U u∈[U ] ζ(β q (D) u ) − ζ( β q (D) u ) ≤ 1 U u∈[U ] C ζ β q (D) u − β q (D) u + β q (D) u + β q (D) u ≤ C ζ U u∈[U ] q (D) u 2 β − β 2 + B β q (D) u − q (D) u 2 .
+First, we can bound q (D) u 2 as follows:
+q (D) u 2 = ξ   Z 1 q (D−1) u + (u,v)∈E ξ Z 2 q (D−1) v + Z 3 e u,v   − ξ(0) 2 ≤ C ξ Z 1 2 q (D−1) u 2 + C 2 ξ (u,v)∈E Z 2 2 q (D−1) v 2 + Z 3 2 e u,v 2 ≤ C ξ B Z q (D−1) u 2 + C 2 ξ U max v B Z q (D−1) v 2 + B Z B x .
+Solving the recursion from the final inequality, we obtain
+q (D) u 2 ≤ α D B x + U C 2 ξ B Z B x α D − 1 α − 1 ,(40)
+where α = ((1 + U C ξ )C ξ B Z ).
+
+Next, we bound Γ
+(D) u := q (D) u − q (D) u 2
+from (39) as follows:
+Γ (D) u = ξ   Z 1 q (D−1) u + (u,v)∈E ξ Z 2 q (D−1) v + Z 3 e u,v   − ξ   Z 1 q (D−1) u + (u,v)∈E ξ Z 2 q (D−1) v + Z 3 e u,v   2 ≤ C ξ Z 1 q (D−1) u − Z 1 q (D−1) u 2 + U C 2 ξ max v Z 2 q (D−1) v − Z 2 q (D−1) v 2 + Z 3 − Z 3 2 B x ≤ C ξ q (D−1) u 2 Z 1 − Z 1 2 + B Z Γ (D−1) u + U C 2 ξ max v q (D−1) v 2 Z 2 − Z 2 2 + B Z Γ (D−1) v + B x Z 3 − Z 3 2 .
+Solving the recursion in the last inequality, and using Γ (0) u = 0, ∀u, we get
+Γ (D) u ≤ Σ Z1 Z 1 − Z 1 2 + Σ Z2 Z 2 − Z 2 2 + Σ Z3 Z 3 − Z 3 2 , where Σ Z1 = U C 3 ξ B Z B x α (D+1) − 2α + 1 (α − 1) 2 , Σ Z2 = U 2 C 4 ξ B Z B x α (D+1) − 2α + 1 (α − 1) 2 , Σ Z3 = U C 2 ξ B Z B x α D − 1 α − 1 .
+Using the above bound on Γ (D) u in (39), we get
+π θ (φ) − π θ (φ) ≤ Σ β β − β 2 + Σ Z1 Z 1 − Z 1 2 +Σ Z2 Z 2 − Z 2 2 + Σ Z3 Z 3 − Z 3 2 ,(41)
+where
+Σ β = C ζ B x α D + C ζ U C 2 ξ B Z B x α D −1 α−1 , Σ Z1 = C ζ B β Σ Z1 , Σ Z2 = C ζ B β Σ Z2 , and Σ Z3 = C ζ B β Σ Z3 .
+Eq. (41) implies that for any θ ∈ Θ, the existence of θ in the cover set such that |π θ (φ) − π θ (φ)| ≤ µ can be satisfied by ensuring the existence of ( β, Z 1 , Z 2 , Z 3 ) such that the right hand side of (41) ≤ µ. Hence, if we construct µ /4Σ β -cover of X β , and µ /4Σ Z i -cover of X Z , ∀i ∈ {1, 2, 3}, the Cartesian product of the four sets correspond to a µ-cover of Π. Hence, the covering number of Π at scale µ can be upper bounded by the product of the covering numbers of the four sets as follows:
+N (Π, µ) ≤ N X β , µ 4Σ β × 3 i=1 N X Z , µ 4Σ Zi .(42)
+In addition, the covering number for X Z and X β can be upper bounded using [3,Lemma 8] and [4], respectively, as follows:
+N(X Z , µ) ≤ 1 + 2 √ EB Z µ E 2
+, N(X β , µ) ≤ 3B β µ E Using the above bounds in (42), we get
+N (Π, µ) ≤ 12B β Σ β µ E × 3 i=1 1 + 8 √ EB Z Σ Zi µ E 2 ≤   1 + 12 √ EB Z max B β B Z Σ β , Σ Z1 , Σ Z2 , Σ Z3 µ   3E 2 +E .
+Finally, we can use Lemma 6 to obtain a bound on R G (Π). To this end, we upper bound the integral on the right hand side of (38) as follows: √ K a log N(Π, µ)dµ ≤ √ K log N(Π, a).
+
+The above inequality holds because log N(Π, µ) increases monotonically with the decrease of µ. Taking a = 1 / √ K, we get the following:
+R G (Π) ≤ 4 K + 12 √ 3E 2 + E √ K × log 1 + 12 √ EKB Z max B β B Z Σ β , Σ Z1 , Σ Z2 , Σ Z3 .
+Combining the above with R G (T ) ≤ C L R G (Π) and substituting in (37), we get the final result.
+
+
+APPENDIX E PROOF OF THEOREM 2
+
+Proof of Theorem 2 can be divided into two parts. In the first part we bound the expected loss under of the learned GNN. For this we will use the proof idea from [5]. However, the proof technique in [5] hinges on the convexity of their online learning problem. Hence, we make appropriate modifications to accommodate our non-convex GNN-based learning problem. In the second part, using the expected loss, we characterize the number of nodes needed to be visited by Algorithm 3 for solving a given problem instance optimally.
+
+
+A. Expected Loss of Algorithm 1
+
+Note that the online learning algorithm in Algorithm 1 is a no-regret algorithm. The definition of regret is as follows:
+
+Definition 1 (Regret). Regret of an online algorithm that produces a sequence of policies θ 1:I = {θ (1) , θ (2) , . . . , θ (I) } is denoted by Reg I . It is the average loss of all policies with respect to the best policy in hindsight, i.e., Definition 2 (No-regret Algorithm). A no-regret algorithm is an algorithm that produces a sequence of policies θ 1:I such that the average regret goes to 0 as N goes to ∞:
+
+Reg I ≤ γ I and lim I→∞ γ I → 0.
+
+For strongly convex L, the work in [5] shows that Algorithm 1 is a no-regret algorithm with η = ∞, i.e., ψ = 0 (recall that η is the parameter of the exponential distribution, i.e., ψ ∼ Exp(η), where Exp(η) := η(exp(−η))). However, for non-convex L we cannot guarantee that Algorithm 1 is a noregret algorithm [6]. But with 0 < η < ∞, under Assumption 2, Algorithm 1 was shown to be a no-regret algorithm [6]. Finally, the following lemma establishes the expected loss of the policy returned by Algorithm 1.
+
+Lemma 10 ( [7, Theorem 1]). Assume that the node selection method in (18) ranks an irrelevant node higher than a relevant node with probability r . Then the expected number of branches (number of non-leaf nodes) is
+Q θ − 1 2 ≤ 1 − FN 1 − 2 r FP + FN 1 − 2 FP r FP N n=0 (1 − FN ) n +(1 − FN ) N +1 (1 − r ) FP 1 − 2 FP + 1 N,
+Our node selection strategy is the lowest lower bound first as detailed in Section III. In the worst case scenario, r = 1. Therefore, using Lemma 10, the expected number of branches is
+≤ N 1 − ρ θ 2ρ θ − 1 N n=0 ρ n θ + 1 (c) = N 1 − ρ N +1 θ 2ρ θ − 1 + 1 = N (2ρ θ − ρ N θ ) 2ρ θ − 1 .
+Since the expected number of branches correspond to the expected number of non-leaf nodes, the total number of nodes in the tree is ≤ 2N (2ρ θ −ρ N θ ) 2ρ θ −1 + 1. Next, we we characterize the probability that Algorithm 3 provides the optimal solution. To this end, observe that there is only one relevant node at any depth n of the B&B algorithm. The probability of not pruning a relevant node is ≥ ρ θ . Therefore, the probability of not pruning a relevant node at any depth of the branch and bound tree is ≥ ρ N θ (since N is the maximum depth of the tree). Hence, the probability of obtaining an optimal solution is at least ρ N θ .
+
+
+APPENDIX F GNN DESIGN IN SIMULATIONS
+
+In this section, we detail the GNN architecture used in the experiments. The GNN is designed to accommodate the unequal input feature dimensions for antennas and users. We enhance the expressiveness GNN by letting different layers to have different aggregation matrices in our experiments. The initial embeddings of a common size E are obtained using a single layer fully connected neural network, i.e.,
+q (0) n = ReLU(Z 1 x n ), q(0)
+N +m = ReLU(Z 2 x m ) e u,v = ReLU(Z 3 e u,v ).
+
+where Z 1 ∈ R E×Va , Z 2 ∈ R E×Vu , Z 3 ∈ R E×Ve , and ReLU : R E → R E deontes elementwise nonlinear function such that ReLU(x) = max{x, 0}.
+
+The first layer of GNN only updates the antenna vertices, i.e., q n , n ∈ [N ], as follows Such "split updating" of different nodes' embeddings in two layers has been advocated in [8] for the type of graph structure used in this work (i.e., a bipartite graph). Moreover, there is a potential saving in the computational cost in both training and testing [9] compared to updating all nodes' embeddings in each layer. Finally, π θ (φ) is computed using the q 
+
+N +m ) ,
+
+where Z 4 , . . . Z 16 ∈ R E×E , β ∈ R E , and Sigmoid : R → R is the sigmoid function, i.e., Sigmoid(x) =
+
+
+S.Shrestha  and X. Fu are with the School of EECS, Oregon State University. M. Hong is with the ECE Department, University of Minnesota. (Corresponding Author: Xiao Fu) The work of S. Shrestha and X. Fu is supported by National Science Foundation (NSF) under Project CNS-2003082. Their work is also supported by a gift from Intel through the MLWiNS program. The work of M. Hong is supported by NSF CNS-2003033. His work is also supported by a gift from Intel through the MLWiNS program.
+
+W
+(n 2 , :) = 0 (7b), (7c), W (n 1 , :) = 0, W (n 2 , :) ∈ C M W (n 2 , :) ∈ C M W (n 1 , :) = 0 (7b), (7c), W (n 1 , :) ∈ C M (7b), (7c), W (n 1 , :) ∈ C M , W (n 3 , :) = 0 W (n 3 , :) = 0 (7b), (7c), W (n 1 , :) ∈ C M , W (n 3 , :) ∈ C M W (n 3 , :) ∈ C M W (n 1 , :) ∈ C M Fig. 1. Illustration of B&B tree for problem (7). Here n i ∈ [N ] are the branching variables selected at each node.
+
+
+child nodes (i.e., excluding and including antenna n on top of the decided antennas in N ( ) s ). The associated include/exclude sets in the child nodes, N ( +1) s i , i ∈ {1, 2}, are updated as follows:
+
+
+from the MILP literature. Note that the reduction of complexity shown in (c) could be substantial. For example, when (N, L) = (12, 8), Q Compute =660, whereas Q Compute =989. Hence, there is a potential saving of 339 SOCPs/SDRs (reduction by 34%) in the worst case. Remark 1. Under approximate CSI, the conditions in Lemma 3(b) is the premise for our theorem to hold [cf. Theorem 1(b)].
+
+Fig. 2 .
+2Illustration of the input graph representation for a node.
+
+Remark 2 .
+2In addition to being able to work with both types of features, another important benefit of using GNN is as folows: Since θ of the GNN model does not depend on (N, M, L), the learned model can naturally work when the numbers of users and antennas change, as long as V a , V u , and V e remain the same. That is, the model trained on problem instances with (N, M, L) can be seamlessly tested on cases with (N , M , L ) = (N, M, L)
+
+1D
+Input: I, R(number of training instances per batch), η; 2 D 1 = {}; 3 for i = 1 to I do4    Sample ψ ∼ (Exp(η)) B // Exp(η) is the exponential distribution with pdf p(x) = η exp(−ηx); θ (i) ∈ R B ; (Q) ← run BB(Q) and label the nodes using optimal solution; ,ys)∈D t L(π θ (φs), ys) π θ (φs), ys)] // where D valid i validation batch i generated by B&B with π θ (i) Algorithm 2: Training Data Generation 1 Input: Q, π θ ; // optimal solution and optimal selected antenna subset to problem Q 2 (W , A ) = BB(Q); (see Algorithm 4 in Appendix A for BB)3  Execute Line 2 to Line 7 in Algorithm 3; // Initialization 4 D ← {}; 5 while B&B termination criteria is not met
+
+Assumption 1 .
+1Assume that the following statements about the data features and the GNN in Sec. IV-B hold:(a) The input features are bounded, i.e.,x u 2 , e u,v 2 ≤ B x , ∀u, v. (b)The activation functions ξ(·) and ζ(·) are C ξ -Lipschitz and C ζ -Lipschitz continuous, respectively. In addition,ξ(0) = 0. (c) Let L : R × R → [−B L , B L ] be C L -Lipschitz in its first argument, i.e., |L(x, y) − L(x , y)| ≤ C L |x − x |. (d)The parameters of the GNN are bounded; i.e., Z i 2 ≤ B Z , ∀i ∈ {1, 2, 3} and β 2 ≤ B β .
+
+Assumption 2 .
+2Let sup θ1,θ2∈Θ θ 1 − θ 2 ∞ ≤ H, for some H < ∞. Let all the loss functions g i (·) [cf. Eq. (28)] for i = 1, . . . , I are G-Lipschitz continuous with respect to the 1 -norm, i.e. |g i (θ 1 ) − g i (θ 2 )| ≤ G θ 1 − θ 2 1 , ∀i.
+
+Assumption 3 .
+3The minimal empirical loss over the aggregated dataset is bounded by ν. φs,ys)∈DiE ψ [L(π θ (φ s ), y s )] ≤ ν.Assumption 2 is not hard to meet if the data features and the network parameters are bounded. Assumption 3 characterizes the expressiveness of the GNN.
+
+Fig. 3 .
+3Convergence of the global upper and lower bounds, computed by the proposed B&B algorithm, to the optimal solution. Problem instance of size (N, M, L) = (8, 4, 4).
+
+G
+) computed by the proposed B&B procedure for (N, M, L) =
+
+H
+= {1, . . . , N } denote the set of all antennas (set to active initially). (ii) Solve SOCPs with H −n = H\{n}, ∀n ∈ H. Let H − n correspond to the smallest objective value. Then, set H = H\ n. (iii) Repeat (ii) if |H| > L; otherwise return H.
+
+
+≤ N − L, ∀(s, ). Hence, the set {H(S, :)|S ∈ [N ], |S| ≥ L} includes all possible instances of (15) encountered during the B&B procedure. Therefore, Lemma 3(b) holds. (c) Note that | B ( ) s | = N −L. Hence, the solution of Problem (17) satisfies the constraint (7c). Further, due to Lemma 3 (a) and (b), Problem (17) can be optimally solved using SOCP and SDR for the BF and RBF cases, respectively. Hence, Φ ub (N ( ) s ) is a valid upper bound of the optimum of (7). APPENDIX C PROOF OF THEOREM 1 A. Proof of (a) and (b)
+
+s
+| = N −L. Since W row−0 ≤ L is automatically satisfied, it is omitted. Problem (32) can be rewritten :), and we let w m = W ( )
+
+sFig. 4 .
+4| = N − L. Problem(34) can be further rewritten Illustration of a B&B tree (where no nodes are fathomed). :) (recall that U m := {h m + e| e 2 ≤ ε m }). Using the condition in Theorem 1 (b), and invoking Lemma 3, one can see that(35) can be solved optimally using SDR.
+
+s
+is converted into a leaf node if L of the decided antennas are included, i.e., , i.e., all remaining undecided antennas are excluded. Since B ( )
+
+
+C(w m , h m , ε m , σ m ) ≥ γ m , z ∈ {0, 1} N , z 1 ≤ L, z(n) = 0, n ∈ B ( ) s , z(n) = 1, n ∈ A ( ) s , W (n, :) 2 ≤ Cz(n), ∀n ∈ [N ].
+
+
+child node will differ from its parent in one of the two sets, i.e, . The above implies that the number of SOCPs/SDRs with B&B using(36) has an upper bound of Q Compute = 2 N L − 1 (specially, with N L
+
+(
+Φs,ys)∈Di [L(π θ (φ s ), y s )].
+
+N+
++m , ∀m ∈ [M ].The second layer only updates the user vertices as followsq (2) N +m = Z 15 ReLU Z 14 q Z 11 q (1) n + Z 10 e n,N +m , ∀m ∈ [M ] q (2) n = q (1) n , ∀n ∈ [N ].
+
+N
++m , ∀m ∈ [M ] as follows:π θ (φ) = Sigmoid 1 M M m=1 β ReLU(Z 16 q
+
+TABLE I FEATURE
+IDESIGN FOR THE GNN BASED NODE CLASSIFIER.
+
+TABLE II CLASSIFICATION
+IIERROR (%) ATTAINED BY SVM, FCN AND GNN BASED CLASSIFIER FOR CLASSIFYING RELEVANCE OF THE NODES. γm = σm = 1, ε = 0.1.Perfect CSI 
+Approximate CSI 
+Problem sizes (4,3,2) (8,6,4) (4,3,2) 
+(8,5,4) 
+(N, M, L) 
+SVM 
+8.49 
+16.67 
+7.17 
+11.67 
+FCN 
+6.93 
+13.95 
+26.95 
+10.18 
+GNN 
+7.26 
+12.23 
+6.62 
+8.49 
+
+
+
+
+Algorithm 3: Main Algorithm: MINIMAL 1 Input: Problem instance (hm, σm, γm, εm), ∀m, trained pruning policy π θ , relative error ; // Add the root node first2 A 
+
+(0) 
+
+1 ← {}, B 
+
+(0) 
+
+1 ← {}; 
+3 Select node using (18) for N 
+
+(0) 
+
+1 ; 
+4 W incumbent ← solution to (17); 
+5 l 
+
+(0) 
+
+
+
+
+. The elements of Rayleigh fading channel vectors {h m } M m=1 are sampled independently from circularly symmetric zero mean Gaussian distribution with unit variance.0 
+5 
+10 
+15 
+20 
+25 
+iteration 
+
+1.00 
+
+1.25 
+
+1.50 
+
+1.75 
+
+2.00 
+
+2.25 
+
+2.50 
+
+2.75 
+
+3.00 
+
+objective 
+
+Perfect CSI Upper Bound 
+Perfect CSI Lower Bound 
+Approximate CSI Upper Bound 
+Approximate CSI Lower Bound 
+
+
+
+TABLE III PERFORMANCE
+IIIOF THE PROPOSED B&B ALGORITHM FOR VARIOUS PROBLEM SIZES IN THE PERFECT CSI CASE COMPARED TO THE EXHAUSTIVE SEARCH. σ 2 m = 1.0, γm = 1.0, ∀m ∈ [M ].Problem size 
+Proposed B&B 
+Exhaustive Search 
+(N, M, L) 
+Time 
+SOCPs 
+Time 
+SOCPs 
+(8, 2, 4) 
+1.58 
+34.07 
+2.95 
+70 
+(8, 3, 4) 
+2.29 
+40.67 
+2.58 
+70 
+(8, 4, 4) 
+3.30 
+47.30 
+4.53 
+70 
+(8, 5, 4) 
+5.31 
+63.27 
+5.46 
+70 
+(8, 6, 4) 
+8.24 
+82.93 
+6.10 
+70 
+(10, 2, 6) 
+2.28 
+50.20 
+9.11 
+210 
+(10, 4, 6) 
+6.47 
+88.37 
+14.75 
+210 
+(10, 6, 6) 
+14.55 
+141.80 
+20.00 
+210 
+(10, 8, 6) 
+24.56 
+186.90 
+25.59 
+210 
+(12, 2, 8) 
+2.95 
+65.53 
+21.39 
+495 
+(12, 4, 8) 
+10.57 
+137.80 
+33.45 
+495 
+(12, 6, 8) 
+21.89 
+211.87 
+46.53 
+495 
+(12, 8, 8) 
+37.69 
+279.67 
+62.46 
+495 
+(12, 10, 8) 
+69.48 
+398.40 
+80.94 
+495 
+
+TABLE IV 
+PERFORMANCE OF THE PROPOSED B&B ALGORITHM FOR VARIOUS 
+PROBLEM SIZES IN THE APPROXIMATE CSI CASE COMPARED TO THE 
+EXHAUSTIVE SEARCH. σ 2 
+m = 1.0, γm = 1.0, ∀m ∈ [M ]. 
+
+Problem size 
+Proposed B&B 
+Exhaustive Search 
+(N, M, L) 
+Time 
+SDPs 
+Time 
+SDPs 
+(8, 2, 4) 
+7.09 
+31.60 
+12.71 
+70 
+(8, 3, 4) 
+15.09 
+39.37 
+21.25 
+70 
+(8, 4, 4) 
+28.39 
+49.00 
+32.58 
+70 
+(10, 2, 6) 
+19.49 
+65.27 
+51.38 
+210 
+(10, 4, 6) 
+80.47 
+85.73 
+133.38 
+210 
+(10, 6, 6) 
+236.26 
+137.37 
+262.10 
+210 
+(10, 8, 6) 
+520.81 
+180.13 
+452.76 
+210 
+(12, 2, 8) 
+26.83 
+62.80 
+157.62 
+495 
+(12, 4, 8) 
+175.45 
+122.13 
+471.54 
+495 
+
+TABLE V 
+NUMBER OF SOCPS SOLVED BY TWO B&B STRATEGIES. 
+σ 2 
+m = 1.0, γm = 1.0, ∀m ∈ [M ]. 
+
+Problem size) 
+(4,2,2) (8,4,6) 
+(8,6,6) (10,5,6) 
+(N, M, L) 
+Proposed B&B 
+6.86 
+16.73 
+22.63 
+117.67 
+Alternative Using (21) 
+8.06 
+24.66 
+33.8 
+159.6 
+
+
+
+TABLE VI PERFORMANCE
+VIOF ALGORITHMS FOR N ≤ 16 CASES WITH PERFECT CSI.σ 2 
+m = 0.1, γm = 10.0, ∀m ∈ [M ]. 
+
+Problem Size 
+Metric 
+MINIMAL 
+Greedy 
+IrCvxOpt 
+SL 
+(N, M, L) 
+
+(6, 3, 3) 
+Ogap 
+0.00 
+1.18 
+20.54 
+64.39 
+speedup 
+1.73 
+0.92 
+4.68 
+17.70 
+SOCPs 
+10.25 
+15.00 
+6.65 
+1 
+
+(8, 4, 4) 
+Ogap 
+0.0 
+0.83 
+20.19 
+38.08 
+speedup 
+2.72 
+1.35 
+6.40 
+40.52 
+SOCPs 
+14.9 
+26.0 
+12.05 
+1 
+
+(10, 5, 5) 
+Ogap 
+0.85 
+2.83 
+68.34 
+-
+speedup 
+4.10 
+2.46 
+8.47 
+-
+SOCPs 
+28.05 
+40.00 
+22.60 
+-
+
+(12, 6, 6) 
+Ogap 
+2.16 
+3.43 
+234.88 
+-
+speedup 
+5.87 
+4.72 
+10.96 
+-
+SOCPs 
+49.00 
+57.00 
+27.90 
+-
+
+(16, 8, 8) 
+Ogap 
+2.94 
+6.59 
+159.28 
+-
+speedup 
+12.39 
+23.88 
+78.62 
+-
+SOCPs 
+234.50 
+100.00 
+29.00 
+-
+
+TABLE VII 
+OBJECTIVE VALUES, W 2 
+F , ATTAINED BY THE ALGORITHMS FOR 
+N ≥ 32 CASES WITH PERFECT CSI. σ 2 
+m = 0.1, γm = 10.0, ∀m ∈ [M ]. 
+
+Problem Size 
+MINIMAL 
+Greedy 
+IrCvxOpt 
+(N, M, L) 
+(32, 12, 12) 
+4.35 
+21.73 
+12.44 
+(64, 16, 16) 
+5.23 
+61.66 
+72.73 
+(128, 8, 8) 
+1.86 
+22.45 
+3.13 
+(128, 16, 16) 
+4.60 
+40.29 
+163.93 
+
+4) Results: Table VI shows the performance of all methods 
+under γ m = 10.0, σ 2 
+m = 0.1, ∀m ∈ [M ] for cases where 
+N ≤ 16. Results are averaged over 20 random test instances. 
+
+
+TABLE VIII PERFORMANCE
+VIIIOF ALGORITHMS UNDER APPROXIMATE CSI.σ 2 
+m = 0.1, γm = 10.0, εm = 0.02, ∀m ∈ [M ]. 
+
+Problem Size 
+Metric 
+MINIMAL 
+Greedy 
+IrCvxOpt 
+SL 
+(N, M, L) 
+
+(8, 4, 4) 
+Ogap 
+0.09 
+1.27 
+4.97 
+21.97 
+speedup 
+3.54 
+1.43 
+10.64 
+47.08 
+SDRs 
+13.30 
+26.00 
+4.70 
+1.0 
+
+(10, 5, 5) 
+Ogap 
+2.04 
+2.20 
+10.72 
+-
+speedup 
+4.19 
+1.90 
+18.89 
+-
+SDRs 
+23.90 
+40.00 
+7.75 
+-
+(16, 8, 8) 
+W 2 
+
+F 
+
+2.93 
+24.39 
+3.15 
+-
+SDRs 
+34.00 
+34.00 
+18.25 
+-
+
+TABLE IX 
+PERFORMANCE OF ALGORITHMS UNDER VARIOUS γm'S WITH 
+APPROXIMATE CSI. (N, M, L) = (8, 4, 4), 
+εm = 0.02, σ 2 
+m = 0.1, ∀m ∈ [M ]. 
+
+γm(dB) 
+Metric 
+MINIMAL Greedy 
+IrCvxOpt 
+(# feasible ins.) 
+30.00 
+Ogap 
+0.40 
+4.63 
+17.76 
+(50) 
+# feasible solutions 
+50 
+50 
+44 
+33.01 
+Ogap 
+0.51 
+11.21 
+45.07 
+(40) 
+# feasible solutions 
+40 
+39 
+32 
+34.77 
+Ogap 
+0.00 
+19.02 
+133.88 
+(25) 
+# feasibile solutions 
+25 
+25 
+21 
+36.02 
+Ogap 
+0.00 
+72.19 
+31.65 
+(10) 
+# feasible solutions 
+10 
+10 
+7 
+
+
+
+
+Supplementary Material of "Optimal Solutions for Joint Beamforming and Antenna Selection: From Branch and Bound to Machine Learning" Sagar Shrestha, Xiao Fu, and Mingyi Hong APPENDIX D PROOF OF LEMMA 4
+https://github.com/XiaoFuLab/Antenna-Selection-and-Beamforming-wit h-BandB-and-ML.git
+1+exp(−x) .
+Hence, with probability of at least 1 − δ, we havewhere (a) is byLemma 7 and (44), and (b) is obtained via using Assumption 3. When the loss function L is selected to be binary crossentropy loss, i.e.,1 − e −L(x,y) corresponds to the classification error. Therefore, classification accuracy for any θ, i.e., ρ θ is given byNote that θ = arg min θ∈θ 1:I E p θ ,ψ [L(π θ (φ s ), y s )]. Next, we characterize ρ θ . To that end, the following follows from Lemma 8.where (b) follows from Jensen's inequality.B. B&B expected number of nodes and optimalityLet FP denote the false positive error rate, i.e., the probability of classifying an irrelevant node as relevant. Also define FN denote the false negative error rate, i.e., the probability of classifying a relevant node as irrelevant. Then the expected number of branches generated by using pruning policy on B&B was derived in[7]:We assign the features tabulated inTable IThe remaining Type II features can be represented by a vector of dimension N M , and are assigned to the elements of} as follows:Im(H(i, j)), |H(i, j)|) (e i,N +j (4), e i,N +j (5), e i,N +j (6)) = (Re(W incumbent (i, j)),(7), e i,N +j (8), e i,N +j (9)) = (Re(W ,s (i, j)),where Re(·) and Im(·) returns the real and imaginary part of the complex number. Finally, the Type I features are assigned to the set {x N +i | i ∈ [M ]} as follows:
+Beamforming in wireless networks. M.-H Golbon-Haghighi, InTech OpenM.-H. Golbon-Haghighi, "Beamforming in wireless networks," InTech Open, pp. 163-192, 2016.
+
+Transmit beamforming for physical-layer multicasting. N D Sidiropoulos, T N Davidson, Z.-Q Luo, IEEE Trans. Signal Process. 546N. D. Sidiropoulos, T. N. Davidson, and Z.-Q. Luo, "Transmit beam- forming for physical-layer multicasting," IEEE Trans. Signal Process., vol. 54, no. 6, pp. 2239-2251, 2006.
+
+Convex optimization-based beamforming. A B Gershman, N D Sidiropoulos, S Shahbazpanahi, M Bengtsson, B Ottersten, IEEE Signal Process. Mag. 273A. B. Gershman, N. D. Sidiropoulos, S. Shahbazpanahi, M. Bengtsson, and B. Ottersten, "Convex optimization-based beamforming," IEEE Signal Process. Mag., vol. 27, no. 3, pp. 62-75, 2010.
+
+Outage constrained robust transmit optimization for multiuser MISO downlinks: Tractable approximations by conic optimization. K.-Y Wang, A M So, T.-H Chang, W.-K Ma, C.-Y Chi, IEEE Trans. Signal Process. 6221K.-Y. Wang, A. M.-C. So, T.-H. Chang, W.-K. Ma, and C.-Y. Chi, "Outage constrained robust transmit optimization for multiuser MISO downlinks: Tractable approximations by conic optimization," IEEE Trans. Signal Process., vol. 62, no. 21, pp. 5690-5705, 2014.
+
+Joint multicast beamforming and antenna selection. O Mehanna, N D Sidiropoulos, G B Giannakis, IEEE Trans. Signal Process. 6110O. Mehanna, N. D. Sidiropoulos, and G. B. Giannakis, "Joint multicast beamforming and antenna selection," IEEE Trans. Signal Process., vol. 61, no. 10, pp. 2660-2674, 2013.
+
+Group sparse beamforming for green cloud-RAN. Y Shi, J Zhang, K B Letaief, IEEE Trans. Wireless Commun. 135Y. Shi, J. Zhang, and K. B. Letaief, "Group sparse beamforming for green cloud-RAN," IEEE Trans. Wireless Commun., vol. 13, no. 5, pp. 2809-2823, 2014.
+
+Fast algorithms for joint multicast beamforming and antenna selection in massive MIMO. M S Ibrahim, A Konar, N D Sidiropoulos, IEEE Trans. Signal Process. 68M. S. Ibrahim, A. Konar, and N. D. Sidiropoulos, "Fast algorithms for joint multicast beamforming and antenna selection in massive MIMO," IEEE Trans. Signal Process., vol. 68, pp. 1897-1909, 2020.
+
+Antenna selection for improving energy efficiency in XL-MIMO systems. J C Marinello, T Abrão, A Amiri, E De Carvalho, P Popovski, IEEE Trans. Veh. Technol. 6911J. C. Marinello, T. Abrão, A. Amiri, E. de Carvalho, and P. Popovski, "Antenna selection for improving energy efficiency in XL-MIMO sys- tems," IEEE Trans. Veh. Technol., vol. 69, no. 11, pp. 13 305-13 318, 2020.
+
+Antenna selection in MIMO systems. S Sanayei, A Nosratinia, IEEE Commun. Mag. 4210S. Sanayei and A. Nosratinia, "Antenna selection in MIMO systems," IEEE Commun. Mag., vol. 42, no. 10, pp. 68-73, 2004.
+
+Massive MIMO antenna selection: Switching architectures, capacity bounds, and optimal antenna selection algorithms. Y Gao, H Vinck, T Kaiser, IEEE Trans. Signal Process. 665Y. Gao, H. Vinck, and T. Kaiser, "Massive MIMO antenna selection: Switching architectures, capacity bounds, and optimal antenna selection algorithms," IEEE Trans. Signal Process., vol. 66, no. 5, pp. 1346-1360, 2017.
+
+Antenna selection for energy-efficient MIMO transmission. C Jiang, L J Cimini, IEEE Wireless Commun. Lett. 16C. Jiang and L. J. Cimini, "Antenna selection for energy-efficient MIMO transmission," IEEE Wireless Commun. Lett., vol. 1, no. 6, pp. 577-580, 2012.
+
+Analog beamforming with antenna selection for large-scale antenna arrays. A Arora, C G Tsinos, S Chatzinotas, B Ottersten, Proc. IEEE ICASSP. IEEE ICASSPA. Arora, C. G. Tsinos, S. Chatzinotas, B. Ottersten et al., "Analog beamforming with antenna selection for large-scale antenna arrays," in Proc. IEEE ICASSP, 2021, pp. 4795-4799.
+
+Capacity of MIMO systems with antenna selection. A F Molisch, M Z Win, Y.-S Choi, J H Winters, IEEE Trans. Wireless Commun. 44A. F. Molisch, M. Z. Win, Y.-S. Choi, and J. H. Winters, "Capacity of MIMO systems with antenna selection," IEEE Trans. Wireless Commun., vol. 4, no. 4, pp. 1759-1772, 2005.
+
+Joint power and antenna selection optimization in large cloud radio access networks. A Liu, V K Lau, IEEE Trans. Signal Process. 625A. Liu and V. K. Lau, "Joint power and antenna selection optimization in large cloud radio access networks," IEEE Trans. Signal Process., vol. 62, no. 5, pp. 1319-1328, 2014.
+
+Active antenna selection in multiuser MIMO communications. M Sadek, A Tarighat, A H Sayed, IEEE Trans. Signal Process. 554M. Sadek, A. Tarighat, and A. H. Sayed, "Active antenna selection in multiuser MIMO communications," IEEE Trans. Signal Process., vol. 55, no. 4, pp. 1498-1510, 2007.
+
+A simple and effective approach for transmit antenna selection in multiuser massive MIMO leveraging submodularity. A Konar, N D Sidiropoulos, IEEE Trans. Signal Process. 6618A. Konar and N. D. Sidiropoulos, "A simple and effective approach for transmit antenna selection in multiuser massive MIMO leveraging submodularity," IEEE Trans. Signal Process., vol. 66, no. 18, pp. 4869- 4883, 2018.
+
+On selecting a maximum volume submatrix of a matrix and related problems. A Civril, M Magdon-Ismail, Theoretical Computer Science. 410A. Civril and M. Magdon-Ismail, "On selecting a maximum volume sub- matrix of a matrix and related problems," Theoretical Computer Science, vol. 410, no. 47-49, pp. 4801-4811, 2009.
+
+Antenna selection strategy for transmit beamforming-based joint radar-communication system. A Ahmed, S Zhang, Y D Zhang, Digital Signal Process. 105102768A. Ahmed, S. Zhang, and Y. D. Zhang, "Antenna selection strategy for transmit beamforming-based joint radar-communication system," Digital Signal Process., vol. 105, p. 102768, 2020.
+
+Efficient transmit antenna selection for multiuser MIMO systems with block diagonalization. R Chen, J G Andrews, R W Heath, IEEE GLOBECOM. R. Chen, J. G. Andrews, and R. W. Heath, "Efficient transmit antenna selection for multiuser MIMO systems with block diagonalization," in IEEE GLOBECOM, 2007, pp. 3499-3503.
+
+Antenna selection in massive MIMO based on greedy algorithms. M O Mendonca, P S Diniz, T N Ferreira, L Lovisolo, IEEE Trans. Wireless Commun. 193M. O. Mendonca, P. S. Diniz, T. N. Ferreira, and L. Lovisolo, "Antenna selection in massive MIMO based on greedy algorithms," IEEE Trans. Wireless Commun., vol. 19, no. 3, pp. 1868-1881, 2019.
+
+MMSE based greedy antenna selection scheme for AF MIMO relay systems. M Ding, S Liu, H Luo, W Chen, IEEE Signal Process. Lett. 175M. Ding, S. Liu, H. Luo, and W. Chen, "MMSE based greedy antenna selection scheme for AF MIMO relay systems," IEEE Signal Process. Lett., vol. 17, no. 5, pp. 433-436, 2010.
+
+Quantizationaware greedy antenna selection for multi-user massive MIMO systems. H F Mahdi, A T Alheety, N A Hamid, S Kurnaz, Progress in Electromagnetics Research C. H. F. Mahdi, A. T. Alheety, N. A. Hamid, and S. Kurnaz, "Quantization- aware greedy antenna selection for multi-user massive MIMO systems," Progress in Electromagnetics Research C, 2021.
+
+Learningbased antenna selection for multicasting. M S Ibrahim, A S Zamzam, X Fu, N D Sidiropoulos, Proc. IEEE SPAWC. IEEE SPAWCM. S. Ibrahim, A. S. Zamzam, X. Fu, and N. D. Sidiropoulos, "Learning- based antenna selection for multicasting," in Proc. IEEE SPAWC, 2018, pp. 1-5.
+
+Machine learning-enabled joint antenna selection and precoding design: From offline complexity to online performance. T X Vu, S Chatzinotas, V.-D Nguyen, D T Hoang, D N Nguyen, M Di Renzo, B Ottersten, IEEE Trans. Wireless Commun. 206T. X. Vu, S. Chatzinotas, V.-D. Nguyen, D. T. Hoang, D. N. Nguyen, M. Di Renzo, and B. Ottersten, "Machine learning-enabled joint antenna selection and precoding design: From offline complexity to online performance," IEEE Trans. Wireless Commun., vol. 20, no. 6, pp. 3710- 3722, 2021.
+
+Joint antenna selection and hybrid beamformer design using unquantized and quantized deep learning networks. A M Elbir, K V Mishra, IEEE Trans. Wireless Commun. 193A. M. Elbir and K. V. Mishra, "Joint antenna selection and hybrid beamformer design using unquantized and quantized deep learning networks," IEEE Trans. Wireless Commun., vol. 19, no. 3, pp. 1677- 1688, 2019.
+
+Robust linear MIMO in the downlink: A worst-case optimization with ellipsoidal uncertainty regions. G Zheng, K.-K Wong, T.-S Ng, EURASIP J. Adv. Signal Process. G. Zheng, K.-K. Wong, and T.-S. Ng, "Robust linear MIMO in the down- link: A worst-case optimization with ellipsoidal uncertainty regions," EURASIP J. Adv. Signal Process., vol. 2008, pp. 1-15, 2008.
+
+Branch and bound algorithms-principles and examples. J Clausen, Depart. Comput. Sci. University of CopenhagenJ. Clausen, "Branch and bound algorithms-principles and examples," Depart. Comput. Sci., University of Copenhagen. [Online]. Available: http://www2.imm.dtu.dk/courses/04232/TSPtext.pdf
+
+An automatic method of solving discrete programming problems. A H Land, A G Doig, Econometrica. 283A. H. Land and A. G. Doig, "An automatic method of solving discrete programming problems," Econometrica, vol. 28, no. 3, pp. 497-520, 1960.
+
+Learning to search in branch and bound algorithms. H He, H Daume, Iii , J M Eisner, Proc. NeurIPS. NeurIPS27H. He, H. Daume III, and J. M. Eisner, "Learning to search in branch and bound algorithms," in Proc. NeurIPS, vol. 27, 2014, pp. 3293-3301.
+
+Solving mixed integer programs using neural networks. V Nair, S Bartunov, F Gimeno, I Von Glehn, P Lichocki, I Lobov, B O&apos;donoghue, N Sonnerat, C Tjandraatmadja, P Wang, arXiv:2012.13349arXiv preprintV. Nair, S. Bartunov, F. Gimeno, I. von Glehn, P. Lichocki, I. Lobov, B. O'Donoghue, N. Sonnerat, C. Tjandraatmadja, P. Wang et al., "Solving mixed integer programs using neural networks," arXiv preprint arXiv:2012.13349, 2020.
+
+Learning to branch: Accelerating resource allocation in wireless networks. M Lee, G Yu, G Y Li, IEEE Trans. Veh. Technol. 691M. Lee, G. Yu, and G. Y. Li, "Learning to branch: Accelerating resource allocation in wireless networks," IEEE Trans. Veh. Technol., vol. 69, no. 1, pp. 958-970, 2019.
+
+The graph neural network model. F Scarselli, M Gori, A C Tsoi, M Hagenbuchner, G Monfardini, IEEE Trans. Neural Netw. 201F. Scarselli, M. Gori, A. C. Tsoi, M. Hagenbuchner, and G. Monfardini, "The graph neural network model," IEEE Trans. Neural Netw., vol. 20, no. 1, pp. 61-80, 2008.
+
+A reduction of imitation learning and structured prediction to no-regret online learning. S Ross, G Gordon, D Bagnell, Proc. AISTATS. AISTATSS. Ross, G. Gordon, and D. Bagnell, "A reduction of imitation learning and structured prediction to no-regret online learning," in Proc. AISTATS, 2011, pp. 627-635.
+
+Towards efficient and optimal joint beamforming and antenna selection: A machine learning approach. S Shrestha, X Fu, M Hong, submitted to IEEE ICASSPS. Shrestha, X. Fu, and M. Hong, "Towards efficient and optimal joint beamforming and antenna selection: A machine learning approach," submitted to IEEE ICASSP, 2023.
+
+An efficient global algorithm for single-group multicast beamforming. C Lu, Y.-F Liu, IEEE Trans. Signal Process. 6514C. Lu and Y.-F. Liu, "An efficient global algorithm for single-group multicast beamforming," IEEE Trans. Signal Process., vol. 65, no. 14, pp. 3761-3774, 2017.
+
+An enhanced SDR based global algorithm for nonconvex complex quadratic programs with signal processing applications. C Lu, Y.-F Liu, J Zhou, IEEE Open J. Signal Process. 1C. Lu, Y.-F. Liu, and J. Zhou, "An enhanced SDR based global algorithm for nonconvex complex quadratic programs with signal processing applications," IEEE Open J. Signal Process., vol. 1, pp. 120-134, 2020.
+
+Optimal transmit antenna selection algorithm in massive MIMOME channels. C Ouyang, Z Ou, L Zhang, H Yang, Proc. IEEE WCNC. IEEE WCNCC. Ouyang, Z. Ou, L. Zhang, and H. Yang, "Optimal transmit antenna selection algorithm in massive MIMOME channels," in Proc. IEEE WCNC, 2019, pp. 1-6.
+
+Globally optimal antenna selection and power allocation for energy efficiency maximization in downlink distributed antenna systems. Y Li, M Sheng, X Wang, Y Shi, Y Zhang, Proc. IEEE GLOBCOM. IEEE GLOBCOMY. Li, M. Sheng, X. Wang, Y. Shi, and Y. Zhang, "Globally optimal an- tenna selection and power allocation for energy efficiency maximization in downlink distributed antenna systems," in Proc. IEEE GLOBCOM, 2014, pp. 3856-3861.
+
+Bidirectional branch and bound based antenna selection in massive MIMO systems. Y Gao, W Jiang, T Kaiser, Proc. IEEE PIMRC. IEEE PIMRCY. Gao, W. Jiang, and T. Kaiser, "Bidirectional branch and bound based antenna selection in massive MIMO systems," in Proc. IEEE PIMRC, 2015, pp. 563-568.
+
+Exact combinatorial optimization with graph convolutional neural networks. M Gasse, D Chételat, N Ferroni, L Charlin, A Lodi, Proc. NeurIPS. NeurIPS32M. Gasse, D. Chételat, N. Ferroni, L. Charlin, and A. Lodi, "Exact combinatorial optimization with graph convolutional neural networks," in Proc. NeurIPS, vol. 32, 2019.
+
+LORM: Learning to optimize for resource management in wireless networks with few training samples. Y Shen, Y Shi, J Zhang, K B Letaief, IEEE Trans. Wireless Commun. 191Y. Shen, Y. Shi, J. Zhang, and K. B. Letaief, "LORM: Learning to optimize for resource management in wireless networks with few training samples," IEEE Trans. Wireless Commun., vol. 19, no. 1, pp. 665-679, 2019.
+
+Unraveling the rankone solution mystery of robust MISO downlink transmit optimization: A verifiable sufficient condition via a new duality result. W.-K Ma, J Pan, A M C So, T.-H Chang, IEEE Trans. Signal Process. 657W.-K. Ma, J. Pan, A. M.-C. So, and T.-H. Chang, "Unraveling the rank- one solution mystery of robust MISO downlink transmit optimization: A verifiable sufficient condition via a new duality result," IEEE Trans. Signal Process., vol. 65, no. 7, pp. 1909-1924, 2017.
+
+Transmit beamforming and power control for cellular wireless systems. F Rashid-Farrokhi, K R Liu, L Tassiulas, IEEE J. Sel. Areas Commun. 168F. Rashid-Farrokhi, K. R. Liu, and L. Tassiulas, "Transmit beamforming and power control for cellular wireless systems," IEEE J. Sel. Areas Commun., vol. 16, no. 8, pp. 1437-1450, 1998.
+
+Optimum beamforming using transmit antenna arrays. E Visotsky, U Madhow, Proc. IEEE VTC. IEEE VTC1E. Visotsky and U. Madhow, "Optimum beamforming using transmit antenna arrays," in Proc. IEEE VTC, vol. 1, 1999, pp. 851-856.
+
+Quality of service and max-min fair transmit beamforming to multiple co-channel multicast groups. E Karipidis, N D Sidiropoulos, Z.-Q Luo, IEEE Trans. Signal Process. 563E. Karipidis, N. D. Sidiropoulos, and Z.-Q. Luo, "Quality of service and max-min fair transmit beamforming to multiple co-channel multicast groups," IEEE Trans. Signal Process., vol. 56, no. 3, pp. 1268-1279, 2008.
+
+Optimum and suboptimum transmit beamforming. M Bengtsson, B Ottersten, Handbook of antennas in wireless communications. CRC pressM. Bengtsson and B. Ottersten, "Optimum and suboptimum transmit beamforming," in Handbook of antennas in wireless communications. CRC press, 2001.
+
+Robust beamforming via worst-case SINR maximization. S.-J Kim, A Magnani, A Mutapcic, S P Boyd, Z.-Q Luo, IEEE Trans. Signal Process. 564S.-J. Kim, A. Magnani, A. Mutapcic, S. P. Boyd, and Z.-Q. Luo, "Robust beamforming via worst-case SINR maximization," IEEE Trans. Signal Process., vol. 56, no. 4, pp. 1539-1547, 2008.
+
+Robust SINR-constrained MISO downlink beamforming: When is semidefinite programming relaxation tight?. E Song, Q Shi, M Sanjabi, R.-Y. Sun, Z.-Q Luo, EURASIP J. Wireless Commun. Netw. 20121E. Song, Q. Shi, M. Sanjabi, R.-Y. Sun, and Z.-Q. Luo, "Robust SINR-constrained MISO downlink beamforming: When is semidefinite programming relaxation tight?" EURASIP J. Wireless Commun. Netw., vol. 2012, no. 1, pp. 1-11, 2012.
+
+Worst-case robust multiuser transmit beamforming using semidefinite relaxation: Duality and implications. T.-H Chang, W.-K Ma, C.-Y Chi, Proc. IEEE ASILOMAR. IEEE ASILOMART.-H. Chang, W.-K. Ma, and C.-Y. Chi, "Worst-case robust multiuser transmit beamforming using semidefinite relaxation: Duality and impli- cations," in Proc. IEEE ASILOMAR, 2011, pp. 1579-1583.
+
+Semidefinite relaxation of quadratic optimization problems. Z.-Q Luo, W.-K Ma, A M So, Y Ye, S Zhang, IEEE Signal Proc. Mag. 273Z.-Q. Luo, W.-K. Ma, A. M.-C. So, Y. Ye, and S. Zhang, "Semidefinite relaxation of quadratic optimization problems," IEEE Signal Proc. Mag., vol. 27, no. 3, pp. 20-34, 2010.
+
+MIMO systems with antenna selection. A F Molisch, M Z Win, IEEE Microw. Mag. 51A. F. Molisch and M. Z. Win, "MIMO systems with antenna selection," IEEE Microw. Mag., vol. 5, no. 1, pp. 46-56, 2004.
+
+Enhancing sparsity by reweighted 1 minimization. E J Candes, M B Wakin, S P Boyd, J. Four. Analy. Appl. 145E. J. Candes, M. B. Wakin, and S. P. Boyd, "Enhancing sparsity by reweighted 1 minimization," J. Four. Analy. Appl., vol. 14, no. 5, pp. 877-905, 2008.
+
+Machine learning-based antenna selection in wireless communications. J Joung, IEEE Commun. Lett. 2011J. Joung, "Machine learning-based antenna selection in wireless com- munications," IEEE Commun. Lett., vol. 20, no. 11, pp. 2241-2244, 2016.
+
+Intelligent massive MIMO antenna selection using monte carlo tree search. J Chen, S Chen, Y Qi, S Fu, IEEE Trans. Signal Process. 6720J. Chen, S. Chen, Y. Qi, and S. Fu, "Intelligent massive MIMO antenna selection using monte carlo tree search," IEEE Trans. Signal Process., vol. 67, no. 20, pp. 5380-5390, 2019.
+
+Deep power control: Transmit power control scheme based on convolutional neural network. W Lee, M Kim, D.-H Cho, IEEE Commun. Lett. 226W. Lee, M. Kim, and D.-H. Cho, "Deep power control: Transmit power control scheme based on convolutional neural network," IEEE Commun. Lett., vol. 22, no. 6, pp. 1276-1279, 2018.
+
+Learning to optimize: Training deep neural networks for interference management. H Sun, X Chen, Q Shi, M Hong, X Fu, N D Sidiropoulos, IEEE Trans. Signal Process. 6620H. Sun, X. Chen, Q. Shi, M. Hong, X. Fu, and N. D. Sidiropoulos, "Learning to optimize: Training deep neural networks for interference management," IEEE Trans. Signal Process., vol. 66, no. 20, pp. 5438- 5453, 2018.
+
+Deep learningbased antenna selection and CSI extrapolation in massive MIMO systems. B Lin, F Gao, S Zhang, T Zhou, A Alkhateeb, IEEE Trans. Wireless Commun. 2011B. Lin, F. Gao, S. Zhang, T. Zhou, and A. Alkhateeb, "Deep learning- based antenna selection and CSI extrapolation in massive MIMO sys- tems," IEEE Trans. Wireless Commun., vol. 20, no. 11, pp. 7669-7681, 2021.
+
+Branch and bound methods. S Boyd, J Mattingley, Notes for EE364b, Stanford UniversityS. Boyd and J. Mattingley, "Branch and bound methods," Notes for EE364b, Stanford University, pp. 2006-07, 2007.
+
+Best subset selection via a modern optimization lens. D Bertsimas, A King, R Mazumder, The Annals of Statistics. 442D. Bertsimas, A. King, and R. Mazumder, "Best subset selection via a modern optimization lens," The Annals of Statistics, vol. 44, no. 2, pp. 813-852, 2016.
+
+Neural message passing for quantum chemistry. J Gilmer, S S Schoenholz, P F Riley, O Vinyals, G E Dahl, Proc. ICML. ICMLJ. Gilmer, S. S. Schoenholz, P. F. Riley, O. Vinyals, and G. E. Dahl, "Neural message passing for quantum chemistry," in Proc. ICML, 2017, pp. 1263-1272.
+
+Learning in non-convex games with an optimization oracle. N Agarwal, A Gonen, E Hazan, Proc. COLT. COLTN. Agarwal, A. Gonen, and E. Hazan, "Learning in non-convex games with an optimization oracle," in Proc. COLT, 2019, pp. 18-29.
+
+Generalization and representational limits of graph neural networks. V Garg, S Jegelka, T Jaakkola, Proc. ICML. ICMLV. Garg, S. Jegelka, and T. Jaakkola, "Generalization and representa- tional limits of graph neural networks," in Proc. ICML, 2020, pp. 3419- 3430.
+
+CVXPY: A Python-embedded modeling language for convex optimization. S Diamond, S Boyd, JMLR. 1783S. Diamond and S. Boyd, "CVXPY: A Python-embedded modeling language for convex optimization," JMLR, vol. 17, no. 83, pp. 1-5, 2016.
+
+MOSEK optimization suite. Mosek Aps, MOSEK ApS, "MOSEK optimization suite."
+
+Adam: A method for stochastic optimization. D P Kingma, J Ba, Proc. ICLR. ICLRD. P. Kingma and J. Ba, "Adam: A method for stochastic optimization," in Proc. ICLR, 2015.
+
+Feasible point pursuit and successive approximation of non-convex QCQPs. O Mehanna, K Huang, B Gopalakrishnan, A Konar, N D Sidiropoulos, IEEE Signal Process. Lett. 227O. Mehanna, K. Huang, B. Gopalakrishnan, A. Konar, and N. D. Sidiropoulos, "Feasible point pursuit and successive approximation of non-convex QCQPs," IEEE Signal Process. Lett., vol. 22, no. 7, pp. 804-808, 2014.
+
+Optimal antenna selection based on capacity maximization for MIMO systems in correlated channels. L Dai, S Sfar, K Letaief, IEEE Trans. Commun. 543L. Dai, S. Sfar, and K. Letaief, "Optimal antenna selection based on capacity maximization for MIMO systems in correlated channels," IEEE Trans. Commun., vol. 54, no. 3, pp. 563-573, 2006. REFERENCES
+
+Foundations of machine learning. M Mohri, A Rostamizadeh, A Talwalkar, MIT pressM. Mohri, A. Rostamizadeh, and A. Talwalkar, Foundations of machine learning. MIT press, 2018.
+
+Spectrally-normalized margin bounds for neural networks. P L Bartlett, D J Foster, M J Telgarsky, Proc. NeurIPS. NeurIPS30P. L. Bartlett, D. J. Foster, and M. J. Telgarsky, "Spectrally-normalized margin bounds for neural networks," in Proc. NeurIPS, vol. 30, 2017.
+
+On generalization bounds of a family of recurrent neural networks. M Chen, X Li, T Zhao, Proc. AISTATS. AISTATSM. Chen, X. Li, and T. Zhao, "On generalization bounds of a family of recurrent neural networks," in Proc. AISTATS, 2019.
+
+Empirical processes: Theory and applications. D Pollard, NSF-CBMS Reg. Conf. Ser. Prob. Stat. 286D. Pollard, "Empirical processes: Theory and applications," NSF-CBMS Reg. Conf. Ser. Prob. Stat., vol. 2, pp. i-86, 1990.
+
+A reduction of imitation learning and structured prediction to no-regret online learning. S Ross, G Gordon, D Bagnell, Proc. AISTATS. AISTATSS. Ross, G. Gordon, and D. Bagnell, "A reduction of imitation learning and structured prediction to no-regret online learning," in Proc. AISTATS, 2011, pp. 627-635.
+
+Learning in non-convex games with an optimization oracle. N Agarwal, A Gonen, E Hazan, Proc. COLT. COLTN. Agarwal, A. Gonen, and E. Hazan, "Learning in non-convex games with an optimization oracle," in Proc. COLT, 2019, pp. 18-29.
+
+Learning to search in branch and bound algorithms. H He, H Daume, Iii , J M Eisner, Proc. NeurIPS. NeurIPS27H. He, H. Daume III, and J. M. Eisner, "Learning to search in branch and bound algorithms," in Proc. NeurIPS, vol. 27, 2014, pp. 3293-3301.
+
+Exact combinatorial optimization with graph convolutional neural networks. M Gasse, D Chételat, N Ferroni, L Charlin, A Lodi, Proc. NeurIPS. NeurIPS32M. Gasse, D. Chételat, N. Ferroni, L. Charlin, and A. Lodi, "Exact combinatorial optimization with graph convolutional neural networks," in Proc. NeurIPS, vol. 32, 2019.
+
+Hierarchical bipartite graph convolution networks. M Nassar, arXiv:1812.03813arXiv preprintM. Nassar, "Hierarchical bipartite graph convolution networks," arXiv preprint arXiv:1812.03813, 2018.

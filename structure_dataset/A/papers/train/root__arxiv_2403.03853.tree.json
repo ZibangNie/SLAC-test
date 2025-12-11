@@ -1,0 +1,1253 @@
+{
+  "doc_id": "corpus_268253513",
+  "units": [
+    {
+      "unit_id": 0,
+      "text": "ShortGPT: Layers in Large Language Models are More Redundant Than You Expect",
+      "type": "heading",
+      "level": 0,
+      "parent_id": null,
+      "subtype": "doc_title"
+    },
+    {
+      "unit_id": 1,
+      "text": "Introduction",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 2,
+      "text": "The field of large language models (LLMs) has witnessed rapid development recently, with LLMs achieving impressive performance across various domains.Guided by the scaling laws identified in prior work (Kaplan et al., 2020;Hoffmann et al., 2022), current LLM research tend to increase model parameters to boost performance.As a result, modern LLMs, which can comprise billions to trillions of parameters, require significant hardware resources for deployment, creating substantial barriers to their practical use.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 3,
+      "text": "To mitigate the hardware demands of large models, model compression techniques have become a critical area of focus (Zhu et al., 2023).These techniques are generally divided into quantization (Liu et al., 2021;Gholami et al., 2022;Dettmers et al., 2022;2024) and pruning (LeCun et al., 1989;Han et al., 2015;Frantar & Alistarh, 2023).Quantization reduces the precision of model parameters, but its effectiveness often requires specific hardware support.In contrast, pruning method removes redundant parameters to decrease the model's size and computation, offering a more flexible and hardware-agnostic approach.Despite its advantages, many existing pruning methods are complex; for example, some require gradient information (Ma et al., 2024), which limits their practicality.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 4,
+      "text": "In this paper, we focus on the issue of layer redundancy in LLMs and propose a novel approach for simplifying these models.We introduce Block Influence (BI), a metric that quantifies how much the hidden state changes after passing through each layer, providing a more direct measure of a layer's importance.Leveraging  yet effective pruning method ShortGPT, which identifies and removes layers with lower BI scores, significantly reducing model size without sacrificing much performance.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 5,
+      "text": "To evaluate our approach, we conducted evaluation across comprehensive benchmarks.Our experiments revealed that our method exhibits a smaller performance decrement compared to the previous methods.For instance, removing 10 layers (25% of the total 40 layers) from the LLaMA 2-13B model resulted in only a slight drop in performance on the MMLU benchmark (Hendrycks et al., 2020), from 55.0 to 52.2.Our findings highlight substantial redundancy in current LLMs and suggest potential avenues for improving the efficiency of model training by reducing inherent redundancy in the future.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 6,
+      "text": "The main contributions of our paper are summarized as follows:",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 7,
+      "text": "• We analyze the redundancy in large language models (LLMs) and find that they exhibit significant redundancy at the layer level.This finding inspire us to prune LLMs by simply removing redundant layers.• We propose a metric called Block Influence (BI) as an indicator of layer importance.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 8,
+      "text": "Based on BI, our layer removal method maintains approximately 90% performance while reducing approximately 25% of parameters, outperforming previous state-ofthe-art methods.• Furthermore, we demonstrate that our layer pruning approach is orthogonal to quantization methods, meaning it can be combined with quantization techniques to further reduce the deployment overhead of LLMs.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 9,
+      "text": "Motivation",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 10,
+      "text": "Background",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 9,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 11,
+      "text": "The predominant LLMs are primarily based on the Transformer architecture (Vaswani et al., 2017), with the pre-norm configuration being the most commonly adopted, as in models like LLaMA (Touvron et al., 2023).The pre-norm configuration, where layer normalization is applied before the self-attention and feed-forward layers, offers several advantages such as faster convergence, improved training stability, and better scalability for deeper networks (Xiong et al., 2020;Liu et al., 2020;Wang et al., 2024).Due to these benefits, the pre-norm approach has been adopted even in non-transformer models, such as Mamba (Gu & Dao, 2023) and RWKV (Peng et al., 2023).For the sake of simplicity in descriptions, our analysis primarily focuses on the Transformer architecture, though we extend our experiments to non-Transformer structures in Section 4.4.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 10,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 12,
+      "text": "However, we observe that when pre-norm is adopted, the similarity between the input and output of transformer layers tends to be higher, as illustrated in Figure 2.This high similarity indicates that certain layers induce minimal changes to the hidden states, suggesting they contribute little to the model's overall function.A detailed mathematical explanation for this phenomenon is provided in Appendix A. Which suggests that the deep layers of the model with pre-norm might not play a critical role in the overall function, and that the layers in large language models could be more redundant than expected, which motivates the layer-removal based pruning method we explore in the next section.As discussed in the previous section, we speculate that the LLMs exhibit layer redundancy.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 10,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 13,
+      "text": "Layer redundancy",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 9,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 14,
+      "text": "To verify this, we assess the performance degradation caused by removing individual layers of two popular models, Llama2-7B-Base (Touvron et al., 2023), an English based LLMs, and Baichuan2-7B-Base (Yang et al., 2023) which is mainly focused on Chinese. Figure 1 confirms our speculation, which reveals that some layers do not play a crucial role in LLMs, causing little degradation when omitting them individually.Moreover, this redundancy is primarily manifested in the middle to later layers of the network, with the initial layers and the last layer often being more critical.Notably, we found the last layer to be particularly important, aligning with findings from LLM Pruner (Ma et al., 2024).This observation contradicts our mathematical explanation in Appendix A which suggests that deeper layers tend to be more redundant.We posit that this discrepancy arises because the final FFN effectively functions as part of the token classifier and should be considered in conjunction with the language model head.To verify our hypothesis, we conducted further investigation, detailed in Table 1.The results show that within the last layer, the FFN component is crucial, while the Attention module is less significant.This finding supports our interpretation of the final layer's importance.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 13,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 15,
+      "text": "Methodology",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 16,
+      "text": "In this section, we present the methodological framework of our layer removal approach for LLMs, elucidating the underlying principles and techniques employed.We begin by introducing Block Influence (BI), a novel metric designed to assess the hidden states transformation of each layer.Leveraging BI, we then detail our layer removal method.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 15,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 17,
+      "text": "Layer importance",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 15,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 18,
+      "text": "As outlined in the preceding section, the layers of LLMs exhibit redundancy, with varying degrees of redundancy across different layers.To capture this, we introduce a new metric, Block Influence (BI), to measure the degree of transformation performed by each layer.The BI score of i th layer can be calculated as follows:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 19,
+      "text": "BI i = 1 − E X,t X T i,t X i+1,t ||X i,t || 2 ||X i+1,t || 2 , (1",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 17,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 20,
+      "text": ")",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 17,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 21,
+      "text": "where X i,t means the t th row of hidden states of i th layer.Lower BI score imply that X i and X i+1 exhibit high cosine similarity, suggesting that the layer makes minimal transformations to the hidden states and is therefore less important.We plot the BI scores of a single layer and the PPL after removing it separately, as shown in the Figure 3.The results demonstrate a positive correlation between the BI score and the importance of a layer.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 22,
+      "text": "Layer Removal",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 15,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 23,
+      "text": "Our goal is to obtain a pruned model that remains as close as possible to the original model.Since an LLM functions as a series of transformations applied to hidden states across its layers and we can determine the importance of each layer, we propose a straightforward pruning method: layer removal, which we refer to as ShortGPT.We delete certain layers in LLMs based on BI score.First of all, we construct a calibration set, which is a set of unlabelled text samples such as PG19 (Rae et al., 2019).Then we collect the hidden states of each layer during inference on these samples.Next, we calculate the BI score based on the collected hidden states.Finally, we sort layers in ascending order according to the BI, and delete the layers with the lower BI score.The number of layers to be deleted can vary to trade off the speed and performance.The details of our layer removal setting can be found in Appendix D.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 22,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 24,
+      "text": "Experiments",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 25,
+      "text": "Experimental Setup",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 24,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 26,
+      "text": "Models.To validate the effectiveness of our method, we conducted experiments on existing popular open-source language models, including Llama2-7B (Touvron et al., 2023), Llama2-13B, Baichuan2-7B, and Baichuan2-13B.They are all large language models based on the decoder-only Transformer architecture.LLaMA 2 was trained on more than 2 trillion tokens.Baichuan-series was mainly trained in Chinese and its 13-Billion model replaced the RoPE (Su et al., 2024) positional embedding with ALiBi (Press et al., 2021).",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 25,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 27,
+      "text": "Benchmarks.In order to comprehensively evaluate the changes in the ability of large language models before and after pruning, we conducted comprehensive evaluation from five aspect: Reasoning: CMNLI (Li et al., 2024), HellaSwag (HeSw) (Zellers et al., 2019), PIQA (Bisk et al., 2020).Language: CHID (Zheng et al., 2019), WSC (Levesque et al., 2012).Knowledge: CommonSenseQA (CoQA) (Reddy et al., 2019), BoolQ (Clark et al., 2019).Examination: MMLU (Hendrycks et al., 2020), CMMLU (Li et al., 2024).Understanding: Race-High/Middle (H/M) (Lai et al., 2017), XSum (Hasan et al., 2021), C3 (Sun et al., 2020) and PG19 (Rae et al., 2019).For more details, please refer to Appendix G Baselines.To evaluate the effectiveness of our method, we compared several structured pruning methods for large language models, including:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 25,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 28,
+      "text": "1) LLMPru (Ma et al., 2024), which adopts structural pruning that selectively removes non-critical coupled structures based on gradient information, maximally preserving the majority of the LLM's functionality.LLMPru.applies post training to the pruned model, but for fair comparison, we do not apply post training to it.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 25,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 29,
+      "text": "2) SliceGPT (Ashkboos et al., 2024), which is a post-training sparsification scheme that replaces each weight matrix with a smaller matrix, reducing the embedding dimension of the network.Specifically, they applied PCA to the hidden representation from shallow to deep layers, and incorporated the dimension reduction matrix into existing network parameters.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 25,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 30,
+      "text": "3) LaCo (Yang et al., 2024), which is a pruning method for large language models based on reducing layers.LaCo gradually merges similar layers from deep to shallow and sets a threshold to avoid continuously merging too many layers.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 25,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 31,
+      "text": "For our evaluation, we use PG19 for layer importance and perplexity calculation.The models, baselines and evaluate benchmarks is the same as LaCo.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 25,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 32,
+      "text": "Main Results",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 24,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 33,
+      "text": "To validate the efficacy of our proposed method, we conducted comparative experiments against baseline techniques commonly employed in large language model evaluation.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 32,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 34,
+      "text": "Considering the current structured pruning methods generally reduce parameters by no more than 30%, we performed experiments with approximately 1/4 of the parameters pruned.The experimental results are presented in Table 2.Additional experiments exploring different parameter reduction proportions will be discussed in the subsequent section.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 32,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 35,
+      "text": "The results demonstrate that the performance of the model pruned by our method significantly surpasses that of the baseline methods, maintaining most of the large language model's capabilities.Furthermore, we note that the approach of reducing the number of layers (ShortGPT/LaCo) outperforms the method of reducing the embedding dimensions (LLMPru./SliceGPT),implying that the model exhibits more redundancy in depth than in width.Further experimental analysis will be presented in the ensuing section.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 32,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 36,
+      "text": "In Table 2, we fully adopted the benchmark, model, and pruning ratio in the LaCo paper.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 32,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 37,
+      "text": "In order to make a more fair comparison with LLMprun.and SliceGPT, we compared them with the same benchmark, model, and pruning ratio in their original paper.The experimental results are shown in Appendix C. Consistent with our findings in Table 2, these experiments further demonstrate the significant layer redundancy present in existing large language models, and ShortGPT achieves superior performance compared to other pruning methods.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 32,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 38,
+      "text": "The results show that coarse-grained pruning methods, such as removing entire layers, often outperform fine-grained approaches like Slice GPT or LLM Pruner.We speculate that the reason is that the large language model is actually very robust, as shown in Figure 1, removing any deep layer individually actually has very little impact on the final output, which means it is difficult to define the importance of a finer grained module and perform pruning.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 32,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 39,
+      "text": "Varying metric and pruning ratio",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 24,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 40,
+      "text": "The core principle of our method is to rank layers by their importance and remove the less significant ones.The choice of importance metric significantly influences the outcome.In this section, we define and compare several different importance metrics:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 39,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 41,
+      "text": "• Sequential: The importance is directly proportional to the sequence order, with shallower layers being less important.This can be implemented by assigning the negative value of each layer's index as its importance metric.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 39,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 42,
+      "text": "• Norm/Reverse-order: This metric posits that importance is inversely proportional to the sequence order.It assigns higher importance scores to the shallower layers.This method gives the same order as measuring importance by hidden states norm as Figure 4 shows.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 39,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 43,
+      "text": "• Relative Magnitude: Proposed in Samragh et al. (2023), this metric assumes layers with larger || f (x) x+ f (x) || are of higher importance, where f is the layer transformation function.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 39,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 44,
+      "text": "• BI: we calculate the BI score mentioned in Section 3.1 as importance metric.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 39,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 45,
+      "text": "Figure 4 demonstrates the different metrics.We observe that shallower layers in the LLM network are more crucial than deeper ones.Figure 5 shows the results of removing layers by different metrics, demonstrating that Our proposed BI outperforms other metrics.The method of Relative Magnitude is highly competitive, indicating that relative values can also reflect the importance to some extent.It is worth noting that the hidden states norm seems to be a good metric when only considering the MMLU benchmark, but the perplexity is relatively poor.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 39,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 46,
+      "text": "As a pruning method, we further validated the effects of different pruning ratios on model performance.Experiments were conducted on the Llama2 and Baichuan2 models, observing the Perplexity and MMLU.The results for Llama2, as shown in Figure 5, demonstrate that the model's performance generally declines as the pruning ratio increases.However, we observe a notable phenomenon: the MMLU score exhibits a sharp drop at a specific layer.This sudden decrease suggests the presence of certain critical layers within the network that play a particularly important role in maintaining performance.Similar patterns are observed in the Baichuan2 model, as illustrated in Appendix B.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 39,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 47,
+      "text": "Redundancy on non-transformer LLM",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 24,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 48,
+      "text": "To determine whether the observed depth redundancy is specific to the Transformer architecture, we extended our investigation to include two popular non-Transformer models, RWKV-7B1 (Peng et al., 2023) and Mamba-2.8B2(Gu & Dao, 2023).Our experiments revealed that these models also exhibit resilience to layer removal, maintaining performance despite the elimination of certain layers.This finding suggests that the redundancy phenomenon may not be unique to Transformer-based models, but rather a common characteristic across current large language models.Table 3 shows that our method is applicable and effective for both Mamba and RWKV models, suggesting that the redundancy is universal across current LLMs.However, it is worth noting that the RWKV model appears less redundant than Mamba and Transformer models, which warrants further investigation.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 47,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 49,
+      "text": "Orthogonal to Quantization",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 24,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 50,
+      "text": "In this section, we show that our method is orthogonal to quantization methods.We apply our method to Llama2-7B3 quantized by GPTQ algorithm.Table 4 shows that our method is compatible with the quantization-like method.In addition, we compared the performance of applying pruning before quantization4 .The results shown in the Table 5 further indicates that quantization and ShortGPT are orthogonal operations.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 49,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 51,
+      "text": "Post training to restore performance",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 24,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 52,
+      "text": "To mitigate the performance loss resulting from layer removal, we explored post-training strategies inspired by Chen et al. (2024).Our approach comprised two key steps: 1)Replacement: We substituted the removed layers with lightweight Multi-Layer Perceptron (MLP) modules.2)Retraining: We subsequently retrained the modified model.The results in Table 6 demonstrate the potential of post-train in recover performance loss.Appendix F list the training details.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 51,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 53,
+      "text": "Limitation",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 54,
+      "text": "Although our method demonstrates strong competitiveness compared to current pruning methods, there are some phenomena that have not been explained.Our experiments reveal that the negative effect of layer removal is more significant on generative tasks compared to multiple-choice tasks.When we remove 25% layers from Llama2-7B or Baichuan2-7B, the performance in generative tasks such as XSum and C3 deceases to nearly zero, although the performance decline was not as significant on the larger model of the 13B.We speculate that compared to multiple-choice tasks, generative tasks face the problem of accumulated errors and large model is more robust than small one.The reasons behind it still need to be explored.The post-training techniques discussed in Section 4.6 have the potential to mitigate this issue and warrant further exploration.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 53,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 55,
+      "text": "Related works",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 56,
+      "text": "To reduce the inference cost of large language models and increase their practical applications, there have been many recent works on compressing models, which can be classified into two categories: model pruning and quantization.Besides, there are some works aim to study the redundancy of model which is essential for compressing models.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 55,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 57,
+      "text": "Model pruning: model pruning (LeCun et al., 1989;Han et al., 2015) is a classic and effective method of reducing model redundancy modules to compress models.The model pruning methods mainly include unstructured pruning and structured pruning.The unstructured pruning simplifies an LLM by removing specific parameters without considering its internal structure, such as SparseGPT (Frantar & Alistarh, 2023) and LoRAPrune (Zhang et al., 2023).However, this method disregards the overall LLM structure, resulting in an irregular sparse model composition.Another more practical approach is structured pruning, GUM (Syed et al., 2023) makes an analysis of several structured pruning methods for decoder-only LLMs.LLM-Pruner (Ma et al., 2024) selectively removes non-critical structures according to gradient information.ShearedLLaMA (Xia et al., 2023) employs targeted structured pruning and dynamic batch loading.LaCo (Yang et al., 2024) used layer merging to compress the model.Compared to the previous method, our method is a simple and efficient structured pruning method.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 55,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 58,
+      "text": "Quantization: quantization (Liu et al., 2021;Gholami et al., 2022;Dettmers et al., 2022;2024) is a widely accepted technique in the field of model compression, which can significantly save the storage and computational costs of deep learning models.Traditional models are generally stored as floating-point numbers, but quantization converts them into integers or other discrete forms.LUT-GEMM (Park et al., 2022) quantifies only weights and optimizes matrix multiplication in LLM using BCQ format.SPQR (Dettmers et al., 2023) identifies and isolates abnormal weights, stores them with higher accuracy, and compresses all other weights into 3-4 bits.Our model pruning method and quantization method are orthogonal, which means quantification based on our pruned model can further compress the model.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 55,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 59,
+      "text": "Model redundancy: researchers have long noticed the significant redundancy in nonlinear models (Catchpole & Morgan, 1997).In recent years, the transformer model architecture has been widely applied, and researchers have also studied its redundancy.In (Bian et al., 2021), researchers analyzed redundancy in attention mechanisms, in which clear and similar redundancy patterns (cluster structure) are observed among attention heads.In (Dalvi et al., 2020), researchers dissect two pre-trained models, BERT (Devlin et al., 2018) and XLNet (Yang et al., 2019), studying how much redundancy they exhibit at a representation level and a more fine-grained neuron-level.However, the redundancy in current large language models based on decoder-only structures still needs to be explored.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 55,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 60,
+      "text": "Conclusion",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 61,
+      "text": "In this work, we uncovered the significant layer-wise redundancy of LLMs, Our research demonstrates that certain layers contribute minimally to overall network functionality and can be removed without substantially compromising model performance.Based on our observation, We introduce Block influence to quantify the importance of each layer and propose a simple and straightforward pruning method: layer removal.Our experiments demonstrates that it is possible to maintain up to approximately 90% of a LLM's performance while reducing the model's parameter amount and computational requirements by approximately 25%.Besides, our method is orthogonal to quantization methods and can be further improved by continual training.We hope that our work can provide some insight for future model compression techniques.Moreover, our work suggests potential avenues for improving the efficiency of model training by reducing inherent redundancy in the future.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 60,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 62,
+      "text": "A Mathematical explanation for why pre-norm brings high similarity",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 60,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 63,
+      "text": "We provide a simple explanation here about how pre-norm leads to high deep similarity in this section, here we adopt RMSNorm (Zhang & Sennrich, 2019) for convenient, which is also the popular pre-norm used in many recent LLMs, such as Llama and Mamba.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 62,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 64,
+      "text": "Lemma 1 (Xiong et al., 2020) At initialization, for the Pre-LN Transformer, (1",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 62,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 65,
+      "text": "+ L 2 )d ≤ E(||x L,i || 2 2 ) ≤ (1 +3L",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 62,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 66,
+      "text": "2 )d for all L > 0 and i. Expectations are taken over the input and the randomness of initialization, where the hidden state of L th layer is x L .",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 62,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 67,
+      "text": "From Lemma 1, the hidden state of the pre-norm model will continuously increase as the number of layers increases.And under the assumption of each component of x l has a mean of 0, we can obtain ||x L || = Θ( √ L).",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 62,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 68,
+      "text": "Then we consider",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 62,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 69,
+      "text": "x L+1 = x L + f L (x L , θ L ), where f L is a operation such as Attention or MLP, θ L is learnable parameters. Then f L (x L , θ L ) = O(1) respect to L, for Attention as example, || f L (x L , θ L )|| = ||(so f tmax(Q T K)X L /||X L || • (σ rms ))W v W q || = O(||σ rms ||||W v ||||W o ||) = O(1) respect to L.",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 62,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 70,
+      "text": "Then we can get:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 62,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 71,
+      "text": "cos similarity(X L+1 , X L ) = x L+1 x L ||x L+1 ||||x L || = ||x L || 2 ||x L+1 ||||x L || + f L (x L , θ)x L ||x L+1 ||||x L || (2) ≥ ||x L || 2 ||x L+1 ||||x L || − || f L (x L , θ)||||x L || ||x L+1 ||||x L || (3) = ||x L || ||x L+1 || − || f L (x L , θ)|| x L+1 = Θ( L L + 1 ) − O( 1 L + 1 )(4)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 62,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 72,
+      "text": "This means that as the number of layers L increases, the similarity between the input and output of the layer will be high.This means that the role of f L may be relatively small, and removing it from the network may have a relatively small impact to the model.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 62,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 73,
+      "text": "Although the above theoretical analysis is only for randomly initialized models, this phenomenon that deep layer has similar input and output exists in both our own trained models shown in Figure 2 and existing models in Figure 4.   Strategy Description Sequential Layers are removed sequentially from the beginning of the model.The process starts with layer 0 and progressively includes more layers for removal (e.g., {0}, {0, 1}, . . .).",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 62,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 74,
+      "text": "B Layer Removal on Baichuan2-series Model",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 62,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 75,
+      "text": "Reverse-order",
+      "type": "heading",
+      "level": 4,
+      "parent_id": 74,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 76,
+      "text": "This strategy involves starting from the model's final layer and progressively removing layers in reverse order (e.g., {-1}, {-1, -2}, . . .).Relative Magnitude Layers are removed in ascending order based on their Relative Magnitude values.The removal process accumulates layers from those with the smallest to the largest values, mirroring the sequential strategy's accumulation method.BI (Block Influence) Follows a similar accumulation approach as the Sequential strategy, but layers are ordered and removed according to their BI values, starting from the lowest and moving to the highest.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 75,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 77,
+      "text": "E Setup for training post-norm model and pre-norm model",
+      "type": "heading",
+      "level": 5,
+      "parent_id": 75,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 78,
+      "text": "We have listed the specific training settings for pre norm and post norm in Table 11.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 77,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 79,
+      "text": "F post-training settings",
+      "type": "heading",
+      "level": 6,
+      "parent_id": 77,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 80,
+      "text": "We replace the removed layer with a lightweight gated MLP layer with hidden size = 2048.Table 12 show the post training settings.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 81,
+      "text": "Figure1: Performance of removing certain layer from LLMs.We can see that certain layers are redundant, and their removal results in minimal performance degradation.",
+      "type": "figure",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 82,
+      "text": "Figure1: Performance of removing certain layer from LLMs.We can see that certain layers are redundant, and their removal results in minimal performance degradation.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 83,
+      "text": "Figure 2: The cosine similarity between a layer's input and output during the training process.The horizontal axis (X-axis) represents the number of training tokens, while the vertical axis (Y-axis) depicts the degree of similarity.Notably, the model employing postnormalization exhibits divergence after approximately ∼26B tokens of training.Training setting is provided in E.",
+      "type": "figure",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 84,
+      "text": "Figure 2: The cosine similarity between a layer's input and output during the training process.The horizontal axis (X-axis) represents the number of training tokens, while the vertical axis (Y-axis) depicts the degree of similarity.Notably, the model employing postnormalization exhibits divergence after approximately ∼26B tokens of training.Training setting is provided in E.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 85,
+      "text": "Figure 3: The BI score of a layer and the PPL after removing the layer.",
+      "type": "figure",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 86,
+      "text": "Figure 3: The BI score of a layer and the PPL after removing the layer.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 87,
+      "text": "Figure 4: Comparison of different importance metrics.Perplexity is calculated by removing each single layer, other metrics is calculated by hidden states of each layer.",
+      "type": "figure",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 88,
+      "text": "Figure 4: Comparison of different importance metrics.Perplexity is calculated by removing each single layer, other metrics is calculated by hidden states of each layer.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 89,
+      "text": "Figure 6: Pruning by different metrics on Baichuan2-series model.",
+      "type": "figure",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 90,
+      "text": "Figure 6: Pruning by different metrics on Baichuan2-series model.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 91,
+      "text": "Comparison of pruning methods on multiple natural language benchmarks.The results of LLMPrun., SliceGPT and LaCo are reported from LaCo.The last column reports the relative performance retention.",
+      "type": "figure",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 92,
+      "text": "Comparison of pruning methods on multiple natural language benchmarks.The results of LLMPrun., SliceGPT and LaCo are reported from LaCo.The last column reports the relative performance retention.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 93,
+      "text": "ShortGPT pruning on RWKV and Mamba.",
+      "type": "figure",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 94,
+      "text": "ShortGPT pruning on RWKV and Mamba.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 95,
+      "text": "ModelPruning ratio CMNLI HeSw PIQA CHID WSC CoQA BoolQ Race-H Race-M XSum C3 MMLU CMMLU Ave.Per.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 96,
+      "text": "Layer removal results on Llama2-7B-Base-GPTQ.",
+      "type": "figure",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 97,
+      "text": "Layer removal results on Llama2-7B-Base-GPTQ.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 98,
+      "text": "Performance comparison of different methods",
+      "type": "figure",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 99,
+      "text": "Performance comparison of different methods",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 100,
+      "text": "Post-train Llama2-7B to restore performance.",
+      "type": "figure",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 101,
+      "text": "Post-train Llama2-7B to restore performance.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 102,
+      "text": "Strategies for Layer Removal in Models.",
+      "type": "figure",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 103,
+      "text": "Strategies for Layer Removal in Models.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 104,
+      "text": "Training Parameters.",
+      "type": "figure",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 105,
+      "text": "Training Parameters.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 106,
+      "text": "Setup of Removed Layers for Benchmark Models.",
+      "type": "figure",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 107,
+      "text": "Setup of Removed Layers for Benchmark Models.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 79,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 108,
+      "text": "References",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "references"
+    },
+    {
+      "unit_id": 109,
+      "text": "Maximilian L Saleh Ashkboos, Marcelo Croci, Torsten Gennari Do Nascimento, James Hoefler, Hensman, Slicegpt, arXiv:2401.15024Compress large language models by deleting rows and columns. 2024arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 110,
+      "text": "On attention redundancy: A comprehensive study. Yuchen Bian, Jiaji Huang, Xingyu Cai, Jiahong Yuan, Kenneth Church, Proceedings of the 2021 conference of the north american chapter of the association for computational linguistics: human language technologies. the 2021 conference of the north american chapter of the association for computational linguistics: human language technologies2021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 111,
+      "text": "Piqa: Reasoning about physical commonsense in natural language. Yonatan Bisk, Rowan Zellers, Jianfeng Gao, Yejin Choi, Proceedings of the AAAI conference on artificial intelligence. the AAAI conference on artificial intelligence2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 112,
+      "text": "Detecting parameter redundancy. A Edward, Byron Jt Catchpole, Morgan, Biometrika. 8411997",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 113,
+      "text": "Compressing large language models by streamlining the unimportant layer. Xiaodong Chen, Yuxuan Hu, Jing Zhang, arXiv:2403.191352024arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 114,
+      "text": "Boolq: Exploring the surprising difficulty of natural yes/no questions. Christopher Clark, Kenton Lee, Ming-Wei Chang, Tom Kwiatkowski, Michael Collins, Kristina Toutanova, Proceedings of the 2019 Conference of the North American Chapter. Long and Short Papers. the 2019 Conference of the North American ChapterHuman Language Technologies20191",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 115,
+      "text": "Analyzing redundancy in pretrained transformer models. Fahim Dalvi, Hassan Sajjad, Nadir Durrani, Yonatan Belinkov, 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 116,
+      "text": "Tim Dettmers, Mike Lewis, Younes Belkada, Luke Zettlemoyer, arXiv:2208.07339-bit matrix multiplication for transformers at scale. 20228arXiv preprintint8 (",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 117,
+      "text": "Spqr: A sparse-quantized representation for near-lossless llm weight compression. Tim Dettmers, Ruslan Svirschevski, Vage Egiazarian, Denis Kuznedelev, Elias Frantar, Alexander Saleh Ashkboos, Torsten Borzunov, Dan Hoefler, Alistarh, arXiv:2306.030782023arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 118,
+      "text": "Qlora: Efficient finetuning of quantized llms. Tim Dettmers, Artidoro Pagnoni, Ari Holtzman, Luke Zettlemoyer, Advances in Neural Information Processing Systems. 202436",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 119,
+      "text": "Bert: Pretraining of deep bidirectional transformers for language understanding. Jacob Devlin, Ming-Wei Chang, Kenton Lee, Kristina Toutanova, arXiv:1810.048052018arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 120,
+      "text": "Massive language models can be accurately pruned in one-shot. Elias Frantar, Dan Alistarh, arXiv:2301.007742023arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 121,
+      "text": "A survey of quantization methods for efficient neural network inference. Amir Gholami, Sehoon Kim, Zhen Dong, Zhewei Yao, Michael W Mahoney, Kurt Keutzer, Low-Power Computer Vision. Chapman and Hall/CRC2022",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 122,
+      "text": "Mamba: Linear-time sequence modeling with selective state spaces. Albert Gu, Tri Dao, arXiv:2312.007522023arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 123,
+      "text": "Learning both weights and connections for efficient neural network. Song Han, Jeff Pool, John Tran, William Dally, Advances in neural information processing systems. 282015",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 124,
+      "text": "Xl-sum: Large-scale multilingual abstractive summarization for 44 languages. Tahmid Hasan, Abhik Bhattacharjee, Saiful Md, Kazi Islam, Yuan-Fang Mubasshir, Yong-Bin Li, M Kang, Rifat Sohel Rahman, Shahriyar, Findings of the Association for Computational Linguistics: ACL-IJCNLP 2021. 2021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 125,
+      "text": "Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou, Mantas Mazeika, Dawn Song, Jacob Steinhardt, arXiv:2009.03300Measuring massive multitask language understanding. 2020arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 126,
+      "text": ". Jordan Hoffmann, Sebastian Borgeaud, Arthur Mensch, Elena Buchatskaya, Trevor Cai, Eliza Rutherford, Diego De Las, Lisa Anne Casas, Johannes Hendricks, Aidan Welbl, Tom Clark, Eric Hennigan, Katie Noland, George Millican, Bogdan Van Den Driessche, Aurelia Damoc, Simon Guy, Karen Osindero, Simonyan, Erich Elsen, Jack W. Rae, Oriol Vinyals, and Laurent Sifre2022Training compute-optimal large language models",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 127,
+      "text": "Scaling laws for neural language models. Jared Kaplan, Sam Mccandlish, Tom Henighan, Tom B Brown, Benjamin Chess, Rewon Child, Scott Gray, Alec Radford, Jeffrey Wu, Dario Amodei, 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 128,
+      "text": "Race: Large-scale reading comprehension dataset from examinations. Guokun Lai, Qizhe Xie, Hanxiao Liu, Yiming Yang, Eduard Hovy, Proceedings of the 2017 Conference on Empirical Methods in Natural Language Processing. the 2017 Conference on Empirical Methods in Natural Language Processing2017",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 129,
+      "text": "Optimal brain damage. Yann Lecun, John Denker, Sara Solla, Advances in neural information processing systems. 1989",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 130,
+      "text": "Cmmlu: Measuring massive multitask language understanding in chinese. Haonan Li, Yixuan Zhang, Fajri Koto, Yifei Yang, Hai Zhao, Yeyun Gong, Nan Duan, Timothy Baldwin, 2024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 131,
+      "text": "Understanding the difficulty of training transformers. Liyuan Liu, Xiaodong Liu, Jianfeng Gao, Weizhu Chen, Jiawei Han, Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing. the 2020 Conference on Empirical Methods in Natural Language Processing2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 132,
+      "text": "Post-training quantization for vision transformer. Zhenhua Liu, Yunhe Wang, Kai Han, Wei Zhang, Siwei Ma, Wen Gao, Advances in Neural Information Processing Systems. 202134",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 133,
+      "text": "Llm-pruner: On the structural pruning of large language models. Xinyin Ma, Gongfan Fang, Xinchao Wang, Advances in neural information processing systems. 202436",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 134,
+      "text": "Gunho Park, Baeseong Park, Se Jung Kwon, Byeongwook Kim, Youngjoo Lee, Dongsoo Lee, arXiv:2206.09557Quantized matmul for efficient inference of large-scale generative language models. 2022arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 135,
+      "text": "Bo Peng, Eric Alcaide, Quentin Anthony, Alon Albalak, Samuel Arcadinho, Huanqi Cao, Xin Cheng, Michael Chung, Matteo Grella, Kranthi Kiran, G V , arXiv:2305.13048Reinventing rnns for the transformer era. 2023arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 136,
+      "text": "Train short, test long: Attention with linear biases enables input length extrapolation. Ofir Press, Noah A Smith, Mike Lewis, arXiv:2108.124092021arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 137,
+      "text": "Compressive transformers for long-range sequence modelling. Anna Jack W Rae, Potapenko, M Siddhant, Chloe Jayakumar, Timothy P Hillier, Lillicrap, International Conference on Learning Representations. 2019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 138,
+      "text": "Coqa: A conversational question answering challenge. Siva Reddy, Danqi Chen, Christopher D Manning, Transactions of the Association for Computational Linguistics. 72019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 139,
+      "text": "Devang Naik, Oncel Tuzel, and Mohammad Rastegari. Weight subcloning: direct initialization of transformers using larger pretrained ones. Mohammad Samragh, Mehrdad Farajtabar, Sachin Mehta, Raviteja Vemulapalli, Fartash Faghri, 2023",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 140,
+      "text": "Roformer: Enhanced transformer with rotary position embedding. Jianlin Su, Murtadha Ahmed, Yu Lu, Shengfeng Pan, Wen Bo, Yunfeng Liu, Neurocomputing. 5681270632024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 141,
+      "text": "Investigating prior knowledge for challenging chinese machine reading comprehension. Kai Sun, Dian Yu, Dong Yu, Claire Cardie, Transactions of the Association for Computational Linguistics. 82020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 142,
+      "text": "Prune and tune: Improving efficient pruning techniques for massive language models. Aaquib Syed, Phillip Huang Guo, Vijaykaarti Sundarapandiyan, Arxiv. 2023",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 143,
+      "text": "Llama 2: Open foundation and fine-tuned chat models. Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei, Nikolay Bashlykov, Soumya Batra, Prajjwal Bhargava, Shruti Bhosale, arXiv:2307.092882023arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 144,
+      "text": "Advances in neural information processing systems. Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, Illia Polosukhin, 201730Attention is all you need",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 145,
+      "text": "Deepnet: Scaling transformers to 1,000 layers. Hongyu Wang, Shuming Ma, Li Dong, Shaohan Huang, Dongdong Zhang, Furu Wei, IEEE Transactions on Pattern Analysis and Machine Intelligence. 2024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 146,
+      "text": "Sheared llama: Accelerating language model pre-training via structured pruning. Mengzhou Xia, Tianyu Gao, Zhiyuan Zeng, Danqi Chen, arXiv:2310.066942023arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 147,
+      "text": "On layer normalization in the transformer architecture. Ruibin Xiong, Yunchang Yang, Di He, Kai Zheng, Shuxin Zheng, Chen Xing, Huishuai Zhang, Yanyan Lan, Liwei Wang, Tieyan Liu, International Conference on Machine Learning. PMLR2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 148,
+      "text": "Clue: A chinese language understanding evaluation benchmark. Liang Xu, Hai Hu, Xuanwei Zhang, Lu Li, Chenjie Cao, Yudong Li, Yechen Xu, Kai Sun, Dian Yu, Cong Yu, Proceedings of the 28th International Conference on Computational Linguistics. the 28th International Conference on Computational Linguistics2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 149,
+      "text": "Aiyuan Yang, Bin Xiao, Bingning Wang, Borong Zhang, Ce Bian, Chenxu Chao Yin, Lv, Dian Da Pan, Dong Wang, Yan, arXiv:2309.10305Open large-scale language models. 20232arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 150,
+      "text": "Laco: Large language model pruning via layer collapse. Yifei Yang, Zouying Cao, Hai Zhao, 2024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 151,
+      "text": "Xlnet: Generalized autoregressive pretraining for language understanding. Zhilin Yang, Zihang Dai, Yiming Yang, Jaime Carbonell, Russ R Salakhutdinov, Quoc V Le, Advances in neural information processing systems. 322019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 152,
+      "text": "Hellaswag: Can a machine really finish your sentence?. Rowan Zellers, Ari Holtzman, Yonatan Bisk, Ali Farhadi, Yejin Choi, Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics. the 57th Annual Meeting of the Association for Computational Linguistics2019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 153,
+      "text": "Root mean square layer normalization. Biao Zhang, Rico Sennrich, Advances in Neural Information Processing Systems. 201932",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 154,
+      "text": "Chid: A large-scale chinese idiom dataset for cloze test. Mingyang Zhang, Chunhua Shen, Zhen Yang, Linlin Ou, Xinyi Yu, Bohan Zhuang, arXiv:2305.18403Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics. the 57th Annual Meeting of the Association for Computational Linguistics2023. 2019arXiv preprintChujie Zheng, Minlie Huang, and Aixin Sun",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 155,
+      "text": "A survey on model compression for large language models. Xunyu Zhu, Jian Li, Yong Liu, Can Ma, Weiping Wang, 2023",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 108,
+      "subtype": "bibentry"
+    }
+  ]
+}

@@ -1,0 +1,289 @@
+Using Butterfly-Patterned Partial Sums to Optimize GPU Memory Accesses for Drawing from Discrete Distributions
+14 May 2015
+
+Guy L Steele Jrguy.steele@oracle.com 
+Oracle Labs
+
+
+Jean-Baptiste Tristan jean.baptiste.tristan@oracle.com 
+Oracle Labs
+
+
+Using Butterfly-Patterned Partial Sums to Optimize GPU Memory Accesses for Drawing from Discrete Distributions
+14 May 201523D06BC6EB2214052FBDC7B9991FF532arXiv:1505.03851v1[cs.DC]butterflycoalesced memory accessdiscrete distributionGPUgraphics processing unitlatent Dirichlet allocationLDAmachine learningmultithreadingmemory bottleneckparallel computingrandom samplingSIMDtransposed memory access
+We describe a technique for drawing values from discrete distributions, such as sampling from the random variables of a mixture model, that avoids computing a complete table of partial sums of the relative probabilities.A table of alternate ("butterfly-patterned") form is faster to compute, making better use of coalesced memory accesses.From this table, complete partial sums are computed on the fly during a binary search.Measurements using an NVIDIA Titan Black GPU show that for a sufficiently large number of clusters or topics (K > 200), this technique alone more than doubles the speed of a latent Dirichlet allocation (LDA) application already highly tuned for GPU execution.
+
+Overview
+
+The successful use of Graphics Processing Units (GPUs) to train neural networks is a great example of how machine learning can benefit from such massively parallel architecture.Generative probabilistic modeling [2] and associated inference methods (such as Monte Carlo methods) can also benefit.Indeed, authors such as Suchard et al. [15] and Lee et al. [9] have pointed out that many algorithms of interest are embarrassingly parallel.However, the potential for massively parallel computation is only the first step toward full use of GPU capacity.One bottleneck that such em-Preprint produced May 15, 2015 for arXiv.org.Copyright c 2015 Oracle.barrassingly parallel algorithms run into is related to memory bandwidth; one must design key probabilistic primitives with such constraints in mind.
+
+We address the important case wherein parallel threads must draw from distinct discrete distributions in a SIMD fashion.This can arise when implementing any mixture model, and Latent Dirichlet Allocation (LDA) models in particular, which are probabilistic mixture models used to discover abstract "topics" in a collection of documents (a corpus) [3].This model can be fitted (or "trained") in an unsupervised fashion using sampling methods [1, chapter 11] [4].Each document is modeled as a distribution θ over topics, and each word in a document is assumed to be drawn from a distribution φ of words.Understanding the methods described in this paper does not require a deep understanding of sampling algorithms for LDA.What is important is that each word in a corpus is associated with a so-called "latent" random variable [1, chapter 9], usually referred to as z, that takes on one of K integer values, indicating a topic to which the word belongs.Broadly speaking, the iterative training process works by tentatively choosing a topic (that is, sampling the random latent variable z) for a given word using relative probabilities calculated from θ and φ, then updating θ and φ accordingly.
+
+In this paper, we focus on the step that draws new z values from a finite domain, given arrays of (typically floatingpoint) parameters θ and φ, typically using the following four-step process for each new z value to be drawn: 1. Use the parameters to construct a table of relative (unnormalized) probabilities for the possible choices for z, where each relative probability is a product of some element of θ and some element of φ. 2. Normalize these table entries by dividing each entry by the sum of all entries.3. Let u be chosen uniformly at random from the real interval [0, 1). 4. Find the smallest index j such that the sum of all table entries at or below index j is larger than u.
+
+In practice, this sequence of steps may be optimized by doing a bit of algebra and using a binary search: 1. Use the parameters to construct a table of relative probabilities for the possible choices for the z value.2. Replace this table with its sum-prefix: each entry is replaced by the sum of itself and all earlier entries.The last entry therefore becomes the sum of all the original entries.3. Let u be chosen uniformly at random from the real interval [0, 1). 4. Use a binary search to find the smallest index j such that the entry at index j is larger than u times the last entry.
+
+When this algorithm is implemented in parallel on a SIMD GPU, an obvious approach is to assign the computation of each z value to a separate thread.However, when the threads fetch their respective φ values, the values to be fetched will likely reside at unrelated locations in memory, resulting in poor memory-fetch performance.A standard trick is to have all the threads in a warp cooperate with each other (compare, for example, the storage of floating-point numbers as "slicewise" rather than "fieldwise" in the architecture of the Connection Machine Model CM-2, so that 32 1-bit processors cooperate on each of 32 clock cycles to fetch and store an entire 32-bit floating-point value that logically belongs to just one of the 32 processors [6]).Suppose there are W threads in a warp (a typical value is W = 32), each working on a different document (and therefore using different discrete probability distributions), and suppose that at a certain step of the algorithm each thread needs to fetch W different φ values.The array of φ values can be organized so that the W different φ values needed by any one thread are stored in consecutive memory locations.The trick is that each thread performs W fetches from the φ table, as before, but instead of each thread fetching its own φ values in all cases, on cycle k all the threads work together to fetch the W different φ values needed by thread k.As a result, on each memory cycle all W values being fetched are in a contiguous region of memory, allowing improved memoryfetch performance.
+
+It is then necessary for the threads to exchange information among themselves so that the rest of the algorithm may be carried out, including the summation arithmetic.
+
+The binary search does not access all entries in the prefixsum table (in fact, for a table of size N it examines only about log 2 N entries).Therefore it is not necessary to compute all entries of the prefix-sum table.We present an alternate technique that computes a "butterfly-patterned" partialsums table, using less computational and communication effort; a modified binary search then uses this table to compute, on the fly, entries that would have been in the original complete prefix-sum table.This requires more work per table entry during the binary search, but because the search examines only a few table entries, the result is a dramatic net reduction in execution time.This technique may be effective for collapsed LDA Gibbs samplers [11,16,21] as well as uncollapsed samplers, and may also be useful for GPU implementations of other algorithms [22] whose inner loops sample from discrete distributions.
+
+
+Basic Algorithm
+
+For a Latent Dirichlet Allocation model of, for example, a set of documents to which we want to assign topics probablistically using Gibbs sampling, let M be the number of documents, K be the number of topics, and V be the size of the vocabulary, which is a set of distinct words.Each document is a bag of words, each of which belongs to the vocabulary; any given word can appear in any number of documents, and may appear any number of times in any single document.The documents may be of different lengths.
+
+We are interested in the phase of an uncollapsed Gibbs sampler that draws new z values, given θ and φ distributions.Because no z value directly depends on any other z value in this formulation, new z values may all be computed independently (and therefore in parallel to any extent desired).
+
+We assume that we are given an M × K matrix θ and a V × K matrix φ; the elements of these matrices are nonnegative numbers, typically represented as floating-point values.Row m of θ (that is, θ[m, •]) is the (currently assumed) distribution of topics for document m, that is, the relative probabilities (weights) for each of the K possible topics to which the document might be assigned.Note that columns of θ are not to be considered as distributions.Similarly, column k of φ (that is, φ[•, k) is the (currently assumed) distribution of words for topic k, that is, the weights with which the V possible words in the vocabulary are associated with the topic.Note that rows of φ are not to be considered as distributions.We organize θ as rows and φ as columns for engineering reasons: we want the K entries obtained by ranging over all possible topics to be contiguous in memory so as to take advantage of memory cache structure.
+
+We also assume that we are given (i) a length-M vector of nonnegative integers N such that N [m] is the length of document m, and (ii) an M ×N ragged array w, by which we mean that for 0
+≤ m < M , w[m] is a vector of length N [m].
+(We use zero-based indexing throughout this document.)Each element of w is less than V and may therefore be used as a first index for φ.
+
+Our goal, given K, M , V , N , φ, θ, and w and assuming the use of a temporary M × N × K ragged work array a (which we will later optimize away), is to compute all the elements for an M × N ragged array z as follows: For all m such that 0 ≤ m < M and for all i such that 0 ≤ i < N [m], do two things: first, for all k such that 0
+≤ k < K, let a[m][i][k] = θ[m, k]×φ[w[m, i], k]; second, let z[m,
+i] be a nonnegative integer less than K, chosen randomly in such a way that the probability of choosing the value k is a
+[m][i][k ]/σ where σ = 0≤k<K a[m][i][k]. Thus, a[m][i][k ] is a relative (unnormalized) probability, and a[m][i][k ]/σ is an absolute (normalized) probability. Algorithm 1 Drawing new z values 1: procedure DRAWZ N [M ], θ[M, K], φ[V, K], 2: w[M ][N ]; output z[M, N ] 3: local array a[M ][N ][K], p[M ][N ][K] 4:
+for all 0 ≤ m < M do 5:
+for all 0 ≤ i < N [m] do 6:
+Compute θ-φ products 7: for k from 0 through K − 1 do
+for all 0 ≤ k < K do 8: a[m][i][k] ← θ[m, k] × φ[w[m][i], k]13: sum ← sum + a[m][i][k] 14: p[m][i][k] ← sum 15:
+end for end for 21: end Algorithm 1 is a basic implementation of this process.We remark that a "let" statement creates a local binding of a scalar (single-valued) variable and gives it a value, that a "local array" declaration creates a local binding of an array variable (containing an element value for each indexable position in the array), and that distinct iterations of a "for" or "for all" construct are understood to create distinct and independent instantiations of such local variables for each iteration.The iterations of "for . . .from . . .through . . ." are executed sequentially in a specific order; but the iterations of a "for all" construct are intended to be computationally independent and therefore may be executed in any order, or in parallel, or in any sequential-parallel combination.We use angle brackets to indicate the use of a "code chunk" that is defined as a separate algorithm; such a use indicates that the definition of the code chunk should be inserted at the use site, as if it were a C macro, but surrounded by begin and end (this is a programming-language technicality that ensures that the scope of any variable declared within the code chunk is confined to that code chunk).
+
+The computation of the θ-φ products (lines 7-9 of Algorithm 1) is straightforward.The computation of partial sums (lines 11-15) is sequential; the variable sum accumulates the products, and successive values of sum are stored into the array p.A random integer is chosen for z[m, i] by choosing a random value uniformly from the range [0, 0, 1.0), scaling it by the final value of sum (which has the same algorithmic effect as dividing each p[m][i][k] by that value, for all 0 ≤ k < K, to turn it into an absolute probability), and then searching the subarray p[m][i] to find the smallest entry that is larger than the scaled value (and if there are several such let u ← random value chosen from [0.0, 1.0)
+3: let stop ← sum × u 4: let k ← K − 1 5: while j < k do 6: let mid ← j + k 2 7: if stop < p[m][i][mid ] then 8: k ← mid 9:
+else 10:
+j ← mid + 1 11: end if 12:
+end while 13: end entries, all equal, then the one with the smallest index is chosen); the index j of that entry is used as the desired randomly chosen integer.A simple linear search (Algorithm 2) can do the job.But because all elements of θ and φ are nonnegative, the products in a are also nonnegative, and so each subar-
+ray p[m][i] is monotonically nondecreasing; that is, for all 0 ≤ m < M , 0 ≤ i < N [m], and 0 < k < K, we have p[m][i][k − 1] ≤ p[m][i][k]
+. Therefore a binary search (Algorithm 3) can be used instead, which is faster, on average, for K sufficiently large [8, exercise 6.2.1-5].
+
+
+Blocking and Transposition
+
+Anticipating certain characteristics of the hardware, we make some commitments as to how the algorithm will be executed.We assume that arrays are laid out in row-major order (as they are when using C or CUDA).Let W be a machine-dependent constant (typically 16 or 32, but for now we do not require that W be a power of 2).For purposes of illustration we assume W = 8 and also K = 19.We divide the documents into groups of size W and assume that M is an exact multiple of W .(In an overall application, the set of documents can be padded with empty documents so as to make M be an exact multiple of W without affecting the overall behavior of the algorithm on the "real" documents.)We split the outermost loop of Algorithm 1 (with index variable m) into two nested loops with index variables q and r, from which the equivalent value for m is then computed.We commit to making the loop with index variable i sequential, Algorithm 4 Drawing z values (transposed access)
+1: procedure DRAWZ N [M ], θ[M, K], φ[V, K], 2: w[M ][N ]; output z[M, N ] 3: local array p[M, K], a[M, W ] 4:
+for all 0 ≤ q < M/W do 5:
+local array c warp [W, W ] 6:
+for SIMD 0 ≤ r < W do
+let i ← min(i master , N [m] − 1) 13:
+compute partial sums of θ-φ products end for 21: end to treating the iterations of the loop on q as independent (and therefore possibly parallel), and to treating the iterations of the loop on r as executed by a SIMD "thread warp" of size W , that is, parallel and implicitly lock-step synchronized.As a result, we view each of the M documents as being processed by a separate thread.A benefit of making the loop on i sequential is that the array p can be made two-dimensional and non-ragged, having size M × K.We fuse the loop that computes θ-φ products with the loop that computes partial sums; this eliminates the need for the array a, but instead (for reasons explained below) we retain a as a two-dimensional, non-ragged array of size M × W that is used only when K ≥ W . Within the loop controlling index variable q we declare a local work array c warp of size W × W that will be used to exchange information by the W threads within a warp; our eventual intent is that this array will reside in GPU registers.We cache values from the array θ in a per-thread array θ local of length K, anticipating that such cached values will reside in a faster memory and be used repeatedly by the loop on i.
+
+There is, however, a subtle problem with the loop controlling index variable i: the upper bound N [m] for the loop variable may be different for different threads.As a result, in the last iterations it may be that some threads have "gone to sleep" because they reached their upper loop bound earlier than other threads in the warp.This is undesirable because, as we shall see, we rely on all threads "staying awake" so that they can assist each other.Therefore, we rewrite the loop control to use a "master index" idiom and exploit the trick of allowing a thread to perform its last iteration (with Next line uses transposed access to θ 10:
+θ local [j + k] ← θ[q × W + k, j + r] 11:
+end for 12:
+j ← j + W 13:
+end while 14: end i = N [m] − 1) multiple times, which doesn't work for many algorithms but is acceptable for LDA Gibbs.
+
+The result of all these code transformations is Algorithm 4, which makes use of three code chunks: Algorithms 5, 6, and either Algorithm 2 or 3. Algorithms 5 and 6, besides using SIMD thread warps of size W to process documents in groups of size W , also process topics in blocks of size W .This allows the innermost loops to process "little" arrays of size W × W .If K (the number of topics) is not a multiple of W , then there will be a remnant of size K mod W .To make looping code slightly simpler, we put the remnant at the front of each array, rather than at the end.For W = 8 and K = 19, topics 0, 1, and 2 form the remnant; topics 3-10 form a block of length 8; and topics 11-18 form a second block.This organization of arrays into blocks allows reduction of the cost of accessing data in main memory by performing transposed accesses.
+
+The simplest use of transposed memory access occurs in Algorithm 5.For every document, this algorithm fetches a θ value for every topic.The topics are regarded as divided into a leading remnant (if any) and then a sequence of blocks of length W .The while loop on lines 3-6 handles the remnant, and then the following while loop processes successive blocks.On line 10 within the inner loop, note that the reference is to θ[q × W + k, j + r] rather than the expected θ[q × W + r, j + k] (which would be the same as θ[m, j + k] because m = q × W + r).The result is that when the W threads of a SIMD warp execute this code and all access θ simultaneously, they access W consecutive memory locations, which can typically be fetched by a hardware memory controller much more efficiently than W memory locations separated by stride K. Another way to think about it is that on any given single iteration of the loop on lines 8-11 (which overall is designed to fetch one W × W block of θ values) instead of every thread in the warp fetching its kth value from the θ array, all the threads work together to fetch all W values that are needed by thread k of the warp.Each thread then stores what it has fetched into its local copy of the ar-Algorithm 6 Compute partial sums (transposed access) 1: code chunk compute partial sums of θ-φ products :
+2: let c ← w[m][i] 3: for all 0 ≤ k < W do 4: c warp [k, r] ← c
+Transposed access to c warp 5:
+
+end for 6:
+
+let sum ← 0.0
+7: let j ← 0 8: while j < (K mod W ) do 9: sum ← sum + (θ local [j] × φ[c, j]) 10:
+p[m, j] ← sum 11:
+j ← j + 1 12:
+end while 13:
+
+while j < K do 14:
+
+for k from 0 through W − 1 do 15:
+
+Next line uses transposed access to φ 16:
+a[m, k] ← θ local [j + k] × φ[c warp [r, k], j + r] 17:
+end for 18:
+
+for k from 0 through W − 1 do
+
+
+19:
+
+Next line uses transposed access to a 20:
+sum ← sum + a[q × W + k, r] 21: p[m, j + k] ← sum 22:
+end for 23:
+j ← j + W 24:
+end while 25: end ray θ local .The result is that each thread doesn't really have all the θ data it needs to process its document; pictorially, data in each W × W block has been transposed.The real story, however, is that memory for local arrays in a GPU is not stored in the same way as memory for global arrays.The global array θ is laid out in row-major order in main memory like this:
+
+where each row corresponds to a document and each column to a topic; but each of the local arrays is laid out like this: ¡ where each row corresponds to an array index and each column corresponds to a thread.In each diagram, the locations in a row are contiguous in memory; it is really the fact that we choose to index θ local by topic and to assign each document to a thread that causes "transposition" to occur.In any case, Algorithm 5 is coded so that every set of W simultaneous (SIMD) memory accesses refers to W consecutive memory locations, so it runs much faster than a "nontransposed" version would; and the result is that each thread ends up with data that other threads need.
+
+One possible remedy is to have the threads exchange data so that each thread has exactly the θ values it needs for the rest of the computation.Instead, we compensate for the transposition of θ in Algorithm 6.The idea is to divide the Algorithm 7 Drawing new z values using a butterfly table
+1: procedure DRAWZ N [M ], θ[M, K], φ[V, K], 2: w[M ][N ]; output z[M, N ] 3:
+for all 0 ≤ q < M/W do 4:
+
+for SIMD 0 ≤ r < W do end for 20: end array φ into blocks (and possibly a remnant) and perform transposed accesses to φ.To do this, each thread needs to know what part of the array φ every other thread is interested in; this is done through the W ×W local work array c warp .In line 2, each thread figures out which word is the ith word of its document and calls it c; in lines 3-5 it then stores its value for c into every element of row r of the array c warp .This is not an especially fast operation, but it pays for itself later on.The loop in lines 8-12 computes θ-φ products and partial sums p in the usual way (remember that the remnant in θ local is not transposed), but the loop in lines 14-17 processes a block to compute product values to store into the a array; the access to φ on line 16 is transposed (note that the accesses to θ local and c warp are not transposed; because they were constructed and stored in transposed form, normal fetches cause their values to line up correctly with the φ values obtained by a transposed fetch).So this is pretty good; but in line 20 we finally pay the piper: in order to have the finally computed partial sums p reside in the correct thread for the binary search, it is necessary to perform a transposed access to a on line 20; but a is a local array, so transposed accesses are bad rather than good, and this occurs in an inner loop, so performance still suffers.
+
+
+Butterfly-patterned Partial Sums
+
+We can avoid the cost of the final transposition of a by not requiring the partial sums table p for each thread to be entirely in the local memory of that thread.Instead, we arrange for the threads to "help each other" during the binary search, in much the same way that each thread computes θ-φ products that are actually of interest to other threads.Moreover, we avoid computing the entire set of partial sums; instead Algorithm 8 Compute a butterfly-patterned table of sums 1: code chunk SIMD compute butterfly partial sums :
+2: let c ← w[m][i] 3:
+for all 0 ≤ k < W do Next line uses transposed access to φ 16:  end while 37: end (this is our novel contribution) we compute a "butterflypatterned" table of partial sums that is sufficient to reconstruct any needed partial sum on the fly during the binary search process.This makes each step of the binary search process slower, but a binary search of a block of W entries examines only log 2 W elements of the block.
+a[k] ← θ local [j + k] × φ[c warp [k], j + r]for i from 0 through W 2×bit − 1 do 21: let d ← 2 × bit × i + (bit − 1) 22: let h ← (if (m & bit) = 0 23: then a[d] 24: else a[d + bit]) 25: let v ← shuffleXor (h, bit) 26: if (r & bit) = 0
+Our final version is Algorithm 7. It is quite similar to Algorithm 4, but declares all local arrays in such a way as to be thread-local (and specifies that arrays a and c warp are expected to reside in registers).It uses the code chunk in Algorithm 5 to cache θ values in θ local , and also uses two new code chunks: Algorithm 8 creates a butterfly-patterned table of partial sums, and Algorithm 9 uses this table to perform the binary search.For this algorithm to work properly, W must be a power of 2.   To save space in our figures, we introduce a special abbreviation:
+0 0 0 1 0 0 2 0 0 3 0 0 4 0 0 5 0 0 6 0 0 7 0 0 0 1 0 1 1 0 2 1 0 3 1 0 4 1 0 5 1 0 6 1 0 7 1 0 0 2 0 1 2 0 2 2 0 3 2 0 4 2 0 5 2 0 6 2 0 7 2 0 0 3 0 1 3 0 2 3 030 0 0 1 0 0 2 0 0 3 0 0 4 0 0 5 0 0 6 0 0 7 0 0 0 1 0 1 1 0 2 1 0 3 1 0 4 1 0 5 1 0 6 1 0 7 1 0 0 2 0 1 2 0 2 2 0 3 2 0 4 2 0 5 2 0 6 2 0 7 2 0 03m q p = a[p : q] = q k=p θ[m, k] × φ[w[m][i], k].
+(The variable i is a free parameter of this notation; when we use the notation, it will consistently refer to a computation in one loop iteration during which i is unchanging.)The large number m identifies a thread that owns a document, and the subscript p and superscript q identify a subarray a[p : q]; the symbol denotes the sum over that subarray.
+
+For purposes of illustration, we shall (as before) assume W = 8 and K = 19, so that the remnant is of size 3 and there are two blocks of size 8; we also assume M = 8.
+
+For each i, Algorithm 4 uses Algorithm 6 to compute, for each m and k, p[m, k] = m k 0 .For our example, this produces the p table shown on the left-hand side of Figure 1; each column corresponds to a warp thread and contains all partial sums needed by that thread.But Algorithm 7 uses Algorithm 8 to more cheaply compute "butterfly-patterned partial sums" as shown on the right-hand side of Figure 1.Not all data needed by a thread is in the column for that thread; for example, some data needed by thread 2 appears in columns 0, 4, and 6.Note that all the data in the remnant and in the last line of each block is in the column for the thread to which it belongs-in fact, these entries are identical to those computed by Algorithm 6.The tables differ only in the first W − 1 rows of each block.
+
+To see why this table can be called "butterfly-patterned," consider the processing of a single block.We regard a block of p as first being initialized from a block of θ-φ products in the W × W local array a-which, recall, is stored in transposed form.(To simplify this part of the illustration, we will assume that the rows of the block are numbered (indexed) from 0 to W − 1; it is as if the remnant has size zero and we are examining the first block.)
+
+The "butterfly" portion of the algorithm sweeps over the array p in a specific order, and at each step operates on four entries within p that are at the intersection of two rows whose indices differ by a power of 2 and two columns whose indices differ by that same power of that strategy also leads to a working algorithm, but on the NVIDIA Titan GPU, at least, that computation turns out to be noticeably more expensive, for reasons related to the precise instruction sequences required-this butterfly-patterned computation occurs in the innermost loop, where the inclusion of even one extra instruction can significantly decrease performance.)Now, it must be admitted that if we examine the pattern in which data is transferred between rows and columns during one of these replacement computations, we see that it is not the conventional "1" butterfly design:
+b ® d c ® a+b d ® c+d a ® a
+To see more precisely why we use the phrase "butterflypatterned," it is helpful to consider a three-dimensional diagram in which the vertical axis is time, the horizontal axis spans columns, and the front-to-back axis spans rows: and once again we clearly see the standard "1" butterfly pattern as data is carried forward in time within each row and also exchanged between the two rows.We will use the symbol "R[i, j; k, l]" to indicate application of this replacement computation to rows i and j and columns k and l--that is, to the four entries at positions [i, k], [i, l], [j, k], and [j, l].In our example with W = 8, these replacement computations are performed:
+R[0, 1; 0, 1] R[0, 1; 2, 3] R[0, 1; 4, 5] R[0, 1; 6, 7] R[2, 3; 0, 1] R[2, 3; 2, 3] R[2, 3; 4, 5] R[2, 3; 6, 7] R[4, 5; 0, 1] R[4, 5; 2, 3] R[4, 5; 4, 5] R[4, 5; 6, 7] R[6, 7; 0, 1] R[6, 7; 2, 3] R[6, 7; 4, 5] R[6, 7; 6, 7] R[1, 3; 0, 2] R[1, 3; 1, 3] R[1, 3; 4, 6] R[1, 3; 5, 7] R[5, 7; 0, 2] R[5, 7; 1, 3] R[5, 7; 4, 6] R[5, 7; 5, 7] R[3, 7; 0, 4] R[3, 7; 1, 5] R[3, 7; 2, 6] R[3, 7; 3, 7]
+where replacements within a set between horizontal lines are independent and therefore may be done sequentially or in parallel, but each set must be completed before beginning computation of the replacements in the group below it.Figure 2 shows the progress of this process with snapshots after each set of replacements is performed.In the general case, there are log 2 W such sets of replacements.
+
+After all replacements have been done on a block of size W × W , the entry in row i and column j contains the value u w v where m = i⊕(i+1), k = m 2 , u = (i&¬m)+(j&m), v = j & (¬k), and w = v + k.We use the symbol "¬" to indicate the bitwise negation (that is, NOT) of an integer Algorithm 9 Searching within a butterfly-patterned table 1: code chunk SIMD search butterfly partial sums : 2: let u ← random value chosen from [0.0, 1.0)
+3: let stop ← sum × u 4: let searchBase ← (K mod W ) + (W − 1) 5: let j ← 0 6: let k ← K W − 1 7:
+Binary search to find correct block of size W 8:
+
+while j < k do 9:
+let mid ← j + k 2 10: if stop < p[mid × W + searchBase] then 11:
+k ← mid
+if stop < p[m, blockBase − 1] then 22:
+Not in a block after all, so search remnant 23:  end if 31: end represented in binary form; we also use the symbol "&" to indicate the the bitwise conjunction (that is, AND) of two binary integers, and the symbol "⊕" to indicate the bitwise exclusive OR (that is, XOR) of two binary integers.
+for i from 0 through (K mod W ) − 1 do 24: if stop < p[i]
+Algorithm 8 performs this computation.The function shuffle is used in line 4 to broadcast values from each thread of a warp to all the others, and the function shuffleXor is used in line 25 to exchange values between pairs of threads whose thread numbers differ by a power of 2. These are precisely the CUDA intrinsic functions --shfl and --shflxor [14,20].
+
+Within a butterfly-patterned block of partial sums, Algorithm 9 performs a binary search as follows.The stop value is computed exactly as in Algorithm 1, and a block to be searched is identified by performing a binary search on the subarray consisting of just the last row of each block; this identifies a specific block to search.If K ≥ W , then there is at least one block, and it is searched, but it is possible that the desired stop value does not lie within that block; in that case, the remnant is searched using a linear search.let hisBlockBase ← shuffle(blockBase, him) else lowValue + y)
+
+
+24:
+
+if stop < compareValue then ; in Algorithm 3 this value is of course an entry in the p array, namely p[m, blockBase +mid ], but in Algorithm 10 the midpoint value is calculated by choosing an appropriate entry from the butterfly-patterned p array and then either adding it to lowValue or subtracting it from highValue.Whether to add or subtract on iteration number b (where the log 2 W iterations are numbered starting from 0) depends on whether bit b (counting from the right starting at 0) of the binary representation of m is 0 or 1, respectively.Depending on the result of the comparison of the midpoint value with the stop value, the midpoint value is assigned to either lowValue and highValue, maintaining the invariant.Also  depending on the result of the comparison of the midpoint value with the stop value, a bit of a third state variable flip (initially 0) is updated.When the binary search is complete, the correct index to select is computed from the value in flip.
+0 0 0 0 1 1 0 2 2 0 3 3 0 4 4 0 5 5 0 6 6 0 7 7 1 0 0 1 1 1 1 2 2 1
+A normal binary search effectively walks down a binary decision tree, where each node of the tree is labeled with a (normal) partial sum; but Algorithm 10 walks down a tree that is labeled with entries from the butterfly-patterned table of partial sums.For example, referring to the first seven rows of the upper block in the right-hand diagram in Figure 1, the entries relevant to thread 5 form this tree: Starting with lowValue = 5 2 0 and highValue = 5 10 0 , lines 8-31 of Algorithm 10 can walk down the tree, at each node calculating a new midpoint by adding the node label to lowValue or subtracting it from highValue as appropriate.The threads in a warp assist one another in fetching these tree nodes using the loop in lines 12-20; the function shuffleXor effects this data transfer in line 16.
+
+
+Evaluation
+
+We coded four versions of a complete LDA Gibbs-sampler topic-modeling algorithm in CUDA for an NVIDIA Titan Black GPU (W = 32).For each version we tested two variants, one using Algorithm 1 (using the binary search of Algorithm 3) and one using Algorithm 7. All eight variants were tested for speed using a Wikipedia-based dataset with number of documents M = 43556, vocabulary size V = 37286, total number of words in corpus ΣN = 3072662 (therefore average document size (ΣN )/M ≈ 70.5), and maximum document size max N = 307.Each variant was measured using eight different values for the number of topics K (16, 48, 80, 112, 144, 176, 208, and 240), in each case performing 100 sampling iterations and measuring the execution time of the entire application, not just the part that draws z values.Best performance requires unrolling three loops in Algorithm 8; we had to manually unroll the loop that starts on line 18, and the CUDA compiler then automatically unrolled the loops that start on lines 14 and 20.The performance results are shown in Figure 3.The butterfly variants are faster for K ≥ 80.For K ≥ 200, for each of the four versions the butterfly variant is more than twice as fast.
+
+
+Related Work
+
+Because the computed probabilities are relative in our LDA application, it is necessary to compute all of them and then to compute, if nothing else, their sum, so that the relative probabilities can be effectively normalized.Therefore every method for drawing from a discrete distribution represented by a set of relative probabilities involves some amount of preprocessing before drawing from the distribution.The various algorithms in the literature have differing tradeoffs according to what technique is used for preprocessing what technique is used for drawing; some algorithms also accommodate incremental updating of the relative probabilities by providing a technique for incremental preprocessing.
+
+Instead of doing a binary search on the table of partial sums, one can instead (as Marsaglia [12] observes in passing) construct a search tree using the principles of Huffman encoding [5] (independently rediscovered by Zimmerman [23]) to minimize the expected number of comparisons.In either case the complexity of the search is O(log n), but the optimized search may have a smaller constant, obtained at the expense of a preprocessing step that must sort the relative probabilities and therefore have complexity Ω(n log n).
+
+Walker [18,19] describes what is now known as the "alias" method, in which n relative probabilities are preprocessed into two additional tables F and A of length n.To draw a value from the distribution, let k be a integer chosen uniformly at random from {0, 1, 2, . . ., n − 1} and let u be chosen uniformly at random from the real interval [0, 1).Then the value drawn from the distribution is if u < F k then k else A k Therefore, once the tables F and A have been produced, the complexity of drawing a value from the distribution is O(1), assuming that the cost of an array access is O(1).Walker's method [19] for producing the tables F and A requires time Θ(n 2 ); it is easy to reduce this to Ω(n log n) by sorting the probabilities [7, exercise 3.4.1-7]and then using, say, priority heaps instead of a list for the intermediate data structure.Either version heuristically attempts to minimize the probability of having to access the table A.
+
+Vose [17] describes a preprocessing algorithm, with proof, that further reduces the preprocessing complexity of the alias method to Θ(n).The tradeoff that permits this improvement is that the preprocessing algorithm makes no attempt to minimize the probability of accessing the array A.
+
+Matias et al. [13] describe a technique for preprocessing a set of relative probabilities into a set of trees, after which a sequence of intermixed generate (draw) and update operations can be performed, where an update operation changes just one of the relative probabilities; a single generate operation takes O(log * n) expected time, and a single update operation takes O(log * n) amortized expected time.
+
+Li et al. [10] describe a modified LDA topic modeling algorithm, which they call Metropolis-Hastings-Walker sampling, that uses Walker's alias method but amortizes the cost of constructing the table by drawing from the same table during multiple consecutive sampling iterations of a Metropolis-Hastings sampler; paper provides some tification for why it is acceptable to use a "slightly stale" alias table (their words) for the purposes of this application.
+
+
+Conclusions
+
+The technique of constructing butterfly-patterned partial sums appears to be best suited for situations where a SIMD processor is used to compute tables of relative probabilities for multiple discrete distributions, each of which is then used just once to draw a single value, and where each thread, when computing its table, must fetch data from a contiguous region of memory whose address is computed from other data.The LDA application for which we devel-oped the technique has these characteristics.The technique uses transposed memory access in order to allow a SIMD memory controller to touch only one or two cache lines on each fetch, then cheaply constructs a set of partial sums that are just adequate to allow partial sums actually needed to be constructed on the fly during the course of a binary search.For a complete LDA Gibbs-sampler topic-modeling algorithm coded in CUDA for an NVIDIA Titan Black GPU and already tuned as best we could for high performance, the butterfly-patterned partial-sums technique further improves the speed of the overall application by at least a factor of 2 when the number of topics is greater than 200.
+
+7 : 8 :
+78
+let m ← q × W + r local array θ local [K]9: cache θ values into θ local 10: let i master ← 0 11: while any(i master < N [m]) do 12:
+
+
+Algorithm 5 8 :
+58
+Caching θ values (transposed access) 1: code chunk cache θ values into θ local : 2: let j ← 0 3: while j < (K mod W ) do 4: θ local [j] ← θ[m, j] for k from 0 through W − 1 do 9:
+
+
+5 : 6 : 7 : 8 :cache θ values into θ local 9 :
+56789
+let m ← q × W + r local array p[K], θ local [K] register array a[W ], c warp [W ] let i master ← 0 10: while any(i master < N [m]) do 11: let i ← min(i master , N [m] − 1)
+
+
+4 : 14 :
+414
+c warp [k] ← shuffle(c, k) while j < (K mod W ) do 9: sum ← sum + (θ local [j] × φ[c, j])for k from 0 through W − 1 do 15:
+
+
+
+
+for b from 0 through (log 2 W ) − 1 do 19: let bit ← 2 b 20:
+
+
+2 .
+2
+Suppose the four values in those entries are a b c d ; they are replaced by a d a + b c + d .(It might seem more natural mathematically to replace the four values with a c a + b c + d , and
+
+
+
+
+The top plane of this diagram is labeled with the state of four entries before the replacement computation, the bottom plane is labeled with the state of four entries after the replacement computation, and the six arrows show the full pattern of transfer between the top plane and the bottom plane (including data that remains in place, not moving in space but being carried forward in time).The previous diagram is a vertical projection of this diagram (that is, what the 3-D diagram looks like when seen from above).The next diagram is a front-to-back projection of this diagram (that is, what the 3-D diagram looks like when seen from the front): b, d a, a+b d, c+d a, c and here we clearly see the standard "1" butterfly pattern as data is carried forward in time within each column and also exchanged between the two columns.Similarly, the next diagram is a horizontal projection of the 3-D diagram (that is, what the 3-D diagram looks like when seen from the side):
+
+
+
+
+then
+
+
+Algorithm 10 2 : 3 : 5 : 6 : 7 : 8 : 9 :for i from 0 through W 2×bit − 1 do 13 : 14 :
+1023567891314
+Butterfly search within one W × W block 1: code chunk butterfly search one block : let lowValue ← (if blockBase > 0 then p[blockBase − 1] let highValue ← p[blockBase + (W − 1)] let flip ← 0 Butterfly search within the block of size W for b from 0 through (log 2 W ) − 1 do let bit ← 2 ((log 2 W )−1)−b 10:let mask ← ((W − 1) × (2 × bit)) & (W − 1) let d ← (bit − 1) + 2 × bit × i let him ← (d & mask ) + (r & ¬mask ) 15:
+
+
+j 1 0and highValue = m blockBase+k 0 .
+10
+← blockBase + (flip ⊕ r) 33: end In order to search within a block, Algorithm 10 maintains two additional state variables lowValue and highValue.An invariant is that if thread m has indices j through k of a block still under consideration, then lowValue = m blockBase+j−In order to cut the search range in half, the binary search needs to compare the stop value to the midpoint value m blockBase+mid 0 where mid = j+k 2
+
+
+Figure 3 .
+3
+Figure 3. Execution time (K = 32k + 16, 0 ≤ k ≤ 7)
+
+
+Christopher M Bishop, Pattern Recognition and Machine Learning (Information Science and Statistics). New York, Inc.Springer-Verlag2006
+
+Probabilistic topic models. M David, Blei, 10.1145/2133806.2133826Commun. ACM. 554April 2012
+
+Latent Dirichlet allocation. David M Blei, Andrew Y Ng, Michael I Jordan, J. Machine Learning Research. 3March 2003
+
+Finding scientific topics. Thomas L Griffiths, Mark Steyvers, 10.1073/pnas.0307752101Proc. National Academy of Sciences of the United States of America. National Academy of Sciences of the United States of America2004101suppl 1
+
+A method for the construction of minimumredundancy codes. D A Huffman, 10.1109/JRPROC.1952.273898Proc. IRE. IRESept 195240
+
+Matrix multiplication on the Connection Machine. S Lennart Johnsson, Tim Harris, K Kapil, Mathur, 10.1145/76263.76298Proc. 1989 ACM/IEEE Conference on Supercomputing. 1989 ACM/IEEE Conference on SupercomputingNew York, NY, USAACM1989
+
+of The Art of Computer Programming. Donald E Knuth, Seminumerical Algorithms. Reading, MassachusettsAddison-Wesley19982third edition
+
+of The Art of Computer Programming. Donald E Knuth, Sorting and Searching. Reading, MassachusettsAddison-Wesley19983second edition
+
+On the utility of graphics cards to perform massively parallel simulation of advanced Monte Carlo methods. Anthony Lee, Christopher Yau, Michael B Giles, Arnaud Doucet, Christopher C Holmes, J. Computational and Graphical Statistics. 1942010
+
+Reducing the sampling complexity of topic models. Aaron Q Li, Amr Ahmed, Sujith Ravi, Alexander J Smola, 10.1145/2623330.2623756Proc. 20th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining, KDD '14. 20th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining, KDD '14New YorkACM2014
+
+Accelerating topic model training on a single machine. Mian Lu, Ge Bai, Qiong Luo, Jie Tang, Jiuxin Zhao, 10.1007/978-3-642-37401-2_20Web Technologies and Applications. Lecture Notes in Computer Science. Yoshiharu Ishikawa, Jianzhong Li, Wei Wang, Rui Zhang, Wenjie Zhang, Berlin HeidelbergSpringerAPWeb 2013. 20137808
+
+Generating discrete random variables in a computer. G Marsaglia, 10.1145/366193.366228Commun. ACM. 61January 1963
+
+Dynamic generation of discrete random variates. Yossi Matias, Jeffrey Scott Vitter, Wen-Chun Ni, Proc. Fourth Annual ACM-SIAM Symposium on Discrete Algorithms, SODA '93. Fourth Annual ACM-SIAM Symposium on Discrete Algorithms, SODA '93Philadelphia, PA, USA1993Society for Industrial and Applied Mathematics
+
+Developer zone Cuda toolkit documentation: Cuda toolkit v6.5 programming guide, section B.14. warp shuffle functions. 2015. February 6, 2015NVIDIAOnline documentation. Accessed
+
+Understanding GPU programming for statistical computation: Studies in massively parallel massive mixtures. Marc A Suchard, Quanli Wang, Cliburn Chan, Jacob Frelinger, Andrew Cron, Mike West, J. Computational and Graphical Statistics. 1922010
+
+Augur: Data-parallel probabilistic modeling. Jean-Baptiste Tristan, Daniel Huang, Joseph Tassarotti, Adam C Pocock, Stephen Green, Guy L Steele, Jr, Advances in Neural Information Processing Systems. Z Ghahramani, M Welling, C Cortes, N D Lawrence, K Q Weinberger, Curran Associates, Inc201427
+
+A linear algorithm for generating random numbers with a given distribution. M D Vose, 10.1109/32.92917IEEE Trans. Software Engineering. 179Sept 1991
+
+New fast method for generating discrete random numbers with arbitrary frequency distributions. A J Walker, 10.1049/el:19740097Electronics Letters. 108April 1974
+
+An efficient method for generating discrete random variables with general distributions. Alastair J Walker, 10.1145/355744.355749ACM Trans. Math. Software. 33September 1977
+
+The CUDA Handbook: A Comprehensive Guide to GPU Programming. Nicholas Wilt, 2013Upper Saddle RiverNew Jersey
+
+Parallel inference for latent Dirichlet allocation on graphics processing units. Feng Yan, Ningyi Xu, Yuan Qi, Advances in Neural Information Processing Systems. Curran Associates, Inc200922
+
+SAME but different: Fast and high-quality Gibbs parameter estimation. Huasha Zhao, Biye Jiang, John Canny, CoRR (Computing Research Repository at arXiv.org). September 2014
+
+An optimal search procedure. Seth Zimmerman, American Mathematical Monthly. 668Oct 1959

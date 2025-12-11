@@ -1,0 +1,749 @@
+{
+  "doc_id": "corpus_281505253",
+  "units": [
+    {
+      "unit_id": 0,
+      "text": "corpus_281505253",
+      "type": "heading",
+      "level": 0,
+      "parent_id": null,
+      "subtype": "doc_title"
+    },
+    {
+      "unit_id": 1,
+      "text": "Introduction",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 2,
+      "text": "Automatically parsing structured content from document PDF images has been a longstanding challenge in Document AI.The extracted elements including plain text, tables, formulas are foundational elements for advanced AI-based document analysis, Retrieval-augmented Generation (RAG) and ultimately the Artificial General Intelligence (AGI).Traditional OCR systems [7,20] typically adopt pipelinebased architectures which sequentially deploy expert models to address sub-tasks including element detection, region cropping, element recognition and so on.However, this modular approach suffers from three key limitations: First, each expert model only optimizes its own local objectives, which does not guarantee a global optima for the entire document parsing task.Second, the computational overhead of training and deploying multiple models is substantial.Last but not least, the independent processing of multiple sub-components in one document disrupts inter-element information exchange and impairs holistic context modeling.To alleviate these drawbacks, end-to-end OCR-2.0 models [24,25] have been proposed to reduce maintenance costs and provide global optimization for various sub-tasks.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 3,
+      "text": "In recent years, the rapid development of large visionlanguage models (LVLM) [2,3,12,15] has largely improved the ability to handle diverse modalities of data.Despite the strong generalization ability, most LVLMs are primarily trained for reasoning tasks while exhibiting limitations for visual-text perception scenarios.Moreover, the CLIP objective [18] adopted by popular LVLMs' visual encoder like LLaVAR [27], mPLUG-DocOwl [26] and olmOCR [17] mainly focus on coarse-grained visual-text semantic alignment which neglects the fine-grained text information contained in images.Additionally, the pretrained clip vision models typically support fixed input resolutions (e.g., 224×224 or 336×336 pixels), which are inadequate to meet the demands of parsing documents containing dense, small-sized text elements.To address these issues, Vary [24] has parallelly trained a high-resolution visual encoder specially for document-level OCR task.Qwen2-VL series [3,22] have introduced the native dynamic resolution mechanism to eliminate the spatial constraints.Despite these improvements, end-to-end document parsing paradigms still face critical challenges.The next-token prediction objective widely adopted in current LVLMs naively optimizes the token-level alignment between input text images and output text, while overlooking the disruptive effects of complex layouts on reading order inference.To resolve this, Infinity-Parser [21] introduced Reinforcement learning into the document parsing task with three layout-aware rewards.Despite the specially designed rewards, the paragraph count objective did not consider the explicit position and sepa- ration of corresponding element block by only calculating the number of paragraphs, and GRPO [19] performed directly on Qwen-2.5-VL-7B[3] base model does not ensure a prior foundation model for document parsing task, which may potentially mislead the direction of GRPO optimization.Recent study [4] has highlighted a critical principle in post training of large-scale model: SFT memorizes and RL generalizes, which emphasizes the importance of SFT for model output format stabilization before RL for generalization.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 4,
+      "text": "To address above limitations, in this report, we propose Logics-Parsing, an end-to-end LVLM-based framework augmented with reinforcement learning to establish a robust and layout-aware document parsing model as shown in Fig. 1.A Two-stage SFT-then-RL training strategy is adopted to ensure the effectiveness of our model.Firstly, through incorporating diverse data types including normal texts, mathematical formulas, tables, chemical formulas and handwritten Chinese characters into training, we fine-tune the Qwen2.5-VL-7B[3] with more than 300K high-quality page-level document images to build a strong foundation for document parsing.Secondly, through layout-aware multicomponent reward mechanisms together with a novel hardsample mining strategy, we augment the model with the ability to correctly identify the page layout structure, then enforce adherence to natural reading sequences under the identified layout.This stage markedly improves performance on complex layouts such as multi-column newspapers and posters.In addition, in order to rigorously evaluate our proposed Logics-Parsing model, we construct a comprehensive benchmark containing 1,078 page-level PDF images spanning nine major categories (e.g., academic papers, technical reports) and over twenty sub-categories, called LogicsParsingBench.Compared to OminiDocBench [16], a top-leading benchmark covering diverse document types with rich annotation information, our proposed LogicsPars-ingBench places greater emphasis on assessing complex layout handling and scientific content parsing, with several enhanced evaluation protocols introduced.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 5,
+      "text": "In summary, the contributions of our work are listed as follows:",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 6,
+      "text": "• We propose Logics-Parsing, an end-to-end Large Vision-Language Model (LVLM)-based framework augmented with reinforcement learning.By explicitly modeling document layouts and supporting multimodal recognition of heterogeneous content types (e.g., text, mathematical formulas, tables), the framework enables the construction of a highly capable and broadly applicable model on complex, real-world document parsing scenarios.• To endow Logics-Parsing with robust recognition across diverse content types, we collected more than 300k high quality page-level document images and annotate them via an automated pipeline followed by human-in-the-loop verification.The co-occurrence of plain text, mathematical formulas, tables, and other elements on a single page offers comprehensive training for complex realworld document analysis.• Extensive evaluations on LogicsDocBench -a comprehensive benchmark comprising 1,078 page-level PDF images across nine categories -effectively validate that our method significantly improves structural understanding and content ordering in complex layouts, achieving superior performance in practical document parsing tasks.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 7,
+      "text": "Methodology",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 8,
+      "text": "In this section, we present the methodology of Logics-Paring, with a two-stage training paradigm designed to establish outstanding capabilities for both document parsing and fine-grained structural alignment.We will first provide an overview of this SFT-then-RL framework, then describe the construction of high-quality training datasets, and finally detail each training stage.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 7,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 9,
+      "text": "Overview",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 7,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 10,
+      "text": "As demonstrated in Fig. 2, the whole training process begins with a Supervised Fine-Tuning (SFT) stage.In this stage, the model is trained on a large-scale, versatile document dataset using a standard next-token prediction objective.This equips the model with essential capabilities such as text recognition and associating text blocks with spatial coordinates.However, we argue that the autoregressive token-bytoken supervision of SFT provides indirect and often insufficient signals for page structure learning.For example, the token-level cross-entropy loss does not explicitly penalize an incorrect paragraph-level reading order, nor does it differentiate between minor and major errors in bounding-box coordinates.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 9,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 11,
+      "text": "To address these limitations, the Layout-Centric Reinforcement Learning (LC-RL) is introduced.This stage leverages a smaller, curated set of challenging, high-quality samples for direct structual analysis optimization.By employing a multi-component reward function that explicitly evaluates text accuracy, layout precision, and logical reading order, we steer the model's policy towards generating outputs that are not only textually accurate but also structurally coherent and logically sequenced.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 9,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 12,
+      "text": "Dataset",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 7,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 13,
+      "text": "To enable effective model training, we construct a largescale, diverse, and high-quality dataset, with the HTML annotation format as one of its key features.As is known, HTML natively encodes the hierarchical structures of a document (e.g., nested tables, lists) and enables efficient rendering for visualization.The construction of this comprehensive dataset is designed to align with the two-stage SFTthen-RL training strategy, which consists of a SFT subset and a RL subset.This dual-subset design ensures the coherence between data preparation and corresponding model optimization phases.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 14,
+      "text": "SFT Dataset.To enrich training diversity and establish a strong foundational model for document parsing, we assembled data from two complementary sources.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 15,
+      "text": "On the one hand, we systematically incorporate and normalize multiple well-established public datasets into our unified HTML annotation schema.Specifically, for pagelevel parsing, we curate a subset of samples from olmOCRmix-0225 [17], systematically converting their original annotations into our standardized HTML format.For table recognition, which is a crucial sub-task, we collect data from leading benchmarks including FinTabNet [28], TNCR [1], and PubTabNet [29].This has provided the model with extensive exposure to a wide variety of tabular structures.For chemical structure recognition, we directly employ the ChEBI-20-MM dataset [13], a benchmark for molecular OCR.This offers a targeted training for interpreting the specific syntax and layout rules of chemical diagrams.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 16,
+      "text": "On the other hand, we build a large-scale in-house dataset annotated via a two-stage annotation pipeline consisting of automated extraction and expert model-based refinement.In the first place, Mathpix1 is employed to preannotate a broad corpus of public documents by extracting content, bounding boxes, and semantic types.Subsequently, to address complex layouts that Mathpix may struggle to parse, a verification and correction step is conducted using Gemini 2.5 Pro [5].This step focuses on correcting errors in challenging scenarios such as nested formulas and multi-layered tables, thereby ensuring the high accuracy and reliability of the annotations.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 17,
+      "text": "Nevertheless, there still exists a large number of highly complex documents and edge cases that the proposed automated annotation pipeline struggles to handle.For these samples, we introduce manual intervention, where approximately 10,000 page samples undergo a rigorous review and correction by expert human annotators.Apart from this, we further provide manual annotations on document reading order for these samples which remain challenging to achieve through automated tools.This human-in-theloop approach has strictly guaranteed the annotation accuracy and broadens annotation coverage, yielding a goldstandard subset that significantly strengthens the model's understanding of both content and structural organization in real-world layouts.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 18,
+      "text": "RL Dataset.Reinforcement learning usually benefits from a small but high-quality dataset.To this end, we propose a novel hard-sample mining strategy to identify a focused subset from the SFT corpus described above.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 19,
+      "text": "First, we manually curated around 4,000 pages from the above human-in-the loop subset.These samples are specifically chosen for their intricate and challenging layouts, which have been shown to present substantial challenges for standard autoregressive models.Second, to collect samples that are difficult yet informative for the RL stage learning, we employ an inferenceguided hard-mining strategy.We run SFT model over the entire training set and select samples whose normalized edit distance between the prediction and the ground truth falls within a specific range [0.5, 0.8].This range effectively captures instances that the SFT model may partially understand but fails to parse perfectly, forming an ideal \"learning zone\" for subsequent RL-based refinement.In this way, approximately 4,000 additional samples are collected.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 20,
+      "text": "Together, the above data-mining strategy has yielded roughly 8,000 high-quality, high-difficulty training samples for the LC-RL stage, whose effectiveness heavily hinges on a training set that specifically targets the weakness of the SFT model.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 21,
+      "text": "Supervised Fine-Tuning",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 7,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 22,
+      "text": "The first stage of our training paradigm focuses on Supervised Fine-Tuning (SFT), designed to imbue the model with foundational document understanding capabilities and align the model output with the target structured HTML format.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 21,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 23,
+      "text": "Rather than training a large-scale Vision-Language Model (VLM) from scratch, we strategically choose to build our model upon a powerful and pre-existing foundation, where Qwen2.5-VL-7B-Instruct[3] is selected.This decision is driven by its state-of-the-art performance among open-source VLMs, which not only established a robust baseline for a wide range of vision-language tasks, but also enabled efficient adaptation for downstream domainspecific tasks.Specifically, the model is fine-tuned on the comprehensive dataset described in Section 2.2 for a single epoch through the standard next-token prediction objective, from which it learns to generate the target HTML sequence conditioned on the input document image.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 21,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 24,
+      "text": "This process has yielded our baseline model called Logics-Parsing-SFT.Upon completion of this stage, the model has already demonstrated remarkable proficiency in core document analysis tasks, which not only performs accurate text recognition and spatial grounding, but also exhibits a high degree of instruction-following capability, consistently generating structured HTML outputs aligned with prompt specifications.Despite a solid foundation model the Logics-Parsing-SFT has established, the inherent limitations of token-level supervision motivates a subsequent layout-centric reinforcement learning stage.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 21,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 25,
+      "text": "Layout-centric Reinforcement Learning",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 7,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 26,
+      "text": "As illustrated above, the next-token prediction objective adopted in the SFT stage exhibits inherent limitations for complex layout and reading order learning, particularly in processing documents with highly intricate layouts such as newspapers, magazines, or multi-column reports.For these samples, parsing the correct reading order can be a non-trivial task even for humans.To overcome this challenge, we propose the second training phase based on Layout-centric Reinforcement Learning (LC-RL), employing Group Relative Policy Optimization (GRPO), which we find well-suited to this problem class.Through a comprehensive multi-component reward function that performs direct evaluation on the output answer quality and a carefully mined difficult-yet-informative dataset, we guide the model towards generating results that are more consistent with human reading habits.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 25,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 27,
+      "text": "Concretely, in each training iteration, we parse both the model's prediction and the ground-truth label to extract their constituent elements: textual content (including text, formulas, etc.) and their corresponding bounding box coordinates.These are then used to compute three distinct reward components.The first reward measures the character-level similarity between predicted text sequences and ground-truth ones through the negative normalized Levenshtein distance [9].The second reward is designed to evaluate the localization accuracy between the predicted and target bounding boxes, which guides the model to ground each content element at the correct page location.The last reward mainly pays attention on optimizing the logical reading flow of the parsed content, which is calculated as the pairwise inversion count between reference and predicted paragraphs.This reward directly penalizes out-oforder content and is crucial for learning complex, non-linear reading paths.Finally, we form the final reward as a linear combination of these three components for each sample.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 25,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 28,
+      "text": "Experiments",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 29,
+      "text": "LogicsParsingBench: A Benchmark for Complex Document Parsing",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 28,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 30,
+      "text": "To address the limitations of existing evaluation benchmarks, particularly their underrepresentation of documents with complex logical structures and specialized scientific content, we introduce LogicsParsingBench, a new challenging benchmark meticulously curated to rigorously assess the capabilities of modern document parsing models.Comprising 1,078 high-quality pages, LogicsParsingBench is designed to reflect real-world complexity and advance the frontiers of the document intelligence.The benchmark is distinguished by three core features.Firstly, the samples in LogicsParsingBench span nine major categories specified in Fig. 3 and over twenty sub-categories in both English and Chinese, which ensures diverse and comprehensive coverage.One critical category our proposed benchmark strongly emphasizes on is the academic and scientific documents sourced from a wide range of STEM fields (e.g., mathematics, physics, chemistry), characterized by high density of complex, nested mathematical formulas and intricate chemical structures.Additionally, rare and challenging document types such as music scroes and Chinese ancient books are also incorporated into the benchmark to further enrich the diversity of test samples.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 29,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 31,
+      "text": "Secondly, LogicsParsingBench includes a substantial portion of complex pages featuring multi-column layouts and text-graph mixed content, which not only imposes higher demands but also provides a more strict evaluation for model's layout analysis and generalization capabilities.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 29,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 32,
+      "text": "Last but not least, a more complex benchmark naturally necessitates a more nuanced evaluation protocol.Built upon the top-leading open-source evaluation code from OmniDocBench [16], the evaluation protocols in Logic-sParsingBench feature two key improvements listed as follows:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 29,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 33,
+      "text": "• Global Text Evaluation: We claim that the commonly used block-by-block text matching evaluation would impose excessive penalty for minor differences in paragraph segmentation granularity.To mitigate this, we adopt a global text evaluation strategy, where all textual contents from one page (excluding headers and footers) are concatenated into a single string before calculating the Levenshtein distance.This provides a more holistic and robust measure for the core text recognition capability, invariant to the granularity of block segmentation.• Stricter Content Normalization: To ensure fair comparisons across heterogeneous model outputs, we implemented stricter normalization protocols, especially for tabular data.By eliminating redundant whitespace and simplifying specific LaTeX formatting tags, the evaluation would emphasize on semantic accuracy rather than superficial formatting differences.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 29,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 34,
+      "text": "Implementation Details",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 28,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 35,
+      "text": "In our experiments, the Logics-Parsing model is built upon Qwen2.5-VL-7b-Instruct[3], which is a strong foundation model for various multi-modality tasks.Leveraging the native dynamic resolution mechanism proposed in Qwen, we preserve the original aspect ratio of the input image while only constrain the total pixel count within 1024 × 1024 and the output token length within 8192.This design balances the high-resolution input expectation of the task and the computation overhead.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 34,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 36,
+      "text": "The model is trained in a two-stage manner.During the first SFT stage, the LLM component of Logics-Parsing is optimized to build foundational capabilities for document parsing, while the parameters of the vision encoder and vision-language projector are frozen.The model is optimized with a batch size of 256 for 1 epoch, and the learning rate is set to 2e − 5.During the second LC-RL stage, we transition to a reinforcement learning setup implemented via the ROLL [23], adopting GRPO for policy optimization.For this fine-grained alignment, the hyperparameters are set more conservatively: the batch size is reduced to 32, and the learning rate is lowered to 1e − 6.The model is trained for a fixed 250 steps on our curated RL dataset.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 34,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 37,
+      "text": "To enable a rigorous evaluation of our approach, we benchmark Logics-Parsing against state-of-the-art (SOTA) methods over the proposed LogicsParsingBench.Most evaluation metrics are aligned with OmniDocBench for consistency.Specifically, we calculate Normalized Edit Distance (NED) [10] between the predicted outputs and ground-truth references across all text components, including the pure texts, the HTML sequences for tabular data, the LaTeX expressions for mathematical formulas and the Simplified Molecular Input Line Entry System (SMILES) strings for chemical molecules.For reading order evaluation, we likewise report NED computed over text-only content, with tables, images, and ignored components excluded from the final reading order calculation.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 34,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 38,
+      "text": "Main Results",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 28,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 39,
+      "text": "Comparison with State-of-the-Art Methods",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 40,
+      "text": "In this section, we report the experimental results of our proposed Logics-Parsing against a wide range of existing document parsing models in Tab. 1, including state-of-theart open-source models [3,6,8,25] as well as leading commercial tools like doc2x2 and TextIn3 .Fig. 4 also provides a visualized comparison on the performance across  Moreover, while Logics-Parsing has demonstrated superior performance across most dimensions, we acknowledge a performance gap existed in table structure recognition and mathmetic formula recognition compared to the top-leading methods.These shortcomings highlight a direction for future improvement, particularly in modeling complex twodimensional layouts.The experimental results are presented in Tab. 2. We observe that after fine-tuning on self-constructed SFT dataset, the Logics-Parsing-SFT model has developed remarkable document parsing abilities across different content types compared with the original Qwen2.5-VL-7Bbaseline.This performance provides strong validation on the high quality of both the collected training data and the annotations generated through a combination of automated and humanin-the-loop manner.After the second LC-RL stage, the final Logics-Parsing model consistently outperforms the Logics-Parsing-SFT model across nearly all metrics for both English (EN) and Chinese (ZH).The most significant improvement appears on the ReadOrder Edit distance, which our proposed multi-component reward mechanism mainly optimizes on.Specifically, the ReadOrder score for English drops from 0.149 to 0.136, and for Chinese, a substantial reduction from 0.155 to 0.113 is observed.This phenomenon has provided strong evidence that fine-tuning on a small, curated set of explicitly mined hard samples with our proposed layout-centric GRPO strategy effectively enhances the model's ability to handle complex document layouts and inference accurate reading order.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 39,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 41,
+      "text": "Conclusion",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 42,
+      "text": "We present Logics-Parsing, an end-to-end LVLM-based document parsing model augmented with layout-centric reinforcement learning.Through a specially designed twostage SFT-then-RL training framework and carefully curated training datasets tailored to distinct characteristics of each stage, Logics-Parsing has equipped strong abilities for both explicit document layout modeling and multimodal recognition of heterogeneous content types.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 41,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 43,
+      "text": "To rigorously evaluate our proposed framework, we proposed a new benchmark called LogicsParsingBench consisting of 1,078 page-level high-quality PDF images across diverse categories.With more diverse and complex document types such as academic papers included and improved evaluation protocols compared to OminiDocBench, Logic-sParsingBench offers a more fair and challenging benchmark reflecting real-world document complexity and advancing the frontiers of the document intelligence research.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 41,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 44,
+      "text": "In the future, we will pay more attention to explore architectural innovation for the SFT training and develop more focused and fine-grained reward mechanism for improved layout-centric reinforcement learning.These directions hold promising advancement toward a document parsing model that is highly versatile yet deeply specialized, capable of professionally handling a wide array of document understanding tasks with greater accuracy and adaptability.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 41,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 45,
+      "text": "Contributors",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 46,
+      "text": "Xiangyang Chen, Shuzhao Li, Xiuwen Zhu, Yongfan Chen, Fan Yang, Cheng Fang, Lin Qu, Xiaoxiao Xu, Hu Wei, Minggang Wu.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 47,
+      "text": "Figure 1.The overview of our proposed Logics-Parsing for layout-aware document parsing.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 45,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 48,
+      "text": "Figure 1.The overview of our proposed Logics-Parsing for layout-aware document parsing.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 49,
+      "text": "Figure 2. The dataset construction and training pipeline of our proposed Logics-Parsing.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 45,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 50,
+      "text": "Figure 2. The dataset construction and training pipeline of our proposed Logics-Parsing.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 51,
+      "text": "Figure 3.The overview of document types included in our proposed LogicsParsingBench.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 45,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 52,
+      "text": "Figure 3.The overview of document types included in our proposed LogicsParsingBench.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 53,
+      "text": "Figure 4. Visualization of the comparisons between our propose Logics-Parsing and other methods across different document types.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 45,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 54,
+      "text": "Figure 4. Visualization of the comparisons between our propose Logics-Parsing and other methods across different document types.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 55,
+      "text": "Figure 5. Qualitative comparison of reading order prediction.Red arrows denote the predicted flow.Our Logics-Parsing model generates a reading sequence fully aligned with the ground-truth.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 45,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 56,
+      "text": "Figure 5. Qualitative comparison of reading order prediction.Red arrows denote the predicted flow.Our Logics-Parsing model generates a reading sequence fully aligned with the ground-truth.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 57,
+      "text": "Comparisons with State-of-the-art methods on LogicsParsingBench.Bold text indicates the best result, and underlined text indicates the second-best result.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 45,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 58,
+      "text": "Comparisons with State-of-the-art methods on LogicsParsingBench.Bold text indicates the best result, and underlined text indicates the second-best result.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 59,
+      "text": "Note:",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 60,
+      "text": "Ablation study on the effectiveness of the SFT-then-RL paradigm.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 45,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 61,
+      "text": "Ablation study on the effectiveness of the SFT-then-RL paradigm.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 62,
+      "text": "References",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "references"
+    },
+    {
+      "unit_id": 63,
+      "text": "TNCR: table net detection and classification dataset. Abdelrahman Abdallah, Alexander Berendeyev, Daniyar B Islam Nuradin, Nurseitov, CoRR, abs/2106.153222021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 64,
+      "text": ". Jinze Bai, Shuai Bai, Yunfei Chu, Zeyu Cui, Kai Dang, Xiaodong Deng, Yang Fan, Wenbin Ge, Yu Han, Fei Huang, arXiv:2309.166092023Qwen technical report. arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 65,
+      "text": "Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, arXiv:2502.13923Jun Tang, et al. Qwen2. 5-vl technical report. 2025. 1, 2, 4, 5, 6arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 66,
+      "text": "Sft memorizes, rl generalizes: A comparative study of foundation model post-training. Tianzhe Chu, Yuexiang Zhai, Jihan Yang, Shengbang Tong, Saining Xie, Dale Schuurmans, Quoc V Le, Sergey Levine, Yi Ma, 2025",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 67,
+      "text": "Gemini 2.5: Pushing the frontier with advanced reasoning, multimodality, long context, and next generation agentic capabilities. Gheorghe Comanici, Eric Bieber, Mike Schaekermann, Ice Pasupat, Noveen Sachdeva, Inderjit Dhillon, Marcel Blistein, Ori Ram, Dan Zhang, Evan Rosen, arXiv:2507.06261202536arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 68,
+      "text": ". Cheng Cui, Ting Sun, Manhui Lin, Tingquan Gao, Yubo Zhang, Jiaxuan Liu, Xueqing Wang, Zelun Zhang, Changda Zhou, Hongen Liu, Yue Zhang, Wenyu Lv, Kui Huang, Yichao Zhang, Jing Zhang, Jun Zhang, Yi Liu, Dianhai Yu, Yanjun Ma, 202556Paddleocr 3.0 technical report",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 69,
+      "text": ". Yuning Du, Chenxia Li, Ruoyu Guo, Cheng Cui, Weiwei Liu, Jun Zhou, Bin Lu, Yehua Yang, Qiwen Liu,",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 70,
+      "text": "Pp-ocrv2: Bag of tricks for ultra lightweight ocr system. Hu, arXiv:2109.031442021arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 71,
+      "text": "Dolphin: Document image parsing via heterogeneous anchor prompting. Shu Hao Feng, Xiang Wei, Wei Fei, Yingdong Shi, Lei Han, Jinghui Liao, Binghong Lu, Qi Wu, Chunhui Liu, Lin, arXiv:2505.14059202556arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 72,
+      "text": "Binary coors capable or 'correcting deletions, insertions, and reversals. Vi Lcvenshtcin, Soviet physics-doklady. 1966",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 73,
+      "text": "Binary codes capable of correcting deletions, insertions, and reversals. Vladimir Iosifovich, Levenshtein , Doklady Akademii Nauk. 1965",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 74,
+      "text": "Monkeyocr: Document parsing with a structure-recognition-relation triplet paradigm. Zhang Li, Yuliang Liu, Qiang Liu, Zhiyin Ma, Ziyang Zhang, Shuo Zhang, Zidun Guo, Jiarui Zhang, Xinyu Wang, Xiang Bai, 2025",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 75,
+      "text": "Visual instruction tuning. Haotian Liu, Chunyuan Li, Qingyang Wu, Yong Jae Lee, Advances in neural information processing systems. 202336",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 76,
+      "text": "A quantitative analysis of knowledge-learning preferences in large language models in molecular science. Pengfei Liu, Jun Tao, Zhixiang Ren, 2025",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 77,
+      "text": "Smoldocling: An ultra-compact vision-language model for end-toend multi-modal document conversion. Ahmed Nassar, Andres Marafioti, Matteo Omenetti, Maksym Lysak, Nikolaos Livathinos, Christoph Auer, Lucas Morin, Rafael Teixeira De Lima, Yusik Kim, A Said, Michele Gurbuz, Miquel Dolfi, Peter W J Farré, Staar, 2025",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 78,
+      "text": "Openai, arxiv 2303.08774Gpt-4 technical report. 2",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 79,
+      "text": "Omnidocbench: Benchmarking diverse pdf document parsing with comprehensive annotations. Linke Ouyang, Yuan Qu, Hongbin Zhou, Jiawei Zhu, Rui Zhang, Qunshu Lin, Bin Wang, Zhiyuan Zhao, Man Jiang, Xiaomeng Zhao, Proceedings of the Computer Vision and Pattern Recognition Conference. the Computer Vision and Pattern Recognition Conference202525",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 80,
+      "text": "olmocr: Unlocking trillions of tokens in pdfs with vision language models. Jake Poznanski, Aman Rangapur, Jon Borchardt, Jason Dunkelberger, Regan Huff, Daniel Lin, Christopher Wilhelm, Kyle Lo, Luca Soldaini, arXiv:2502.184432025. 1, 3, 6arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 81,
+      "text": "Learning transferable visual models from natural language supervision. Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, International conference on machine learning. PmLR2021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 82,
+      "text": "Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, Yang Li, Wu, arXiv:2402.03300Pushing the limits of mathematical reasoning in open language models. 2024arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 83,
+      "text": "Mineru: An open-source solution for precise document content extraction. Bin Wang, Chao Xu, Xiaomeng Zhao, Linke Ouyang, Fan Wu, Zhiyuan Zhao, Rui Xu, Kaiwen Liu, Yuan Qu, Fukai Shang, arXiv:2409.18839202416arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 84,
+      "text": "Infinity parser: Layout aware reinforcement learning for scanned document parsing. Baode Wang, Biao Wu, Weizhen Li, Meng Fang, Yanjie Liang, Zuming Huang, Haozhe Wang, Jun Huang, Ling Chen, Wei Chu, arXiv:2506.031972025arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 85,
+      "text": "Qwen2-vl: Enhancing vision-language model's perception of the world at any resolution. Peng Wang, Shuai Bai, Sinan Tan, Shijie Wang, Zhihao Fan, Jinze Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, arXiv:2409.12191202416arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 86,
+      "text": "Reinforcement learning optimization for large-scale learning: An efficient and user-friendly scaling library. Weixun Wang, Shaopan Xiong, Gengru Chen, Wei Gao, Sheng Guo, Yancheng He, Ju Huang, Jiaheng Liu, Zhendong Li, Xiaoyang Li, arXiv:2506.061222025arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 87,
+      "text": "Vary: Scaling up the vision vocabulary for large vision-language model. Haoran Wei, Lingyu Kong, Jinyue Chen, Liang Zhao, Zheng Ge, Jinrong Yang, Jianjian Sun, Chunrui Han, Xiangyu Zhang, European Conference on Computer Vision. Springer2024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 88,
+      "text": "Haoran Wei, Chenglong Liu, Jinyue Chen, Jia Wang, Lingyu Kong, Yanming Xu, Zheng Ge, Liang Zhao, Jianjian Sun, Yuang Peng, arXiv:2409.01704General ocr theory: Towards ocr-2.0 via a unified end-to-end model. 2024. 1, 5, 6arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 89,
+      "text": "Jiabo Ye, Anwen Hu, Haiyang Xu, Qinghao Ye, Ming Yan, Yuhao Dan, Chenlin Zhao, Guohai Xu, Chenliang Li, arXiv:2307.02499et al. mplug-docowl: Modularized multimodal large language model for document understanding. Junfeng Tian,. 2023arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 90,
+      "text": "Llavar: Enhanced visual instruction tuning for text-rich image understanding. Yanzhe Zhang, Ruiyi Zhang, Jiuxiang Gu, Yufan Zhou, Nedim Lipka, Diyi Yang, Tong Sun, arXiv:2306.171072023arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 91,
+      "text": "Global table extractor (GTE): A framework for joint table identification and cell structure recognition using visual context. Xinyi Zheng, Douglas Burdick, Lucian Popa, Nancy Xin, Ru Wang, CoRR, abs/2005.005892020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 92,
+      "text": "Image-based table recognition: data, model, and evaluation. Xu Zhong, Elaheh Shafieibavani, Antonio Jimeno-Yepes, CoRR, abs/1911.106832019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "bibentry"
+    }
+  ]
+}

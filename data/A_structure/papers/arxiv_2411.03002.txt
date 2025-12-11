@@ -1,0 +1,482 @@
+Adaptive-precision potentials for large-scale atomistic simulations
+November 5, 2024
+
+David Immel 
+Ralf Drautz 
+Godehard Sutmann 
+
+Jülich Supercomputing Centre (JSC)
+Institute for Advanced Simulation (IAS)
+Forschungszentrum Jülich
+JülichGermany
+
+
+Interdisciplinary Centre for Advanced Materials Simulations (ICAMS)
+Ruhr Universität Bochum
+BochumGermany
+
+
+Jülich Supercomputing Centre (JSC)
+Institute for Advanced Simulation (IAS)
+Interdisciplinary Centre for Advanced Materials Simulations (ICAMS)
+Forschungszentrum Jülich
+JülichGermany
+
+
+Ruhr Universität Bochum
+BochumGermany
+
+Adaptive-precision potentials for large-scale atomistic simulations
+November 5, 20246C4808A219DA21122853F2CD71CAF438arXiv:2411.03002v1[physics.comp-ph]
+Large-scale atomistic simulations rely on interatomic potentials providing an efficient representation of atomic energies and forces.Modern machine-learning (ML) potentials provide the most precise representation compared to electronic structure calculations while traditional potentials provide a less precise, but computationally much faster representation and thus allow simulations of larger systems.We present a method to combine a traditional and a ML potential to a multi-resolution description, leading to an adaptive-precision potential with an optimum of performance and precision in large complex atomistic systems.The required precision is determined per atom by a local structure analysis and updated automatically during simulation.We use copper as demonstrator material with an embedded atom model as classical force field and an atomic cluster expansion (ACE) as ML potential, but in principle a broader class of potential combinations can be coupled by this method.The approach is developed for the molecular-dynamics simulator LAMMPS and includes a loadbalancer to prevent problems due to the atom dependent force-calculation times, which makes it suitable for large-scale atomistic simulations.The developed adaptive-precision copper potential represents the ACE-forces and -energies with a precision of 10 meV/ Å and 0 meV for the precisely calculated atoms in a nanoindentation of 4 million atoms calculated for 100 ps and shows a speedup of 11.3 compared with a full ACE simulation.
+
+I. INTRODUCTION
+
+Molecular dynamics (MD) simulations have developed to a powerful tool to get insight into complex atomistic systems and to study their evolution in phase space.The length and time scale, which can be covered, is strongly depended on the cost of energy-and force-computations between the particles.The length and size of systems has been continuously extended over the years using parallel computing.However, the accuracy of the interactions between particles in long time simulations has been limited in the past due to the approximative nature of classical force-field description.In recent years the development and application of machine learning (ML) potentials (like the atomic-cluster expansion (ACE) [1], moment tensor potentials [2], Gaussian approximation potentials [3], spectral neighbor analysis potentials [4] and neural network potentials [5]) have received large attention for the combination of computational performance and accuracy.Accurate ML potentials are often based on large sets of density functional theory (DFT) data [4,[6][7][8], used as a reference and therefore translate the accuracy of DFT calculations [9] into dynamic simulations.However, there is still a considerable performance gap between the evaluation of classical fields and ML potentials, e.g. the force calculation for a classical EAM potential and the ML-based ACE method differ by * g.sutmann@fz-juelich.de a factor of 100-1000 [8], which still limits the accessibility of time and length scales of systems, completely described by highly accurate descriptions and therefore pose a conflict between system size and precision.
+
+Due to the high computational demands of accurate interaction models, there have been several attempts to couple lowto high-accurate descriptions adaptively within in a simulation.In QM/MM simulations quantum mechanical descriptions, based on DFT, are coupled to classical force fields [10][11][12].Due to the large computational demand, the QM region is limited to a small sub-system.On a coarser level, e.g. in soft matter [12][13][14][15], an adaptive description has been introduced to reduce the number of degrees of freedom in a system to speed up the computations.On even larger scales, where individual particles can be combined to groups of particles in specific regions of the system coupling between classical atomistic simulations and continuum simulations (like material point method [16] or finite element simulations [17] or with coarse-grained systems like in Refs.[18,19]) are performed.
+
+Due to the change of energy and force description in the two regions (high-/low-accuracy), a spatial zone is usually introduced, which provides a smooth transition from one into the other region.For consistency, either the energy or force is thereby weighted by a factor which changes from 0 to 1 [20].Since the force is entering directly into the integration of motion, several approaches [14,21,22] are based on a weighting of forces.However, it was shown in Ref. [20] that this approach does not result in energy conservation, since the underlying potential cannot be properly reconstructed from the weighted forces.An approach to generate energy conserving dynamics has been taken in Refs.[18,23,24], where the weighting has been included into the Hamiltonian description.
+
+With the advent of ML potentials, coupling of different interaction models shows strong potential for combining a high accurate description in small-to-medium sized subsystems with acceptable computational costs and a low accurate description in large subsystems, opening the path to long time and large length scale simulations including high accuracy, where it is needed.Such a coupling between a ML-potential and a classical force-field description has been proposed in Ref. [22] using a force-mixing approach to simulate a grandcanonical ensemble in the thermodynamic limit.
+
+In contrast, in the present article we use an energy-mixing approach which is consistent with a Hamiltonian description and allows, in principle, the simulation of a microcanonical ensemble.In so doing we introduce a method to couple a precise ML-potential for subregions of atoms of interest and a fast traditional potential for the remaining system components to overcome the conflict between system size and precision for classical atomistic simulations.The atoms of interest are thereby automatically detected by a customizable detection mechanism and therefore the method works autonomously and self adaptively in space and time.To further reduce the execution time we implemented the method into the parallel simulation engine LAMMPS [25].
+
+The present paper is organized as follows: We first introduce our adaptive-precision model in Section II, whereas we present the energy-model in Section II A, discuss the group of interest detection in Section II B and the integration of motion in Section II C. With adaptive-precision and dynamic precision-selection in a parallel simulation comes the need for dynamic load balancing as the compute time changes over magnitudes between atoms.Therefore, we present our dynamic load-balancing method in Section II D. We applied the introduced adaptive-precision mechanism and combined an EAM potential with an ACE potential for copper.The input potentials are presented in Section III and the EAM potential is improved to be used in combination with the ACE potential.Finally, we demonstrate in Section IV the capabilities in terms of precision and efficiency of the adaptive-precision copper potential for a nanoindentation of 4 × 10 6 atoms calculated for 100 ps with LAMMPS [25].In Section V we conclude.
+
+
+II. METHOD A. Representation of energy and forces
+
+The total energy of the system is given as H = ∑ i (T i + E i ) + E ext , where T i is the kinetic and E i the potential energy of atom i and E ext are possibly existing external fields.The energy of our adaptive-precision approach combines a precise and a fast energy, E
+
+i and E (f)  i , per atom i.We will use the atomic cluster expansion (ACE) [1] as precise and the embedded atom model (EAM) [26] as fast interatomic potential.Precise and fast energies are combined with a continuous switching pa-
+rameter λ i ∈ [0, 1] per atom i, namely E i = λ i E (f) i + (1 − λ i )E (p) i .(1)
+During the course of a simulation the energy will be switched automatically from fast to precise or vice versa as required by the local atomic environment.The switching parameter λ i needs to change continuously to prevent shocks by instant energy changes.One can save computation time by using the combined energy E i compared to the precise energy
+E (p)
+i since the precise calculation is only required for a subset of atoms.One needs to make sure that the energies E (s)  i and E
+
+(p) i are as similar as possible for the atoms, which are calculated with the fast potential, to prevent a systematic energy change due to the change of the switching parameter.The force
+F i = −∇ i ∑ k E k
+according to the energy model (Eq.( 1)) is
+F i = ∑ k − λ k (∇ i E (f) k ) − (1 − λ k )(∇ i E (p) k ) + (∇ i λ k )(E (p) k − E (f) k ) .(2)
+It is important to note that λ i = 0 is not the only requirement for a precise force on atom i since the force F i depends according to Eq. ( 2) on the switching parameters λ k of all atoms k within the force cutoffs of the interatomic potentials.For visualization, we define the force f
+(M)
+k→i from atom k on atom i according to the interatomic model M as
+F (M) i = ∑ k̸ =i f (M) k→i ∇ i r ik .
+In contrast to the total force, the individual pair force contributions f (M) k→i of two different interatomic potentials are not necessarily correlated as shown in Fig. 1.
+
+The adaptive-precision potential can be conservative and depend only on atomic distances r i j when a differentiable switching function λ i is used.However, for a consistent force evaluation, gradients of λ k with respect to atomic positions need to be calculated (cmp.Eq. ( 2)).
+
+
+B. Adiabatic switching
+
+The switching function λ changes the energy-precision (cmp.Eq. ( 1)) and thereby also the force-precision during simulation dependent on the atomic environment.This change of precision is ideally quasi-adiabatic to prevent perturbations of the system.The switching function itself has generally no physical meaning, it is only an auxiliary function to determine the precision.However, the force on atom i depends according to Eq. ( 2) on (∇ i λ k ) and thus not only on the value of the switching parameter but also on the calculation mechanism.Therefore, an adiabatically slow change of the switching parameter is important to minimize the unphysical force contribution of (∇ i λ k ).
+
+The switching function needs a detection mechanism for particles that require a precise calculation.This detection mechanism strongly depends on the simulation.The centrosymmetry parameter [28] (CSP) detects e.g.defects and surface atoms whereas the common neighbor analysis (CNA) [29] can characterize grain boundary structures [30].The common k→i for a system of 13500 copper atoms at 300 K with periodicboundary conditions in all spatial dimensions α.The force contributions are colored according to the equilibrium distance r eq ik of the corresponding atom pair ik.The compared potentials are a modified EAM2 of Ref. [27] and ACE of Ref. [8], both of which are described in Section III.b) Total force F i on an atom i which is given by the sum over the individual pair force contributions of all neighbors k. neighborhood parameter(CNP) [31] combines CNA and CSP.CSP, CNA and CNP are implemented in LAMMPS [32][33][34] and therefore accessible for a wider community.For a coating like in Ref. [35] one can include only atoms of the same element like the central atom i in the calculation of CSP i to make the interface look like a surface.
+
+The switching parameters {λ k } of all atoms k within the force cutoff of atom i determine the force-precision of atom i as discussed in Section II A. Therefore, when an atom i is detected for a precise calculation, the switching function needs to change also the switching parameters λ k of the neighboring atoms k to ensure a precise force calculation of atom i.
+
+To detect defects and surfaces, we assume here the CSP as detection mechanism.However, it can be changed to other criteria without big implementation overhead.The CSP is given as
+CSP i (t) = N/2 ∑ j=1 ⃗ r i, j (t) +⃗ r i, j+N/2 (t) 2 , (3)
+whereas N is the number of nearest neighbors and j and j + N/2 correspond to a pair of opposite nearest neighbors of the central atom i.How to identify these pairs is discussed in detail in Appendix A. The construction of our switching function, taking into account the requirements discussed, is described in Appendix B.
+
+
+C. Integration of motion
+
+
+Velocity-Verlet integration
+
+With a known velocity v i (t), position x i (t), acceleration a i (t) and switching parameter λ i (t) of the last timestep t, one can propagate an atom in time.A timestep of ∆t according to the Velocity-Verlet integration [36] updated for the use with an adaptive-precision potential is given as,
+1. v i t + ∆t 2 = v i (t) + a i (t) 2 ∆t (4a) x i (t + ∆t) = x i (t) + v i t + ∆t 2 ∆t (4b) 2. λ i (t + ∆t) = λ i (λ i (t), {x(t + ∆t)}) (4c) 3. a i (t + ∆t) = F i (t + ∆t) m i (4d) E i (t + ∆t) = E i (t + ∆t) (4e) 4. v i (t + ∆t) = v i t + ∆t 2 + 1 2 a i (t + ∆t)∆t ,(4f)
+whereas step 2 in Eq. ( 4) is new and required due to the adaptive-precision potential.The first velocity and position calculations for v i (t + ∆t/2) and x i (t + ∆t) use the given λ i (t).
+
+A new lambda λ i (t + ∆t) has to be calculated in the second step of the integration since the positions of the particles have changed and thus also their switching parameter.Therefore, the afterwards calculated quantities a i (t + ∆t), E i (t + ∆t) and v i (t + ∆t) depend on the new calculated lambda λ i (t + ∆t).
+
+
+Avoiding unphysical force-contributions by
+(∇ i λ k )
+The acceleration calculation according to Eq. (4d) requires according to Eq. ( 2) the knowledge of (∇ i λ k ).The force contribution through this gradient of the switching function should be small as a slowly changing switching function is used.However, as discussed in Section II B, the switching function has generally no physical meaning, but only influences the required precision.Furthermore, the need to change the switching parameter adiabatically slowly implies the usage of time averages whose gradient cannot be calculated consistently.Thus, we want to neglect (∇ i λ k ) in Eq. ( 2), but this would violate energy-conservation.The adaptiveprecision potential is conservative for a constant set of {λ i } as the calculation of ∇ i λ k is not required in this case.This conservative reference system offers the possibility of neglecting the unphysical force contribution of (∇ i λ k ) in an energy and momentum-conserving way.We want to stress that if λ is kept constant per atom over time we have a conservative dynamics and therefore conserve energy and momentum naturally.Thus, we can use the system with constant switching parameters as reference system for each atom to apply a momentum-conserving correction for energy conservation which is described in the following.Note that the presented correction approach is independent of the calculation of λ and can be used for any switching function.
+
+The energy difference ∆E i of atom i at the end of a time step between the conservative reference system and the system with updated switching parameters is caused by the change of the switching parameter.To calculate this energy error ∆E i , one has to finish the calculation of an integration step for both sets of switching parameters.As the forces of the reference system and the dynamic-λ system depend on the same atomic positions, one can easily calculate both forces during the force calculation by just summing up two forces weighted with the corresponding switching parameter.This energy difference affects both the kinetic energy change ∆T i and the potential energy change ∆V i , namely
+∆E i = ∆T i + ∆V i .(5)
+The potential energy change ∆V i affects only atoms whose switching parameter has changed (cmp.Eq. ( 1)).The kinetic energy change ∆T i affects atoms in whose force cutoff a switching parameter has changed (cmp.Eq. ( 2)).The calculation of ∆V i and ∆T i is described in Appendix C 1.
+
+We want to change the energy of particles in order to correct the energy error ∆E i introduced by a changed λ and thereby conserve the energy.Since one cannot simply change the potential energy in a predictable way, we change the kinetic energy of particles.The energy errors are calculated per particle i and should also be corrected locally.Therefore, we need a local thermostat which changes the kinetic energy of atoms by the measured energy error ∆E i .The local thermostat rescales the momenta of a group of atoms Ω i relative to the center-of-mass velocity by the factor β (Ω i , ∆E i ).The rescaling conserves the momentum as the rescaling is relative to the centre-of-mass velocity.The rescaling including the calculation of the rescaling factor β (Ω i , ∆E i ) is described in Appendix C 2 in detail.The integrator changes the velocity of particles of mass m according to ∆v = ∆tF/m due to a force F. One can understand the energy-error correction as additional force which is just used at the end of a timestep, but not in the next integrator step.The application of this local thermostat contains a stochastic component as direction of the effectively applied force is in direction of the relative momentum and thus stochastic.Note that this local thermostat is not considered to provide a NVT ensemble.It can be considered as an energy correction, but not primarily as temperature correction, i.e. the objective function is not the temperature, but the energy.Thus, non-equilibrium simulations, non-energy conserving simulations like an NVT ensemble and simulations with external forces can be performed with the local thermostat.
+
+
+D. Load balancing
+
+Time integrating the equations of motion for a set of atoms described by a short-range interatomic potential requires per atom only information from neighboring atoms within a cutoff distance.Thus, LAMMPS uses distributed-memory parallelism via MPI [25].The simulation box is divided into disjoint domains which cover the whole simulation box according to a spatial domain-decomposition approach [37].Each MPI task, in the following denoted as processor, is assigned to one domain and administers all particles located in this domain.Our adaptive-precision potential requires a highly different compute time per atom dependent on the used potential and that causes load-imbalances between the domains.Hence, we present a load-balancing approach to dynamically change the domain sizes during a simulation.
+
+We calculate the centro-symmetry parameter CSP i (t) according to Eq. ( 3) and the switching parameter λ according to Eq. (B4) within the force-calculation routine to include both into the load balancing.Thus, we perform four independent calculations during the force-calculation routine.We execute firstly the calculation of the fast potential (FP), secondly the precise potential (PP), thirdly CSP i (CSP) and fourthly λ i (λ ).Since all four calculations are required only for a subset of particles as discussed in Appendix G in detail, the code inherently needs load balancing.Required adjustments of the interatomic-potentials to allow effective load-balancing for adaptive-precision potentials are discussed in detail in Appendix H.
+
+We assume per processor p and subroutine X an average work per particle
+ρ (X ) p = τ (X ) p /N (X ) p ,(6)
+whereas the total duration τ (X ) p and the number of calculations N (X ) p is measured within the force-calculation subroutine X .We rescale the work ρ (X ) p with a constant factor per processor p in order to match the total work of our model with the also measured total calculation time τ p of the processor.Thereby, one can assign an individual load ρ atom i to atom i with possible contributions of ρ FP p(i) , ρ PP p(i) , ρ CSP p(i) and ρ λ p(i) .The load ρ atom i is used as input for a load-balancing algorithm.We use a staggered grid [38] which is used for particle simulations [39] and which is implemented in the loadbalancing library ALL [40].
+
+
+III. ADAPTIVE-PRECISION POTENTIAL A. Atomic cluster expansion
+
+We use the atomic cluster expansion (ACE) of Ref. [8] as precise potential as it is a modern ML-potential with a good representation of its DFT reference data.The energy E i of an atom i described by the atomic cluster expansion [1] is
+E ACE i = φ (1) i + φ (2) i ,(7)
+whereas the functions φ (p) i are expanded as
+φ (p) i = ∑ v c (p) v B iv ,(8)
+where B iv are product basis functions which describe the atomic environment and c
+
+(p)
+
+v are fitted expansion coefficients with the multi-indices v.We use the copper ACE potential from Ref. [8].
+
+
+B. Embedded atom model
+
+We use the EAM2 potential of Ref. [27] as starting point for the fast potential since it is widely used [41][42][43][44].The energy of an atom i described with the embedded atom model [26] (EAM) is
+E EAM i = ξ ∑ j̸ =i ζ (r i j ) + 1 2 ∑ j̸ =i Φ(r i j ) , (9)
+where ξ is the embedding function, ζ the electron density and Φ a pair potential.We use a copper potential from Ref. [27] which is described in Appendix E. We need to optimize the EAM potential to minimize systematic energy differences between the used EAM and ACE potentials.Furthermore, the optimization gives the possibility to improve the forces as well.The EAM potential is fitted for applications with surfaces, vacancies and interstitials which are detected for a precise calculation and therefore do not need to be described by the fast and less accurate EAM potential.To correct an energy offset, we introduce ξ Fit 0 to the original embedding function ξ (x) (Eq.(E4)), namely ξ Fit (x) = ξ (x) + ξ Fit 0 and use ξ Fit (x) instead of ξ (x).The set of parameters A (cmp.Appendix E) is optimized by minimizing a loss function L with atomicrex [45].The loss function includes atomic energies E s,i and forces F s,i of different structures s with N s atoms as well as the scalar properties A o .We use the lattice parameter a FCC 0 , the cohesive energy and elastic constants as scalar properties.The target values denoted with 'targ' are the corresponding values calculated with the highly accurate ACE potential.The predicted values denoted with 'pred' are calculated with the current set of parameters A .The differences between predicted and target values are per quantity weighted with a tolerance δ tol .The used target values and tolerances of the loss function are listed in Table I.The minimized loss function is
+L (A ) = ∑ s∈S 1 N s N s ∑ i=1 E targ s,i − E pred s,i δ tol E md 2 + N s ∑ i=1 ∥F targ s,i − F pred s,i i∥ δ tol F md 2 + ∑ o∈O A targ o − A pred o δ tol o 2 ,(10)
+with the set of scalar observables O and the set of structures S .We use six snapshots of a NVE simulation of copper with  [50] of the fitted EAM potential, original EAM potential, the ACE potential and experimental values [51] measured by neutron diffraction at the temperature 80 K. 10 × 10 × 10 unit cells at 300 K and periodic boundary conditions as structures for the fit.These structures are sufficient since we start with an already tested and validated EAM potential and the optimized EAM potential is for use only with atomic configurations similar to the used structures.We start the fitting with the parameters of EAM2 from Ref. [27] and ξ Fit 0 = 0 eV.In a first run, only the energy offset ξ Fit 0 is fitted.Afterwards all parameters including ξ Fit 0 are fitted.The optimized parameters are listed in Appendix E in Table III.Scalar properties calculated with the optimized EAM potential are shown in Table II.Lattice constant and cohesive energy of the optimized EAM potential match through the optimization.The elastic constants of ACE are in good agreement with both EAM and optimized EAM potential.The phonon spectra are compared in Fig. 2 and in are good agreement.
+
+
+C. Combined EAM and ACE potential
+
+We combine the ACE potential and the optimized EAM potential to an adaptive-precision copper potential according to Eq. ( 1) with the switching function λ , which is described in Section II B and Appendix B. There are parameters in three  [48] octahedral / eV 3.3392 3.2559 3.1303 3.35 [47] tetrahedral / eV 3.6217 3.5655 3.4240 3.64 [47] Elastic Constant C11 / GPa 173.8
+
+171.5 171.3 177 [8] 177 [49] Elastic Constant C12 / GPa 120.5 124.2 120.1 132 [8] 125 [49] Elastic Constant C44 / GPa 77.8 76.2 80.6 82 [8] 81 [49] components, firstly in the mechanism used to detect atoms that require a precise calculation, secondly in the switching function and thirdly in the local thermostat used to avoid unphysical force contributions by (∇ i λ k ).We discuss how to select these parameters in Appendix F, whereas the parameter set is listed in Table IV.We refer to the adaptive-precision potential with this parameter set as Hyb1.
+
+
+IV. DEMONSTRATION
+
+We calculated a nanoindentation with 4 million atoms and a (100)-surface at 300 K for 100 ps on JURECA-DC [52] with the adaptive-precision copper potential Hyb1 (cmp.Table IV) to analyze precision and saved computation time compared to a full ACE simulation.
+
+
+A. Precision
+
+The force difference ∆F Hyb1 = RMSE(F Hyb1 iα − F ACE iα ) of rescaled atoms, including the theoretical rescaling force according to Eq. (F1), of the adaptive-precision potential Hyb1 compared to ACE forces during the nanoindentation is shown in Fig. 3a.The force difference ∆F Hyb1 is calculated from force components F iα in the spatial dimension α.For defects and surface atoms, the forces are within a tolerance up to 10 meV/ Å compared to the precise ACE forces for most cases while the exact potential energy of ACE is used according to Eq. (1).
+
+We changed single parameters of the parameter set Hyb1 and performed simulations with otherwise identical parameters to perform a sensitivity analysis on results of the selected parameters.The influence of the changed parameters is shown in Fig. 3b.Increasing the thresholds CSP lo and CSP hi by 0.5 Å2 decreases the force precision for thermally fluctuating atoms and dislocations with CSP avg,i < 4.5 Å2 .The decreased force precision for the dislocations is expected as these are the atoms which are simulated with the fast potential due to the in-creased CSP thresholds.Thus, the only advantage of increasing the CSP thresholds is performance.Doubling the averaging time of the centro-symmetry parameter N CSP,avg decreases the force precision on thermally fluctuating atoms.The force precision of dislocations increases in most snapshots.As dislocations are in contrast to the surface not stationary, increasing the CSP averaging time may reduce the detection possibility for moving dislocations.Thus, one can adjust N CSP,avg dependent on the expected dislocation dynamics.Doubling the averaging time of the switching parameter N λ ,avg decreases the force precision of dislocations with CSP avg,i < 4
+
+Å2 , but increases the force precision of dislocations with a larger timeaveraged CSP.The force precision for dislocations decreases with an increasing CSP avg,i according to Fig. 3a and this effect is enhanced by doubling N λ ,avg .Thus, increasing N λ ,avg is not beneficial.Increasing the cutoffs r λ ,lo and r λ ,hi of λ min,i by 4 Å and 8 Å respectively, increases the number of precise calculations and thus the force precision for all atoms apart from surface atoms which are already treated with the precise potential.The only disadvantage is the increased compute time due to more precise calculations.Therefore, the cutoffs of λ min,i can be adjusted dependent on the performance requirements.
+
+
+B. Computational efficiency
+
+The processor p with the highest work τ max p restricts the speed of a simulation since faster processors need to wait due to communication and synchronization.Thus, the imbalance, as defined in LAMMPS [53],
+I = τ max p /⟨τ p ⟩ p(11)
+of the force calculation time τ p gives a measure for the quality of the load balancing, whereas an imbalance of 1 corresponds to a perfectly balanced system.The mean imbalance in the nanoindentation is 1.41 with a standard deviation of 0.26.Dynamic load-balancing of an adaptive-precision potential is challenging as the work distribution changes drastically when the precision of atoms is switched from fast to precise or vice versa as discussed in Appendix J in more detail.The average work per atom for the four subprocesses is ⟨ρ FP p,t ⟩ p,t = 9.6 µs, ⟨ρ PP p,t ⟩ p,t = 1.7 ms, ⟨ρ λ p,t ⟩ p,t = 48.6 µs and ⟨ρ CSP p,t ⟩ p,t = 5.6 µs, whereas the processor-dependency is discussed in Appendix I.
+
+The motivation to use an adaptive-precision potential is to save computation time compared to a precise potential while preserving accuracy in regions of the simulation where it is required.The nanoindentation with 4 million atoms calculated for 100 ps on JURECA-DC [52] with the adaptive-precision potential Hyb1 (cmp.Table IV) shows a speedup of 11.3 compared to a full ACE simulation like visualized in Fig. 4a.We calculated the surface and dislocations, which developed during the nanoindentation like visualized in Fig. 4b, precisely with the ACE-potential and saved computation times for the remaining atoms by using the fast EAM-potential.Note that the amount of saved computation time strongly depends on the number of not required evaluations of the precise and expensive potential as discussed in Appendix K using the equilibration of the nanoindentation as example.
+
+
+V. CONCLUSION
+
+We introduced a method which allows to compute adaptiveprecision interatomic potentials to speedup atomistic simulations with a region or atoms of special interest.The atoms of special interest are automatically detected by a customizable detection mechanism and simulated with the precise potential while the fast potential is used for the remaining atoms.The energy model (Eq.( 1)) ensures precise energies for the detected atoms while the switching function (cmp.Section II B) is used to get also precise forces.We presented a loadbalancing method with subroutine specific per-atom works per processor using a staggered grid to prevent the load-balancing issues arising by combining two potentials of different cost.We demonstrated the presented adaptive-precision method by creating the copper potential Hyb1 (Table IV) from an EAM and an ACE potential.We explained how the fast EAM po-tential is optimized to match bulk properties with the precise ACE potential.
+
+A nanoindentation with 4 million atoms calculated for 100 ps was used to demonstrate the capabilities of the method.The achieved accuracy of Hyb1 for the detected atoms of interest during the nanoindentation is for forces 10 meV/ Å and for potential energies 0 meV.The nanoindentation showed a speedup of 11.3 compared to a full ACE simulation.Note that the amount of computation time that can be saved depends on the number of not required precise calculations and therefore on the simulation setup and the detection mechanism for atoms of interest.
+
+The application of an adaptive-precision potential for other situations where the highest precision is required only locally but not globally like interfaces, cracks and grain boundaries is straightforward while the generalization of the detection mechanism for non-crystalline systems like amorphous solids is a natural next question.Automated training of the fast potential would improve the usability of adaptive-precision potentials.The present work is based on a CPU-version of our method.A GPU-version is planned for the future.
+
+To calculate the CSP according to Ref. [28], initially reference vectors⃗ r i, j,ref from the central atom i to its closest neighboring atoms j are determined in an undistorted lattice.In the distorted lattice, one uses the distorted vectors ⃗ r i, j closest in distance to the undistorted reference vectors to calculate the centro-symmetry parameter
+CSP ref i = ∑ N/2
+j=1 (⃗ r i, j +⃗ r i, j+N/2 ) 2 , whereas j and j + N/2 correspond to a pair of opposite nearest neighbors of the central atom i.The set of distorted vectors used to calculate CSP ref i may contain a neighbor multiple times and non-nearest neighbors.
+
+LAMMPS [32] uses a different definition for the centrosymmetry parameter CSP lmp which does not require a refer-FIG.5.
+
+Snapshot of BCC Tungsten at 300 K.The eight nearest neighbors (white) of the central atom (blue) do not contain all neighboring atoms required to calculate the centro-symmetry parameter CSP ref .The 9th-nearest neighbor(red) is missing.Thus, one needs to evaluate more than the 8 nearest neighbors for the CSP lmpcalculation.
+
+ence system.At first, one searches the set N i of the N nearest neighboring atoms of the central atom i, whereas N is the number of nearest neighbors in the undistorted lattice.Afterwards, the N/2 pairs with the smallest |⃗ r i, j 1 +⃗ r i, j 2 | with j 1 , j 2 ∈ N i are used to calculate the centro-symmetry parameter.This definition may also contain duplicates, but relevant non-nearest neighbors may be neglected.This neglection of non-nearest neighbors is relevant for the computed CSP lmp of Tungsten in a BCC lattice at 300 K like shown in Fig. 5.The effect of this neglection is reduced by searching N + N buffer rather than N nearest neighbors for N i .Thus, we calculate CSP lmp according to the LAMMPS-definition, but use N + N buffer atoms for the identification of the N/2 relevant opposite-neighbor pairs denoted as j, j + N/2.
+
+The switching parameter needs to detect atoms for the precise calculation precisely to prevent too many evaluations of the precise and expensive potential.This requirement is fulfilled by the CSP since only neighboring atoms similar to the expected neighbors in an undistorted lattice are used for the calculation.Missing or displaced atoms in the second neighbor-shell of the central atom do not influence the CSP.Hence, the nearest neighbor-shell of a defect, vacancy or surface atom is detected, but the second-nearest neighbor-shell is not.The latter behavior might not be useful when low angle symmetric tilt grain boundaries, for example, are of interest as only a subset of atoms may be detected [56].However, one can use the CSP to detect some grain boundaries [57].
+
+
+Appendix B: Construction of the switching function
+
+The centro-symmetry parameter according to Eq. (3) detects defects and surface atoms, which need to be calculated by the precise potential.Therefore, we use the CSP as starting point to construct the switching function for a nanoindentation.The centro-symmetry parameter fluctuates over time as atoms fluctuate dependent on their temperature.Since the thermal fluctuations of atoms should not be detected, we introduce a moving average
+CSP avg,i (t) = 1 N CSP,avg N CSP,avg ∑ n=1 CSP i (t − n∆t) (B1)
+of N CSP,avg timesteps ∆t.The time-averaged centro-symmetry parameter can be used to calculate a switching parameter λ 0,i as
+λ 0,i (t) = 1 − f (cut) CSP avg,i (t) − CSP lo CSP hi − CSP lo , (B2)
+where we use the radial function
+f (cut) (x) =    1 for 0 > x , 1 − 1.875x + 1.25x 3 − 0.375x 5 for 0 ≤ x ≤ 1 , 0 for x > 1 .
+(B3) f (cut) is taken from PACE [8] as the first and second derivative of f (cut) are smooth at 0 and 1. λ 0,i (t) = 1 applies for all atoms with CSP avg,i (t) ≤ CSP lo .The use of a continuous switching function for CSP avg,i ∈ [CSP lo , CSP hi ] ensures a smooth transition from the fast interatomic potential to the precise one and vice versa for all atoms.
+
+One can change the argument of f (cut) in Eq. (B2) to use a different detection mechanism and use the following definitions of the switching function as presented without further changes.The argument must be 0 for atoms to be calculated exactly and 1 for atoms to be calculated quickly.
+
+Since the force on an atom depends on all switching parameters within its force cutoff as discussed in Section II A, we introduce
+λ min,i (t) = min 1 − (1 − λ 0, j (t)) f (cut) r i j (t) − r λ ,lo r λ ,hi − r λ ,lo : j ∈ Ω λ ,i ,(B4)
+where Ω λ ,i = { j : r i j < r λ ,hi } is the set of neighboring atoms.As λ 0,i ∈ [0, 1] applies, λ min,i ∈ [0, 1] follows.For both calculation and understanding of λ min,i (t) it is useful to start with λ 0,i (t) as initial value for the minimum search.Atoms j that were not detected for a precise calculation have λ 0, j (t) = 1.
+
+Their contribution to the minimum search is 1 independent of r i j and thus negligible.Only neighbors j that were detected for a precise calculation and thus have λ 0, j (t) < 1 and λ 0,i (t) can be the searched minimum.Atoms with λ 0,i (t) = 0 set λ min, j (t) = 0 for all neighboring atoms j with r i j ≤ r λ ,lo and may set λ min, j ∈ (0, 1) for neighboring atoms with r i j ∈ (r λ ,lo , r λ ,hi ).Thus, Eq. (B4) decreases the switching parameter for neighbors of atoms, which need to be calculated precisely, to ensure a higher fraction of precise force contributions for these atoms.Since the radial function f (cut) (r i j ) used in Eq. (B4) also fluctuates due to atomic fluctuations, we use a moving average
+λ avg,i (t) = 1 N λ ,avg N λ ,avg ∑ n=1 λ min,i (t − n∆t) (B5)
+of N λ ,avg timesteps.To prevent unnecessary fluctuations of the switching function further, we introduce a minimum step size ∆λ min and neglect changes smaller than this step size in form of
+λ avg,msz,i (t) =    λ avg,i (t) for λ avg,i (t) − λ avg,msz,i (t − ∆t) ≥ ∆λ min or λ avg,i (t) ∈ {0, 1}, λ avg,msz,i (t − ∆t) otherwise .
+(B6) When an atom is detected for a precise calculation according to λ min,i (t) it takes N λ ,avg timesteps until λ avg,i is changed completely due to the time average.Therefore, a change of λ avg,i in the order of magnitude of 1/N λ ,avg is expected.Changes of λ avg,msz,i smaller than 1/N λ ,avg can be neglected without disturbing the smooth transition from the fast interatomic potential to the precise one or vice versa in a relevant way.Thus, the use of an appropriately small ∆λ min prevents only λ changes due to atomic fluctuations.We use λ avg,msz,i according to Eq. (B6) as switching function for energy-and force-calculations as the CSP precisely detects defects and surface atoms and the switching function ensures precise forces on these detected atoms.
+
+
+Appendix C: Local thermostat
+
+The local thermostat needs to change the kinetic energy of particles in order to correct the energy error ∆E i according to Eq. ( 5) introduced by changed switching parameters and thereby conserve the energy.
+
+
+Error calculation
+
+∆E i is the energy difference of atom i at the end of a time step between the conservative reference system with constant switching parameters and the system with updated switching parameters.Therefore, one has to finish the calculation of an integration step for both sets of switching parameters.The quantities of the conservative reference system calculated with the constant switching parameter λ c i (t + ∆t) = λ i (t) are denoted with . . .c .In contrast, the quantities calculated with the dynamically updated switching parameter λ d i (t + ∆t) are denoted with . . .d .The non-energy conserving force on an atom with the updated switching parameter under neglection of ∇ i λ k in Eq. ( 2) is
+F d i = ∑ k −λ d k (∇ i E (f) k ) − (1 − λ d k )(∇ i E (p) k ) . (C1)
+With the same force equation like Eq. (C1) but λ c k instead of λ d k , we get the conservative reference force F c i .Since the form of the equation is the same and both forces depend on the same atomic positions x i (t + ∆t) one can easily calculate F d i and F c i during the force calculation by just summing up two forces weighted with the corresponding switching parameter.
+
+To measure the violation of energy conservation (cmp.Eq. ( 5) by neglecting ∇ i λ k and using F d i according to Eq. (C1), we calculate both the potential energy difference
+∆V i (t +∆t) = E c i (t + ∆t) − E d i (t + ∆t) and the kinetic energy difference ∆T i (t + ∆t) = (|⃗ v c i (t + ∆t)| 2 − |⃗ v d i (t + ∆t)| 2 )m i /2
+at the end of the timestep.The potential energy difference is given as
+∆V i (t + ∆t) = λ c i (t + ∆t) − λ d i (t + ∆t) × E (f) i (t + ∆t) − E (p) i (t + ∆t) . (C2)
+One should note, that Eq. (C2) only uses already calculated potential energies and does not introduce further overhead.The switching parameter is known for all atoms and one does not need any potential energies for atoms i with λ c i (t + ∆t) =
+λ d i (t + ∆t).
+The kinetic energy difference is given as
+∆T i (t + ∆t) = 3 ∑ α=1 (∆t) 2 8m i (F c iα (t + ∆t)) 2 − F d iα (t + ∆t) 2 + F c iα (t + ∆t) − F d iα (t + ∆t) × v iα t + ∆t 2 ∆t 2 , (C3)
+whereas α denotes the spatial component of a vector.It is important to use only the forces of the interatomic potential as F c i and F d i and to neglect any present external forces since such additional forces may not be energy-and momentumconserving.
+
+
+Error correction
+
+Coupling particles to a local heat bath through collisions of two particles according to Lowe-Andersen [58], for example, is therefore impractical since the direction of the momentum change of the two particles is in the direction of the relative distance of both particles.This predefined direction of a momentum change for two particles may result in very high and unphysical forces when the relative momentum of the two considered particles is not parallel to the direction of the momentum change.Thus, one needs to apply a correction to the set Ω i of atoms rather than to a pair of atoms to distribute the additional force over multiple atoms.We get a minimum additional force when a particles momentum is rescaled since the direction of force and momentum change is equal in this case, but this would violate momentum conservation.Thus, we need to rescale with respect to the centerof mass velocity ⃗ v cm (Ω i ) = (∑ j∈Ω i m j ⃗ v j )/(∑ j∈Ω i m j ) of the rescaled atoms.We want to rescale only the relative momentum ⃗ p rel, j
+(Ω i ) = ⃗ p j (Ω i ) − m j ⃗ v cm (Ω i ) of all particles j ∈ Ω i by the factor β (Ω i ), namely ⃗ p j,resc (Ω i ) = m j ⃗ v cm (Ω i ) + β (Ω i )⃗ p rel, j (Ω i ) . (C4)
+The total relative momentum ∑ j∈Ω i ⃗ p rel, j = ⃗ 0 vanishes and the rescaling according to Eq. (C4) therefore conserves the momentum.The kinetic energy change in Ω i due to the rescaling is
+∆T resc (Ω i ) = (β (Ω i ) 2 − 1) ∑ j∈Ω i 1 2m j p rel, j (Ω i ) 2 . (C5)
+To correct the detected energy error ∆E i according to Eq. ( 5), we need to select β (Ω i ) to satisfy
+∆E i = ∆T resc (Ω i ), namely β (Ω i ) = ∆E i ∑ j∈Ω i 1 2m j p rel, j (Ω i ) 2 + 1 . (C6)
+We neglect β (Ω i ) = − √ . . .although it fulfills ∆E i = ∆T resc (Ω i ), because it alters the momentum direction for ∆E i = 0. Rescaling according to Eq. (C6) conserves the momentum for ∆E i = 0.It is important to note that the rescaling factor β depends on the momentum before the rescaling.Therefore, our method presents challenges in terms of parallelization as one needs a sub-domain decomposition with sub-domains which can be treated independently.We did not develop and implement such a sub-domain decomposition as it is not the focus of our work.Instead, we only rescale locally administered particles and no ghost particles.We use a random selection of locally administered particles of the neighbor list of particle i and the particle i itself as Ω i .Thereby, the energy correction by rescaling relative momenta can be applied per processor without communication for all particles with an energy error ∆E i ̸ = 0. Note that the application of this local thermostat contains essentially two stochastic components.Firstly, the selection of neighboring atoms that are rescaled is stochastic, namely Ω i .Secondly, the direction of the effective force is the direction of the relative momentum ⃗ p rel, j (Ω i ) (cmp.Eq. (C4)) and thus stochastic.
+
+The maximum possible decrease of the relative momentum per particle is to decrease the relative momentum for all particles j ∈ Ω i to 0 kgm/s with β (Ω i ) = 0. Thus, according to Eq. (C6) energy errors ∆E i < − ∑ j∈Ω i p rel, j (Ω i ) 2 /(2m j ) cannot be corrected as they correspond to a negative radicand in Eq. (C6) and imply β ̸ ∈ R. Hence, one needs to include more particles in the rescaling in this case.Concrete prevention strategies and workarounds in LAMMPS for negative radicands are discussed in Appendix D. However, the occurrence of negative radicands depends on the simulation setup and the combined potentials and is by our observation an extremely rare event which does not occur at all in many simulations.
+
+The presented rescaling approach fulfills momentum conservation as only relative momenta are rescaled and results in energy conservation for the forces according to Eq. (C1).One can then use F d i (t + ∆t) as F i (t + ∆t) and the rescaled velocities as v i (t + ∆t) at the begin of the next integration step.
+
+This local thermostat is a tool to correct locally a known energy gain or loss of an atom i during the integration step by adjusting the kinetic energy in the local environment of this atom.We exactly know the energy error due to the neglection of ∇ i λ k in Eq. ( 2) and correct this error to conserve the energy within numerical precision.
+
+
+Appendix D: Handling negative radicands in LAMMPS
+
+Energy errors ∆E i < − ∑ j∈Ω i p rel, j (Ω i ) 2 /(2m j ) cannot be corrected by the local thermostat as they correspond to a negative radicand in Eq. (C6) and imply β ̸ ∈ R. Hence, one needs a larger neighbor list to randomly draw atoms as Ω i in case of a negative radicand.As a dynamic neighbor-list cutoff is not implemented in LAMMPS, one needs to use the last restart file to run the simulation with a larger neighbor-list cutoff.Requesting a larger neighbor-list cutoff as precautionary measure is possible, but would reduce the performance of the whole simulation rather than just of a small subset of timesteps.As we use a parallel-computing approach including a load-balancing scheme problems due to the domain ge-ometry are possible.When the load balancer reduces the size of a domain, it reduces thereby also the number of local particles which are available for rescaling.Thus, in case of a negative radicand one can also restart the simulation with temporary disabled load balancing to avoid the existence of small domains.For details regarding the load balancing see Section II D. 6.59288e-03 6.44057e-03 F Fit 0 /eV 0.00000e+00 -1.50036e-01 ξ (0) /eV -2.30000e+00 -2.30089e+00 h/ Å 5.00370e-01 5.00370e-01 ξ (2) /eV 1.40000e+00 1.39912e+00 q 1 /eV -1.30000e+00 -1.29894e+00 Q 1 4.00000e-01 3.99178e-01 q 2 /eV -9.00000e-01 -8.99672e-01 Q 2
+
+3.00000e-01 3.00455e-01 q 3 /eV 1.80000e+00 1.79940e+00 S 1 /eV Å−4 4.00000e+00 4.00000e+00 q 4 /eV 3.00000e+00 2.99944e+00 S 2 /eV Å−4 4.00000e+01 4.00000e+01 r
+
+(1)
+0 / Å 8.35910e-01 8.36347e-01 S 3 /eV Å−4 1.15000e+03 1.15000e+03 r(2)
+0 / Å 4.46867e+00 4.46690e+00 a 3.80362e+00 3.80541e+00 r
+
+(3)
+0 / Å -2.19885e+00 -2.19834e+00 α 1 / Å−1 2.97758e+00 2.96972e+00 r (4) 0 / Å -2.61984e+02 -2.61984e+02 α 2 / Å−1 1.54927e+00 1.55510e+00 r(1)
+s / Å 2.24000e+00 2.24000e+00
+β 1 / Å−2 1.73940e-01 1.66589e-01 r(2)
+s / Å 1.80000e+00 1.80000e+00
+β 2 / Å−1 5.35661e+02 5.35661e+02 r(3)
+s / Å 1.20000e+00 1.20000e+00 r c / Å 5.50679e+00 5.50679e+00 N buffer is used to ensure all relevant neighboring atoms are used in the calculation of the centro-symmetry parameter according to Eq. (3).For copper, we have not observed the case of unexpected high centro-symmetry parameters we discussed in Fig. 5 for tungsten.Therefore, we use N buffer = 0.An unexpected high CSP is less likely for copper as the distance in lattice constants between the first and second neighbor shell is for BCC with 1 − 3/4 ≈ 0.13 smaller than for FCC with 1 − 1/2 ≈ 0.29.
+
+The centro-symmetry parameter of an atom i fluctuates due to atomic fluctuations.To suppress this fluctuations, we use a time average of N CSP,avg timesteps in Eq. (B1).To determine N CSP,avg , we measured autocorrelation functions (acf) for 5 ps near a (100)-copper surface as shown in Fig. 6 as mean per (100) atom layer dependent on the distance to the surface.The acf of the CSP has a peak at about 110 fs for all layers apart from the surface layer.As the CSP depends on the local environment, a different acf for the surface atoms is expected.Since the time averaging of the centro-symmetry parameter is used to average out thermal fluctuations, we want to average the CSP up to the peak of the acf of non-surface atoms at 110 fs.With the used timestep ∆t = 1 fs follows N CSP,avg = 110.
+
+The distribution of the centro-symmetry parameter CSP i in  3).Each shown graph is the mean of the autocorrelation functions (acf) of one atom layer in zdirection.The mean distance ⟨∆z i ⟩ i of the corresponding atom layer to the (100)-copper surface is given in the legend.The autocorrelation functions are calculated from data of a 5 ps simulation with an adaptive-precision potential.
+
+the training data is used to set the thresholds CSP lo and CSP hi for Eq.(B2).The fast potential is optimized for usage at a target temperature with MD data of the precise and expensive potential.The training data contain only thermal fluctuations of atoms with observed CSP i ∈ [0 Å2 , 3 Å2 ].Therefore, we distinguish between a small CSP of the thermal fluctuations and all other atoms with a higher CSP.As atoms with CSP avg,i ≥ CSP hi are detected for a precise calculation according to Eq. (B2), we select CSP hi = 3 Å2 .Thereby, we do not detect atoms with expected thermal fluctuations but all other atoms.We use CSP lo = 2.5 Å2 since the difference of 0.5 Å2 between the thresholds allows a smooth transition for atoms from the fast to the precise potential.One might use a slightly different value CSP lo , but far lower values limit the possible performance gain since thermally fluctuating atoms are treated partially with the precise potential.It is essential to treat the majority of the thermally fluctuating atoms completely with EAM as one can only save compute time when ACE is not evaluated for most atoms at all.
+
+
+Switching function
+
+The cutoff radii r λ ,lo and r λ ,hi are used in the calculation of λ min,i according to Eq. (B4) to decrease the switching parameters for neighboring atoms of atoms, which require a precise calculation.The force on an atom depends on all switching parameters within the force cutoff.Thus, r λ ,lo and r λ ,hi increase the force precision for precisely calculated atoms.To determine the cutoff radii r λ ,lo and r λ ,hi , we calculate energies and forces according to Eqs. ( 1) and (C1) for one timestep with λ min,i as switching function under neglection of (∇ i λ k ) as discussed in Section II C.However, we do not apply a local thermostat to prevent random influence in this parameter study and calculate only one timestep.We use a snapshot of a nanoindentation including dislocations.The energy error compared to the precise ACE energy as shown in Fig. 7a vanishes by design for precisely calculated atoms independently of the varied parameters since it depends only on λ min,i of the corresponding precisely calculated atom i.The force error compared to the precise ACE forces is shown in Fig. 7b and depends for the case of thermal fluctuations mainly on the width r λ ,hi − r λ ,lo of the switching zone between precise and fast atoms but is independent of r λ ,lo .The force error for thermal fluctuations can be larger than for the EAM reference force since only the total forces rather than the force contributions of EAM and ACE are fitted as shown in Fig. 1.
+
+Therefore, a switching zone is needed to change smoothly between EAM and ACE atoms.The larger the switching zone, the smaller the force error on thermal fluctuations, but the more computationally expensive the calculation becomes since more precise calculations are required.We selected a switching zone width of r λ ,hi − r λ ,lo = 8 Å.The force error for precisely calculated atoms depends primarily on r λ ,lo .We selected r λ ,lo = 4 Å.The switching parameter λ min,i according to Eq. (B4) of atom i fluctuates as it depends on the distance r i j to neighboring atoms j, which require a precise calculation.Thus, we use a time average of N λ ,avg timesteps in Eq. (B5) to average out these fluctuations of the switching parameter.As this is the same motivation like for the time averaging of the centrosymmetry parameter in Eq. (B1), we use the same number N λ ,avg = N CSP,avg = 110 of averaged timesteps.
+
+
+Local thermostat
+
+An energy error ∆E i according to Eq. ( 5) of atom i is corrected by rescaling momenta of the set of random neighboring atoms Ω i according to Eq. (C6).The distribution of ∆E i in Fig. 8a for a snapshot of a copper nanoindentation at 20 Å indentation depth and 300 K shows that energy corrections need to be applied up to an order of magnitude of 1 meV due to changes of the potential energy.The energy difference between ACE and EAM is in the order of 100meV according to Fig. 7a and the minimum change of the switching parameter is ∆λ min = 1/N λ ,avg ≈ 10 −2 .Thus, the energy fluctuations due to the change of λ i in the order of 1 meV are expected.The kinetic energy T i of an atom at 300 K is iα − v resc iα | during the rescaling step, where i denotes a particle and α a spatial dimension.c) Root mean square error (RMSE) of different forces compared with the precise ACE potential.All rescaled atoms are grouped dependent on CSP avg,i and the RMSE in calculated per group.The applied forces according to Eq. (C1) are denoted with 'unscaled'.The graph denoted with 'rescaled' corresponds to the applied forces plus theoretical forces according to Eq. (F1) due to the rescaling.The forces of the optimized EAM potential used for the adaptive-precision potential are denoted with 'EAM' and given as reference.
+
+T i = (3/2)k B T ≈ 39 meV, where k B is the Boltzmann constant and T the temperature.The kinetic energy changes only slightly with an appropriate timestep and the influence of a λ update on the forces and therefore on the kinetic energy change is even lower.Therefore, the contribution of the kinetic energy to the energy error is magnitudes smaller than the potential-energy contribution as shown in Fig. 8a.Nevertheless, a kinetic energy change due to rescaling in the order of 1 meV is not negligible compared to an average kinetic energy of 39 meV at 300 K. Hence, we need to distribute the effect of rescaling onto a larger number of particles in order to minimize effects on single atoms.In simulations we use a maximum number |Ω i | = 800 of rescaled neighbors.The velocity change due to rescaling is shown in Fig. 8b for the snapshot of the nanoindentation.The absolute velocity change |v unsc iα − v resc iα | is smaller than 0.1%v unsc iα for v unsc iα ≥ 0.1 Å/ps and smaller than 0.1 m Å/ps for about v unsc iα ≤ 0.1 Å/ps.Thus, the velocity changes are small but nevertheless may influence the dynamics of the system.To characterize this effect further, we translate the velocity changes into effective forces.Velocities are updated by the integrator according to ∆v = (F/m)∆t(cmp.Eqs.(4a) and (4f)).Hence, the additional force contribution is given as
+∆F iα = (v unsc iα − v resc iα )m i /∆t (F1)
+for all particles i and spatial dimensions α.The force ∆F iα according to Eq. (F1), however, is a result of the neglection of ∇ i λ k in Eq. ( 2) as discussed in Section II C. The velocity updates in Fig. 8b correspond to the theoretical forces in Fig. 8c.These forces, including rescaling, on precisely calculated atoms are within a tolerance up to 10 meV/ Å compared to the precise ACE forces.The potential energy E i depends, according to Eq. ( 1), only on the switching parameter λ i of atom i.Therefore, the precision of the potential energies E i is unaffected by the rescaling.
+
+Appendix G: Atom subgroups for load balancing
+
+We execute firstly the calculation of the fast potential (FP), secondly the precise potential (PP), thirdly CSP i (CSP) and fourthly λ min,i from λ 0, j (λ ).Which potential needs to be calculated depends on the switching parameter λ .The centrosymmetry parameter is calculated for the group of atoms with a changeable switching parameter.The CSP is not calculated for atoms with a constant switching parameter which is useful for static atoms used at an open boundary.The fourth subroutine is decreasing, if possible, the switching parameter λ min,i compared to λ 0,i for neighboring atoms of atoms, which need to be calculated precisely, by calculating λ min,i according to Eq. (B4).Atoms i with λ 0,i = 1, which do not require a precise calculation, do not influence λ min,i of neighboring atoms.As λ 0,i = 1 should apply for most of the atoms, these atoms should not cause load for the calculation of λ min,i , which is achieved by iterating over the neighboring atoms of atoms with λ 0,i ∈ [0, 1).p,t with ⟨ρ λ p,t ⟩ p,t = 48.6 µs is distributed over four orders of magnitude since the calculation time required on atom i depends also on λ 0, j of neighboring atoms.Since the number of atoms with λ 0,i ̸ = 1 should be small compared with the number of all atoms, we iterate over all atoms with λ 0,i ̸ = 1 and calculate λ min, j for all neighbors j of i.As we search a minimum switching parameter λ min, j per neighbor, we can abort the calculation for λ min, j ≤ λ 0,i ̸ = 1 without calculating r i j and f (cut) .As the calculation of λ min, j is only required on the processor which administrates particle j it is not required to compute the parameter λ min for ghost particles.Thus, the work caused by an atom i depends on the neighboring atoms and is not constant for all processors.The histograms show ⟨ρ FP p,t ⟩ p,t = 9.6 µs, ⟨ρ PP p,t ⟩ p,t = 1.7 ms and ⟨ρ CSP p,t ⟩ p,t = 5.6 µs, of all four force subroutines X , whereas the recursive coordinate bisectioning (RCB) method only uses one work ρ p per processor and is thus worse balanced.The number behind the load balancing method in the legend is the number of timesteps after which the corresponding load balancer is called.c) Load balancing in the system of c) but with static atoms only to test the behavior of the load balancers.
+
+whereas there are two peaks next to each other since the calculation times are dependent on the number of neighbors which is about a factor of two smaller for surface atoms.Therefore, one cannot use one constant processor-independent time per atom.The histograms show the need to measure the required work per atom per processor.Furthermore, the histograms show that the fraction of surface atoms is non-negligible.The atoms at the surface are detected by the centro-symmetry parameter and thus require a precise calculation and hence the domains administered by a processor are small.Note that excluding surface atoms from the precise calculation is possible by comparing the CSP to a given reference configuration, for example initial or equilibrium configuration, instead of using the absolute value of the CSP as input for the switching function in Eq. (B2).
+
+
+Appendix J: Dynamic-load balancing details
+
+We use a nanoindentation to discuss the challenges of dynamic load-balancing of a simulation with an adaptiveprecision potential in the following.The numbers of precise and fast calculations per processor are shown in Fig. 10a as 2D-histogram of all load-balancing steps, whereas loadbalancing is done as described in Section II D. The 2Dhistogram shows that balancing few precise calculations on some processors with much more fast calculations on other processors works.More precisely, the domains with the fewest fast calculations perform on average 568 precise calculations, whereas the domains with the fewest precise calculations perform on average 44245 fast calculations.
+
+To analyze dynamic load balancing further and include also non-performant load-balancing strategies, we only use the start of the equilibration instead of a whole nanoindentation.The required core-hours per timestep during the equilibration of a surface in a NVT ensemble and the imbalance are shown in Fig. 10b for different load-balancing strategies.Our loadbalancing method applying a staggered grid (SG) and estimating the work per particle with the four force-subroutine times ρ (X ) p (cmp.Eq. ( 6)) results in an imbalance of 1.88 when used every 100 timesteps.Not estimating the work per particle but per processor p with only one time measurement of the total force-calculation time τ p means that the actual load distribution on the processor is unknown to the load balancer.Thus, load balancing with only one average work ρ p (cmp.Eq. ( 6)) per processor using the recursive coordinate bisectioning (RCB) method of LAMMPS results in an imbalance of 6.17.The imbalance difference between SG and RCB demonstrates the benefit of using one average work ρ (X ) p per indi-vidual force subroutine X .The imbalance 1 of a perfectly balanced system is not reached since the system is dynamic and changes the workload in each timestep.
+
+An atom i a bulk of only thermally fluctuating atoms can change its value λ 0,i to a value smaller 1 due to a spontaneous fluctuation which might be reversed in one of the next timesteps and therefore produces workload fluctuations due to changes of the neighboring λ min, j parameters according to Eq. (B4).More concrete, the atom changes the switching parameter of all neighboring atoms within the cutoff r λ ,hi to a value smaller 1 which implies a precise and expensive ACE calculation.Within the cutoff r Hby1 λ ,hi = 12 Å are 626 atoms at 0 K which is more than the 568 precise calculations for the processors with the fewest fast calculations in Fig. 10a.Thus, one atom with λ min,i < 1 can double the work of its processor and one cannot expect an imbalance of 1 according to Eq. ( 11) for such a dynamic system.However, the staggeredgrid load balancer reaches with 1.47 a better imbalance when called every 25 timesteps since it can better follow the dynamics of the system.When we freeze all atoms in the NVT equilibration of the surface, we get a static force calculation after N Hyb1 λ ,avg + N Hyb1 CSP,avg = 220 timesteps.The SG method reduces the imbalance of this static system up to 1.02 as shown in Fig. 10c.Hence, the staggered-grid-load balancer works, but the system dynamics is challenging.In contrast, the RCBload balancer cannot balance the static system due to the missing per atom and subroutine X force-calculation times ρ (X ) p (cmp.Eq. ( 6)).
+
+
+Appendix K: Simulation dependency of the saved computation time
+
+A nanoindentation with 4 million atoms calculated on JURECA-DC [52] with the adaptive-precision potential Hyb1 (cmp.Table IV) requires 11 and 13 times less core-h for equilibration and nanoindentation itself like visualized in Fig. 11.The amount of saved computation time depends on the system itself.Dislocations develop during a nanoindentation and therefore there are more precisely calculated atoms at the end of a nanoindentation than at the begin or during the equilibration of the surface.Hence, one requires 59 and 33 times less core-h for the simulations with periodic boundaries in all spatial directions since there are no precisely calculated atoms at the surface.One saves even computation time for all simulation parts for Hyb2 where we increased the cutoffs r λ ,lo = 8 Å and r λ ,hi = 20 Å and used the remaining parameters of Hyb1.
+
+FIG. 1
+1
+FIG. 1. a) Comparison of the individual pair force contributions f (M)
+
+
+
+
+FIG. 3. a) Force error ∆F Hyb1 = RMSE(F Hyb1 iα − F ACE iα ) of rescaled atoms dependent on CSP avg,i and indentation depth of a nanoindentation.b) Force error ∆F Hyb1 compared with the force error ∆F Hyb 1 of another simulation with the parameter set Hyb 1, whereas the parameters in the lower right corner of the corresponding plot are different than in Hyb1.The force error difference ∆F Hyb1 − ∆F Hyb 1 is colorcoded, whereas blue and red corresponds to a smaller force error of Hyb1 and Hyb 1 respectively.The simulations for a) and the lowest plot of b) are calculated in a cubic system with 100 3 unit cells, 68 3 unit cells are used for the remaining simulations.
+
+
+
+
+FIG. 4. a) Total computation time of a nanoindentation with 4 million atoms (100 3 unit cells) simulated for 100 ps with the adaptiveprecision potential Hyb1 compared to ACE and EAM nanoindentations.EAM, hybrid and ACE simulations are calculated on 128, 384 and 2048 cores of JURECA-DC[52] respectively.b) Visualization of the dislocation line defects which occur in a nanoindentation.The visualization is done with OVITO[54] and the dislocations are identified by the dislocation analysis[55] of OVITO.
+
+
+FIG. 8 .
+8
+FIG. 8. Rescaling-related quantities of a nanoindentation at 300 K and 20 Å indentation depth.a) Histogram of potential energy change ∆V i according to Eq. (C2), kinetic energy change ∆T i according to Eq. (C3) and kinetic energy change ∆T resc due to the applied rescaling according to Eq. (C4) separated for positive values denoted with 'heat' and negative values denoted with 'cool'.b) 2D-Histogram of the velocity |v unsc iα | before the rescaling step compared with the velocity change |v unsciα − v resc iα | during the rescaling step, where i denotes a particle and α a spatial dimension.c) Root mean square error (RMSE) of different forces compared with the precise ACE potential.All rescaled atoms are grouped dependent on CSP avg,i and the RMSE in calculated per group.The applied forces according to Eq. (C1) are denoted with 'unscaled'.The graph denoted with 'rescaled' corresponds to the applied forces plus theoretical forces according to Eq. (F1) due to the rescaling.The forces of the optimized EAM potential used for the adaptive-precision potential are denoted with 'EAM' and given as reference.
+
+
+FIG. 10
+10
+FIG.10.a) Number of atoms per processor which require the calculation of the fast potential (FP) and the precise potential (PP) for all load-balancing steps of a nanoindentation in a cubic system of 1003  unit cells and load balancing with a staggered grid domain decomposition.b) Imbalance I according to Eq. (11) and core-h per timestep during equilibration of a surface in a NVT ensemble compared for different load-balancing methods.The staggered grid method (SG) uses per processor p the work ρ (X ) p
+
+
+TABLE I .
+I
+Target values with tolerance used in the loss function Eq. (10) for the optimization of the EAM potential.
+bulk property lattice parameter a FCC 0 cohesive energy E coh −3.6995 eV/atom 0.01 eV/atom target value tolerance δ tol 3.6309 Å Å 0.001 bulk modulus B 138.2 GPa 1 GPa elastic constant C 11 173.8 GPa 1 GPa elastic constant C 12 120.5 GPa 1 GPa 77.8 GPa 1 GPa elastic constant C 44 force F md Å−1 MD simulation 0.01 eV atomic energy E md MD simulation 0.01 eVEAM originalACEEAM fitexperiment8frequency / THz2 4 60ΓXWLΓKwave vectorFIG. 2. Phonon spectra calculated with ASE
+
+TABLE II .
+II
+Comparison of quantities calculated with EAM, optimized EAM and ACE with DFT and experimental reference values.
+ACE 3.6309 3.6149 3.6305 EAM EAM original fit −3.6995 −3.5579 −3.6957 Vacancy Formation Energy / eV 1.1285 1.2735 1.0589 1.07[8] 1.27 [46] DFT Exp. Lattice Constant / Å Cohesive Energy / eV Surface Energy 111 / Jm −2 1.3566 1.2443 0.8802 1.36[8] Surface Energy 100 / Jm −2 1.5111 1.3515 0.9765 1.51[8] Surface Energy 110 / Jm −2 1.5889 1.4822 1.1225 1.57[8] Interstitial Formation Energy 100-dumbbell / eV 3.1025 3.0809 2.9662 3.10[47] 2.8-4.2
+
+TABLE III .
+III
+[27]mized parameters of the EAM Copper potential compared with the original values of EAM2 of Ref.[27].
+Parameter Value original Value fit 300K Parameter Value original Value fit 300K 2.01458e+02 2.01486e+02 δ / Å 8.62250e-03 2.18016e-02 E 1 /eV E 2 /eV
+
+TABLE IV .
+IV
+Parameters of the adaptive-precision model and values of the parameter set Hyb1 for copper at 300 K.
+parameter valueparameter valueparameter valueN buffer N CSP,avg 110 0 atoms CSP hi r λ ,lo CSP lo 2.5 Å2 r λ ,hi3.0 4.0 Å Å2 12.0 Å |Ω i | N λ ,avg ∆λ min110 1.0/N λ ,avg 800 atoms1. Centro-symmetry parameter
+
+
+
+[27] mean square error (RMSE) of the adaptive-precision potential compared with the precise ACE potential for a snapshot of a nanoindentation dependent on r λ ,lo and r λ ,hi .All atoms whose forces are influenced by both EAM and ACE are grouped dependent on CSP avg,i and the RMSE is calculated per group.Atoms with pure EAM or ACE force-contributions are not considered since their energies and forces are good.The RMSE of ACE compared to EAM2 of[27]is shown as reference.The cutoff r λ ,lo is represented by different symbols and the width r λ ,hi − r λ ,lo of the switching zone is color-coded.
+0510 CSP avg,i /Å215200510 CSP avg,i /Å2152010 0 10 1 10 2 − E ACE RMSE(E i i )/meV < 0.5a)EAM2 r λ ,lo / Å (r λ ,hi − r λ ,lo )/ 0 4 8 12 0 4 8 12 Å10 1 10 2 − F ACE iα )/meV/ Å 10 0 iα RMSE(F < 0.5b)thermal fluctuationsdislo-cationssurfacethermal fluctuationsdislo-cationssurfaceFIG. 7.
+
+
+
+Total computation time of nanoindentations with 4 million atoms (1003unit cells) simulated with adaptive-precision potentials compared to ACE and EAM nanoindentations.The number behind the potential in the legend is the number of timesteps after which the staggered-grid load balancer is called.EAM, hybrid and ACE simulations are calculated on 128, 384 and 2048 cores of JURECA-DC respectively.The fraction of used core-h compared to ACE is given on top of the bars.The approximated fraction of ACE atoms is given in gray to visualize the overhead induced by the method.The times are given for all four parts of a simulation separately.NVT and NPT ensembles are simulated with periodic boundaries (PPP) to prepare a surface (PPS).The surface is equilibrated in an NVT ensemble.The nanoindentation itself is calculated in an NVE ensemble.
+10 010 −2 10 −159471233236 17713 2611 253 1411 2210 223 14fraction ACE atoms core-h pot per step/ core-h ACE per step EAM10 −311268 4787 904811 3106Hyb1 25 Hyb1 100 Hyb2 100 ACENVT PPPNPT PPPNVT PPSNVE PPSFIG. 11.
+ACKNOWLEDGMENTSWe would like to thank Y. Lysogorskiy for help with the ML-PACE package in LAMMPS and for valuable comments on the integration of the switching parameter within the ACE calculation.The authors gratefully acknowledge computing time on the supercomputer JURECA[52]at Forschungszentrum Jülich under grant no.28990 (hybridace).AUTHOR DECLARATIONSCompeting interestsThe authors declare no competing interests.The data that support the findings of this study are available from D.I. upon reasonable request.Appendix E: Optimizing the EAM potential A EAM potential is given according to Eq. (9) by an embedding function ξ , an electron density ζ and a pair potential Φ.We use a Copper potential from Ref.[27]which is given by the pair potentialwhereandwith the Heaviside step function Θ(x) = 1 for x ≥ 0, 0 for x < 0. The embedding function isThe EAM potential is optimized as described in Section III with atomicrex.The target values and tolerances for the minimized loss function(10)are shown in TableI.The fitted parameters are shown in TableIII.Appendix F: Parameter selection for an adaptive-precision potentialThe parameters of the hybrid potential are listed in Table IV and will be explained in more detail in the following.p,t for all load-balancing steps of a nanoindentation in a cubic system of 100 3 unit cells and load balancing with a staggered grid domain decomposition.Appendix H: Adjusting potential calculation for load balancingFor all four force subroutines to be executed independently one after the other on all processors, it is important that none of the subroutines contains communication with other processors as communication is a synchronization point within a force-calculation subroutine and may include high additional waiting times.Thus, avoiding communication during the force-calculation subroutines is essential to allow effective load balancing.The EAM calculation in LAMMPS includes communication of the derivative of the embedding function and the electron density within the force-calculation routine.In order to avoid communication during the force calculation subroutines, we compute the corresponding quantities on all processors which require them.This results is double calculations, but is acceptable in our case to achieve proper load balancing.The ACE calculation did not require any adjustments due to communication.Appendix I: Processor dependency of subprocess workHistograms of the work ρ (X ) p according to Eq. (6) used at all load balancing steps of a nanoindentation calculated on 384 processors on JURECA-DC[52]are shown in Fig.9. ρ λ
+. R Drautz, 10.1103/PhysRevB.99.014104Phys. Rev. B. 99141042019
+
+. A V Shapeev, 10.1137/15M1054183Multiscale Modeling & Simulation. 142016
+
+. A P Bartók, M C Payne, R Kondor, G Csányi, 10.1103/PhysRevLett.104.136403Phys. Rev. Lett. 1041364032010
+
+. A Thompson, L Swiler, C Trott, S Foiles, G Tucker, 10.1016/j.jcp.2014.12.018Journal of Computational Physics. 2853162015
+
+. J Behler, 10.1063/1.3553717/15435271/074106_1_online.pdfThe Journal of Chemical Physics. 134741062011
+
+. A Seko, A Togo, I Tanaka, 10.1103/PhysRevB.99.214108Phys. Rev. B. 992141082019
+
+. C Van Der Oord, G Dusson, G Csányi, C Ortner, 10.1088/2632-2153/ab527cMachine Learning: Science and Technology. 1150042020
+
+. Y Lysogorskiy, C V D Oord, A Bochkarev, S Menon, M Rinaldi, T Hammerschmidt, M Mrovec, A Thompson, G Csányi, C Ortner, 10.1038/s41524-021-00559-9npj Computational Materials. 7972021
+
+. P Verma, D G Truhlar, 10.1016/j.trechm.2020.02.005Trends in Chemistry. 23022020
+
+. A Warshel, M Levitt, 10.1016/0022-2836(76)90311-9Journal of Molecular Biology. 1032271976
+
+Hybrid quantum/classical modeling of material systems: The "learn on the fly" molecular dynamics scheme. G Moras, R Choudhury, J R Kermode, G Cs, M C Ányi, A De Payne, Vita, 10.1007/978-1-4020-9785-0_1Trends in Computational Nanomechanics: Transcending Length and Time Scales. T Dumitrica, Netherlands; DordrechtSpringer2010
+
+. J R Golkebiowski, J R Kermode, P D Haynes, A A Mostofi, 10.1039/D0CP01841DPhysical Chemistry Chemical Physics. 22120072020
+
+. C Peter, K Kremer, 10.1039/B912027KSoft Matter. 543572009
+
+. M Praprotnik, L Delle Site, K Kremer, 10.1146/annurev.physchem.59.032607.093707Annual Review of Physical Chemistry. 595452008
+
+. R Cortes-Huerto, M Praprotnik, K Kremer, L Delle Site, 10.1140/epjb/s10051-021-00193-wThe European Physical Journal B. 9412021
+
+. N He, Y Liu, X Zhang, 10.1002/nme.5543International Journal for Numerical Methods in Engineering. 1122017
+
+A Tabarraei, X Wang, A Sadeghirad, J Song, 10.1016/j.finel.2014.07.013Finite Elements in Analysis and Design. 20149236
+
+. R Potestio, S Fritsch, P Español, R Delgado-Buscalioni, K Kremer, R Everaers, D Donadio, 10.1103/PhysRevLett.110.108301Phys. Rev. Lett. 1101083012013
+
+. U Alekseeva, R G Winkler, G Sutmann, 10.1016/j.jcp.2016.02.065Journal of Computational Physics. 314142016
+
+. L Delle Site, 10.1103/PhysRevE.76.047701Phys. Rev. E. 76477012007
+
+. M Praprotnik, L Delle Site, K Kremer, 10.1063/1.2132286/13124111/224106_1_online.pdfThe Journal of Chemical Physics. 1232005
+
+. L Zhang, H Wang, W E , 10.1063/1.5042714/15548827/154107_1_online.pdfThe Journal of Chemical Physics. 1491541072018
+
+. A Heyden, H Lin, D G Truhlar, 10.1021/jp0673617pMID: 17288477The Journal of Physical Chemistry B. 11122312007
+
+. P Español, R Delgado-Buscalioni, R Everaers, R Potestio, D Donadio, K Kremer, 10.1063/1.4907006/14030319/064115_1_online.pdfThe Journal of Chemical Physics. 142641152015
+
+. A P Thompson, H M Aktulga, R Berger, D S Bolintineanu, W M Brown, P S Crozier, P J Veld, A Kohlmeyer, S G Moore, T D Nguyen, R Shan, M J Stevens, J Tranchida, C Trott, S J Plimpton, 10.1016/j.cpc.2021.108171Computer Physics Communications. 2711081712022
+
+. M W Finnis, J E Sinclair, 10.1080/01418618408244210Philosophical Magazine A. 501984
+
+. Y Mishin, M J Mehl, D A Papaconstantopoulos, A F Voter, J D Kress, 10.1103/PhysRevB.63.224106Phys. Rev. B. 632241062001
+
+. C L Kelchner, S J Plimpton, J C Hamilton, 10.1103/PhysRevB.58.11085Phys. Rev. B. 58110851998
+
+The Journal of. J D Honeycutt, H C Andersen, 10.1021/j100303a014Physical Chemistry. 911987
+
+. E R Homer, 10.1016/j.commatsci.2019.01.041Computational Materials Science. 1612442019
+
+. H Tsuzuki, P S Branicio, J P Rino, 10.1016/j.cpc.2007.05.018Computer Physics Communications. 1775182007
+
+LAMMPS documentation compute centro/atom command. LAMMPS. 2024
+
+LAMMPS documentation -compute cna/atom command. LAMMPS. 2024
+
+LAMMPS documentation -compute cnp/atom command. LAMMPS. 2024
+
+. H.-T Luu, S Raumel, F Dencker, M Wurz, N Merkert, 10.1016/j.surfcoat.2022.128342Surface and Coatings Technology. 4371283422022
+
+. W C Swope, H C Andersen, P H Berens, K R Wilson, 10.1063/1.442716The Journal of Chemical Physics. 761982
+
+. S Plimpton, 10.2172/101764211993
+
+R Halver, Adaptives Lastbalance-Verfahren für Gebietszerlegung in der Molekulardynamik, Master's thesis. 2010FH Aachen University of Applied Sciences
+
+H Iliev, M.-A Hermanns, J H Göbbert, R Halver, C Terboven, B Mohr, M S Müller, High-Performance Scientific Computing: First JARA-HPC Symposium. Aachen, GermanySpringer2016. October 4-5, 2016. 20171JHPCS
+
+ALL -A loadbalancing library, C++ / Fortran library. R Halver, S Schulz, G Sutmann, 
+
+. A Hernandez, A Balasubramanian, F Yuan, S A Mason, T Mueller, 10.1038/s41524-019-0249-1Computational Materials. 51122019
+
+. H S Huang, L Q Ai, A C T Van Duin, M Chen, Y J Lü, 10.1063/1.5112794/15563952/094503_1_online.pdfThe Journal of Chemical Physics. 151945032019
+
+. D Geissler, J Freudenberger, A Kauffmann, S Martin, D Rafaja, 10.1080/14786435.2014.944606Philosophical Magazine. 9429672014
+
+. E M Bringa, J U Cazamias, P Erhart, J Stölken, N Tanushev, B D Wirth, R E Rudd, M J Caturla, 10.1063/1.1789266Journal of Applied Physics. 962004
+
+. A Stukowski, E Fransson, M Mock, P Erhart, 10.1088/1361-651X/aa6ecfModelling and Simulation in Materials Science and Engineering. 25550032017
+
+. R Siegel, 10.1016/0022-3115(78)90240-4Journal of Nuclear Materials. 691978
+
+. P.-W Ma, S L Dudarev, 10.1103/PhysRevMaterials.5.013601Phys. Rev. Mater. 5136012021
+
+. H Ullmaier, New Series, Group III. 25881991
+
+H Ledbetter, physica status solidi. 198166477
+
+. A H Larsen, J J Mortensen, J Blomqvist, I E Castelli, R Christensen, M Dułak, J Friis, M N Groves, B Hammer, C Hargus, E D Hermes, P C Jennings, P B Jensen, J Kermode, J R Kitchin, E L Kolsbjerg, J Kubal, K Kaasbjerg, S Lysgaard, J B Maronsson, T Maxson, T Olsen, L Pastewka, A Peterson, C Rostgaard, J Schiøtz, O Schütt, M Strange, K S Thygesen, T Vegge, L Vilhelmsen, M Walter, Z Zeng, K W Jacobsen, Journal of Physics: Condensed Matter. 292730022017
+
+. G Nilsson, S Rolandson, 10.1103/PhysRevB.7.2393Phys. Rev. B. 723931973
+
+. Jülich Supercomputing, Centre , 10.17815/jlsrf-7-182Journal of large-scale research facilities. 72021
+
+LAMMPS documentation -fix balance command. LAMMPS. 2024
+
+. A Stukowski, 10.1088/0965-0393/18/1/015012Modelling and Simulation in Materials Science and Engineering. 18150122009
+
+. A Stukowski, V V Bulatov, A Arsenlis, 10.1088/0965-0393/20/8/085007Modelling and Simulation in Materials Science and Engineering. 20850072012
+
+. S P Coleman, D E Spearot, L Capolungo, 10.1088/0965-0393/21/5/055020Modelling and Simulation in Materials Science and Engineering. 21550202013
+
+. S Li, L Yang, C Lai, 10.1016/j.commatsci.2019.02.003Computational Materials Science. 1613302019
+
+C P Lowe, 10.1209/epl/i1999-00365-xAppendix A: Centro-symmetry parameter. 199947145

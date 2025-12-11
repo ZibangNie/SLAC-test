@@ -1,0 +1,417 @@
+Label Shift Adapter for Test-Time Adaptation under Covariate and Label Shifts
+17 Aug 2023
+
+Sunghyun Park 
+Qualcomm AI Research
+
+
+KAIST
+
+
+Seunghan Yang seunghan@qti.qualcomm 
+Qualcomm AI Research
+
+
+Jaegul Choo jchoo@kaist.ac.kr 
+KAIST
+
+
+Sungrack Yun sungrack@qti.qualcomm 
+Qualcomm AI Research
+
+
+
+Qualcomm AI Research is an initiative of Qualcomm Technologies, Inc
+
+
+Label Shift Adapter for Test-Time Adaptation under Covariate and Label Shifts
+17 Aug 2023CFA1E541310CB8BA41CAAC290229A270arXiv:2308.08810v1[cs.CV]
+Test-time adaptation (TTA) aims to adapt a pre-trained model to the target domain in a batch-by-batch manner during inference.While label distributions often exhibit imbalances in real-world scenarios, most previous TTA approaches typically assume that both source and target domain datasets have balanced label distribution.Due to the fact that certain classes appear more frequently in certain domains (e.g., buildings in cities, trees in forests), it is natural that the label distribution shifts as the domain changes.However, we discover that the majority of existing TTA methods fail to address the coexistence of covariate and label shifts.To tackle this challenge, we propose a novel label shift adapter that can be incorporated into existing TTA approaches to deal with label shifts during the TTA process effectively.Specifically, we estimate the label distribution of the target domain to feed it into the label shift adapter.Subsequently, the label shift adapter produces optimal parameters for target label distribution.By predicting only the parameters for a part of the pre-trained source model, our approach is computationally efficient and can be easily applied, regardless of the model architectures.Through extensive experiments, we demonstrate that integrating our strategy with TTA approaches leads to substantial performance improvements under the joint presence of label and covariate shifts.
+
+Introduction
+
+Despite the recent remarkable improvement of deep neural networks in various applications, the models still suffer from distribution shifts between source distribution and target distribution.One type of distribution shift, known as covariate shift, occurs when the target distribution p t (x) differs from the source distribution p s (x).In autonomous driving, for instance, models may degrade significantly during testing due to ambient factors such as weather and location.To design the models robust to covariate shifts, un-Figure 1.We consider the test-time adaptation scenario, when covariate and label shifts occur simultaneously.After deploying the pre-trained model, the model is adapted to the target domain.However, existing methods often suffer from the coexistence of covariate and label shifts.Employing our method enables online adaptation under shifted target label distributions.supervised domain adaptation literature [9,10,23,19] has explored the transfer of knowledge learned from labeled source data to unlabeled target data.
+
+To be more practical in real-world scenarios, test-time adaptation (TTA) algorithms [46] have emerged to enhance practicality in real-world scenarios by adapting deep neural networks to the target domain during inference.Specifically, TTA approaches optimize the model parameters batch-by-batch using unlabeled test data, avoiding additional labeling costs.Previous TTA studies have mitigated the performance degradation caused by covariate shift by enhancing normalization statistics [41,11,24], optimizing model parameters with entropy minimization [46,35], or utilizing pseudo labels [20].
+
+Although the natural data encountered in practice often exhibits long-tailed label distribution, most previous TTA methods assume that the model is trained on class-balanced data.This assumption overlooks another type of distribution shift, known as label shift, in which label distribution varies between source p s (y) and target p t (y).Label shift has been studied extensively in the long-tailed recognition literature [18,6,8,15].Considering only one type Figure 2. Plots of accuracy with different degrees of label shift in CIFAR-10-C [14].Although we train source model using balanced softmax [39], most TTA baselines show lower performance than source model, when label shift is severe.On the other hand, our method is more robust to label shifts than other TTA methods.
+
+of distribution shifts in real-world scenarios is infeasible, as both covariate and label shifts frequently occur simultaneously [29,22].For example, different object classes such as buildings and trees are more prevalent in certain environments, such as cities or forests.
+
+We found that the majority of existing TTA approaches fail to adapt the pre-trained model when it is trained on a long-tailed dataset.This is because most TTA methods that employ entropy minimization [46,35,11,7,24] are flawed due to the model bias towards the dominant classes in source data.In other words, since the predictions on test samples are often biased toward the majority classes of training data, utilizing entropy minimization would lead the model to increase its confidence in predicting the dominant classes.While some recent TTA studies have addressed similar challenging issues, such as temporally correlated test data [11] and class-imbalanced test samples [53], they do not cover the situation where the source domain data has a long-tailed label distribution, which can lead to bias in the source model.Furthermore, we observed that training the source model on a long-tailed dataset with long-tailed recognition techniques, such as balanced softmax [39], is insufficient to stabilize TTA algorithms, as shown in Fig. 2.
+
+To tackle such a non-trivial issue, we propose a novel label shift adapter, which is designed to adapt the pre-trained model according to the label distribution during inference.Before deploying the model to the server, we train the label shift adapter with a pre-trained source model, which takes the label distribution as input.The label shift adapter is optimized to produce the optimal parameters according to the label distribution.To make our method applicable to any model architecture, we design the label shift adapter to predict only the parameters associated with a part of the source model.After model deployment, we estimate the label distribution of target domain data for injecting the appropriate input into the label shift adapter during inference.Moreover, our proposed method can be easily integrated with TTA methods such as TENT [46] and IABN [11] to adapt the model to the target domain.Combining TTA approaches with the proposed label shift adapter enables robust model adaptation to the target domain, even in the presence of covariate and label shifts simultaneously.Through extensive experiments, we demonstrate that our method outperforms the existing TTA methods when both source and target domain datasets have class-imbalanced label distributions.
+
+In summary, the main contributions are as follows:
+
+• We introduce a novel label shift adapter that produces the optimal parameters according to the label distribution.By utilizing the label shift adapter, we can develop a robust TTA algorithm that can handle both covariate and label shifts simultaneously.• Our approach is easily applicable to any model regardless of the model architecture and pre-training process.
+
+It can be simply integrated with other TTA algorithms.• Through extensive experiments on six benchmarks, we demonstrate that our method enhances the performance significantly when source and target domain datasets have class-imbalanced label distributions.
+
+
+Related Work
+
+Source-Free Domain Adaptation.Unsupervised domain adaptation (UDA) methods have been widely applied in cross-domain applications such as classification [9,10], object detection [51], and semantic segmentation [55].However, UDA approaches require access to both source and target domains simultaneously.This restriction makes these approaches frequently impractical due to computational costs and data privacy concerns.On the other hand, sourcefree domain adaptation (DA) [23,19] overcomes this limitation by adapting a pre-trained model to the target domain using only unlabeled target data.However, existing sourcefree DA methods barely consider label shifts, which limits their applicability in real-world scenarios.Domain Adaptation for Label Shift.Several methods [3,28,43,17,29,22] have been developed to investigate a more realistic scenario of domain adaptation in which covariate and label shifts co-occur.To alleviate label shift, previous studies employ the re-weighting method [3,28] by estimating target domain label distribution.Recent approaches employ an alternative training scheme [29] and a secondary pseudo label [22] to alleviate label shifts in unsupervised domain adaptation.However, it is challenging to adapt the model to the target domain in real time using these methods.Therefore, we focus on addressing such coexistence of covariate and label shifts in the TTA setting.
+
+Test-Time Adaptation.Fully test-time adaptation [46] aims to improve model performance on target domain data through adaptation with unlabeled test samples during inference.Previous work [41] improves the robustness under covariate shift by using the statistics of test batch in normalization layer.TENT [46] further optimizes affine parameters of batch normalization layers using entropy minimization.Before the pre-trained model deployment to the server, several approaches train additional modules to appropriately interpolate training and test statistics [56,24] or regularize the model parameters [7] for TTA.Recent several studies [4,11,53] address the model to be more robust under non-i.i.d or class-imbalanced test samples.However, they assume that the source domain datasets are balanced, where the pre-trained model is not biased towards the dominant classes due to the class-imbalanced label distribution.Different from the existing studies, our research tackles the cases in which both source and target domain datasets are class-imbalanced, which is more challenging and practical.
+
+Long-Tailed Recognition.It is natural that datasets have long-tailed distributions in the real world.Previous studies addressed this issue by altering loss functions [25,8,6,40,21], adjusting logits [33,39], and employing multiple experts that are specialized in different label distributions [49,54,52].Recently, several studies such as LADE [15], SADE [52], and BalPoE [1] have introduced test-agnostic long-tailed recognition, where the training label distribution is long-tailed while the test label distribution is agnostic.However, LADE needs the true test label distribution to adjust the logits, and SADE and BalPoE require multiple expert architectures.Due to these aspects, they are difficult to apply the TTA algorithms.Inspired by such studies, we design a novel label shift adapter, which has the capability to handle unknown test label distribution using training long-tailed distribution.In contrast to previous methods, our method is applicable to any model regardless of its architecture and can be employed without true test label distribution.In this paper, we focus on handling the label shifts in TTA setting.Predicting Weights.A hypernetwork [12] is a deep neural network to produce the weights of another neural network.Hypernetworks have been developed for federated learning [42], multi-task learning [34,26,31], and continuous learning [45,5].Moreover, adapter layers between existing layers of the model have been proposed for finetuning [27,16].The key functional difference is that our method produces the parameters to handle the label shifts.
+
+
+Method
+
+
+Problem Formulation
+
+In the TTA task, labeled samples from the source domain D s = {(x, y) ∼ p s (x, y)} and unlabeled samples from the target domain D t = {x ∼ p t (x)}.TTA aims to predict the labels of target domain samples by updating the source model to the target model during inference.Specifically, under the TTA scheme, the model receives a mini-batch x t of test samples in the t-th inference step.
+
+Generally, previous TTA literature assumes only covariate shift, where p s (x) ̸ = p t (y).In other words, the existing TTA methods only consider class-balanced datasets in training and testing.Different from previous works, we assume the joint presence of covariate and label shifts [17,43,22]: p s (x) ̸ = p t (x) and p s (y) ̸ = p t (y), which is more practical and natural in real-world scenarios.In particular, when p s (y) has long-tailed label distribution, TTA methods are flawed, despite leveraging long-tailed recognition methods.It is due to the fact that most TTA methods are not able to reduce the model's bias toward the majority classes.Our goal is to design a novel method for TTA that can perform stably regardless of p s (y) and p t (y), while the model can be adapted during inference.
+
+
+Label Shift Adapter
+
+In this paper, we propose a novel label shift adapter for TTA to handle label distribution shifts in TTA.Entropy minimization [46,35,7,11,24] is widely used for TTA to optimize the model with unlabeled test samples during inference.Intuitively, entropy minimization makes individual predictions confident.During test time, entropy minimization loss is utilized as follows:
+L ent = − x∼pt(x) f (x) log f (x),(1)
+where f denotes a model f : x → y.However, if the pre-trained source model f (x) is biased toward the majority classes due to the long-tailed label distribution of D s , the predictions on test samples also would be biased towards the majority classes in D s regardless of label distribution of D t .In other words, it is not appropriate to minimize under the shifted label distribution because the model prediction estimates p s (y|x), which is strongly coupled with p s (y) and may differ from p t (y), as explained by the Bayes' rule [15]:
+p s (y|x) = p s (y)p s (x|y) p s (x) = p s (y)p s (x|y) c p s (c)p s (x|c) ,(2)
+where c denotes the class index.
+
+To address diverse p t (y) trained with a long-tailed distribution p s (y), recent long-tailed recognition methods [52,1] have proposed the training strategy utilizing the multiple diverse experts, which are specialized in handling different label distributions, such as long-tailed and uniform label distributions.However, these approaches are not directly applicable to TTA setting, as they are designed for multipleexpert model architectures.Inspired by this strategy, we aim to develop the model f that is suitable for TTA by dynamically adapting the model f to diverse target label distributions p t (y).Therefore, we introduce a novel label shift adapter that can produce the optimal parameters according to label distribution during inference while it is applicable to any model regardless of model architecture.
+
+Fig. 3 shows the overview of the proposed method.Our method consists of three stages.First, our method takes the pre-trained source model in an off-the-shelf manner.Before model deployment, we train the label shift adapter with the frozen pre-trained model, which produces optimal parameters depending on the label distribution.Then, our label shift adapter can be integrated into other TTA algorithms, such as TENT [46], after model deployment.In specific, we optimize the affine parameters in the normalization layers of a feature extractor while adapting the model to the target label distribution p t (y) by estimating the label distribution of D t during inference.Label Shift Adapter.Before training a label shift adapter, we pre-train a model f : x → y using a source domain data D s , where the model consists of a feature extractor F θ and a classifier weights W ∈ R d×C , b ∈ R 1×C .C and d denote the number of classes and channel of the output h ∈ R 1×d of the feature extractor, respectively.As several TTA methods [7,56,24] include an additional stage for training extra components, the label shift adapter is trained with the frozen pre-trained model before model deployment.
+
+The label shift adapter G ϕ receives the label distribution π ∈ R C as conditional input.For applicability and efficiency, we design the label shift adapter to generate the parameters for a part of the model.With π, the label shift adapter G ϕ predicts affine parameters γ h ∈ R 1×d , β h ∈ R 1×d and the weight difference ∆W ∈ R d×C , ∆b ∈ R 1×C for the classifier weights W, b.The affine parameters γ h and β h are applied to the hidden feature map h, which is the output of the feature extractor: h = F θ (x).Then, we compute the output ŷ using W + ∆W and b + ∆b.Formally, ŷ is computed in the classifier layer as follows:
+ŷ = (γ h h + β h ) • (W + ∆W ) + (b + ∆b).(3)
+Objective Function.The label shift adapter aims to cre- To optimize the label shift adapter, we employ a generalized logit adjusted loss [33,1], which incorporates a controlled bias during training:
+L gla = − (xi,yi)∼Ds y i log σ(ŷ i + τ log π s ),(4)
+where σ denotes a softmax function.ŷi indicates the output logits before computing the softmax function.τ ∈ R 1 is a scalar value for controlling the bias towards different parts of the label distribution.We sample π at each iteration during the label shift adapter training.Specifically, the label distribution π is sampled from three types of label distribution {π s , u, πs }, where πs indicate inverse label distribution that is obtained by inverting the order of training label distribution π s .u denotes uniform label distribution.We select the appropriate τ for sampled label distribution π, where we set the hyperparameter τ matching each π ⊂ {π s , u, πs }.For example, if π s is sampled for π, τ is set to 0, resulting in the use of a cross-entropy loss.On the other hand, τ is set to 1 and 2 for u and πs , respectively, which correspond to the balanced softmax [39] and inverse softmax [52] that simulate uniform and inverse label distributions.Intuitively, as τ increases, the decision boundary moves away from minority classes and towards the majority classes [33,1], as shown in Fig. 4. Technically, it is possible to sample π in continuous label space instead of discrete label distributions.However, we found that sampling three distinctive label distributions is empirically sufficient to train the label shift adapter.
+
+Test-Time Adaptation.After model deployment, we adapt the pre-trained model f using test samples x t at t-th inference step.In specific, our method updates affine parameters γ, β in normalization layers of feature extractor F θ .With t-th test samples x t , the model minimizes the prediction entropy, following the previous work [46].However, minimizing the entropy of the predictions ŷt is insufficient to adapt the model when label shift occurs.Therefore, the label shift adapter creates a part of parameters (i.e., γ h , β h , ∆W , and ∆b) of f depending on estimated label distribution Ŷ.To estimate the label distribution Ŷ of D t , we employ an exponential moving average.To be specific, the estimated target label distribution Ŷt at t-th step is updated recursively:
+Ŷt = u, if t = 0 αȳ t + (1 − α) Ŷt−1 , if t > 0 ,(5)
+where α ∈ [0, 1] denotes the momentum hyper-parameter, ȳt = 1 nt nt i=1 ŷi t is the average model prediction on test samples x t at the t-th step.We initialize Ŷ as u ∈ R C , which is a uniform distribution vector:
+u[c] = 1 C , c = 1, 2, • • • , C.
+Based on estimated target label distribution Ŷt−1 , the label shift adapter produces the optimal parameters.With Ŷt−1 , we can adapt the model to the target domain using the refined entropy minimization as follows:
+L ent = − x∼pt(x) f (x; G ϕ ( Ŷ)) log f (x; G ϕ ( Ŷ)),(6)
+where the estimated label distribution Ŷ is fed into the label shift adapter G ϕ to handle label distribution shift, and the generated parameters from G ϕ adjusts the model f as shown in Eq. 3. Intuitively, while our strategy adapts the model to the target label distribution, entropy minimization boosts the confidence of correct classes.
+
+Techniques for Label Shift Adapter.In long-tailed recognition literature [18,2], it is known that the classifier layer plays an essential role in resolving the label shifts.Based on this intuition, we have designed the label shift adapter to produce the parameters only for the parts associated with the classifier layer.Specifically, ∆W and ∆b is the weight difference of W and b, and γ h and β h shift the feature vector h properly.By predicting only a small portion of the model instead of predicting the entire model weights, our label shift adapter offers various benefits.Our label shift adapter is readily applicable to any pre-trained models, regardless of the model architecture.Moreover, this strategy is computationally efficient, as the label shift adapter requires negligible extra computational costs.We discovered that it is more effective to utilize a mapping vector m ∈ R C to make the label distribution π a scalar, instead of directly using label distribution π as the input of the label shift adapter.In specific, m ⊺ π ∈ R 1 is fed into label shift adapter, instead of π.Here, the mapping vector is the class-wise coefficients that increase in proportion to the order of class frequency in the training set.Empirically, this strategy makes the label shift adapter training more stable.Instead of using a complex label space as a condition, this technique feeds the degree of imbalance to label shift adapter, which can easily interpret the condition.Rationale behind Label Shift Adapter.Label shift adapter plays a crucial role in handling label shifts by adjusting the parameters based on the estimated label distribution at test time.Since the label distribution in the target domain is unknown, it is possible to train the label shift adapter by simulating various label distributions using the source domain dataset.By virtue of this process, the label shift adapter can learn to produce appropriate parameters based on the label distribution.Since the label distribution in the target domain is unknown, it is possible to train the adapter by simulating various label distributions using the source domain dataset.Moreover, this approach also allows for the effective handling of biases caused by the label distribution of the source domain dataset.This is why transferring the model from the source domain to the target domain proves to be an effective approach.
+
+
+Experiments
+
+
+Experiment Setup
+
+We evaluate the effectiveness of our proposed method on six datasets widely used in domain adaptation literature.In contrast to the traditional TTA setting, we utilize imbalanced versions of the datasets for training and evaluation.CIFAR-10&100 and ImageNet [6,14].For the training set of the source domain, we utilize CIFAR-10-LT, CIFAR-100-LT [6], and ImageNet-LT [30], which are the longtailed version of CIFAR-10, CIFAR-100 and ImageNet, following the protocol in long-tailed recognition work.Note that the imbalance ratio ρ is defined as ρ = maxi ni mini ni , where n i denotes the number of class i samples in the dataset.In our experiments, the imbalance ratio of CIFAR-10-LT and CIFAR-100-LT is set to 100.ImageNet-LT is obtained by sampling from ImageNet using a Pareto distribution with α = 6 [30] Numbers under Forward-LT and Backward-LT denote the imbalance ratio.We integrate our method into TENT [46] and IABN [11].1280 samples, with an imbalanced ratio set to 256.For evaluation, we utilize three corrupted test sets: CIFAR-10-C, CIFAR-100-C, and ImageNet-C [14], which consist of 15 corruption types at five severity levels.The severity level is set to 5 and 3 for CIFAR-C and ImageNet-C, respectively.
+
+
+Method
+
+Following the test-agnostic long-tailed recognition setting [15,52], the models are evaluated on multiple subsets of test datasets that follow different label distributions.We construct three types of test label distributions as follows: (i) Forward distribution: as the imbalance ratio increases, it becomes similar to the training label distribution.(ii) Uniform distribution: a class-balanced test dataset.(iii) Backward distribution: the order of classes is reversed, causing it to deviate more from the training distribution, as the imbalance ratio increases.Note that the degree of label shifts increases from Forward to Backward.
+
+VisDA-C [38].VisDA-C is a challenging large-scale bench-mark whose training data is synthesized through 3D model rendering, and its test data is sampled from the real world.The dataset contains 12 categories.We utilize an imbalanced dataset VisDA-C (RSUT), where source and target domains are subject to two reverse Pareto distributions, following the previous work [43].Here, RSUT denotes the combination of Reversely-unbalanced Source (RS) and Unbalanced Target (UT) distribution.The label distributions of RSUT are described in the supplementary.
+
+OfficeHome [44].This dataset comprises four domains, each consisting of 65 categories.We also employ Office-Home (RSUT) [43], which is created by the same protocol as VisDA-C (RSUT).Since the artistic domain in Office-Home is too small to sample an imbalanced subset, we only utilize the remaining three distinct domains (e.g., Clip Art, Product, and Real-World), as prior work [22].DomainNet [37].We employ a subset of DomainNet [43] comprising 40 categories from four domains: Real, Clipart, Painting, and Sketch.As the label shift between these domains is inherent, we did not need to modify the label distribution of the dataset.The visualization of label distribution in DomainNet are illustrated in the supplementary.Baseline Methods.Note that we utilize the pre-trained model trained using balanced softmax [39], which is a widely used long-tailed recognition approach.Source indicates the pre-trained model with the source data using balanced softmax.We compare our method with the following TTA baselines: BN stats [41], ONDA [32], PseudoLabel [20], LAME [4], CoTTA [47], TENT [46], IABN [11], and NOTE [11].Note that IABN is a normalization layer introduced in the NOTE paper.Since NOTE has been proposed for temporally correlated test samples, IABN layer has the capability to handle the class-imbalance in a batch.Implementation Details.We utilize ResNet-18 [13] as the backbone for CIFAR-10 and CIFAR-100, and ResNeXt [50] for ImageNet.We also employ ResNet-50 for OfficeHome and DomainNet, and ResNet-101 for VisDA-C, which are pre-trained on ImageNet.For fair comparisons, the same architecture and optimizer are utilized for all TTA baselines.In all experiments, the source domain model is trained using Balanced softmax [39], a representative long-tailed recognition method.During inference, the batch size is set to 64 in all experiments.Further details Prior indicates that the true target label distribution is utilized as prior knowledge for label shift adapter, instead of estimated label distribution.We conduct the experiments using IABN+Ours [11].
+
+regarding the hyperparameters for each baseline and our method are described in the supplementary.
+
+
+Results on Corruption Data
+
+Table 1 reports the average accuracy on 15 corruption types in CIFAR-10-C and CIFAR-100-C.The results on each target domain are presented in the supplementary.The results demonstrate that the performance of previous TTA methods is significantly inferior in the backward long-tailed distributions compared to the forward settings.This issue arises because TTA models learn based on model predictions, which are biased toward the majority classes.
+
+In contrast, it is noteworthy that our strategy consider-  7. Comparison with logit adjustment [33,15] and information maximization (IM) loss [23].
+
+
+Method MACs Params
+
+ResNet-18 557.93M 11.22M + Ours 558.04M 11.34M Table 8.Computational costs.We measure MACs and the number of parameters (Params.).
+
+ably improves the accuracy when label shift is severe.As our method produces the optimal parameters depending on the target label distribution, the models can be adapted to the target domain stably, even in the presence of severe label shifts.Furthermore, when integrated with IABN [11], a normalization layer for addressing the class imbalance in a batch, our method yields the best performance.Nevertheless, it should be noted that relying solely on IABN may not be sufficient in managing severe label shifts.
+
+As shown in Table 2, our method consistently outperforms the existing TTA approaches on ImageNet-C, a more challenging dataset.Integrating our proposed method consistently improves the performance in all test sets.Furthermore, our method also improves the accuracy on the uniform dataset: TENT (+5.14%) and IABN (+0.52%).The promising results demonstrate the practicality and effectiveness of our method under covariate and label shifts.
+
+
+Results on DA Benchmarks
+
+We evaluate the effectiveness of our method in comparison with TTA methods on three domain adaptation benchmarks: VisDA-C (RSUT), OfficeHome (RSUT), and Do-mainNet.In VisDA-C (RSUT) and OfficeHome (RSUT), we utilize the test datasets, including the reversed Pareto label distribution.Surprisingly, the existing TTA methods perform worse than the source pre-trained model for evaluation data of VisDA-C, as shown in Table 3.This result indicates that the baselines do not work when the label shift is severe.In contrast, TENT combined with our method improves the performance significantly for VisDA-C test data.
+
+The results on OfficeHome (RSUT) are reported in Table 4.We discovered that since the number of test samples in OfficeHome (RSUT) is limited (e.g., Clipart: 1,017, Product: 1,985, Real: 1,235), TTA methods generally do not result in significant performance improvements compared to the source model.Nonetheless, our method exhibits a general improvement on the OfficeHome (RSUT) datasets, except for P→C.
+
+Table 5 shows the results on the DomainNet dataset, where the label shifts between different domains already exist.This result demonstrates that our approach generally outperforms the baselines.Moreover, we confirmed that our model performs better when adapting to Real domain that
+
+
+Analysis on Label Shift Adapter
+
+Estimated Target Label Distribution.The proposed label shift adapter predicts the weight difference with the estimated target label distribution.Therefore, it is essential to estimate the target class prior accurately, which is the label distribution of target domain data.Different from previous TTA methods, our method adapts the pre-trained model according to the label distribution shift.As shown in Fig. 5, we visualize the estimated target label distribution of the model with and without our label shift adapter.This result shows that the model with the label shift adapter is superior for estimating various label distributions compared to the model without the label shift adapter.In addition, our method estimates the target label distribution similar to the target prior in CIFAR-10-C and CIFAR-100-C datasets.
+
+As shown in Table 6, we compare the performances of the label shift adapter with estimated target label distribution and target prior.Obviously, the overall accuracy of the model increases if the target prior is utilized instead of the estimated target label distribution.Nevertheless, our method shows comparable performances to the model using target prior as the input of label shift adapter.Computational Costs.Table 8 shows the computational costs of our method.We measure the computational cost of ResNet-18, which is utilized for CIFAR-100-C.Since we design the architecture of the label shift adapter efficiently, our method requires a negligible amount of additional computational costs (MACs: +0.11M, Params: +0.12M).We describe the details of the label shift adapter architecture in the supplementary.Moreover, we report ablation study on the architecture of label shift adapter in the supplementary.Effectiveness of Label Shift Adapter.We validate the effectiveness of our method over existing approaches for handling label shifts.Specifically, we apply the following non-trivial baselines with entropy minimization loss and IABN [11]: (i) Post-hoc logit adjustment [33,15] modifies the logits using the estimated target label distribution.(ii) Information maximization loss [23] makes the outputs globally diverse by maximizing mean entropy, which can reduce the bias toward certain classes.Table 7 shows that these baselines are not sufficient to handle the label distribution shifts, particularly on inversely long-tailed distribution (e.g., Backward).In contrast, our approach leads to promising performance gains on various label distributions.
+
+
+Discussions
+
+Normalization Layers for Label Shifts.This paper introduces the label shift adapter for addressing the label shift problems in the test-time adaptation scenario, which can be applied to any model regardless of its architecture.In addition to our method, we found that managing the bias in batch statistics is also crucial for reducing performance degradation caused by label shifts.This observation is evidenced by the effectiveness of normalization layers, such as instance-aware batch normalization (IABN) layers, in dealing with the class imbalance in a batch.However, IABN layers are highly sensitive to hyperparameter selections such as the soft-shrinkage width α.Consequently, improving the robustness of normalization layers to label shifts is a promising future research direction.Training Additional Component.One limitation of our work is that our method requires an additional stage for training the label shift adapter.In several recent test-time adaptation methods [7,56,24], an additional training process is often carried out before server deployment to train the additional components.Despite the drawback of requiring an additional training stage, we believe that these testtime adaptation models, including our method, are practically useful because they are more robust during inference.Furthermore, there are techniques [18,6,49,48,2] in the long-tailed recognition field that involves dividing the training process into two stages.Our approach can serve as an inspiration for methods that can be applied for handling test-agnostic label distributions in long-tailed recognition, regardless of the model architecture.
+
+
+Conclusion
+
+This paper addresses the label shift problem in TTA, where both source and target domain datasets are class imbalanced.Existing TTA methods employing entropy minimization are often flawed due to the model bias toward the majority classes in source data.To address such a nontrivial issue, we propose a novel label shift adapter, which produces the optimal parameters according to the label distribution.Our label shift adapter is applicable to existing TTA methods regardless of the model architectures.Furthermore, we estimate the label distribution of target domain data to feed into the label shift adapter.Through extensive experiments, we demonstrate that our method outperforms the state-of-the-art TTA baselines.We believe that our work inspires future researchers to improve TTA methods under the joint presence of covariate and label shifts.
+
+we update the affine parameters in the batch normalization layers using the hard pseudo labels.The learning rate is set to {1e-3, 1e-3, 2.5e-4, 5e-5, 5e-5, 1e-3} for each respective dataset, following the hyperparameters of TENT [46].ONDA.Online domain adaptation (ONDA) [32] modifies the batch normalization statistics for target domains using a batch of target data through an exponential moving average.We set the update frequency N = 10 and the decay of the moving average m = 0.1, adhering to the default values of the original paper.TENT.Test entropy minimization (TENT) [46] optimizes the affine parameters of batch normalization layers via entropy minimization.The learning rate is configured to {1e-3, 1e-3, 2.5e-4, 5e-5, 5e-5, 1e-3} for each dataset.We referred to the official implementation for hyperparameter selection.LAME.Laplacian adjusted maximum-likelihood estimation (LAME) [4] alters the output probability of the classifier.Following the authors' implementation, we set the kNN affinity matrix with the value of k as 5. CoTTA.Continual test-time adaptation (CoTTA) [47] adapts the model to accommodate continually evolving target domains by employing a weight-averaged teacher model, data augmentations, and stochastic restoring.CoTTA incorporates three hyperparameters: augmentation confidence threshold p th , restoration factor p, and the decay of EMA m. p and m are set to 0.01 and 0.999, respectively.Additionally, p th is configured to { 0.92, 0.72, 0.01, 0.01, 0.01, 0.01 }.Given that the authors do not provide the hyperparameters for VisDA-C, OfficeHome, and DomainNet,
+Algorithm 1 Training Process of Label Shift Adapter Require: Dataset D s = {(x i , y i )} n i=1 .
+A pre-trained model f .A label shift adapter G ϕ .1: Initialize the parameters ϕ randomly 2: for k = 1 to K do
+L(G ϕ ) ← 1 m (x,y)∈B L gla ((x, y, π); f, G ϕ ) 6: G ϕ ← G ϕ − η∇ θ L(G ϕ )
+▷ one SGD step 7: end for we fine-tune the appropriate hyperparameters for them.NOTE.Non-i.i.d.test-time adaptation (NOTE) [11] comprises two components: (i) Instance-aware batch normalization (IABN), and (ii) Prediction-balanced reservoir sampling (PBRS).In accordance with the original paper, we substitute the batch normalization layers with IABN layers before pre-training the source models.Two hyperparameters are associated with IABN: soft-shrinkage width α and EMA momentum m.The values of α are configured as { 4, 4, 8, 8, 8, 8 }, while m is set to { 0.01, 0.01, 0.1, 0.1, 0.1, 0.1 }.The memory size of PBRS is set to 64, equal to the batch size.In our experiments, we incorporate our label shift adapter into the models using IABN layers.
+
+
+A.3. Details of Label Shift Adapter
+
+Model Architecture.We utilize the same model architecture for the label shift adapter across all datasets.The proposed label shift adapter consists of two fully-connected (FC) layers and a ReLU activation function, structured as FC-ReLU-FC.Furthermore, the label shift adapter is partitioned into two neural networks producing (γ h , β h ) and (∆W , ∆b).As described in the main manuscript, the label shift adapter takes m ⊺ π ∈ R 1 and produces (γ h , β h ) and (∆W , ∆b) in each respective neural network.The hidden layer size in the label shift adapter is configured to 100.Details of Label Shift Adapter.We provide the algorithm of the training process for the label shift adapter as a pseudo-code in Algorithm 1.The primary objective of the label shift adapter is to learn the relationship between π and adaptive parameters by selecting appropriate τ based on sampled π within generalized logit adjusted loss [33,1] function.Increasing τ results in decision boundary shifting away from the minority class towards the majority class.Consequently, instead of sampling batches differently based on π, we sample π and τ iteratively, as described in Algorithm 1.This enables the label shift adapter to optimize its parameters in accordance with input label distributions (e.g., π and Ŷt ), thereby producing suitable parameter adjustments.
+
+During the training of the label shift adapter, we sample the label distribution π from three types of label distributions: {π s , u, πs }.For each sampled label distribution, we select the appropriate τ ⊂ {τ πs , τ u , τ πs }, with the hyperparameter τ corresponding to each π.Different τ values are employed for each dataset.We set τ to {1, −1.5, 3}, {1, 0, −2}, {1, 0, −2}, {1, 0, −2}, {1, −1, −3}, and {1, 0, −2}, for CIFAR-10-LT, CIFAR-100-LT, ImageNet-LT, VisDA-C, OfficeHome, and Do-mainNet, respectively.
+
+The mapping vector m maps the label distribution's vector to the scalar of the imbalance degree.We set the range of m from -1 to 1, with the values increasing proportionally to the data count rank of each class.This technique enables the adapter to effectively utilize the degree of imbalance as an input, circumventing the challenges associated with complex label spaces encountered when using π directly.
+
+While training the label shift adapter, we employ the same optimizer and batch size as those employed for training the source models.The learning rate is set to 1e-3 for all datasets.Moreover, we train the label shift adapter for {200, 200, 30, 15, 50, 20} epochs.
+
+During inference, the momentum hyperparameter α for target label distribution estimation is configured to 0.1.For learnable parameters in the test-time adaptation process, we only update affine parameters in normalization layers by following TENT [46] and IABN [11].Unlike TENT, we freeze the top layers and update the affine parameters of the layer in the remaining shallow layers, inspired by previous work [7,36].Specifically, for ResNet, including four layer groups (layer 1, 2, 3, 4), we only freeze layer4 in CIFAR-10-C, CIFAR-100-C, and ImageNet-C.In other datasets, there is no significant difference in performance, so all affine parameters are trained.When estimating the label distribution on ImageNet-C, we utilize only the top-3 probability to update the estimated label distribution Ŷt .Empirically, we discovered that it is effective to consider only top-k when the number of classes is particularly large.
+
+
+B. Further Analysis on Label Shift Adapter
+
+Ablation Study on Architecture Design.We examine the model architecture design for the proposed label shift adapter.The label shift adapter produces four types of outputs: γ h , β h , ∆W , and ∆b.Table 10 presents the ablation study for each component.Interestingly, even when only ∆b is employed, the performance is quite good.However, we observed that as the degree of the label shift increases, the performance of using only ∆b declines.Moreover, utilizing γ h and β h only also yields impressive results, indicating that appropriately shiting the feature map h is effective in addressing the label shifts.We choose the architecture design of the label shift adapter that achieves the best average accuracy, indicating that the final model generally performs well across a variety of label distributions.T-SNE Visualization.To further substantiate the effectiveness of our method, we visualize the feature map h using t-SNE by extracting h during test-time adaptation.As illustrated in Fig. 7, our method shows a more well-separated representation space in a class-wise manner compared to TENT.Notably, it is evident that the minority classes (e.g., horse and truck) are not well divided in the representation space of TENT.In contrast, our method integrating into IABN layers enhances class-discriminability.Ablation Study on Source Model.In the main manuscript, we employ the balanced softmax to reduce the model bias towards the majority classes.To further validate the effectiveness of the proposed method, we apply our method to several source pre-trained models utilizing different training strategies.We employ three types of techniques: (i) Cross-entropy loss, (ii) Balanced sampling, (iii) Classifier re-training [18], where the feature extractor is trained using cross-entropy loss, and then the classifier is randomly re-initialized and re-trained using class-balanced sampling.Table 11 demonstrates that our method effectively handles the label shifts, regardless of the source pre-trained models.Moreover, these results indicate that existing long-tailed recognition methods can be combined with our method to further reduce the model bias towards the majority classes in source domain data.Ablation Study on π.As described in the main manuscript, we sampled three kinds of label distributions for π during Num.F50 F25 F10 U B10 B25 B50 Avg.training label shift adapter.Regarding the effect of sampling different numbers of π, Table 12 indicates that such variations have negligible impact on performance.Specifically, in this experiment, we interpolate three distributions (i.e., π s , u, πs ) and τ to train the label shift adapter when different numbers of π are utilized.
+
+
+C. Additional Experiments
+
+Comparison with Baselines Related to Label Shifts.We've compared two baselines in Table 7, which have the capability of handling label shifts.We compare additional baselines, DELTA [53] and ISFDA [22], which address covariate and label shifts simultaneously.Although ISFDA requires several epochs for adapting the source models, we conduct the experiments in the test-time adaptation setting for a fair comparison.Table 13 demonstrates that our method is superior to baselines significantly in the VISDA-C dataset.ISFDA, a domain adaptation model, exhibits limitations in its suitability for online learning during inference.Since DELTA only focuses on class imbalances in the target domain, it lacks the ability to handle imbalances in the source domain.In contrast, our method successfully addresses the imbalance in both source and target domains in the test-time adaptation setting.
+
+Comparison with Recent TTA Baseline.We compare recent test-time adaptation baseline, sharpness-aware and reliable entropy minimization (SAR) [36].SAR proposes an optimizer and analyzes normalization layers to resolve imbalances in the target domain.However, it is important to note that our work addresses imbalances in both the source and target domains.Table 14 demonstrates that our method outperforms both SAR+GN and SAR+BN significantly.Moreover, it is a viable option to integrate our method with SAR method.
+
+
+D. Domain-wise Results
+
+Table 15, 16, 17 show the average classification accuracy on CIFAR-10-C, CIFAR-100-C, and ImageNet-C, shown per domain.To compute the accuracy of each domain, we calculate the average performances of Forward50, For-ward25, Forward10, Uniform, Backward10, Backward25, and Backward50, as described in the main manuscript.These results demonstrate that our method consistently enhances performance across various domains.
+
+Figure 3 .
+3
+Figure 3. Overview of the proposed method.(a) We take a frozen pre-trained source model trained with Ds.(b) Before model deployment, we train a label shift adapter with a frozen source pre-trained model.(c) After model deployment, we adapt the model to the target domain by integrating the label shift adapter into other TTA algorithms.
+
+
+Figure 4 .
+4
+Figure 4. Visualization for understanding τ in a generalized logit adjusted loss.By adjusting τ , we can control the bias during training.As τ increases, the decision boundary ate the optimal parameters depending on the label distribution π.During training the label shift adapter, we sample π based on π s , which is the label distribution of D s .To optimize the label shift adapter, we employ a generalized logit adjusted loss[33,1], which incorporates a controlled bias during training:
+
+
+Figure 5 .
+5
+Figure 5. Visualization of estimated target label distributions and target priors on CIFAR-10-C and CIFAR-100-C.Applying the label shift adapter improves the target label distribution estimation.contains a larger number of test samples compared to other domains (e.g., Real: 6,943, Clipart: 1,616, Painting: 2,909, Sketch: 2,399).It is because the target label distribution can be estimated more precisely with more test samples.
+
+
+3 :
+3
+B ← SampleMiniBatch(D, m) ▷ a mini-batch of m examples 4:π, τ ← Sample({π s , u, πs }, {τ πs , τ u , τ πs }) ▷ sample τ matching π 5:
+
+
+Figure 7 .
+7
+Figure 7. T-SNE visualizations of (a) TENT and (b) IABN+Ours.We visualize the feature map h obtained from the Gaussian noise corruption in the CIFAR-10-C uniform test dataset.The number of training samples is large in the order of the classes in the legend.
+
+
+
+
+
+
+
+Table 1 .
+1
+, following the previous work.The categories in the training set of ImageNet-LT contain between 5 and Comparison of accuracy on CIFAR-10-C and CIFAR-100-C.The source model is trained with CIFAR-10-LT and CIFAR-100-LT.We report the average accuracy of 15 corruption types on various test label distributions.Uni.indicates the uniform distribution.
+CIFAR-10-CCIFAR-100-CMethodForward-LTUni.Backward-LTAvg.Forward-LTUni.Backward-LTAvg.50251011025505025101102550Source56.7855.2752.8244.7437.2834.7833.8845.0833.5331.9529.3622.1414.9812.3711.1222.21BN Stats78.6076.2171.7753.1935.0028.6225.1852.6549.0346.6142.9231.3020.0716.0913.8631.41ONDA77.9375.9472.3455.2837.7131.7628.6454.2348.3046.5242.8231.7720.5816.5514.4131.57PseudoLabel 79.3976.4071.3747.9030.6824.9522.6150.4750.8048.2443.5625.5117.0314.2811.9930.20LAME58.2755.8852.2741.6034.1432.1531.5443.6932.6330.9928.1220.8113.9411.5810.2921.19CoTTA80.4577.8673.1253.7533.8927.8024.0152.9848.3245.7142.3030.4221.6518.1416.3331.84NOTE76.2774.7972.1861.9853.1350.9449.4562.6844.5243.1540.5234.2523.9220.6019.1132.30TENT80.3676.9971.2843.6528.6423.0120.3249.1851.7449.2444.0521.3015.8613.4011.2529.55+Ours80.3978.0373.3553.9137.8532.8330.3255.2452.4350.1746.0733.2721.2317.1215.1333.63+0.03+1.04+2.06+10.25+9.21+9.82+10.00+6.06+0.69+0.93+2.02+11.98+5.37+3.72+3.87+4.08IABN76.2374.8472.2262.2253.2950.8849.6962.7744.7943.2440.6334.0123.9520.6719.1632.35+Ours80.5878.6275.2663.3468.5470.0771.6472.5852.0649.7146.0336.8429.2926.3325.5037.97+4.35+3.78+3.04+1.12+15.24+19.20+21.95+9.81+7.26+6.47+5.40+2.83+5.34+5.67+6.33+5.62
+
+Table 2 .
+2
+Comparison of accuracy on ImageNet-C.We report the average accuracy of 15 corruption types on various test label distributions.Uni.indicates the uniform distribution.Numbers under Forward-LT and Backward-LT denote the imbalance ratio.
+Forward-LTUni.Backward-LTAvg.5025101102550Source26.15 25.64 24.67 21.46 18.28 17.07 16.5621.40BN Stats39.47 38.89 37.71 33.63 29.48 28.07 27.2033.49ONDA39.45 38.83 37.71 33.56 29.33 28.01 26.9633.41PseudoLabel 41.46 40.78 39.31 33.49 29.79 28.36 27.6734.41LAME26.08 25.57 24.58 21.37 18.20 17.01 16.4821.33CoTTA40.22 39.81 39.10 35.40 30.21 28.72 27.6534.44NOTE42.43 41.65 40.36 35.17 30.99 29.14 28.1735.41TENT39.40 38.73 37.27 29.05 29.31 28.26 27.2832.76+Ours44.52 43.03 40.86 34.18 31.32 31.21 31.2836.63+5.12 +4.30 +3.59 +5.14 +2.01 +2.94 +3.99+3.87IABN42.44 41.69 40.39 35.20 31.02 29.20 28.2235.45+Ours46.88 45.16 42.68 35.72 33.18 32.91 33.1738.53+4.44 +3.47 +2.29 +0.52 +2.16 +3.71 +4.95+3.08
+
+Table 3 .
+3
+, Comparison of accuracy on VisDA-C (RSUT).
+MethodVISDA-CMethodC→PC→RP→CP→RR→CR→PAvg.Source51.45Source45.3944.5332.9464.3340.2268.9249.39BN Stats49.33BN Stats44.3048.2735.6362.1740.7362.2048.88ONDA50.68ONDA44.8447.5735.2062.0940.6163.8349.02PseudoLabel49.50PseudoLabel47.9849.3437.7162.4239.3863.2150.01LAME50.72LAME41.6842.2732.4063.5737.9266.9447.46CoTTA49.88CoTTA44.4648.1935.6362.3440.7362.2048.92NOTE49.37NOTE43.0242.3838.6461.6941.4064.3348.58TENT48.68TENT49.6049.5138.9663.0841.2564.5251.15+Ours72.97+Ours49.6053.1337.8166.4541.3568.3552.78+24.290.00+3.62-1.15+3.37+0.10+3.83+1.63
+
+Table 4 .
+4
+Comparison of accuracy on three domains of Officehome (RSUT): C: Clipart, P: Product, R: Realworld.Source 52.73 74.87 52.15 58.42 81.22 61.82 66.03 69.58 55.31 63.92 59.68 75.43 64.26 BN Stats 56.81 77.05 54.10 63.63 81.12 60.22 67.38 70.00 56.84 71.75 68.72 80.18 67.32 ONDA 56.82 78.32 54.81 63.99 81.79 61.86 67.14 70.09 58.11 71.60 69.34 80.77 67.89 PseudoLabel 61.81 77.43 56.25 62.56 81.64 62.04 71.06 73.89 58.4971.81 70.38 80.12 68.96 LAME 49.20 72.45 48.69 57.81 80.09 60.85 65.25 68.19 53.97 61.00 55.66 73.25 62.20 CoTTA 56.88 77.33 54.18 63.69 81.31 60.26 67.44 70.07 57.14 71.69 68.85 80.56 67.45 NOTE 55.38 74.15 57.98 65.59 81.66 64.65 71.29 73.32 63.28 72.28 68.31 80.25 69.01 TENT 63.26 77.10 59.76 66.69 80.02 64.32 71.88 74.34 62.25 73.13 72.64 78.73 70.34 +Ours 63.26 81.11 60.39 67.38 82.99 67.23 71.88 74.83 64.40 71.88 71.56 82.67 71.63
+MethodC→P C→R C→S P→C P→R P→S R→C R→P R→S S→C S→P S→R Avg.0.00+4.01 +0.63 +0.69 +2.97 +2.91 0.00+0.49 +2.15 -1.25 -1.08 +3.94 +1.29
+
+Table 5 .
+5
+Comparison of accuracy on four domains of DomainNet: C: Clipart, P: Painting, R: Real, S: Sketch.
+
+
+Table 6 .
+6
+Comparison
+DatasetPriorForward-LTUni.Backward-LTAvg.5025101102550CIFAR-10-C✗ 80.58 78.62 75.26 63.34 68.54 70.07 71.64 72.58 ✓ 81.58 79.05 75.17 69.55 68.65 70.51 72.86 73.91CIFAR-100-C✗ 52.06 49.71 46.03 36.84 29.29 26.33 25.50 37.97 ✓ 53.59 50.95 46.96 37.17 29.79 27.46 27.03 38.99ImageNet-C✗ 46.88 45.16 42.68 35.72 33.18 32.91 33.17 38.53 ✓ 47.71 45.69 42.98 36.02 32.95 32.65 33.23 38.75
+between estimated label distribution and target prior on CIFAR-10-C, CIFAR-100-C, and ImageNet-C.
+
+
+
+
+Logit Adjust 78.89 77.20 73.58 58.86 46.12 41.95 39.72 59.47 IM Loss 76.54 75.39 72.34 56.43 49.79 47.58 46.62 60.67 Ours+IABN 80.58 78.62 75.26 63.34 68.54 70.07 71.64 72.58 CIFAR-100-C Logit Adjust 43.23 41.16 37.55 30.94 25.44 23.67 23.38 32.19 IM Loss 44.10 42.64 40.00 33.36 23.61 20.54 19.11 31.91 Ours+IABN 52.06 49.71 46.03 36.84 29.29 26.33 25.50 37.97 Table
+DatasetMethodForward-LTUni.Backward-LTAvg.5025101102550CIFAR-10-C
+
+Table 11 .
+11
+Ablation study on the source pre-trained model using CIFAR-100-LT and CIFAR-100-C.
+Src Method TTA MethodForward-LTUni.Backward-LTAvg.5025101102550Source40.20 37.26 33.18 22.20 12.198.957.2423.03BN Stats48.12 45.44 40.17 26.17 13.679.697.8027.30ONDA48.49 45.80 41.16 27.66 15.17 11.028.9828.33Cross EntropyPseudoLabel TENT LAME48.76 45.26 39.09 19.84 11.32 49.17 45.21 38.42 15.32 9.99 38.17 35.17 31.22 20.44 11.028.19 7.44 7.936.44 5.67 6.3025.56 24.46 21.46CoTTA32.83 29.35 25.72 14.757.384.943.6716.95NOTE46.41 44.10 40.49 29.30 15.77 11.879.8428.26IABN46.43 43.92 39.80 25.35 14.71 11.139.2727.23+Ours53.20 50.77 46.26 32.34 18.56 14.07 11.7432.42Source34.88 32.54 29.12 20.29 11.809.097.5120.75BN Stats45.07 42.93 39.10 28.67 17.82 13.97 11.8828.49ONDA44.79 42.60 39.01 29.20 18.62 14.65 12.7028.80Balanced SamplingPseudoLabel TENT LAME47.08 44.66 40.45 26.98 17.31 13.59 11.23 48.28 45.64 41.07 24.04 16.88 13.50 11.30 32.88 30.44 27.08 18.48 10.48 7.89 6.3928.76 28.67 19.09CoTTA30.38 28.68 25.58 17.32 10.747.966.4918.16NOTE46.62 44.27 40.64 30.42 16.99 12.77 10.3228.86IABN46.85 44.29 40.40 27.20 16.12 12.059.8828.12+Ours51.32 49.18 44.99 31.92 19.64 15.11 13.0032.16Source40.17 37.47 33.59 23.23 13.42 10.188.5123.80BN Stats48.33 45.60 40.82 27.49 15.13 11.169.1128.23ONDA48.33 45.77 41.57 28.96 16.78 12.50 10.6329.22Classifier Re-TrainingPseudoLabel TENT LAME49.10 45.89 40.19 21.01 12.74 49.70 46.19 39.79 16.59 11.28 38.22 35.41 31.60 21.48 12.289.50 8.93 9.137.66 6.92 7.5226.58 25.63 22.23CoTTA31.93 29.23 25.91 15.268.185.554.3317.20NOTE45.96 44.04 41.14 31.68 18.52 14.66 12.6729.81IABN46.11 44.04 40.53 27.61 17.28 13.71 11.9428.75+Ours53.11 50.86 46.66 34.04 20.77 16.41 14.1233.71
+
+3
+
+52.06 49.71 46.03 36.84 29.29 26.33 25.50 37.97 5 50.91 48.82 45.41 36.90 29.28 26.37 25.51 37.60 7 51.13 48.99 45.52 36.9629.24 26.25 25.45 37.64 ∞ 51.62 49.36 45.85 37.09 29.12 26.06 25.03 37.73
+
+
+Table 12 .
+12
+Ablation study on the number of π for training label shift adapter using CIFAR-100-C.Num.denotes the number of π for training the adapter.F, U, and B indicate forward, uniform, and backward distributions, respectively.We chose three label distributions.
+DELTA ISFDA TENT+OursVISDA-C50.1061.0272.97
+
+Table 13 .
+13
+Comparison with additional baselines in test-time adaptation setting..5910.23 14.05 18.93 20.46 21.70 14.86 SAR+BN 49.44 47.04 43.39 32.18 20.22 16.24 13.96 31.78Ours+IABN 52.06 49.71 46.03 36.84 29.29 26.33 25.50 37.97
+MethodF50F25F10UB10 B25 B50 Avg.SAR+GN 57.22 57.20 57.07 57.12 61.84 63.06 64.37 59.70CIFAR10SAR+BN 78.63 76.28 71.82 53.28 34.99 28.60 25.18 52.68Ours+IABN 80.58 78.62 75.26 63.34 68.54 70.07 71.64 72.58SAR+GN 9.09 9CIFAR100
+
+Table 14
+14
+. Comparison with SAR using CIFAR-10-C and CIFAR-100-C in TTA setting.F, U, and B denote forward, uniform, and backward, respectively.GN and BN indicate group and batch normalization, respectively.
+
+
+Table 15 .
+15
+Source 23.06 26.94 19.59 46.89 41.06 45.63 49.42 58.30 45.31 45.72 69.85 21.23 57.60 60.14 65.45 45.08 BN Stats 49.18 50.52 46.29 58.11 45.05 56.14 55.96 52.32 50.65 53.60 59.11 54.93 51.63 54.15 52.12 52.65 ONDA 50.70 51.66 47.68 59.80 46.4957.45 57.78 53.81 52.36 55.14 61.52 54.76 53.60 56.4954.19 54.23 PseudoLabel 46.87 48.76 44.47 55.96 43.87 53.89 53.46 49.96 48.70 50.91 56.34 52.5749.29 51.88 50.16 50.47 LAME 17.97 22.75 15.43 44.74 40.36 42.40 47.08 61.30 48.62 45.20 67.84 20.33 55.40 61.36 64.59 43.69 CoTTA 51.69 53.11 50.31 55.80 47.28 54.31 54.88 52.60 52.18 52.81 58.30 49.66 52.12 55.32 54.39 52.98 NOTE 54.48 56.22 53.24 68.20 48.64 64.87 65.09 65.56 64.43 64.08 73.33 67.59 60.24 66.95 67.26 62.68 TENT 46.41 48.29 43.38 53.82 42.42 52.22 51.5748.92 47.51 49.81 55.06 50.62 47.90 50.58 49.20 49.18 + Ours 51.66 53.55 48.66 60.74 46.94 58.77 57.37 55.04 53.48 56.00 62.05 57.68 54.11 57.48 55.07 55.24 IABN 54.77 56.48 53.25 68.24 48.39 64.53 64.89 65.63 64.44 64.60 73.79 67.24 60.32 67.81 67.17 62.77 + Ours 68.72 69.54 64.94 77.48 61.47 76.24 75.52 72.06 72.83 74.53 79.69 79.08 69.66 74.25 72.69 72.58 Domain-wise results on CIFAR-10-C..1425.65 25.82 27.37 22.98 18.57 34.51 5.84 33.03 17.47 36.19 22.21 BN Stats 27.59 28.51 26.20 36.8928.61 34.53 36.44 29.40 28.81 28.98 36.66 29.22 33.37 33.78 32.18 31.41ONDA 27.53 28.77 26.17 36.85 29.07 34.37 36.91 29.71 29.09 29.38 36.97 27.77 33.89 34.00 33.00 31.57PseudoLabel 27.44 28.54 25.59 34.92 27.78 32.83 34.56 28.58 27.40 28.58 34.96 26.01 31.5832.86 31.38 30.20 LAME 13.41 15.73 7.66 20.93 22.30 24.79 24.63 27.21 22.39 17.07 33.62 4.48 32.41 15.62 35.66 21.19 CoTTA 30.01 30.85 28.45 34.77 30.64 34.04 35.64 30.92 30.10 28.65 36.0924.30 33.54 35.58 34.00 31.84NOTE 24.17 25.64 18.62 35.73 28.08 36.8937.48 34.91 33.95 29.13 41.47 33.93 36.29 32.01 36.13 32.30TENT 27.50 28.49 25.28 33.98 26.89 32.12 33.36 28.00 26.79 27.78 34.05 25.20 31.01 32.25 30.53 29.55 + Ours 30.95 32.21 28.77 38.60 30.58 36.06 38.24 32.30 30.74 31.52 38.34 30.36 34.75 36.19 34.86 33.63 IABN 24.54 25.79 18.92 35.50 28.00 36.80 37.58 34.97 34.20 29.02 41.39 33.99 36.1732.09 36.29 32.35 + Ours 33.65 34.37 28.17 41.86 33.62 41.08 41.79 37.82 38.36 34.77 43.51 42.54 39.18 39.98 38.76 37.97
+MethodG a u s s ia nS h o tIm p u ls eD e fo c u sG la s sM o ti o nZ o o mS n o wF ro s tF o gB ri g h tn e s sC o n tr a s tE la s ti cP ix e la teJ P E GAvg
+
+Table 16 .
+16
+Domain-wise results on CIFAR-100-C..1717.98 18.73 21.25 15.21 28.04 44.67 28.63 39.16 29.56 34.77 21.40 BN Stats 29.27 28.90 25.46 25.59 22.94 33.14 32.91 28.37 25.15 40.06 45.27 40.19 43.59 41.84 39.74 33.49ONDA 29.15 28.88 25.33 25.49 22.74 32.73 32.96 28.18 25.04 40.12 45.46 39.69 43.60 42.02 39.72 33.41 PseudoLabel 31.25 30.93 29.00 27.72 25.80 34.36 33.64 30.20 25.39 40.33 44.09 39.56 42.78 41.43 39.65 34.41 LAME 5.56 5.73 4.67 15.33 11.03 17.92 18.67 21.19 15.16 28.01 44.64 28.61 39.12 29.49 34.75 21.33 CoTTA 30.93 30.36 27.47 27.28 24.95 34.42 33.56 30.01 26.44 40.62 44.79 40.58 43.32 41.83 40.05 34.44 NOTE 31.34 30.83 29.26 27.39 24.66 35.67 32.70 33.34 28.33 39.52 46.55 44.97 43.67 41.38 41.59 35.41 TENT 29.29 28.94 25.84 25.68 22.94 32.11 32.37 27.17 23.50 39.43 43.94 38.18 42.30 40.66 39.02 32.76 + Ours 32.38 32.39 28.77 29.07 26.21 35.70 35.81 31.44 27.86 43.14 48.56 43.00 46.59 44.92 43.59 36.63IABN 31.47 30.86 29.28 27.37 24.66 35.69 32.77 33.35 28.37 39.54 46.65 45.03 43.72 41.40 41.60 35.45 + Ours 34.28 34.00 32.18 30.25 27.14 38.92 35.53 36.48 31.5842.50 49.95 48.35 46.93 44.95 44.87 38.53
+MethodG a u s s ia nS h o tIm p u ls eD e fo c u sG la s sM o ti o nZ o o mS n o wF ro s tF o gB ri g h tn e s sC o n tr a s tE la s ti cP ix e la teJ P E GAvgSource5.725.884.8215.48 11
+
+Table 17 .
+17
+Domain-wise results on ImageNet-C.
+
+Acknowledgements.We would like to thank Kyuwoong Hwang, Simyung Chang, Hyunsin Park, Janghoon Cho, Juntae Lee, Hyoungwoo Park, Seokeon Choi, and Jungsoo Lee of Qualcomm AI Research team for their valuable discussions.Supplementary MaterialA. Implementation DetailsIn this section, we introduce further information regarding the datasets, along with the implementation details for the baseline test-time-adaptation (TTA) methods and the label shift adapter.A.1. DatasetsFig.6illustrates the label distributions for the datasets utilized in our experiments.As depicted in Fig.6(a), 'forward' and 'RS' represent long-tailed label distributions, with class order corresponding to the training label distribution.Conversely, 'backward' and 'UT' indicate a reversed class order.In the forward and backward settings, the imbalance ratios for CIFAR-10-C, CIFAR-100-C, and ImageNet-C are configured to 10, 25, and 100.We adjust the label distribution by reducing the number of images per class based on the specified imbalance ratio.For VisDA-C, The imbalance ratio is set to 100 for both training and test datasets.Furthermore, we utilize an imbalanced version of OfficeHome created by the previous research[43].Fig.6(b) shows the label distributions of DomainNet, in which existing label shifts are significant enough.The superior performance of our method on DomainNet demonstrates its ability to handle label shifts that arise in realworld scenarios.A.2. Details of BaselinesWe carry out the experiments using the official implementations of the baseline models.We provide additional details regarding the implementation specifics, including hyperparameters.Note that the batch size for test-time adaptation is configured to 64 for fair comparisons.For simplicity, we present the hyperparameters in the following sequence: {CIFAR-10-C, CIFAR-100-C, ImageNet-C, VisDA-C, OfficeHome, DomainNet} for test-time adaptation baselines.In instances where hyperparameters are not separately described for each dataset, the same values are employed across all datasets.Source.Different from the previous TTA studies, we employ long-tailed datasets in our research.To mitigate model bias towards the majority classes, we utilize a balanced softmax[39], which is a prominent method for long-tailed recognition.Formally, the balanced softmax is expressed as:where π s represents the frequency of the training classes, and σ denotes the softmax function.Table9describes the hyperparameters utilized for training on source domain datasets.We select the hyperparameters for VisDA-C, OfficeHome, and DomainNet in accordance with the imbalanced source-free domain adaptation study[22].As described in the main manuscript, we utilize pre-trained ResNet-50 and ResNet-101 on ImageNet, when conducting the experiments on VisDA-C, OfficeHome, and DomainNet.Moreover, the learning rate for the feature extractor and the classifier is set to 0.1×LR and LR, respectively, when training the model on VisDA-C, Office-Home, and DomainNet.All experiments are conducted using NVIDIA RTX A5000 GPU.BN Stats.BN stats[41]utilizes test batch statistics instead of running statistics within batch normalization layers.PseudoLabel.In accordance with previous studies[20,46],
+Balanced product of experts for longtailed recognition. Emanuel Sanchez Aimar, Arvi Jonnarth, Michael Felsberg, Marco Kuhlmann, arXiv:2206.052602022. 3, 4, 5, 15arXiv preprint
+
+Long-tailed recognition via weight balancing. Shaden Alshammari, Yu-Xiong Wang, Deva Ramanan, Shu Kong, Proc. of the IEEE conference on computer vision and pattern recognition (CVPR). of the IEEE conference on computer vision and pattern recognition (CVPR)202259
+
+Fanny Yang, and Animashree Anandkumar. Regularized learning for domain adaptation under label shifts. Kamyar Azizzadenesheli, Anqi Liu, Proc. the International Conference on Learning Representations (ICLR). the International Conference on Learning Representations (ICLR)2019
+
+Parameter-free online test-time adaptation. Malik Boudiaf, Romain Mueller, Ismail Ben Ayed, Luca Bertinetto, Proc. of the IEEE conference on computer vision and pattern recognition (CVPR). of the IEEE conference on computer vision and pattern recognition (CVPR)2022713
+
+Hypernetworks for continual semi-supervised learning. Dhanajit Brahma, Vinay Kumar Verma, Piyush Rai, arXiv:2110.018562021arXiv preprint
+
+Learning imbalanced datasets with labeldistribution-aware margin loss. Kaidi Cao, Colin Wei, Adrien Gaidon, Nikos Arechiga, Tengyu Ma, Proc. the Advances in Neural Information Processing Systems (NeurIPS). the Advances in Neural Information essing Systems (NeurIPS)2019. 1, 3, 5, 9
+
+Improving test-time adaptation via shift-agnostic weight regularization and nearest source prototypes. Sungha Choi, Seunghan Yang, Seokeon Choi, Sungrack Yun, Proc. of the European Conference on Computer Vision (ECCV). of the European Conference on Computer Vision (ECCV)Springer2022. 2, 3, 4, 915
+
+Class-balanced loss based on effective number of samples. Yin Cui, Menglin Jia, Tsung-Yi Lin, Yang Song, Serge Belongie, Proc. of the IEEE conference on computer vision and pattern recognition (CVPR). of the IEEE conference on computer vision and pattern recognition (CVPR)201913
+
+Unsupervised domain adaptation by backpropagation. Yaroslav Ganin, Victor Lempitsky, Proc. the International Conference on Machine Learning (ICML). the International Conference on Machine Learning (ICML)PMLR20151
+
+Domain-adversarial training of neural networks. Yaroslav Ganin, Evgeniya Ustinova, Hana Ajakan, Pascal Germain, Hugo Larochelle, Mario Franc ¸ois Laviolette, Victor Marchand, Lempitsky, The journal of machine learning research. 1712016
+
+Note: Robust continual testtime adaptation against temporal correlation. Taesik Gong, Jongheon Jeong, Taewon Kim, Yewon Kim, Jinwoo Shin, Sung-Ju Lee, Proc. the Advances in Neural Information Processing Systems (NeurIPS). the Advances in Neural Information essing Systems (NeurIPS)2022. 1, 2, 3, 6, 7, 8, 91315
+
+. David Ha, Andrew Dai, Quoc V Le, Hypernetworks, arXiv:1609.091062016arXiv preprint
+
+Deep residual learning for image recognition. Kaiming He, Xiangyu Zhang, Shaoqing Ren, Jian Sun, Proc. of the IEEE conference on computer vision and pattern recognition (CVPR). of the IEEE conference on computer vision and pattern recognition (CVPR)2016
+
+Benchmarking neural network robustness to common corruptions and perturbations. Dan Hendrycks, Thomas Dietterich, Proc. the International Conference on Learning Representations (ICLR). the International Conference on Learning Representations (ICLR)201856
+
+Disentangling label distribution for long-tailed visual recognition. Youngkyu Hong, Seungju Han, Kwanghee Choi, Seokjun Seo, Beomsu Kim, Buru Chang, Proc. of the IEEE conference on computer vision and pattern recognition (CVPR). of the IEEE conference on computer vision and pattern recognition (CVPR)2021. 1, 3, 689
+
+J Edward, Yelong Hu, Phillip Shen, Zeyuan Wallis, Yuanzhi Allen-Zhu, Shean Li, Lu Wang, Weizhu Wang, Chen, arXiv:2106.09685Lora: Low-rank adaptation of large language models. 2021arXiv preprint
+
+Implicit class-conditioned domain alignment for unsupervised domain adaptation. Xiang Jiang, Qicheng Lao, Stan Matwin, Mohammad Havaei, International Conference on Machine Learning. 202023
+
+Decoupling representation and classifier for long-tailed recognition. Bingyi Kang, Saining Xie, Marcus Rohrbach, Zhicheng Yan, Albert Gordo, Jiashi Feng, Yannis Kalantidis, Proc. the International Conference on Learning Representations (ICLR). the International Conference on Learning Representations (ICLR)2019. 1, 5915
+
+Domain impression: A source data free domain adaptation method. Vinod K Kurmi, K Venkatesh, Subramanian, Vinay, Namboodiri, Proceedings of the IEEE/CVF winter conference on applications of computer vision. the IEEE/CVF winter conference on applications of computer vision20211
+
+Pseudo-label: The simple and efficient semi-supervised learning method for deep neural networks. Dong-Hyun Lee, Workshop on challenges in representation learning, ICML. 2013712
+
+Improving face recognition with large age gaps by learning to distinguish children. Jungsoo Lee, Jooyeol Yun, Sunghyun Park, Yonggyu Kim, Jaegul Choo, British Machine Vision Conference. 2021
+
+Imbalanced source-free domain adaptation. Xinhao Li, Jingjing Li, Lei Zhu, Guoqing Wang, Zi Huang, Proceedings of the 29th ACM International Conference on Multimedia. the 29th ACM International Conference on Multimedia2021. 2, 3, 61216
+
+Do we really need to access the source data? source hypothesis transfer for unsupervised domain adaptation. Jian Liang, Dapeng Hu, Jiashi Feng, International Conference on Machine Learning. PMLR2020. 1, 2, 8, 9
+
+Ttn: A domain-shift aware batch normalization in testtime adaptation. Hyesu Lim, Byeonggeun Kim, Jaegul Choo, Sungha Choi, Proc. the International Conference on Learning Representations (ICLR). the International Conference on Learning Representations (ICLR)2023. 1, 2, 3, 4, 9
+
+Kaiming He, and Piotr Dollár. Focal loss for dense object detection. Tsung-Yi Lin, Priya Goyal, Ross Girshick, Proc. of the IEEE international conference on computer vision (ICCV). of the IEEE international conference on computer vision (ICCV)2017
+
+Xi Lin, Zhiyuan Yang, Qingfu Zhang, Sam Kwong, arXiv:2010.06313Controllable pareto multi-task learning. 2020arXiv preprint
+
+Exploring versatile generative language model via parameterefficient transfer learning. Zhaojiang Lin, Andrea Madotto, Pascale Fung, arXiv:2004.038292020arXiv preprint
+
+Detecting and correcting for label shift with black box predictors. Zachary Lipton, Yu-Xiang Wang, Alexander Smola, Proc. the International Conference on Machine Learning (ICML). the International Conference on Machine Learning (ICML)2018
+
+Adversarial unsupervised domain adaptation with conditional and label shift: Infer, align and iterate. Xiaofeng Liu, Zhenhua Guo, Site Li, Fangxu Xing, Jane You, C-C Jay Kuo, Georges El Fakhri, Jonghye Woo, Proc. of the IEEE international conference on computer vision (ICCV). of the IEEE international conference on computer vision (ICCV)2021
+
+Large-scale long-tailed recognition in an open world. Ziwei Liu, Zhongqi Miao, Xiaohang Zhan, Jiayun Wang, Boqing Gong, Stella X Yu, Proc. of the IEEE conference on computer vision and pattern recognition (CVPR). of the IEEE conference on computer vision and pattern recognition (CVPR)2019
+
+Parameter-efficient multi-task fine-tuning for transformers via shared hypernetworks. Rabeeh Karimi Mahabadi, Sebastian Ruder, Mostafa Dehghani, James Henderson, arXiv:2106.044892021arXiv preprint
+
+Kitting in the wild through online domain adaptation. Massimiliano Mancini, Hakan Karaoguz, Elisa Ricci, Patric Jensfelt, Barbara Caputo, 2018 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEE2018713
+
+Long-tail learning via logit adjustment. Aditya Krishna Menon, Sadeep Jayasumana, Ankit Singh Rawat, Himanshu Jain, Andreas Veit, Sanjiv Kumar, Proc. the International Conference on Learning Representations (ICLR). the International Conference on Learning Representations (ICLR)2020. 3, 4, 5, 8, 915
+
+Learning the pareto front with hypernetworks. Aviv Navon, Aviv Shamsian, Ethan Fetaya, Gal Chechik, Proc. the International Conference on Learning Representations (ICLR). the International Conference on Learning Representations (ICLR)2020
+
+Efficient testtime model adaptation without forgetting. Shuaicheng Niu, Jiaxiang Wu, Yifan Zhang, Yaofo Chen, Shijian Zheng, Peilin Zhao, Mingkui Tan, PMLR, 2022. 1Proc. the International Conference on Machine Learning (ICML). the International Conference on Machine Learning (ICML)23
+
+Towards stable test-time adaptation in dynamic wild world. Shuaicheng Niu, Jiaxiang Wu, Yifan Zhang, Zhiquan Wen, Yaofo Chen, Peilin Zhao, Mingkui Tan, 20231516
+
+Moment matching for multi-source domain adaptation. Xingchao Peng, Qinxun Bai, Xide Xia, Zijun Huang, Kate Saenko, Bo Wang, Proc. of the IEEE international conference on computer vision (ICCV). of the IEEE international conference on computer vision (ICCV)2019
+
+Visda: The visual domain adaptation challenge. Xingchao Peng, Ben Usman, Neela Kaushik, Judy Hoffman, Dequan Wang, Kate Saenko, arXiv:1710.069242017arXiv preprint
+
+Balanced meta-softmax for long-tailed visual recognition. Cunjun Jiawei Ren, Shunan Yu, Xiao Sheng, Haiyu Ma, Shuai Zhao, Hongsheng Yi, Li, Proc. the Advances in Neural Information Processing Systems (NeurIPS). the Advances in Neural Information essing Systems (NeurIPS)2020. 2, 3, 5712
+
+Distributional robustness loss for long-tail learning. Dvir Samuel, Gal Chechik, Proc. of the IEEE international conference on computer vision (ICCV). of the IEEE international conference on computer vision (ICCV)2021
+
+Improving robustness against common corruptions by covariate shift adaptation. Steffen Schneider, Evgenia Rusak, Luisa Eck, Oliver Bringmann, Wieland Brendel, Matthias Bethge, Proc. the Advances in Neural Information Processing Systems (NeurIPS). the Advances in Neural Information essing Systems (NeurIPS)2020. 1, 33312
+
+Personalized federated learning using hypernetworks. Aviv Shamsian, Aviv Navon, Ethan Fetaya, Gal Chechik, PMLR, 2021. 3Proc. the International Conference on Machine Learning (ICML). the International Conference on Machine Learning (ICML)
+
+Classimbalanced domain adaptation: an empirical odyssey. Shuhan Tan, Xingchao Peng, Kate Saenko, Computer Vision-ECCV 2020 Workshops. UKGlasgowAugust 23-28, 2020Proceedings, Part I 16
+
+. Springer, 2020. 2, 3, 6, 12
+
+Deep hashing network for unsupervised domain adaptation. Hemanth Venkateswara, Jose Eusebio, Shayok Chakraborty, Sethuraman Panchanathan, Proc. of the IEEE conference on computer vision and pattern recognition (CVPR). of the IEEE conference on computer vision and pattern recognition (CVPR)2017
+
+Continual learning with hypernetworks. Christian Johannes Von Oswald, Benjamin F Henning, João Grewe, Sacramento, Proc. the International Conference on Learning Representations (ICLR). Proc. the International Conference on Learning Representations (ICLR). the International Conference on Learning Representations (ICLR). . the International Conference on Learning Representations (ICLR)2020
+
+Tent: Fully test-time adaptation by entropy minimization. Dequan Wang, Evan Shelhamer, Shaoteng Liu, Bruno Olshausen, Trevor Darrell, Proc. the International Conference on Learning Representations (ICLR). the International Conference on Learning Representations (ICLR)2021. 1, 2, 3, 4, 5, 6, 7, 121315
+
+Continual test-time domain adaptation. Qin Wang, Olga Fink, Luc Van Gool, Dengxin Dai, Proc. of the IEEE conference on computer vision and pattern recognition (CVPR). of the IEEE conference on computer vision and pattern recognition (CVPR)2022713
+
+Long-tailed recognition by routing diverse distribution-aware experts. Xudong Wang, Long Lian, Zhongqi Miao, Ziwei Liu, Stella X Yu, Proc. the International Conference on Learning Representations (ICLR). the International Conference on Learning Representations (ICLR)2020
+
+Learning from multiple experts: Self-paced knowledge distillation for long-tailed classification. Liuyu Xiang, Guiguang Ding, Jungong Han, Proc. of the European Conference on Computer Vision (ECCV). of the European Conference on Computer Vision (ECCV)202039
+
+Aggregated residual transformations for deep neural networks. Saining Xie, Ross Girshick, Piotr Dollár, Zhuowen Tu, Kaiming He, Proc. of the IEEE conference on computer vision and pattern recognition (CVPR). of the IEEE conference on computer vision and pattern recognition (CVPR)2017
+
+Unsupervised domain adaptation for one-stage object detector using offsets to bounding box. Jayeon Yoo, Inseop Chung, Nojun Kwak, Proc. of the European Conference on Computer Vision (ECCV). of the European Conference on Computer Vision (ECCV)Springer2022
+
+Self-supervised aggregation of diverse experts for testagnostic long-tailed recognition. Yifan Zhang, Bryan Hooi, Jiashi Hong Lanqing, Feng, Proc. the Advances in Neural Information Processing Systems (NeurIPS). the Advances in Neural Information essing Systems (NeurIPS)2022. 3, 5, 6
+
+Delta: degradation-free fully test-time adaptation. Bowen Zhao, Chen Chen, Shu-Tao Xia, Proc. the International Conference on Learning Representations (ICLR). the International Conference on Learning Representations (ICLR)2023316
+
+Bbn: Bilateral-branch network with cumulative learning for long-tailed visual recognition. Boyan Zhou, Quan Cui, Xiu-Shen Wei, Zhao-Min Chen, Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. the IEEE/CVF conference on computer vision and pattern recognition2020
+
+Unsupervised domain adaptation for semantic segmentation via class-balanced self-training. Yang Zou, Zhiding Yu, Jinsong Kumar, Wang, Proc. of the European Conference on Computer Vision (ECCV). of the European Conference on Computer Vision (ECCV)2018
+
+Learning instance-specific adaptation for cross-domain segmentation. Yuliang Zou, Zizhao Zhang, Chun-Liang Li, Han Zhang, Tomas Pfister, Jia-Bin Huang, Proc. of the European Conference on Computer Vision (ECCV). of the European Conference on Computer Vision (ECCV)Springer202249
+
+Ablation study on architecture design of label shift adapter using CIFAR-100-LT and CIFAR-100-C. Table 10

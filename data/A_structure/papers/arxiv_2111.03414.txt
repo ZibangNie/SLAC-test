@@ -1,0 +1,552 @@
+STRUCTURE-AWARE IMAGE INPAINTING WITH TWO PARALLEL STREAMS
+
+
+Zhilin Huang 
+Communication and Information Security Lab
+Peking University
+
+
+Chujun Qin chujun.qin@pku.edu.cn 
+Communication and Information Security Lab
+Peking University
+
+
+Ruixin Liu 
+Communication and Information Security Lab
+Peking University
+
+
+Zhenyu Weng 
+Communication and Information Security Lab
+Peking University
+
+
+Yuesheng Zhu 
+Communication and Information Security Lab
+Peking University
+
+
+STRUCTURE-AWARE IMAGE INPAINTING WITH TWO PARALLEL STREAMS
+
+Recent works in image inpainting have shown that structural information plays an important role in recovering visually pleasing results. In this paper, we propose an end-to-end architecture composed of two parallel UNet-based streams: a main stream (MS) and a structure stream (SS). With the assistance of SS, MS can produce plausible results with reasonable structures and realistic details. Specifically, MS reconstructs detailed images by inferring missing structures and textures simultaneously, and SS restores only missing structures by processing the hierarchical information from the encoder of MS. By interacting with SS in the training process, MS can be implicitly encouraged to exploit structural cues. In order to help SS focus on structures and prevent textures in MS from being affected, a gated unit is proposed to depress structureirrelevant activations in the information flow between MS and SS. Furthermore, the multi-scale structure feature maps in SS are utilized to explicitly guide the structure-reasonable image reconstruction in the decoder of MS through the fusion block. Extensive experiments on CelebA, Paris StreetView and Places2 datasets demonstrate that our proposed method outperforms state-of-the-art methods.
+
+INTRODUCTION
+
+Image inpainting is a task of restoring the missing or damaged parts of images in computer vision, which has a wide range of practical applications, such as photo manipulation, filling missing contents, etc. The main challenge of image inpainting is to generate visually plausible results with reasonable structures and realistic details.
+
+Traditionally, this task is settled with diffusion-based or patch-based approaches [1,2] which extract the relevant image patches from known regions to fill the missing holes. These methods only work well for stationary regions and always fail to generate semantic information on non-stationary images since they are not able to "understand" the image. To make up for it, learning-based methods [3,4,5] are proposed to formulate inpainting as a conditional image generation problem by using a convolutional encoder-decoder network, where the encoder learns a latent feature representation of the image and then the decoder takes the representation to reason about the missing contents. However, with- out enough guidance, they always fail to effectively exploit structures (like edges and low-frequency information [6]) and cannot predict the missing structures correctly when the holes are completely empty, leading to blurry contents or artifacts as shown in Fig. 1 (b) LBAM [4].
+
+To handle this problem, an end-to-end model composed of two stacked encoder-decoder networks [7,8,9,10] are proposed to divide the inpainting process into coarse and fine stage. They reconstruct a preliminary structure image in the coarse stage and then use it to guide the generation of detailed images in the fine stage. And ground-truth images are adopted as labels of both two stages for the training. However, the high-frequency textures contained in ground-truth images may mislead the structure reconstruction in the coarse stage, further bringing negative effect to the subsequent detailed image reconstruction. Recently, [11,12,6] propose to adopt similar two-stage architectures like previous methods. They replace the ground-truth images with the structure images (like sketch maps, edge preserved smoothed images, etc.) as labels of the first stage, and optimize the two stages separately before jointly fine-tuning the two stages. By doing so, the first stage can focus on exploiting structural information and predicting missing structures in holes, thus obtaining a reasonable structure image to assist the subsequent detailed image reconstruction in the second stage. These methods have made significant progress, presenting that structural information plays an important role in recovering visually pleasing results. However, their complex training schedule re-quires additional training time and computation resources and sometimes they fail to recover significant structures as shown in Fig. 1 (c) SF [6]. The reason is that the way they utilize the structural information from the first stage is inefficient: (1) They only consider the image-level output of the first stage, while neglect the useful feature-level structural information learned in intermediate layers. (2) The pre-generated structural information which is only incorporated into the beginning of the second stage cannot provide sufficient guidance to produce structure-reasonable images in the decoder since it will be weaken as it reaches the end of the network [13].
+
+To effectively exploit and utilize structural information in images for image inpainting, in this paper, we propose an endto-end architecture composed of two parallel streams. We utilize a main stream (MS) to reconstruct corrupted images, and introduce a parallel structure stream (SS) to assist MS to produce visually plausible results with reasonable structures and realistic details. Specifically, MS aims at producing detailed images by processing structures and textures simultaneously, SS is designed to solely extract structural representations and recover missing structures by processing hierarchical information received from the encoder of MS. To help the structural information be directed to SS, we supervise it with a structure loss. In addition, we propose a gated unit (GU) to control the information flow from MS to SS. By highlighting structure-relevant activations and depressing structure-irrelevant ones, GU can not only help SS focus on structures without being misled by irrelevant information, but also prevent the textures in MS from being "washed out" in the training process. By interacting with SS in the joint optimization of the two streams, MS can be implicitly encouraged to exploit structural cues, thus correctly modeling the relationship between structures and textures. Furthermore, for fully utilizing the extracted structural information in SS to guide the image reconstruction in MS, we incorporate the multi-scale structure feature maps from the decoder of SS into the corresponding layers of MS through the proposed adaptive fusion block (AFBlk). By adaptively adjusting the contribution of structures and textures in both spatial ("where") and channel ("what") dimensions, AFBlk is able to effectively fuse the structure information from SS into MS while preserving the textures generated in previous decoder layers of MS.
+
+Extensive experiments on CelebA, Paris StreetView and Places2 datasets demonstrate that our method can generate plausible results with clear boundaries and realistic details compared to state-of-the-art methods, as shown in Fig. 1. The main contributions of this paper as follows:
+
+• We propose an end-to-end architecture composed of two parallel streams to effectively exploit structural information in images for image inpainting. Under the help of the structure stream (SS) which is designed to solely process the structural information, the main stream (MS) is able to produce visually pleasing results.
+
+• The gated unit is proposed to control the information interaction between two streams in our architecture, which can not only help SS to focus on structures, but also prevent the necessary information in MS from being affected in the training process.
+
+• We show that our approach can achieve promising performance compared with previous state-of-the-art methods on benchmark datasets including CelebA, Paris StreetView and Places2.
+
+
+RELATED WORK
+
+
+Deep Image Inpainting
+
+Image inpainting have achieved great success by introducing deep convolutional network especially the generative adversarial network. A pioneer work, Context Encoder (CE) [3], formulates inpainting as a conditional image generation problem by using a convolutional encoder-decoder network, where the decoder reasons about the missing contents according to the image representation extracted by the encoder. Iizuka et al. [14] use global and local discriminators to generate better results by considering both overall consistency and local details. Xie et al. [4] propose a learnable attention map module to learn mask updating for irregular holes. Yu et al. [7,8] suggest to adopt coarse-to-fine architectures for better recovering structures and textures. By taking the preliminary structure image generated in the coarse stage as guidance, the fine stage can produce plausible results much easier. For distinguishing valid and invalid pixels, Yu et al. [8] propose a gated convolution by introducing the gated mechanism to evaluate the validness for each pixel of the input feature map in an adaptive manner. However, the lack of structure guidance restricts the above methods to produce plausible structures.
+
+
+Structure-guided Image Inpainting
+
+In order to reconstruct more reasonable structures, some image inpainting methods try to take the structure knowledge as guidance. Ren et al. [6] use two-stage networks and employ edge preserved smooth images as labels of the first stage. Then, the recovered structure image of the first stage is used to guide the subsequent textures generation. Some methods [11,12,15] adopt similar architectures but utilizing the edge sketches and semantic mask as labels of the first stage, respectively. More recently, some methods try to exploit structure knowledge in image inpainting with a multitask framework. Yang et al. [16] propose a shared encoderdecoder architecture to reconstruct detailed images and structures simultaneously to incorporate structure information for image inpainting. Liu et al. [17] propose a mutual encoderdecoder architecture which is more related to our work. They recognize features from the shallow and deep encoder layers as textures and structures, respectively, and process structures and textures separately with two branches. However, they neglect that directly extracting structure or texture representations from the generator which is designed to reconstruct detailed images may bring about negative effects. Specifically, since the shallow layers of the generator will receive the feedback from the texture branch during the training process, they will be implicitly enforced to focus on textures and wash out the structures, thus affecting the structure reconstruction in deep layers. In contrast to their model, we introduce a structure stream (SS) in parallel to the main stream (MS) to process structure information separately, and apply a gated unit (GU) to the connection between MS and SS. By depressing structure-irrelevant activations in the information flow from MS to SS, GU can prevent the textures in MS from being affected in the training process.
+
+
+APPROACHES
+
+
+Architecture
+
+We propose a single-stage architecture which consists of two parallel UNet-based streams: the main stream (MS) and the structure stream (SS), as shown in Fig. 2. MS aims at recovering missing structures and textures simultaneously, and SS is designed to solely process structural information in parallel to MS. Gated units (GU) are applied to control the information flow from MS to SS hierarchically. Then, we utilize the adaptive fusion block (AFBlk) to incorporate the multi-scale structure feature maps from decoder of SS back into the corresponding layers of MS.
+
+In the training step, the pyramid image reconstruction loss, perceptual loss are introduced to MS and SS. In addition, style loss and adversarial loss are introduced to MS. And two streams are optimized jointly. Given UNet-based architectures of L layers for both MS and SS, we denote the feature maps in the encoder of MS as X L , X L−1 , ..., X 1 , in the decoder of MS as X L , X L−1 , ..., X 1 , in the encoder of SS as S L , S L−1 , ..., S 1 , and in the decoder of SS as S L , S L−1 , ..., S 1 , where larger number indicates smaller resolution.
+
+
+Main Stream
+
+The main stream (MS) adopts a UNet-based architecture where both the encoder and decoder are composed of 4 vanilla convolutional layers with the kernel size of 4×4. And we embed 4 stacked residual dilated convolutional blocks [18] [19] in the bottleneck to enlarge the receptive fields. MS concatenates the corrupted image I in ∈ R 3×H×W and the mask M in ∈ R H×W in the channel dimension as input, and outputs the recovered detailed imageÎ ∈ R 3×H×W . Specifically, the encoder firstly reasons about missing structures and textures in holes simultaneously. Then, the AFBlk embedded in each decoder layer integrates the information from previous layer with the structure feature map from the corresponding layer of SS, for generating structure-plausible results.
+
+
+Structure Stream
+
+The structure stream (SS) has the similar architecture with MS. The first encoder layer of SS takes the concatenation of the corrupted detailed image and the mask as input, and the other encoder layers of SS take the concatenation of the feature map from previous encoder layer and the corresponding layer of MS as input. For helping SS focus on the structural information and preventing the texture information in MS from being affected in the training process, GU is applied layer-wisely to control the information flow from MS to SS. Finally, the decoder of SS attempts to reconstruct structure feature maps at multiple scales.
+
+
+Gated Unit
+
+Directly introducing SS to process the structural information in parallel to MS may face two problems: (1) Since MS contains both low-frequency structures and high-frequency textures, the structure-irrelevant information will mislead the structure reconstruction in SS.
+
+(2) Since SS is designed to solely process the structural information under the supervision of the structural images, the structure-irrelevant information (such as textures) in MS, which is shared with SS, will be weaken during the joint optimization of the two streams. To address these problems, we embed gated units (GU) between MS and SS to control the information flow by highlighting the structure-relevant activations and depressing the irrelevant ones. In this way, GU can not only help SS focus on structures, but also prevent textures in MS from being affected in the training process. We use a 3 × 3 convolution following the activation δ(·) and the sigmoid function σ(·) for generating the gate map G l , where the gating values in G l are between zero and one. In practice, we adopt LeakyReLU as our activation function. Then, G l is applied to the X l by element-wise multiplication to obtain the gated feature map O l :
+G l = σ(δ(Conv 3×3 (X l )))(1)
+In practice, we adopt LeakyReLU as our activation function. And then, G l is applied to the X l by element-wise multiplication to obtain the gated feature map O l :
+O l x,y = G l x,y X l x,y(2)
+where denotes element-wise multiplication, (x,y) denotes the location of pixel in the feature map.
+
+Since the receptive field of the encoder layer increases layer by layer in the forward process, the GU applied on different positions of encoder layer can also notice different structural information in the image. For shallow encoders, GU usually pays attention to edge and contour information. For deeper encoder layers, GU can control the information passed from MS to SS as low-frequency information and high-level semantic information.
+
+By being applied to encoder hierarchically to process feature maps with different receptive fields, GU can more effectively transfer structural information of different levels and scales from MS to SS (edge information in shallow layers and overall semantic structure information in deep layers).
+
+
+Adaptive Fusion Block
+
+For effectively fusing the recovered structural information from SS to MS, we introduce an adaptive fusion block (AF-Blk) inspired by CBAM [20], as shown in Fig. 2. First of all, F 1 is obtained by fusingX l and S l through concatenation operation. Since X l and S have different semantic information in channels: X l contains more texture information and S l contains more semantic structural information, the channel attention mechanism is applied on F 1 to highlight 'what' are important semantics by exploiting the inter-channel relationship. Meanwhile, for preserving the structural information (like edge etc.) in spatial dimension, the spatial attention mechanism is applied on F 1 to focuses on 'where' are the important parts. Finally, the two feature maps which are processed by channel attention and spatial attention mechanism are fused in an dynamic manner. The process is formulated as follows:
+F l = δ(Conv 1 ([X l ; S l ]))(3)F l ch = CA(F l 1 ) · F l , F l sp = SA(F l 1 ) · F l (4) Y l = F l ch · α + F l sp · (1 − α)(5)
+where Conv 1 is a 1 × 1 convolution, δ is the activation function, α is a trainable scale parameter, CA(·) and SA(·) are channel attention mechanism [21] and spatial attention mechanism [20] respectively:
+CA(F ) = γ(M LP (AvgP ool(F ))) (6) SA(F ) = γ(Conv 5 ([AvgP ool(F ); M axP ool(F )])) (7)
+where γ is the sigmoid function, F is the input feature map and Conv 5 is a 5 × 5 convolution.
+
+
+Loss Functions
+
+To guide the optimization of the two streams in our model, we introduce pyramid image reconstruction loss, perceptual loss, style loss and adversarial loss in our model.
+
+
+Pyramid Image Reconstruction Loss
+
+We introduce the pyramid image reconstruction loss L py proposed in [22] to supervise the recovery of detailed and structure images at each scale in the decoder of MS and SS, respectively, which can help MS to progressively refine the synthesized image and enforce the SS to focus on processing structure information. Specifically, the pyramid image reconstruction loss consists of the L 1 distance between the RGB image synthesized from each decoder layer and the ground-truth image of the corresponding scale:
+L py = L l=1 I l gt − h(X l ) 1 + L l=1 SI l gt − h(S l ) 1 (8)
+where h denotes a 1 × 1 convolution that transforms the feature map into an RGB image, I l gt and SI l gt indicate the detailed and structure ground-truth images scaled to the size of input feature maps.
+
+
+Perceptual Loss
+
+For helping the model to capture structural information, we introduce the perceptual loss L per following [17] to the reconstructed detailed image in MS and the structure image in SS. The perceptual loss is defined on the ImageNet-pretrained VGG16:
+L per = E[ i 1 N i φ i (I pred ) − φ i (I gt )) 1 ](9)
+where φ i is the feature map of i − th layer of VGG-16.
+
+In practice, select the feature map from layers ReLU1 1, ReLU2 1, ReLU3 1, ReLU4 1, ReLU5 1 following [17].
+
+
+Style Loss
+
+For helping the model to preserve the style coherency, we introduce the style loss L sty following [17]. We compute the style loss with given feature map C i × H i × W i as follows:
+L sty = E i [ i G φ i (I pred ) − G φ i (I gt )) 1 ](10)
+where G φ i is a C i × C i Gram matrix calculated from the given feature maps. We only adopt the style loss to the feature maps in MS since we found that when we adopt the style loss to SS, the model performance degrades.
+
+
+Adversarial Loss
+
+The adversarial training strategy is adopted in our work. We follow [14] to use SN-PatchGAN, and adopt the Relativistic Average LS adversarial loss [23] to MS for generating more realistic details. The adversarial loss of our generator is denoted as:
+L adv = −E Igt D(I gt ,Î) 2 − EÎ (1 − D(I gt ,Î) 2 ) (11) 4. EXPERIMENTS
+
+Experimental settings
+
+We evaluate our method on three datasets: CelebA [24], Paris StreetView [25] and Places2 [26]. For these datasets, we use the original train, validation and test splits. We train our model on an Nvidia RTX 2080Ti GPU and use Adam algorithm with a learning rate of 1 × 10 −4 for optimization. All masks and images for training and testing are with the size of 256 × 256. Besides, we adopt the same data augmentation such as flipping during training process as [17]. For fair comparison, we compare our method with 4 existing stateof-the-art methods: LBAM [4], EC [12], SF [6], RT [17]. These methods all adopt parallel or series two-stage architecture. To demonstrate the effectiveness of our model, we make comparisons between these methods and ours in filling irregular holes, which is obtained from [27], with different hole-to-image area ratios.  
+
+
+Quantitative Comparisons
+
+We conduct quantitative comparisons on CelebA, Paris StreetView and Places2 datasets and we follow [5] to choose mean L 1 error, Peak Signal to Noise Ratio (PSNR) and Structural Similarity Index (SSIM) [28] as evaluation metrics to qualify the performance of these methods. We also introduce Fréchet Inception Distance (FID) [29] to evaluate the perceptual quality of the results. As shown in Table1, our method outperforms all the other methods in filling irregular holes under different hole-to-image area ratios.
+
+
+Qualitative Comparisons
+
+We conduct qualitative comparisons on the chosen three datasets. Fig. 3 presents the comparison results in filling irregular holes. The results of LBAM and RT present that they tend to synthesize distorted structures or blurry textures without the explicit guidance of the structure information. Al-though results produced by EC, SF have more reasonable structures, there still exists artifacts and blurry boundaries. Compared with these methods, our model is able to synthesize visual pleasing results with clear boundaries and realistic details. Structure Image in Fig. 3 denotes structure images generated by transforming the structure feature map S 1 into a RGB image, shows that our SS is able to recover reasonable structures, thus providing reliable guidance to reconstruct detailed images in MS.  
+
+
+Ablation Study
+
+
+The Effect of Main Components in Our Model
+
+We conduct five experiments on CelebA dataset to verify the effectiveness of proposed method as well as how each primary component (the structure stream, the gated unit and the adaptive fusion block) in our model contributes to the final performance.
+
+• Experiment 1: We removed all the other components in our model except MS.
+
+• Experiment 2: We removed only the gated unit (GU) and kept the other components in our architecture.
+
+• Experiment 3: We replaced the adaptive fusion block (AFBlk) with concatenation operation and left the other components unchanged in our architecture.
+
+• Experiment 4: Our model.
+
+As shown in Fig. 4, we can see that it is difficult for our model to produce satisfactory results by relying on MS alone. Comparing Experiment 2 and experiment 4, we can find that the proposed gated unit (GU) can allow SS to focus on processing structural information, enhancing the visual quality of inpainting results. The results of Experiment 3 and 4 present that our model can generate more correct structures and realistic details with the assistance of the adaptive fusion block (AFBlk). Similar performance on quantitative evaluation in Table 2 can also prove the effectiveness of each main component in our model.
+
+
+The Visualization of GU
+
+We directly visualize the gate values of Gated Unit (GU) applied hierarchically to the encoder to present "what" information the GU focuses on, as shown in Fig. 5. It shows that the GU applied to shallow encoder layers can focus on the edges  Table 3. Effectiveness of main losses applied to MS. − Lower is better. + Higher is better.  Table 4. Effectiveness of main losses applied to SS. − Lower is better. + Higher is better.
+Experiment L − 1 (%) FID − SSIM + PSNR + L 1 2.
+information and low-frequency information (like color, etc.). And the GU applied to deep encoder layers allows semantic structure information to pass from MS to SS, since high-level information extracted in corresponding layers of MS is beneficial to recover structures.
+
+
+The Visualization of Pyramid Detailed Images and Structure Images
+
+In order to demonstrate that MS in our model processes texture and structure information simultaneously, and SS only processes structure information, we present the RGB image synthesized by the feature map in each decoder layer of MS and SS in Fig. 6. As shown in Fig. 6, we can find that the detailed images (I M S ) synthesized in decoder layer of MS contain more texture details compared with the structure images (I SS ) synthesized in the corresponding decoder layer of SS.
+
+
+Performance Gains with Losses
+
+In order to investigate the effectiveness of losses applied in MS and SS, we conduct an ablation study on Paris StreetView with randonly selected free-form masks, as shown in table 3  and table 4. The results present that applying L py , L sty , L per , L adv to MS and applying L py , L per to SS is helpful for our model to improve the final performance. In practice, we found that when we apply L sty on SS, SSIM and FID of the recovered detailed image generated by MS would be reduced, so we did not introduce L sty to SS in our model.
+
+
+CONCLUSION
+
+In this paper, we propose an end-to-end architecture composed of two parallel streams to effectively exploit structural information in images for image inpainting. With the assistance of the structure stream (SS), the main stream (MS) can be encouraged to exploit structural cues, producing structurereasonable results. A gated unit is proposed to control the information flow between MS and SS, which can help SS focus on structures and prevent textures in MS from being affected. Moreover, the multi-scale structural information in SS are utilized to explicitly guide the structure-reasonable image reconstruction in MS through the fusion block. Extensive experiments on CelebA, Paris StreetView and Places2 datasets demonstrate the superiority of our method compared with state-of-the-art methods. 
+
+
+ACKNOWLEDGEMENT
+
+Fig. 1 .
+1Comparison results between LBAM, SF and ours. And (e) presents the structure images recovered by the structure stream of our model. [Best viewed with zoom-in.]
+
+Fig. 2 .
+2The architecture of our proposed model.
+
+Fig. 3 .
+3Qualitative comparison results on CelebA, Paris StreetView and Places2 datasets with irregular holes. [Best viewed with zoom-in.]
+
+Fig. 4 .
+4The effect of the main components in our model. [Best viewed with zoom-in.]
+
+Fig. 5 .Fig. 6 .
+56The visualization of the GU at each level (larger number indicates smaller resolution). [Best viewed with zoom-in.] The visualization of the detailed and structure image synthesized by feature map at each scale (larger number indicates smaller resolution). [Best viewed with zoom-in.]
+
+
+This work was supported in part by the National Innovation 2030 Major S&T Project of China under Grant 2020AAA0104203, in part by the Nature Science Foundation of China under Grant 62006007, and in part by the Shenzhen Municipal Development and Reform Commission (Disciplinary Development Program for Data Science and Intelligent Computing).
+
+
+Places2 datasets in filling irregular holes with different hole-to-image area ratios. − Lower is better. + Higher is better.CelebA 
+Mask 
+LBAM 
+EC 
+SF 
+RT 
+Ours 
+
+L − 
+1 (%) 
+
+10-20% 
+0.79 
+0.86 
+0.73 
+0.89 
+0.67 
+20-30% 
+1.58 
+1.61 
+1.36 
+1.70 
+1.24 
+30-40% 
+2.61 
+2.55 
+2.14 
+2.68 
+1.97 
+40-50% 
+3.94 
+3.74 
+3.15 
+3.90 
+2.89 
+
+F ID − 
+
+10-20% 
+6.55 
+6.73 
+4.94 
+7.53 
+4.39 
+20-30% 
+13.73 
+12.27 9.33 13.25 8.31 
+30-40% 
+21.14 
+17.30 13.05 18.47 11.93 
+40-50% 
+31.77 
+22.02 16.78 22.55 15.46 
+
+SSIM + 
+
+10-20% 
+0.975 
+0.975 0.980 0.973 0.983 
+20-30% 
+0.945 
+0.947 0.961 0.944 0.965 
+30-40% 
+0.899 
+0.906 0.931 0.903 0.939 
+40-50% 
+0.834 
+0.848 0.890 0.850 0.902 
+
+P SN R + 
+
+10-20% 
+32.29 
+32.05 33.30 31.59 33.99 
+20-30% 
+28.33 
+28.48 29.83 27.93 30.49 
+30-40% 
+25.42 
+25.76 27.19 25.40 27.74 
+40-50% 
+22.95 
+23.46 24.85 23.26 25.39 
+Paris StreetView 
+Mask 
+LBAM 
+EC 
+SF 
+RT 
+Ours 
+
+L − 
+1 (%) 
+
+10-20% 
+1.07 
+1.14 
+1.08 
+1.19 
+0.93 
+20-30% 
+1.96 
+1.99 
+1.89 
+2.08 
+1.70 
+30-40% 
+2.94 
+2.91 
+2.78 
+3.15 
+2.62 
+40-50% 
+4.31 
+4.05 
+3.95 
+4.62 
+3.81 
+
+F ID − 
+
+10-20% 
+18.55 
+20.44 17.47 22.33 13.67 
+20-30% 
+35.43 
+35.24 33.90 38.24 25.83 
+30-40% 
+52.35 
+49.63 46.85 55.52 38.34 
+40-50% 
+73.92 
+62.29 65.64 72.65 51.78 
+
+SSIM + 
+
+10-20% 
+0.953 
+0.948 0.953 0.942 0.960 
+20-30% 
+0.909 
+0.905 0.913 0.897 0.922 
+30-40% 
+0.848 
+0.848 0.855 0.828 0.866 
+40-50% 
+0.769 
+0.778 0.782 0.737 0.797 
+
+P SN R + 
+
+10-20% 
+30.97 
+30.87 31.44 30.09 32.02 
+20-30% 
+27.68 
+27.93 28.51 27.30 28.77 
+30-40% 
+25.57 
+25.82 26.30 25.04 26.33 
+40-50% 
+23.51 
+24.15 24.42 22.97 24.36 
+Places2 
+Mask 
+LBAM 
+EC 
+SF 
+RT 
+Ours 
+
+L − 
+1 (%) 
+
+10-20% 
+1.28 
+1.15 
+1.07 
+1.20 
+0.96 
+20-30% 
+2.26 
+1.99 
+1.77 
+2.18 
+1.65 
+30-40% 
+3.23 
+2.87 
+2.63 
+3.30 
+2.51 
+40-50% 
+4.38 
+3.95 
+3.69 
+4.66 
+3.58 
+
+F ID − 
+
+10-20% 
+18.93 
+15.94 14.87 20.71 12.84 
+20-30% 
+30.21 
+25.48 20.63 33.62 19.45 
+30-40% 
+41.98 
+34.23 28.37 44.86 26.85 
+40-50% 
+52.96 
+43.24 36.69 55.51 35.52 
+
+SSIM + 
+
+10-20% 
+0.928 
+0.937 0.941 0.931 0.950 
+20-30% 
+0.866 
+0.883 0.903 0.867 0.909 
+30-40% 
+0.798 
+0.824 0.849 0.794 0.856 
+40-50% 
+0.713 
+0.748 0.779 0.701 0.784 
+
+P SN R + 
+
+10-20% 
+28.85 
+29.68 30.02 28.97 30.82 
+20-30% 
+25.84 
+26.78 27.53 25.85 28.01 
+30-40% 
+23.81 
+24.69 25.27 23.60 25.55 
+40-50% 
+22.20 
+22.99 23.38 20.80 23.52 
+
+Table 1. 
+Quantitative comparison on CelebA, Paris 
+StreetView and 
+
+
++ L adv + L per + L sty py + L adv + L per + L styExperiment 
+L − 
+1 (%) FID − SSIM + PSNR + 
+L py 
+2.68 
+39.69 
+0.862 
+26.24 
+L py + L per 
+2.59 
+37.82 
+0.869 
+26.49 
+L py + L adv + L per 
+2.54 
+36.42 
+0.872 
+26.70 
+L 1 2.53 
+36.51 
+0.874 
+26.63 
+L 2.51 
+36.40 
+0.874 
+26.68 
+
+
+
+Patchmatch: a randomized correspondence algorithm for structural image editing. Connelly Barnes, Eli Shechtman, Adam Finkelstein, Dan B Goldman, ACM Trans. Graph. 28324Connelly Barnes, Eli Shechtman, Adam Finkelstein, and Dan B. Goldman, "Patchmatch: a randomized correspondence algorithm for structural image editing," ACM Trans. Graph., vol. 28, no. 3, pp. 24, 2009.
+
+Texture synthesis by non-parametric sampling. Alexei A Efros, Thomas K Leung, IEEE Computer SocietyAlexei A. Efros and Thomas K. Leung, "Texture syn- thesis by non-parametric sampling," in ICCV. 1999, pp. 1033-1038, IEEE Computer Society.
+
+Context encoders: Feature learning by inpainting. Deepak Pathak, Philipp Krähenbühl, Jeff Donahue, Trevor Darrell, Alexei A Efros, CVPR. IEEE Computer SocietyDeepak Pathak, Philipp Krähenbühl, Jeff Donahue, Trevor Darrell, and Alexei A. Efros, "Context encoders: Feature learning by inpainting," in CVPR. 2016, pp. 2536-2544, IEEE Computer Society.
+
+Image inpainting with learnable bidirectional attention maps. Chaohao Xie, Shaohui Liu, Chao Li, Ming-Ming Cheng, Wangmeng Zuo, Xiao Liu, Shilei Wen, Errui Ding, ICCV. IEEEChaohao Xie, Shaohui Liu, Chao Li, Ming-Ming Cheng, Wangmeng Zuo, Xiao Liu, Shilei Wen, and Er- rui Ding, "Image inpainting with learnable bidirectional attention maps," in ICCV. 2019, pp. 8857-8866, IEEE.
+
+Region normalization for image inpainting. Tao Yu, Zongyu Guo, Xin Jin, Shilin Wu, Zhibo Chen, Weiping Li, Zhizheng Zhang, Sen Liu, AAAI. 2020. AAAI PressTao Yu, Zongyu Guo, Xin Jin, Shilin Wu, Zhibo Chen, Weiping Li, Zhizheng Zhang, and Sen Liu, "Region normalization for image inpainting," in AAAI. 2020, pp. 12733-12740, AAAI Press.
+
+Structureflow: Image inpainting via structure-aware appearance flow. Yurui Ren, Xiaoming Yu, Ruonan Zhang, Thomas H Li, Shan Liu, Ge Li, ICCV. IEEEYurui Ren, Xiaoming Yu, Ruonan Zhang, Thomas H. Li, Shan Liu, and Ge Li, "Structureflow: Image inpainting via structure-aware appearance flow," in ICCV. 2019, pp. 181-190, IEEE.
+
+Generative image inpainting with contextual attention. Jiahui Yu, Zhe Lin, Jimei Yang, Xiaohui Shen, Xin Lu, Thomas S Huang, CVPR. IEEE Computer SocietyJiahui Yu, Zhe Lin, Jimei Yang, Xiaohui Shen, Xin Lu, and Thomas S. Huang, "Generative image inpainting with contextual attention," in CVPR. 2018, pp. 5505- 5514, IEEE Computer Society.
+
+Free-form image inpainting with gated convolution. Jiahui Yu, Zhe Lin, Jimei Yang, Xiaohui Shen, Xin Lu, Thomas S Huang, ICCV. IEEEJiahui Yu, Zhe Lin, Jimei Yang, Xiaohui Shen, Xin Lu, and Thomas S. Huang, "Free-form image inpainting with gated convolution," in ICCV. 2019, pp. 4470-4479, IEEE.
+
+Confidence-based global attention guided network for image inpainting. Zhilin Huang, Chujun Qin, Lei Li, Ruixin Liu, Yuesheng Zhu, MMM (1). 2021. Springer12572Zhilin Huang, Chujun Qin, Lei Li, Ruixin Liu, and Yuesheng Zhu, "Confidence-based global attention guided network for image inpainting," in MMM (1). 2021, vol. 12572 of Lecture Notes in Computer Science, pp. 200-212, Springer.
+
+Semantic-aware context aggregation for image inpainting. Zhilin Huang, Chujun Qin, Ruixin Liu, Zhenyu Weng, Yuesheng Zhu, ICASSP. IEEEZhilin Huang, Chujun Qin, Ruixin Liu, Zhenyu Weng, and Yuesheng Zhu, "Semantic-aware context aggrega- tion for image inpainting," in ICASSP. IEEE, 2021, pp. 2465-2469.
+
+Edge-aware context encoder for image inpainting. Liang Liao, Ruimin Hu, Jing Xiao, Zhongyuan Wang, in ICASSP. IEEELiang Liao, Ruimin Hu, Jing Xiao, and Zhongyuan Wang, "Edge-aware context encoder for image inpaint- ing," in ICASSP. 2018, pp. 3156-3160, IEEE.
+
+Edgeconnect: Structure guided image inpainting using edge prediction. Kamyar Nazeri, Eric Ng, Tony Joseph, Faisal Z Qureshi, Mehran Ebrahimi, ICCV Workshops. 2019. IEEEKamyar Nazeri, Eric Ng, Tony Joseph, Faisal Z. Qureshi, and Mehran Ebrahimi, "Edgeconnect: Struc- ture guided image inpainting using edge prediction," in ICCV Workshops. 2019, pp. 3265-3274, IEEE.
+
+Densely connected convolutional networks. Gao Huang, Zhuang Liu, Laurens Van Der Maaten, Kilian Q Weinberger, IEEE Computer SocietyGao Huang, Zhuang Liu, Laurens van der Maaten, and Kilian Q. Weinberger, "Densely connected convolu- tional networks," in CVPR. 2017, pp. 2261-2269, IEEE Computer Society.
+
+Globally and locally consistent image completion. Satoshi Iizuka, Edgar Simo-Serra, Hiroshi Ishikawa, ACM Trans. Graph. 364Satoshi Iizuka, Edgar Simo-Serra, and Hiroshi Ishikawa, "Globally and locally consistent image completion," ACM Trans. Graph., vol. 36, no. 4, pp. 107:1-107:14, 2017.
+
+Spg-net: Segmentation prediction and guidance network for image inpainting. Yuhang Song, Chao Yang, Yeji Shen, Peng Wang, Qin Huang, C.-C. Jay Kuo, BMVC. BMVA Press97Yuhang Song, Chao Yang, Yeji Shen, Peng Wang, Qin Huang, and C.-C. Jay Kuo, "Spg-net: Segmentation pre- diction and guidance network for image inpainting," in BMVC. 2018, p. 97, BMVA Press.
+
+Learning to incorporate structure knowledge for image inpainting. Jie Yang, Zhiquan Qi, Yong Shi, AAAI. 2020. AAAI PressJie Yang, Zhiquan Qi, and Yong Shi, "Learning to in- corporate structure knowledge for image inpainting," in AAAI. 2020, pp. 12605-12612, AAAI Press.
+
+Rethinking image inpainting via a mutual encoder-decoder with feature equalizations. Hongyu Liu, Bin Jiang, Yibing Song, Wei Huang, Chao Yang, ECCV. Springer2020Hongyu Liu, Bin Jiang, Yibing Song, Wei Huang, and Chao Yang, "Rethinking image inpainting via a mutual encoder-decoder with feature equalizations," in ECCV (2). 2020, vol. 12347 of Lecture Notes in Computer Sci- ence, pp. 725-741, Springer.
+
+Multi-scale context aggregation by dilated convolutions. Fisher Yu, Vladlen Koltun, ICLR (Poster). Fisher Yu and Vladlen Koltun, "Multi-scale context ag- gregation by dilated convolutions," in ICLR (Poster), 2016.
+
+Complexity results for nonmonotonic logics. Georg Gottlob, Journal of Logic and Computation. 23Georg Gottlob, "Complexity results for nonmonotonic logics," Journal of Logic and Computation, vol. 2, no. 3, pp. 397-425, June 1992.
+
+CBAM: convolutional block attention module. Sanghyun Woo, Jongchan Park, ECCV (7). Springer11211Joon-Young Lee, and In So KweonSanghyun Woo, Jongchan Park, Joon-Young Lee, and In So Kweon, "CBAM: convolutional block attention module," in ECCV (7). 2018, vol. 11211 of Lecture Notes in Computer Science, pp. 3-19, Springer.
+
+Squeeze-and-excitation networks. Jie Hu, Li Shen, Samuel Albanie, Gang Sun, Enhua Wu, IEEE Trans. Pattern Anal. Mach. Intell. 428Jie Hu, Li Shen, Samuel Albanie, Gang Sun, and Enhua Wu, "Squeeze-and-excitation networks," IEEE Trans. Pattern Anal. Mach. Intell., vol. 42, no. 8, pp. 2011- 2023, 2020.
+
+Learning pyramid-context encoder network for high-quality image inpainting. Yanhong Zeng, Jianlong Fu, Hongyang Chao, Baining Guo, CVPR. Computer Vision Foundation / IEEEYanhong Zeng, Jianlong Fu, Hongyang Chao, and Bain- ing Guo, "Learning pyramid-context encoder network for high-quality image inpainting," in CVPR. 2019, pp. 1486-1494, Computer Vision Foundation / IEEE.
+
+The relativistic discriminator: a key element missing from standard GAN. Alexia Jolicoeur-Martineau, ICLR (Poster). 2019, OpenReview.net. Alexia Jolicoeur-Martineau, "The relativistic discrimi- nator: a key element missing from standard GAN," in ICLR (Poster). 2019, OpenReview.net.
+
+Deep learning face attributes in the wild. Ziwei Liu, Ping Luo, Xiaogang Wang, Xiaoou Tang, ICCV. IEEE Computer SocietyZiwei Liu, Ping Luo, Xiaogang Wang, and Xiaoou Tang, "Deep learning face attributes in the wild," in ICCV. 2015, pp. 3730-3738, IEEE Computer Society.
+
+What makes paris look like paris?. Carl Doersch, Saurabh Singh, Abhinav Gupta, Josef Sivic, Alexei A Efros, Commun. ACM. 5812Carl Doersch, Saurabh Singh, Abhinav Gupta, Josef Sivic, and Alexei A. Efros, "What makes paris look like paris?," Commun. ACM, vol. 58, no. 12, pp. 103-110, 2015.
+
+Places: A 10 million image database for scene recognition. Bolei Zhou, Àgata Lapedriza, Aditya Khosla, Aude Oliva, Antonio Torralba, IEEE Trans. Pattern Anal. Mach. Intell. 406Bolei Zhou,Àgata Lapedriza, Aditya Khosla, Aude Oliva, and Antonio Torralba, "Places: A 10 million im- age database for scene recognition," IEEE Trans. Pat- tern Anal. Mach. Intell., vol. 40, no. 6, pp. 1452-1464, 2018.
+
+Image inpainting for irregular holes using partial convolutions. Guilin Liu, Fitsum A Reda, Kevin J Shih, Ting-Chun Wang, Andrew Tao, Bryan Catanzaro, ECCV (11). Springer11215Guilin Liu, Fitsum A. Reda, Kevin J. Shih, Ting-Chun Wang, Andrew Tao, and Bryan Catanzaro, "Image in- painting for irregular holes using partial convolutions," in ECCV (11). 2018, vol. 11215 of Lecture Notes in Computer Science, pp. 89-105, Springer.
+
+Image quality assessment: from error visibility to structural similarity. Zhou Wang, Alan C Bovik, Hamid R Sheikh, Eero P Simoncelli, IEEE Trans. Image Process. 134Zhou Wang, Alan C. Bovik, Hamid R. Sheikh, and Eero P. Simoncelli, "Image quality assessment: from error visibility to structural similarity," IEEE Trans. Im- age Process., vol. 13, no. 4, pp. 600-612, 2004.
+
+Gans trained by a two time-scale update rule converge to a local nash equilibrium. Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, Sepp Hochreiter, Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, and Sepp Hochreiter, "Gans trained by a two time-scale update rule converge to a local nash equilibrium," in NIPS, 2017, pp. 6626-6637.

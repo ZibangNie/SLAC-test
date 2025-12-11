@@ -1,0 +1,401 @@
+Top-K Off-Policy Correction for a REINFORCE Recommender System
+2019. February 11-15, 2019
+
+Minmin Chen minminc@google.com 
+Google, Inc. Mountain View
+CA
+
+Alex Beutel alexbeutel@google.com 
+Google, Inc. Mountain View
+CA
+
+Paul Covington pcovington@google.com 
+Google, Inc. Mountain View
+CA
+
+Sagar Jain sagarj@google.com 
+Google, Inc. Mountain View
+CA
+
+Francois Belletti belletti@google.com 
+Google, Inc. Mountain View
+CA
+
+Ed H Chi edchi@google.com 
+Google, Inc. Mountain View
+CA
+
+Minmin Chen 
+Google, Inc. Mountain View
+CA
+
+Alex Beutel 
+Google, Inc. Mountain View
+CA
+
+Paul Covington 
+Google, Inc. Mountain View
+CA
+
+Sagar Jain 
+Google, Inc. Mountain View
+CA
+
+Francois Belletti 
+Google, Inc. Mountain View
+CA
+
+Ed H Chi 
+Google, Inc. Mountain View
+CA
+
+Top-K Off-Policy Correction for a REINFORCE Recommender System
+
+The Twelfth ACM International Conference on Web Search and Data Mining (WSDM' 19)
+Melbourne, VIC, Australia2019. February 11-15, 201910.1145/3289600.3290999ACM Reference Format: ACM, New York, NY, USA, 9 pages. https://
+Industrial recommender systems deal with extremely large action spaces -many millions of items to recommend. Moreover, they need to serve billions of users, who are unique at any point in time, making a complex user state space. Luckily, huge quantities of logged implicit feedback (e.g., user clicks, dwell time) are available for learning. Learning from the logged feedback is however subject to biases caused by only observing feedback on recommendations selected by the previous versions of the recommender. In this work, we present a general recipe of addressing such biases in a production top-recommender system at YouTube, built with a policy-gradient-based algorithm, i.e. REINFORCE[48]. The contributions of the paper are: (1) scaling REINFORCE to a production recommender system with an action space on the orders of millions;(2) applying off-policy correction to address data biases in learning from logged feedback collected from multiple behavior policies; (3) proposing a novel top-off-policy correction to account for our policy recommending multiple items at a time; (4) showcasing the value of exploration. We demonstrate the efficacy of our approaches through a series of simulations and multiple live experiments on YouTube.
+
+INTRODUCTION
+
+Recommender systems are relied on, throughout industry, to help users sort through huge corpuses of content and discover the small fraction of content they would be interested in. This problem is challenging because of the huge number of items that could be recommended. Furthermore, surfacing the right item to the right user at the right time requires the recommender system to constantly adapt to users' shifting interest (state) based on their historical * Authors contributed equally.
+
+Permission to make digital or hard copies of part or all of this work for personal or classroom use is granted without fee provided that copies are not made or distributed for profit or commercial advantage and that copies bear this notice and the full citation on the first page. Copyrights for third-party components of this work must be honored. For all other uses, contact the owner/author(s). WSDM '19, February 11-15, 2019, Melbourne, VIC, Australia © 2019 Copyright held by the owner/author(s). ACM ISBN 978-1-4503-5940-5/19/02. https://doi.org/10.1145/3289600.3290999 interaction with the system [6]. Unfortunately, we observe relatively little data for such a large state and action space, with most users only having been exposed to a small fraction of items and providing explicit feedback to an even smaller fraction. That is, recommender systems receive extremely sparse data for training in general, e.g., the Netflix Prize dataset was only 0.1% dense [5]. As a result, a good amount of research in recommender systems explores different mechanisms for treating this extreme sparsity. Learning from implicit user feedback, such as clicks and dwell-time, as well as filling in unobserved interactions, has been an important step in improving recommenders [19] but the problem remains an open one.
+
+In a mostly separate line of research, reinforcement learning (RL) has recently achieved impressive advances in games [38,46] as well as robotics [22,25]. RL in general focuses on building agents that take actions in an environment so as to maximize some notion of long term reward. Here we explore framing recommendation as building RL agents to maximize each user's long term satisfaction with the system. This offers us new perspectives on recommendation problems as well as opportunities to build on top of the recent RL advancement. However, there are significant challenges to put this perspective into practice.
+
+As introduced above, recommender systems deal with large state and action spaces, and this is particularly exacerbated in industrial settings. The set of items available to recommend is non-stationary and new items are brought into the system constantly, resulting in an ever-growing action space with new items having even sparser feedback. Further, user preferences over these items are shifting all the time, resulting in continuously-evolving user states. Being able to reason through these large number of actions in such a complex environment poses unique challenges in applying existing RL algorithms. Here we share our experience adapting the REIN-FORCE algorithm [48] to a neural candidate generator (a toprecommender system) with extremely large action and state spaces.
+
+In addition to the massive action and state spaces, RL for recommendation is distinct in its limited availability of data. Classic RL applications have overcome data inefficiencies by collecting large quantities of training data with self-play and simulation [38]. In contrast, the complex dynamics of the recommender system has made simulation for generating realistic recommendation data nonviable. As a result, we cannot easily probe for reward in previously unexplored areas of the state and action space, since observing reward requires giving a real recommendation to a real user. Instead, the model relies mostly on data made available from the previous recommendation models (policies), most of which we cannot control or can no longer control. To most effectively utilize logged-feedback from other policies, we take an off-policy learning approach, in which we simultaneously learn a model of the previous policies and incorporate it in correcting the data biases when training our new policy. We also experimentally demonstrate the value in exploratory data.
+
+Finally, most of the research in RL focuses on producing a policy that chooses a single item. Real-world recommenders, on the other hand, typically offer the user multiple recommendations at a time [44]. Therefore, we define a novel top-off-policy correction for our top-recommender system. We find that while the standard off-policy correction results in a policy that is optimal for top-1 recommendation, this top-off-policy correction leads to significant better top-recommendations in both simulations and live experiments. Together, we offer the following contributions:
+
+• REINFORCE Recommender: We scale a REINFORCE policygradient-based approach to learn a neural recommendation policy in a extremely large action space. • Off-Policy Candidate Generation: We apply off-policy correction to learn from logged feedback, collected from an ensemble of prior model policies. We incorporate a learned neural model of the behavior policies to correct data biases. • Top-Off-Policy Correction: We offer a novel top-offpolicy correction to account for the fact that our recommender outputs multiple items at a time. • Benefits in Live Experiments: We demonstrate in live experiments, which was rarely done in existing RL literature, the value of these approaches to improve user long term satisfaction. We find this combination of approaches valuable for increasing user enjoyment and believe it frames many of the practical challenges going forward for using RL in recommendations.
+
+
+RELATED WORK
+
+Reinforcement Learning: Value-based approaches such as Q-learning, and policy-based ones such as policy gradients constitute classical approaches to solve RL problems [40]. A general comparison of modern RL approaches can be found in [29] with a focus on asynchronous learning which is key to scaling up to large problems. Although value-based methods present many advantages such as seamless off-policy learning, they are known to be prone to instability with function approximation [41]. Often, extensive hyper-parameter tuning is required to achieve stable behavior for these approaches. Despite the practical success of many value-based approaches such as deep Q-learning [30], policy convergence of these algorithms are not well-studied. Policy-based approaches on the other hand, remain rather stable w.r.t. function approximations given a sufficiently small learning rate. We therefore choose to rely on a policy-gradient-based approach, in particular REINFORCE [48], and to adapt this on-policy method to provide reliable policy gradient estimates when training off-policy.
+
+Neural Recommenders: Another line of work that is closely related to ours is the growing body of literature on applying deep neural networks to recommender systems [11,16,37], in particular using recurrent neural networks to incorporate temporal information and historical events for recommendation [6,17,20,45,49]. We employed similar network architectures to model the evolving of user states through interactions with the recommender system.
+
+As neural architecture design is not the main focus of our work, we refer interested readers to these prior works for more detailed discussions.
+
+Bandit Problems in recommender systems: On-line learning methods are also popular to quickly adapt recommendation systems as new user feedback becomes available. Bandit algorithms such as Upper Confidence Bound (UCB) [3] trade off exploration and exploitation in an analytically tractable way that provides strong guarantees on the regret. Different algorithms such as Thomson sampling [9], have been successfully applied to news recommendations and display advertising. Contextual bandits offer a contextaware refinement of the basic on-line learning approaches and tailor the recommendation toward user interests [27]. Agarwal et al. [2] aimed to make contextual bandits tractable and easy to implement. Hybrid methods that rely on matrix factorization and bandits have also been developed to solve cold-start problems in recommender systems [28].
+
+
+Propensity Scoring and Reinforcement Learning in Recommender
+
+Systems: The problem of learning off-policy [31,33,34] is pervasive in RL and affects policy gradient generally. As a policy evolves so does the distribution under which gradient expectations are computed. Standard approaches in robotics [1,36] circumvent this issue by constraining policy updates so that they do not change the policy too substantially before new data is collected under an updated policy, which in return provides monotonic improvement guarantees of the RL objective. Such proximal methods are unfortunately not applicable in the recommendations setting where item catalogues and user behaviors change rapidly, and therefore substantial policy changes are required. Meanwhile feedback is slow to collect at scale w.r.t. the large state and action space. As a matter of fact, offline evaluation of a given policy is already a challenge in the recommender system setting. Multiple off-policy estimators leveraging inverse-propensity scores, capped inverse-propensity scores and various variance control measures have been developed [13,42,43,47]. Off-policy evaluation corrects for a similar data skew as off-policy RL and similar methods are applied on both problems. Inverse propensity scoring has also been employed to improve a serving policy at scale in [39]. Joachims et al. [21] learns a model of logged feedback for an unbiased ranking model; we take a similar perspective but use a DNN to model the logged behavior policy required for the off-policy learning. More recently an off-policy approach has been adapted to the more complex problem of slate recommendation [44] where a pseudo-inverse estimator assuming a structural prior on the slate and reward is applied in conjunction with inverse propensity scoring.
+
+
+REINFORCE RECOMMENDER
+
+We begin with describing the setup of our recommender system, and our approach to RL-based recommendation.
+
+For each user, we consider a sequence of user historical interactions with the system, recording the actions taken by the recommender, i.e., videos recommended, as well as user feedback, such as clicks and watch time. Given such a sequence, we predict the next action to take, i.e., videos to recommend, so that user satisfaction metrics, e.g., indicated by clicks or watch time, improve.
+
+We translate this setup into a Markov Decision Process (MDP) (S, A, P, , 0 , ) where • S: a continuous state space describing the user states; • A: a discrete action space, containing items available for recommendation; • P : S × A × S → R is the state transition probability; • : S × A → R is the reward function, where ( , ) is the immediate reward obtained by performing action at user state ; • 0 is the initial state distribution;
+
+• is the discount factor for future rewards.
+
+We seek a policy ( | ) that casts a distribution over the item to recommend ∈ A conditional to the user state ∈ S, so as to maximize the expected cumulative reward obtained by the recommender system,
+max J ( ) = E ∼ [ ( )] , where ( ) = | | ∑︁ =0 ( , )
+Here the expectation is taken over the trajectories = ( 0 , 0 , 1 , · · · ) obtained by acting according to the policy: 0 ∼ 0 , ∼ (·| ), +1 ∼ P(·| , ). In other words,
+J ( ) = E 0 ∼ 0 , ∼ ( · | ), +1 ∼P( · | , )       | | ∑︁ =0 ( , )       = E ∼ ( ·), ∼ ( · | )       | | ∑︁ ′ = ( ′ , ′ )       (1)
+Here (·) denotes the (discounted) state visitation frequency at time under the policy . Different families of methods are available to solve such an RL problems: Q-learning [38], Policy Gradient [26,36,48] and black box optimization [15]. Here we focus on a policy-gradient-based approach, i.e., REINFORCE [48].
+
+We assume a function form of the policy , parametrised by ∈ R . The gradient of the expected cumulative reward with respect to the policy parameters can be derived analytically thanks to the "log-trick", yielding the following REINFORCE gradient
+∇ J ( ) = E ∼ ( ·), ∼ ( · | )       | | ∑︁ ′ = ( ′ , ′ ) ∇ log ( | )       = ∑︁ ∼ ( ·), ∼ ( · | ) ( , )∇ log ( | )(2)Here ( , ) = | | ′ = ′ − ( ′ , ′ )
+is the discounted future reward for action at time . The discounting factor is applied to reduce variance in the gradient estimate. In on-line RL, where the policy gradient is computed on trajectories generated by the policy under consideration, the monte carlo estimate of the policy gradient is unbiased.
+
+
+OFF-POLICY CORRECTION
+
+Unlike classical reinforcement learning, our learner does not have real-time interactive control of the recommender due to learning and infrastructure constraints. In other words, we cannot perform online updates to the policy and generate trajectories according to the updated policy immediately. Instead we receive logged feedback of actions chosen by a historical policy (or a mixture of policies), which could have a different distribution over the action space than the policy we are updating. We focus on addressing the data biases that arise when applying policy gradient methods under this setting. In particular, the fact that we collect data with a periodicity of several hours and compute many policy parameter updates before deploying a new version of the policy in production implies that the set of trajectories we employ to estimate the policy gradient is generated by a different policy. Moreover, we learn from batched feedback collected by other recommenders as well, which follow drastically different policies. A naive policy gradient estimator is no longer unbiased as the gradient in Equation (2) requires sampling trajectories from the updated policy while the trajectories we collected were drawn from a combination of historical policies .
+
+We address the distribution mismatch with importance weighting [31,33,34]. Consider a trajectory = ( 0 , 0 , 1 , · · · ) sampled according to a behavior policy , the off-policy-corrected gradient estimator is then:
+∇ J ( ) = ∑︁ ∼ ( ·), ∼ ( · | ) ( , ) ∇ log ( ) (3) where ( , ) = ( ) ( ) × ( | ) ( | ) × | | ′ = +1 ( ′ | ′ ) ( ′ | ′ )
+is the importance weight. This correction produces an unbiased estimator whenever the trajectories are collected with actions sampled according to . However, the variance of the estimator can be huge when the difference in and the behavior policy results in very low or high values of the importance weights.
+
+To reduce the variance of each gradient term, we take the firstorder approximation and ignore the state visitation differences under the two policies as the importance weights of future trajectories, which yields a slightly biased estimator of the policy gradient with lower variance:
+∇ J ( ) ≈ ∑︁ ∼ ( ·), ∼ ( · | ) ( | ) ( | ) ∇ log ( )(4)
+Achiam et al. [1] prove that the impact of this first-order approximation on the total reward of the learned policy is bounded in magnitude by
+∼ [ ( | ) [ ]]
+where is the total variation between (·| ) and (·| ) and is the discounted future state distribution under . This estimator trades off the variance of the exact off-policy correction while still correcting for the large bias of a non-corrected policy gradient, which is better suited for on-policy learning.
+
+
+Parametrising the policy
+
+We model our belief on the user state at each time , which capture both evolving user interests using a -dimensional vector, that is, s ∈ R . The action taken at each time along the trajectory is embedded using an -dimensional vector u ∈ R . We model the state transition P : S×A×S with a recurrent neural network [6,49]:
+s +1 = (s , u ).
+We experimented with a variety of popular RNN cells such as Long Short-Term Memory (LSTM) [18] and Gated Recurrent Units (GRU) [10], and ended up using a simplified cell called Chaos Free RNN (CFN) [24] due to its stability and computational efficiency. The state is updated recursively as
+s +1 = z ⊙ tanh(s ) + i ⊙ tanh(W u ) (5) z = (U s + W u + b ) i = (U s + W u + b )
+where z , i ∈ R are the update and input gate respectively. Conditioning on a user state s, the policy ( |s) is then modeled with a simple softmax,
+( |s) = (s ⊤ v / ) ′ ∈A (s ⊤ v ′ / )(6)
+where v ∈ R is another embedding for each action in the action space A and is a temperature that is normally set to 1. Using a higher value in produces a smoother policy over the action space. The normalization term in the softmax requires going over all the possible actions, which is in the order of millions in our setting.
+
+To speed up the computation, we perform sampled softmax [4] during training. At serving time, we used an efficient nearest neighbor search algorithm to retrieve top actions and approximate the softmax probability using these actions only, as detailed in section 5.
+
+In summary, the parameter of the policy contains the two action embeddings U ∈ R × | A | and V ∈ R × | A | as well as the weight matrices U , U ∈ R × , W , W , W ∈ R × and biases b , b ∈ R in the RNN cell. Figure 1 shows a diagram describing the neural architecture of the main policy . Given an observed trajectory = ( 0 , 0 , 1 , · · · ) sampled from a behavior policy , the new policy first generates a model of the user state s +1 by starting with an initial state s 0 ∼ 0 1 and iterating through the recurrent cell as in Equation (5) 2 . Given the user state s +1 the policy head casts a distribution on the action space through a softmax as in Equation (6). With ( +1 |s +1 ), we can then produce a policy gradient as in Equation (4) to update the policy.
+
+
+Estimating the behavior policy
+
+One difficulty in coming up with the off-policy corrected estimator in Equation (4) is to get the behavior policy . Ideally, for each logged feedback of a chosen action we received, we would like to also log the probability of the behavior policy choosing that action. Directly logging the behavior policy is however not feasible in our case as (1) there are multiple agents in our system, many of which we do not have control over, and (2) some agents have a deterministic policy, and setting to 0 or 1 is not the most effective way to utilize these logged feedback.
+
+Instead we take the approach first introduced in [39], and estimate the behavior policy , which in our case is a mixture of the policies of the multiple agents in the system, using the logged actions. Given a set of logged feedback D = {(s , ), = 1, · · · , }, Strehl et al. [39] estimatesˆ( ) independent of user state by aggregate action frequency throughout the corpus. In contrast, we adopt 1 In our experiment, we used a fixed initial state distribution, where s 0 = 0 ∈ R 2 We take into account of the context [6] of the action, such as page, device and time information, as input to the RNN cell besides the action embedding itself.
+
+
+Recurrent Cell
+
+Item embedding Context a context-dependent neural estimator. For each state-action pair ( , ) collected, we estimate the probabilityˆ′ ( | ) that the mixture of behavior policies choosing that action using another softmax, parametrised by ′ . As shown in Figure 1, we re-use the user state generated from the RNN model from the main policy, and model the mixed behavior policy with another softmax layer. To prevent the behavior head from intefering with the user state of the main policy, we block its gradient from flowing back into the RNN. We also experimented with separating the and ′ estimators, which incurs computational overhead for computing another state representation but does not results in any metric improvement in offline and live experiments.
+
+Despite a substantial sharing of parameters between the two policy heads and ′ , there are two noticeable difference between them: (1) While the main policy is effectively trained using a weighted softmax to take into account of long term reward, the behavior policy head ′ is trained using only the state-action pairs;
+
+(2) While the main policy head is trained using only items on the trajectory with non-zero reward 3 , the behavior policy ′ is trained using all of the items on the trajectory to avoid introducing bias in the estimate.
+
+In [39], it is argued that that a behavior policy that is deterministically choosing an action given state at time 1 and action at time 2 can be treated as randomizing between action and over the timespan of the logging. Here we could argue the same point, which explains why the behavior policy could be other than 0 or 1 given a deterministic policy. In addition, since we have multiple policies acting simultaneously, if one policy is determinstically choosing action given user state , and another one is determinstically choosing action , then estimatingˆ′ in such a way would approximate the expected frequency of action being chosen under the mixture of these behavior policies given user state .
+
+
+Top-Off-Policy Correction
+
+Another challenge in our setting is that our system recommends a page of items to users at a time. As users are going to browse through (the full or partial set of) our recommendations and potentially interact with more than one item, we need to pick a set of relevant items instead of a single one. In other words, we seek a policy Π ( | ), here each action is to select a set of items, to maximize the expected cumulative reward,
+max J (Π ) = E ∼ Π ( ·), ∼Π ( · | ) [ ( , )] .
+Here ( , ) denotes the cumulative return of the set at state . Unfortunately, the action space grows exponentially under this set recommendation formulation [44,50], which is prohibitively large given the number of items we choose from are in the orders of millions.
+
+To make the problem tractable, we assume that a user will interact with at most one item from the returned set . In other words, there will be at most one item with non-zero cumulative reward among . We further assume that the expected return of an item is independent of other items chosen in the set 4 . With these two assumptions, we can reduce the set problem to
+J (Π ) = E ∼ Π ( ·), ∈ ∼Π ( · | ) [ ( , )] .
+Here ( , ) is the cumulative return of the item the user interacted with, and ∈ ∼ Π (·| ) indicates that was chosen by the set policy. Furthermore, we constrain ourselves to generate the set action by independently sampling each item according to the softmax policy described in Equation (6) and then de-duplicate. As a result, the probability of an item appearing in the final non-repetitive set is simply ( | ) = 1 − (1 − ( | )) , where is the number of times we sample. 5 .
+
+We can then adapt the REINFORCE algorithm to the set recommendation setting by simply modifying the gradient update in Equation (2) to ∑︁ ∼ ( ·), ∼ ( · | ) ( , )∇ log ( | ) Accordingly, we can update the off-policy corrected gradient in Equation (4) by replacing with , resulting in the topoff-policy correction factor:
+∑︁ ∼ ( ·), ∼ ( · | ) ( | ) ( | ) ( , )∇ log ( | )(7)
+= ∑︁
+∼ ( ·), ∼ ( · | ) ( | ) ( | ) ( | ) ( | ) ( , )∇ log ( | ) .
+Comparing Equation (7) with Equation (4), the top-policy adds an additional multiplier of
+( , ) = ( | ) ( | ) = (1 − ( | )) −1(8)
+to the original off-policy correction factor of ( | ) ( | ) . Now let us take a closer look at this additional multiplier:
+
+• As ( | ) → 0, ( , ) → . The top-off-policy correction increases the policy update by a factor of comparing to the standard off-policy correction; • As ( | ) → 1, ( , ) → 0. This multiplier zeros out the policy update. • As increases, this multiplier reduces the gradient to zero faster as ( | ) reaches a reasonable range. In summary, when the desirable item has a small mass in the softmax policy (·| ), the top-correction more aggressively pushes up its likelihood than the standard correction. Once the softmax policy (·| ) casts a reasonable mass on the desirable item (to ensure it will be likely to appear in the top-), the correction then zeros out the gradient and no longer tries to push up its likelihood. This in return allows other items of interest to take up some mass in the softmax policy. As we are going to demonstrate in the simulation as well as live experiment, while the standard off-policy correction converges to a policy that is optimal when choosing a single item, the top-correction leads to better top-recommendations.
+
+
+Variance Reduction Techniques
+
+As detailed at the beginning of this section, we take a first-order approximation to reduce variance in the gradient estimate. Nonetheless, the gradient can still suffer from large variance due to large importance weight of ( , ) = We tested several techniques proposed in counterfactual learning and RL literature to control variance in the gradient estimate. Most of these techniques reduce variance at the cost of introducing some bias in the gradient estimate.
+
+Weight Capping. The first approach we take is to simply cap the weight [8] as¯(
+, ) = min ( | ) ( | )
+, .
+
+Smaller value of reduces variance in the gradient estimate, but introduces larger bias. Normalized Importance Sampling (NIS). Second technique we employed is to introduce a ratio control variate, where we use classical weight normalization [32] defined by:
+( , ) = ( , ) ( ′ , ′ )∼ ( ′ , ′ ) .
+As E [ ( , )] = 1, the normalizing constant is equal to , the batch size, in expectation. As increases, the effect of NIS is equivalent to tuning down the learning rate. Trusted Region Policy Optimization (TRPO). TRPO [36] prevents the new policy from deviating from the behavior policy by adding a regularization that penalizes the KL divergence of these two policies. It achieves similar effect as the weight capping.
+
+
+EXPLORATION
+
+As should be clear by this point, the distribution of training data is important for learning a good policy. Exploration policies to inquire about actions rarely taken by the existing system have been extensively studied. In practice, brute-force exploration, such as -greedy, is not viable in a production system like YouTube where this could, and mostly likely would, result in inappropriate recommendations and a bad user experience. For example, Schnabel et al. [35] studied the cost of exploration.
+
+Instead we employ Boltzmann exploration [12] to get the benefit of exploratory data without negatively impacting user experience. We consider using a stochastic policy where recommendations are sampled from rather than taking the items with the highest probability. This has the challenge of being computationally inefficient because we need to calculate the full softmax, which is prohibitively expensive considering our action space. Rather, we make use of efficient approximate nearest neighbor-based systems to look up the top items in the softmax [14]. We then feed the logits of these items into a smaller softmax to normalize the probabilities and sample from this distribution. By setting ≫ we can still retrieve most of the probability mass, limit the risk of bad recommendations, and enable computationally efficient sampling. In practice, we further balance exploration and exploitation by returning the top ′ most probable items and sample − ′ items from the remaining − ′ items.
+
+
+EXPERIMENTAL RESULTS
+
+We showcase the effectiveness of these approaches for addressing data biases in a series of simulated experiments and live experiments in an industrial-scale recommender system.
+
+
+Simulation
+
+We start with designing simulation experiments to shed light on the off-policy correction ideas under more controlled settings. To simplify our simulation, we assume the problem is stateless, in other words, the reward is independent of user states, and the action does not alter the user states either. As a result, each action on a trajectory can be independently chosen.
+
+6.1.1 Off-policy correction. In the first simulation, we assume there are 10 items, that is A = { , = 1, · · · , 10}. The reward of each one is equal to its index, that is, ( ) = . When we are choosing a single item, the optimal policy under this setting is to always choose the 10 ℎ item as it gives the most reward, that is, * ( ) = I( = 10).
+
+We parameterize using a stateless softmax
+( ) =
+Given observations sampled from the behavior policy , naively applying policy gradient without taking into account of data bias as in Equation (2) would converge to a policy
+( ) = ( ) ( ) ( ) ( )
+This has an obvious downside: the more the behavior policy chooses a sub-optimal item, the more the new policy will be biased toward choosing the same item. Figure 2 compares the policies , learned without and with off-policy correction using SGD [7], when the behavior policy is skewed to favor items with least reward. As shown in Figure 2 (left), naively applying the policy gradient without accounting for the data biases leads to a sub-optimal policy. In the worst case, if the behavior policy always chooses the action with the lowest reward, we will end up with a policy that is arbitrarily poor and mimicking the behavior policy (i.e., converge to selecting the least rewarded item). On the other hand, applying the off-policy correction allows us to converge to the optimal policy * regardless of how the data is collected, as shown in Figure 2 (right).
+
+
+Top-off-policy correction.
+
+To understand the difference between the standard off-policy correction and the top-off-policy correction proposed, we designed another simulation in which we can recommend multiple items. Again we assume there are 10 items, with ( 1 ) = 10, ( 2 ) = 9, and the remaining items are of much lower reward ( ) = 1, ∀ = 3, · · · , 10. Here we focus on recommending two items, that is, = 2. The behavior policy follows a uniform distribution, i.e., choosing each item with equal chance.
+
+Given an observation ( , ) sampled from , the standard offpolicy correction has a SGD updates of the following form,
+= + ( ) ( ) ( ) I( = ) − ( ) , ∀ = 1, · · · , 10
+where is the learning rate. SGD keeps increasing the likelihood of the item proportional to the expected reward under until ( ) = 1, under which the gradient goes to 0. The top-off-policy correction, on the other hand, has an update of the following form,
+= + ( ) ( ) ( ) ( ) I( = ) − ( ) , ∀ = 1, · · · , 10
+where ( ) is the multiplier as defined in section 4.3. When ( ) is small, ( ) ≈ , and SGD increases the likelihood of the item more aggressively. As ( ) reaches to a large enough value, ( ) goes to 0. As a result, SGD will no longer force to increase the likelihood of this item even when ( ) is still less than 1. This in return allows the second-best item to take up some mass in the learned policy. Figure 3 shows the policies learned with the standard (left) and top-off-policy correction (right). We can see that with the standard off-policy correction, although the learned policy is calibrated [23] in the sense that it still maintains the ordering of items w.r.t. their expected reward, it converges to a policy that cast almost its entire mass on the top-1 item, that is ( 1 ) ≈ 1.0. As a result, the learned policy loses track of the difference between a slightly sub-optimal item ( 2 in this example) and the rest. The top-correction, on the other hand, converges to a policy that has a significant mass on the second optimal item, while maintaining the order of optimality between items. As a result, we are able to recommend to users two high-reward items and aggregate more reward overall.
+
+
+Live Experiments
+
+While simulated experiments are valuable to understand new methods, the goal of any recommender systems is ultimately to improve real user experience. We therefore conduct a series of A/B experiments running in a live system to measure the benefits of these approaches.
+
+We evaluate these methods on a production RNN candidate generation model in use at YouTube, similar to the setup described in [6,11]. The model is one of many candidate generators that produce recommendations, which are scored and ranked by a separate ranking model before being shown to users on the YouTube Homepage or the side panel on the video watch page. As described above, the model is trained following the REINFORCE algorithm. The immediate reward is designed to reflect different user activities; videos that are recommended but not clicked receive zero reward. The long term reward is aggregated over a time horizon of 4-10 hours. In each experiment both the control and the test model use the same reward function. Experiments are run for multiple days, during which the model is trained continuously with new events being used as training data with a lag under 24 hours. While we look at various online metrics with the recommender system during live experiments, we are going to focus our discussion on the amount of time user spent watching videos, referred to as ViewTime.
+
+The experiments presented here describe multiple sequential improvements to the production system. Unfortunately, in such a setting, the latest recommender system provides the training data for the next experiment, and as a result, once the production system incorporates a new approach, subsequent experiments cannot be compared to the earlier system. Therefore, each of the following experiments should be taken as the analysis for each component individually, and we state in each section what was the previous recommender system from which the new approach receives data.
+
+
+Exploration.
+
+We begin with understanding the value of exploratory data in improving model quality. In particular, we would like to measure if serving a stochastic policy, under which we sample from the softmax model as described in Section 5, results in better recommendations than serving a deterministic policy where the model always recommends the items with the highest probability according to the softmax.
+
+We conducted a first set of experiments to understand the impact of serving a stochastic policy vs. a deterministic one while keeping the training process unchanged. In the experiment, the control population is served with a deterministic policy, while a small slice of test traffic is served with the stochastic policy as described in Section 5. Both policies are based on the same softmax model trained as in Equation (??). To control the amount of randomness in the stochastic policy at serving, we varied the temperature used in Equation (6). A lower reduces the stochastic policy to a deterministic one, while a higher leads to a random policy that recommends any item with equal chance. With set to 1, we observed no statistically significant change in ViewTime during the experiment, which suggests the amount of randomness introduced from sampling does not hurt the user experience directly.
+
+However, this experimental setup does not account for the benefit of having exploratory data available during training. One of the main biases in learning from logged data is that the model does not observe feedback of actions not chosen by the previous recommendation policy, and exploratory data alleviates this problem. We conducted a followup experiment where we introduce the exploratory data into training. To do that, we split users on the platform into three buckets: 90%, 5%, 5%. The first two buckets are served with a deterministic policy based on a deterministic model and the last bucket of users is served with a stochastic policy based on a model trained with exploratory data. The deterministic model is trained using only data acquired in the first two buckets, while the stochastic model is trained on data from the first and third buckets. As a result, these two models receive the same amount of training data, but the stochastic model is more likely to observe the outcomes of some rarer state, action pairs because of exploration.
+
+Following this experimental procedure, we observe a statistically significant increase in ViewTime by 0.07% in the test population. While the improvement is not large, it comes from a relatively small amount of exploration data (only 5% of users experience the stochastic policy). We expect higher gain now that the stochastic policy has been fully launched.
+
+
+Off-Policy Correction.
+
+Following the use of a stochastic policy, we tested incorporating off-policy correction during training. Here, we follow a more traditional A/B testing setup 6 where we train two models, both using the full traffic. The control model is trained following Equation (??), only weighting examples by the reward. The test model follows the structure in Figure 1, where the model learns both a serving policy as well as the behavior policy ′ . The serving policy is trained with the off-policy correction described in Equation (4) where each example is weighted not only by the reward but also the importance weight ′ for addressing data bias.
+
+During experiments, we observed the learned policy (test) starts to deviate from the behavior policy (control) that is used to acquire the traffic. Figure 4 plots a CDF of videos selected by our nominator in control and experiment according to the rank of videos in control population (rank 1 is the most nominated video by the control model, and the rightmost is least nominated). We see that instead of mimicking the model (shown in blue) used for data collection, the test model (shown in green) favors videos that are less explored by the control model. We observed that the proportion of nominations coming from videos outside of the top ranks is increased by nearly a factor of three in experiment. This aligns with what we observed in the simulation shown in Figure 2. While ignoring the bias in the data collection process creates a "rich get richer" phenomenon, whereby a video is nominated in the learned policy simply because it was heavily nominated in the behavior policy, incorporating the off-policy correction reduces this effect.
+
+Interestingly, in live experiment, we did not observe a statistically significant change in ViewTime between control and test population. However, we saw an increase in the number of videos viewed by 0.53%, which was statistically significant, suggesting that users are indeed getting more enjoyment.
+
+
+Top-Off-Policy.
+
+We now focus on understanding if the top-off-policy learning improves the user experience over the standard off-policy approach. In this case, we launched an equivalently structured model now trained with the top-off-policy corrected gradient update given in Equation (7) and compared its performance to the previous off-policy model, described in Section 6.2.2. In this experiment, we use = 16 and capping = 3 in Equation (9); we will explore these hyperparameters in more detail below.
+
+As described in Section 4.3 and demonstrated in the simulation in Section 6.1.2, while the standard off-policy correction we tested before leads to a policy that is overly-focused on getting the top-1 item correct, the top-off-policy correction converges to a smoother policy under which there is a non-zero mass on the other items of interest to users as well. This in turn leads to better toprecommendation. Given that we can recommend multiple items, the top-off-policy correction leads us to present a better fullpage experience to users than the standard off-policy correction. In particular, we find that the amount of ViewTime increased by 0.85% in the test traffic, with the number of videos viewed slightly decreasing by 0.16%.
+
+
+Understanding Hyperparameters.
+
+Last, we perform a direct comparison of how different hyperparameter choices affect the top-off-policy correction, and in turn the user experience on the platform. We perform these tests after the top-off-policy correction became the production model.
+
+
+Number of actions.
+
+We first explore the choice of in the topoff-policy correction. We train three structurally identical models, using ∈ {1, 2, 16, 32}; The control (production) model is the topoff-policy model with = 16. We plot the results during a 5-day experiment in Figure 5. As explained in Section 4.3, with = 1, the top-off-policy correction reduces to the standard off-policy correction. A drop of 0.66% ViewTime was observed for = 1 compared with the baseline with = 16. This further confirms the gain we observed shifting from the standard off-policy correction to the top-off-policy correction. Setting = 2 still performs worse than the production model, but the gap is reduced to 0.35%. = 32 achieves similar performance as the baseline. We conducted follow up experiment which showed mildly positive gain in ViewTime (+0.15% statistically significant) when = 8.
+
+Capping. Here we consider the effect of the variance reduction techniques on the final quality of the learned recommender. Among the techniques discussed in Section 4.4, weight capping brings the biggest gain online in initial experiments. We did not observe further metric improvements from normalized importance sampling, or TRPO [36]. We conducted a regression test to study the impact of weight capping. We compare a model trained using cap = 3 (as in production model) in Equation (9) with one trained using = 5 . As we lift the restriction on the importance weight, the learned policy could potentially overfit to a few logged actions that accidentally receives high reward. Swaminathan and Joachims [43] described a similar effect of propensity overfitting. During live experiment, we observe a significant drop of 0.52% in ViewTime when the cap on importance weight was lifted.
+
+
+CONCLUSION
+
+In this paper we have laid out a practical implementation of a policy gradient-based top-recommender system in use at YouTube. We scale up REINFORCE to an action space in the orders of millions and have it stably running in a live production system. To realize the full benefits of such an approach, we have demonstrated how to address biases in logged data through incorporating a learned logging policy and a novel top-off-policy correction. We conducted extensive analysis and live experiments to measure empirically the importance of accounting for and addressing these underlying biases. We believe these are important steps in making reinforcement learning practically impactful for recommendation and will provide a solid foundation for researchers and practitioners to explore new directions of applying RL to recommender systems.
+
+Figure 1 :
+1A diagram shows the parametrisation of the policy as well as the behavior policy ′ .
+
+
+) as shown in Equation(4), Similarly for top-off-policy correction. Large importance weight could result from (1) large deviation of the new policy (·| ) from the behavior policy, in particular, the new policy explores regions that are less explored by the behavior policy. That is, ( | ) ≫ ( | ) and (2) large variance in the estimate.
+
+Figure 2 :
+2learned policy when behavior policy is skewed to favor the actions with least reward, i.e., ( ) = 11− 55 , ∀ = 1, · · · , 10. (left): without off-policy correction; (right): with off-policy correction.
+
+Figure 3 :
+3Learned policy (left): with standard off-policy correction; (right): with top-k correction for top-2 recommendation.
+
+Figure 4 :
+4CDF of videos nominated in control and test population according to rank of videos in the control population. Standard off-policy correction addresses the "rich get richer" phenomenon.
+
+Figure 5 :
+5top-off-policy correction with varying .
+1. Actions with zero-reward will not contribute to the gradient update in ; 2. We ignore them in the user state update as users are unlikely to notice them and as a result, we assume the user state are not influenced by these actions; 3. It saves computational cost.
+This assumption holds if the downstream systems and the user inspect each item on a page independently.5 At a result of the sampling with replacement and de-duplicate, the size of the final set can vary.
+In practice, we use a fairly small portion of users as test population; as a result, the feedback we logged are almost entirely acquired by the control model.
+ACKNOWLEDGEMENTSWe thank Craig Boutilier for his valuable comments and discussions.
+Joshua Achiam, David Held, arXiv:1705.10528Aviv Tamar, and Pieter Abbeel. 2017. Constrained policy optimization. arXiv preprintJoshua Achiam, David Held, Aviv Tamar, and Pieter Abbeel. 2017. Constrained policy optimization. arXiv preprint arXiv:1705.10528 (2017).
+
+Taming the monster: A fast and simple algorithm for contextual bandits. Alekh Agarwal, Daniel Hsu, Satyen Kale, John Langford, Lihong Li, Robert Schapire, International Conference on Machine Learning. Alekh Agarwal, Daniel Hsu, Satyen Kale, John Langford, Lihong Li, and Robert Schapire. 2014. Taming the monster: A fast and simple algorithm for contextual bandits. In International Conference on Machine Learning. 1638-1646.
+
+Finite-time analysis of the multiarmed bandit problem. Peter Auer, Nicolo Cesa-Bianchi, Paul Fischer, Machine learning. 47Peter Auer, Nicolo Cesa-Bianchi, and Paul Fischer. 2002. Finite-time analysis of the multiarmed bandit problem. Machine learning 47, 2-3 (2002), 235-256.
+
+Quick Training of Probabilistic Neural Nets by Importance Sampling. Yoshua Bengio, Jean-Sébastien Senécal, AISTATS. Yoshua Bengio, Jean-Sébastien Senécal, et al. 2003. Quick Training of Probabilistic Neural Nets by Importance Sampling.. In AISTATS. 1-9.
+
+The netflix prize. James Bennett, Stan Lanning, Proceedings of KDD cup and workshop. KDD cup and workshopNew York, NY, USA35James Bennett, Stan Lanning, et al. 2007. The netflix prize. In Proceedings of KDD cup and workshop, Vol. 2007. New York, NY, USA, 35.
+
+Latent Cross: Making Use of Context in Recurrent Recommender Systems. Alex Beutel, Paul Covington, Sagar Jain, Can Xu, Jia Li, Vince Gatto, Ed H Chi, WSDM. ACM. Alex Beutel, Paul Covington, Sagar Jain, Can Xu, Jia Li, Vince Gatto, and Ed H Chi. 2018. Latent Cross: Making Use of Context in Recurrent Recommender Systems. In WSDM. ACM, 46-54.
+
+Large-scale machine learning with stochastic gradient descent. Léon Bottou, Proceedings of COMPSTAT'2010. COMPSTAT'2010SpringerLéon Bottou. 2010. Large-scale machine learning with stochastic gradient descent. In Proceedings of COMPSTAT'2010. Springer, 177-186.
+
+Counterfactual reasoning and learning systems: The example of computational advertising. Léon Bottou, Jonas Peters, Joaquin Quiñonero-Candela, X Denis, Max Charles, Elon Chickering, Dipankar Portugaly, Ray, The Journal of Machine Learning Research. Patrice Simard, and Ed Snelson. 201314Léon Bottou, Jonas Peters, Joaquin Quiñonero-Candela, Denis X Charles, D Max Chickering, Elon Portugaly, Dipankar Ray, Patrice Simard, and Ed Snelson. 2013. Counterfactual reasoning and learning systems: The example of computational advertising. The Journal of Machine Learning Research 14, 1 (2013), 3207-3260.
+
+An empirical evaluation of thompson sampling. Olivier Chapelle, Lihong Li, Advances in neural information processing systems. Olivier Chapelle and Lihong Li. 2011. An empirical evaluation of thompson sampling. In Advances in neural information processing systems. 2249-2257.
+
+Empirical evaluation of gated recurrent neural networks on sequence modeling. Junyoung Chung, Caglar Gulcehre, Kyunghyun Cho, Yoshua Bengio, arXiv:1412.3555arXiv preprintJunyoung Chung, Caglar Gulcehre, KyungHyun Cho, and Yoshua Bengio. 2014. Empirical evaluation of gated recurrent neural networks on sequence modeling. arXiv preprint arXiv:1412.3555 (2014).
+
+Deep neural networks for youtube recommendations. Paul Covington, Jay Adams, Emre Sargin, Proceedings of the 10th ACM Conference on Recommender Systems. the 10th ACM Conference on Recommender SystemsACMPaul Covington, Jay Adams, and Emre Sargin. 2016. Deep neural networks for youtube recommendations. In Proceedings of the 10th ACM Conference on Recommender Systems. ACM, 191-198.
+
+Cortical substrates for exploratory decisions in humans. D Nathaniel, Daw, P John, Peter O&apos;doherty, Ben Dayan, Raymond J Seymour, Dolan, Nature. 441876Nathaniel D Daw, John P O'doherty, Peter Dayan, Ben Seymour, and Raymond J Dolan. 2006. Cortical substrates for exploratory decisions in humans. Nature 441, 7095 (2006), 876.
+
+Offline A/B testing for Recommender Systems. Alexandre Gilotte, Clément Calauzènes, Thomas Nedelec, Alexandre Abraham, Simon Dollé, WSDM. ACM. Alexandre Gilotte, Clément Calauzènes, Thomas Nedelec, Alexandre Abraham, and Simon Dollé. 2018. Offline A/B testing for Recommender Systems. In WSDM. ACM, 198-206.
+
+Quantization based fast inner product search. Ruiqi Guo, Sanjiv Kumar, Krzysztof Choromanski, David Simcha, Artificial Intelligence and Statistics. Ruiqi Guo, Sanjiv Kumar, Krzysztof Choromanski, and David Simcha. 2016. Quan- tization based fast inner product search. In Artificial Intelligence and Statistics. 482-490.
+
+Completely derandomized self-adaptation in evolution strategies. Nikolaus Hansen, Andreas Ostermeier, Evolutionary computation. 9Nikolaus Hansen and Andreas Ostermeier. 2001. Completely derandomized self-adaptation in evolution strategies. Evolutionary computation 9, 2 (2001), 159-195.
+
+Neural collaborative filtering. Xiangnan He, Lizi Liao, Hanwang Zhang, Liqiang Nie, Xia Hu, Tat-Seng Chua, Proceedings of the 26th International Conference on World Wide Web. International World Wide Web Conferences Steering Committee. the 26th International Conference on World Wide Web. International World Wide Web Conferences Steering CommitteeXiangnan He, Lizi Liao, Hanwang Zhang, Liqiang Nie, Xia Hu, and Tat-Seng Chua. 2017. Neural collaborative filtering. In Proceedings of the 26th International Conference on World Wide Web. International World Wide Web Conferences Steering Committee, 173-182.
+
+Balázs Hidasi, Alexandros Karatzoglou, arXiv:1511.06939Linas Baltrunas, and Domonkos Tikk. 2015. Session-based recommendations with recurrent neural networks. arXiv preprintBalázs Hidasi, Alexandros Karatzoglou, Linas Baltrunas, and Domonkos Tikk. 2015. Session-based recommendations with recurrent neural networks. arXiv preprint arXiv:1511.06939 (2015).
+
+Long short-term memory. Sepp Hochreiter, Jürgen Schmidhuber, Neural computation. 9Sepp Hochreiter and Jürgen Schmidhuber. 1997. Long short-term memory. Neural computation 9, 8 (1997), 1735-1780.
+
+Collaborative filtering for implicit feedback datasets. Yifan Hu, Yehuda Koren, Chris Volinsky, ICDM. Ieee. Yifan Hu, Yehuda Koren, and Chris Volinsky. 2008. Collaborative filtering for implicit feedback datasets. In ICDM. Ieee, 263-272.
+
+Neural survival recommender. How Jing, Alexander J Smola, WSDM. ACM. How Jing and Alexander J Smola. 2017. Neural survival recommender. In WSDM. ACM, 515-524.
+
+Unbiased learning-to-rank with biased feedback. Thorsten Joachims, Adith Swaminathan, Tobias Schnabel, Proceedings of the Tenth ACM International Conference on Web Search and Data Mining. the Tenth ACM International Conference on Web Search and Data MiningACMThorsten Joachims, Adith Swaminathan, and Tobias Schnabel. 2017. Unbiased learning-to-rank with biased feedback. In Proceedings of the Tenth ACM Interna- tional Conference on Web Search and Data Mining. ACM, 781-789.
+
+Reinforcement learning in robotics: A survey. Jens Kober, Andrew Bagnell, Jan Peters, The International Journal of Robotics Research. 32Jens Kober, J Andrew Bagnell, and Jan Peters. 2013. Reinforcement learning in robotics: A survey. The International Journal of Robotics Research 32, 11 (2013), 1238-1274.
+
+Loss functions for top-k error: Analysis and insights. Maksim Lapin, Matthias Hein, Bernt Schiele, Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition. the IEEE Conference on Computer Vision and Pattern RecognitionMaksim Lapin, Matthias Hein, and Bernt Schiele. 2016. Loss functions for top-k error: Analysis and insights. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition. 1468-1477.
+
+Thomas Laurent, James Von Brecht, arXiv:1612.06212A recurrent neural network without chaos. arXiv preprintThomas Laurent and James von Brecht. 2016. A recurrent neural network without chaos. arXiv preprint arXiv:1612.06212 (2016).
+
+End-to-end training of deep visuomotor policies. Sergey Levine, Chelsea Finn, Trevor Darrell, Pieter Abbeel, JMLR. 17Sergey Levine, Chelsea Finn, Trevor Darrell, and Pieter Abbeel. 2016. End-to-end training of deep visuomotor policies. JMLR 17, 1 (2016), 1334-1373.
+
+Guided policy search. Sergey Levine, Vladlen Koltun, International Conference on Machine Learning. Sergey Levine and Vladlen Koltun. 2013. Guided policy search. In International Conference on Machine Learning. 1-9.
+
+A contextualbandit approach to personalized news article recommendation. Lihong Li, Wei Chu, John Langford, Robert E Schapire, Proceedings of the 19th international conference on World wide web. the 19th international conference on World wide webACMLihong Li, Wei Chu, John Langford, and Robert E Schapire. 2010. A contextual- bandit approach to personalized news article recommendation. In Proceedings of the 19th international conference on World wide web. ACM, 661-670.
+
+Bandits and recommender systems. Jérémie Mary, Romaric Gaudel, Philippe Preux, International Workshop on Machine Learning, Optimization and Big Data. SpringerJérémie Mary, Romaric Gaudel, and Philippe Preux. 2015. Bandits and recom- mender systems. In International Workshop on Machine Learning, Optimization and Big Data. Springer, 325-336.
+
+Asynchronous methods for deep reinforcement learning. Volodymyr Mnih, Adria Puigdomenech Badia, Mehdi Mirza, Alex Graves, Timothy Lillicrap, Tim Harley, David Silver, Koray Kavukcuoglu, International conference on machine learning. Volodymyr Mnih, Adria Puigdomenech Badia, Mehdi Mirza, Alex Graves, Tim- othy Lillicrap, Tim Harley, David Silver, and Koray Kavukcuoglu. 2016. Asyn- chronous methods for deep reinforcement learning. In International conference on machine learning. 1928-1937.
+
+Playing atari with deep reinforcement learning. Volodymyr Mnih, Koray Kavukcuoglu, David Silver, Alex Graves, Ioannis Antonoglou, Daan Wierstra, Martin Riedmiller, arXiv:1312.5602arXiv preprintVolodymyr Mnih, Koray Kavukcuoglu, David Silver, Alex Graves, Ioannis Antonoglou, Daan Wierstra, and Martin Riedmiller. 2013. Playing atari with deep reinforcement learning. arXiv preprint arXiv:1312.5602 (2013).
+
+Safe and efficient off-policy reinforcement learning. Rémi Munos, Tom Stepleton, Anna Harutyunyan, Marc Bellemare, Advances in Neural Information Processing Systems. Rémi Munos, Tom Stepleton, Anna Harutyunyan, and Marc Bellemare. 2016. Safe and efficient off-policy reinforcement learning. In Advances in Neural Information Processing Systems. 1054-1062.
+
+Monte Carlo theory, methods and examples. Art B Owen, Art B. Owen. 2013. Monte Carlo theory, methods and examples.
+
+Eligibility traces for off-policy policy evaluation. Doina Precup, Computer Science Department Faculty Publication Series. 80Doina Precup. 2000. Eligibility traces for off-policy policy evaluation. Computer Science Department Faculty Publication Series (2000), 80.
+
+Off-policy temporaldifference learning with function approximation. Doina Precup, S Richard, Sanjoy Sutton, Dasgupta, ICML. Doina Precup, Richard S Sutton, and Sanjoy Dasgupta. 2001. Off-policy temporal- difference learning with function approximation. In ICML. 417-424.
+
+Short-term satisfaction and long-term coverage: Understanding how users tolerate algorithmic exploration. Tobias Schnabel, N Paul, Susan T Bennett, Thorsten Dumais, Joachims, Proceedings of the Eleventh ACM International Conference on Web Search and Data Mining. the Eleventh ACM International Conference on Web Search and Data MiningACMTobias Schnabel, Paul N Bennett, Susan T Dumais, and Thorsten Joachims. 2018. Short-term satisfaction and long-term coverage: Understanding how users tol- erate algorithmic exploration. In Proceedings of the Eleventh ACM International Conference on Web Search and Data Mining. ACM, 513-521.
+
+Trust region policy optimization. John Schulman, Sergey Levine, Pieter Abbeel, Michael Jordan, Philipp Moritz, International Conference on Machine Learning. John Schulman, Sergey Levine, Pieter Abbeel, Michael Jordan, and Philipp Moritz. 2015. Trust region policy optimization. In International Conference on Machine Learning. 1889-1897.
+
+Autorec: Autoencoders meet collaborative filtering. Suvash Sedhain, Aditya Krishna Menon, Scott Sanner, Lexing Xie, Proceedings of the 24th International Conference on World Wide Web. the 24th International Conference on World Wide WebACMSuvash Sedhain, Aditya Krishna Menon, Scott Sanner, and Lexing Xie. 2015. Autorec: Autoencoders meet collaborative filtering. In Proceedings of the 24th International Conference on World Wide Web. ACM, 111-112.
+
+Mastering the game of Go with deep neural networks and tree search. David Silver, Aja Huang, Chris J Maddison, Arthur Guez, Laurent Sifre, George Van Den, Julian Driessche, Ioannis Schrittwieser, Veda Antonoglou, Marc Panneershelvam, Lanctot, nature. 529484David Silver, Aja Huang, Chris J Maddison, Arthur Guez, Laurent Sifre, George Van Den Driessche, Julian Schrittwieser, Ioannis Antonoglou, Veda Panneershel- vam, Marc Lanctot, et al. 2016. Mastering the game of Go with deep neural networks and tree search. nature 529, 7587 (2016), 484.
+
+Learning from logged implicit exploration data. Alex Strehl, John Langford, Lihong Li, M Sham, Kakade, Advances in Neural Information Processing Systems. Alex Strehl, John Langford, Lihong Li, and Sham M Kakade. 2010. Learning from logged implicit exploration data. In Advances in Neural Information Processing Systems. 2217-2225.
+
+Reinforcement learning: An introduction. S Richard, Andrew G Sutton, Barto, MIT pressRichard S Sutton, Andrew G Barto, et al. 1998. Reinforcement learning: An intro- duction. MIT press.
+
+Policy gradient methods for reinforcement learning with function approximation. S Richard, David A Sutton, Mcallester, P Satinder, Yishay Singh, Mansour, Advances in neural information processing systems. Richard S Sutton, David A McAllester, Satinder P Singh, and Yishay Mansour. 2000. Policy gradient methods for reinforcement learning with function approximation. In Advances in neural information processing systems. 1057-1063.
+
+Batch learning from logged bandit feedback through counterfactual risk minimization. Adith Swaminathan, Thorsten Joachims, Journal of Machine Learning Research. 16Adith Swaminathan and Thorsten Joachims. 2015. Batch learning from logged bandit feedback through counterfactual risk minimization. Journal of Machine Learning Research 16, 1 (2015), 1731-1755.
+
+The self-normalized estimator for counterfactual learning. Adith Swaminathan, Thorsten Joachims, Advances in Neural Information Processing Systems. Adith Swaminathan and Thorsten Joachims. 2015. The self-normalized estimator for counterfactual learning. In Advances in Neural Information Processing Systems. 3231-3239.
+
+Off-policy evaluation for slate recommendation. Adith Swaminathan, Akshay Krishnamurthy, Alekh Agarwal, Miro Dudik, John Langford, Damien Jose, Advances in Neural Information Processing Systems. Adith Swaminathan, Akshay Krishnamurthy, Alekh Agarwal, Miro Dudik, John Langford, Damien Jose, and Imed Zitouni. 2017. Off-policy evaluation for slate recommendation. In Advances in Neural Information Processing Systems.
+
+Improved recurrent neural networks for session-based recommendations. Xinxing Yong Kiam Tan, Yong Xu, Liu, Proceedings of the 1st Workshop on Deep Learning for Recommender Systems. the 1st Workshop on Deep Learning for Recommender SystemsACMYong Kiam Tan, Xinxing Xu, and Yong Liu. 2016. Improved recurrent neural networks for session-based recommendations. In Proceedings of the 1st Workshop on Deep Learning for Recommender Systems. ACM, 17-22.
+
+Temporal difference learning and TD-Gammon. Gerald Tesauro, Commun. ACM. 38Gerald Tesauro. 1995. Temporal difference learning and TD-Gammon. Commun. ACM 38, 3 (1995), 58-68.
+
+Data-efficient off-policy policy evaluation for reinforcement learning. Philip Thomas, Emma Brunskill, ICML. Philip Thomas and Emma Brunskill. 2016. Data-efficient off-policy policy evalua- tion for reinforcement learning. In ICML. 2139-2148.
+
+Simple statistical gradient-following algorithms for connectionist reinforcement learning. J Ronald, Williams, Machine learning. 8Ronald J Williams. 1992. Simple statistical gradient-following algorithms for connectionist reinforcement learning. Machine learning 8, 3-4 (1992), 229-256.
+
+Recurrent recommender networks. Chao-Yuan, Amr Wu, Alex Ahmed, Alexander J Beutel, How Smola, Jing, Proceedings of the tenth ACM international conference on web search and data mining. the tenth ACM international conference on web search and data miningACMChao-Yuan Wu, Amr Ahmed, Alex Beutel, Alexander J Smola, and How Jing. 2017. Recurrent recommender networks. In Proceedings of the tenth ACM international conference on web search and data mining. ACM, 495-503.
+
+Xiangyu Zhao, Long Xia, Liang Zhang, Zhuoye Ding, Dawei Yin, Jiliang Tang, arXiv:1805.02343Deep Reinforcement Learning for Page-wise Recommendations. arXiv preprintXiangyu Zhao, Long Xia, Liang Zhang, Zhuoye Ding, Dawei Yin, and Jiliang Tang. 2018. Deep Reinforcement Learning for Page-wise Recommendations. arXiv preprint arXiv:1805.02343 (2018).

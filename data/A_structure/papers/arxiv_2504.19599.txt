@@ -1,0 +1,425 @@
+GVPO: Group Variance Policy Optimization for Large Language Model Post-Training
+27 Oct 2025
+
+Kaichen Zhang kzhangbi@connect.ust.hkeugene.h.git@gmail.com 
+Thrust of Artificial Intelligence
+Hong Kong University of Science and Technology (Guangzhou)
+
+
+Zuoyebang Education Technology
+
+
+Yuzhong Hong 
+Zuoyebang Education Technology
+
+
+Junwei Bao baojunwei001@gmail.com 
+Zuoyebang Education Technology
+
+
+Hongfei Jiang jianghongfei@zuoyebang.com 
+Zuoyebang Education Technology
+
+
+Yang Song songyang@zuoyebang.com 
+Zuoyebang Education Technology
+
+
+Dingqian Hong hongdingqian@zuoyebang.com 
+Hui Xiong xionghui@ust.hk 
+Thrust of Artificial Intelligence
+Hong Kong University of Science and Technology (Guangzhou)
+
+
+Zuoyebang Education Technology
+
+
+Department of Computer Science and Engineering
+HKUST
+
+
+GVPO: Group Variance Policy Optimization for Large Language Model Post-Training
+27 Oct 202524D955B5C6AD746C30A285B3612E1F18arXiv:2504.19599v3[cs.AI]
+Post-training plays a crucial role in refining and aligning large language models to meet specific tasks and human preferences.While recent advancements in posttraining techniques, such as Group Relative Policy Optimization (GRPO), leverage increased sampling with relative reward scoring to achieve superior performance, these methods often suffer from training instability that limits their practical adoption.As a next step, we present Group Variance Policy Optimization (GVPO).GVPO incorporates the analytical solution to KL-constrained reward maximization directly into its gradient weights, ensuring alignment with the optimal policy.The method provides intuitive physical interpretations: its gradient mirrors the mean squared error between the central distance of implicit rewards and that of actual rewards.GVPO offers two key advantages: (1) it guarantees a unique optimal solution, exactly the KL-constrained reward maximization objective, (2) it supports flexible sampling distributions that avoids importance sampling and on-policy limitations.By unifying theoretical guarantees with practical adaptability, GVPO establishes a new paradigm for reliable and versatile LLM post-training.
+
+Introduction
+
+Large language models (LLMs) [59,31], trained on extensive datasets, exhibit impressive generalpurpose capabilities, yet their practical utility and alignment with human values depend critically on post-training [46] refinement.While pre-training [60,33] equips LLMs with broad linguistic patterns, post-training techniques-such as supervised fine-tuning (SFT) [32] and reinforcement learning [30] from human feedback (RLHF) [3] are indispensable for adapting these models to specialized applications and ensuring their outputs align with ethical, safety, and user-centric standards.
+
+"The biggest lesson that can be read from 70 years of AI research is that general methods that leverage computation are ultimately the most effective, and by a large margin."-Rich Sutton, 2024 Turing Award winner This principle outlined in The Bitter Lesson [43]-which advocates for scalable, computation-driven approaches-is exemplified by recent advances in post-training, particularly Group Relative Policy Optimization (GRPO) [39].Diverging from conventional reinforcement learning frameworks [37] that depend on training a separate value function, GRPO directly optimizes advantage by standardizing reward scores across samples.This approach eliminates the need for an auxiliary value model, which typically demands computational resources comparable to those of the policy model itself.As a result, GRPO significantly reduces memory and computational overhead, enabling more efficient sampling and scalable training.Deepseek-R1 [11] leverages GRPO and achieves significant performance.(2) The Mean Squared Error interpretation (middle) reveals GVPO's unique optimal solution, which simultaneously maximizes reward under a KL constraint; and (3) The Reinforcement Learning viewpoint (bottom) highlights GVPO's implicit regularization terms that ensure stable policy optimization.We assume β = 1 for simplicity.
+
+However, GRPO has been documented to experience issues with training instability in prior literature [54,28].Specifically, GRPO is highly sensitive to its hyperparameters, such as the clip threshold and the KL-divergence coefficient.These limitations undermine the robustness of GRPO and hinder its broader practical adoption.As a next step, we propose Group Variance Policy Optimization (GVPO), a novel approach for reliable and versatile LLM post-training.
+
+Our analysis begins with a key observation: post-training algorithms-including but not limited to SFT, Reject Sampling [48], and GRPO-share a unified mathematical structure in their loss gradients [39,10].Specifically, each method's gradient can be expressed as a weighted sum of the gradients of the log-likelihoods of responses.This unified framework reveals that we can directly design weights to encode preferences-positive weights amplify gradients for favored responses, while negative weights suppress disfavored ones, with magnitudes modulating the strength of preference.
+
+Motivated by the success of Direct Preference Optimization (DPO) [34]-which utilizes a closedform link between reward models and the optimal policy under KL-divergence constraints [23]-we explore how to leverage this analytical relationship.A central obstacle arises from the partition function in the closed-form formula, which requires intractable expectation calculations over all possible responses.To address this, we identify a critical condition: when the sum of assigned response weights within a prompt group equals zero, the partition function becomes invariant across compared responses, effectively canceling out in the policy update rule.This insight eliminates the need for explicit estimation of the partition function, thereby enabling deployment of the closed-form optimal policy while retaining its theoretical advantages.
+
+Based on the previous findings, we design GVPO's weighting scheme where the gradient weight of a response in a group is the difference between the central distance of implicit rewards-which derive from the current policy and the reference policy-and that of actual rewards, illustrated in Figure 1 (top panel).The loss is computable because the sum of weights in a prompt group equals zero.
+
+We demonstrate that GVPO loss function carries physically meaningful interpretations.Specifically, we establish that its gradient equals that of a mean squared error loss measuring the discrepancy between implicit and actual reward central distances, illustrated in Figure 1 (middle panel).
+
+Furthermore, the loss function in GVPO can be decomposed into three distinct components, as visualized in Figure 1 (bottom panel): (1) a group-relative reward term, (2) the variance of the current policy, and (3) the covariance between the current policy and a reference policy.The first component directly promotes advantage maximization by prioritizing responses with higher expected returns.
+
+The covariance term acts as a regularizer, mitigating excessive deviations from the reference policy to ensure stable policy updates.Meanwhile, the variance term encourages moderate entropy, thereby naturally balancing exploration and exploitation.We systematically analyze GVPO's structural similarities with conventional policy gradient reinforcement learning methods.
+
+We demonstrate that GVPO offers two key advantages:
+
+• GVPO has a unique optimal solution, which coincides precisely with the optimal solution of the KL-constrained reward maximization.This guarantee confers a significant theoretical advantage over DPO.Prior work [4,16] highlights that DPO may fail to converge to the optimal policy for the KL-constrained reward maximization problem, because of the inherent flaw of Bradley-Terry model [52].In contrast, GVPO guarantees that its loss function is aligned with the original constrained optimization problem, ensuring convergence to the globally optimal policy.This theoretical robustness positions GVPO as a more reliable method for policy optimization.• GVPO supports flexible sampling distributions that avoids importance sampling and on-policy limitations.Beyond the common practice of sampling from the previous step's policy, GVPO retains theoretical guarantees for the unique optimal solution under any sampling distribution satisfying a mild condition.This property provides a notable theoretical advantage over policy gradient methods [44].Unlike on-policy approaches [41,50], which require fresh trajectories for updates, GVPO facilitates off-policy training using reusable or heterogeneous datasets.Furthermore, in contrast to off-policy methods [39,37] reliant on importance sampling, GVPO inherently avoids gradient explosion risks without introducing bias through clipping techniques.
+
+As a result, GVPO emerges as a competitive online RL algorithm, capable of leveraging diverse data sources, sustaining stable policy updates, and preserving convergence to optimality.
+
+
+Preliminary
+
+Large language models take a prompt x as input and generate a response y as output.A policy π θ (y t |x, y <t ) with parameter θ maps a sequence of tokens generated (x and y <t ) to a probability distribution over the next token y t .We also denote π θ (y|x) as the probability of generating the response y from x.A reward model R(x, y) scores the response y as the reply to the prompt x.
+
+A reward model can explicitly be evaluation ratings of human beings; or a trainable function that implicitly reflects human preferences; or a predefined rule, such as correctness, accuracy.
+
+The general purpose of post-training of large language model is summarized as following: Given an initial policy π θinit , a dataset of prompts x ∼ D, a reward model R, the objective is to train a new policy π θ that generates responses with higher rewards, that is, maximize E x∼D,y∼π θ (•|x) R(x, y).
+
+
+Towards better computation leverage in post-training
+
+The initial stage of large language model post-training typically involves Supervised Fine-Tuning (SFT) [32].In this phase, a dataset comprising input prompts x paired with exemplary responses y is used to optimize the pre-trained model.The training minimizes the negative log-likelihood loss:
+L SFT (θ) = − (x,y)∈D log π θ (y|x)(1)
+Recent advancements, such as GRPO [39,56], better leverage the computation by incorporating multiple sampled responses with their standardized reward scores as weights:
+L GRP O (θ) = − (x,{yi})∈D k i=1 Clip( π θ (y i |x) π old (y i |x) ) R i − R σ(R) log π θ (y i |x) − βKL(π θ ||π ref ) (2)
+Rewards below average lead to negative weights, minimizing their likelihoods.However, minimizing likelihood can result in unstable training [1].Additionally, off-policy training of GRPO, which involves importance sampling with the weight π θ π θ old , becomes unstable when π θ significantly deviates from π θref , potentially causing gradient explosions.To mitigate these issues, GRPO uses gradient clipping and a KL constraint between the updated and reference policies.Nevertheless, empirical results [54,17] show that GRPO still exhibits training instability, which undermines its performance.
+
+
+Optimal solution to the KL-constrained reward maximization
+
+In human preference alignment scenario [32], the ideal reward model would directly reflect human evaluative judgments.However, obtaining explicit human ratings is often unavailable in practice.Instead, contemporary approaches typically leverage pairwise response preferences (x, y w , y l ), where y w denotes the preferred response and y l the dispreferred response to prompt x, to approximate human preferences through reward model training.The resulting reward model subsequently enables policy optimization through the following KL-regularized objective:
+max π θ E x∼D,y∼π θ (y|x) [R(x, y)] − βD KL [π θ (y|x)||π θ ′ (y|x)](3)
+where β > 0 controls the divergence penalty from policy π θ ′ .In preference alignment scenario, π θ ′ is set to a reference policy π ref .
+
+Rather than employing separate reward modeling and policy optimization stages, DPO [34] derives a single-stage training paradigm by exploiting the analytical relationship between optimal policies and reward functions.The optimal solution to Equation 3 satisfies:
+π * (y|x) = 1 Z(x) π θ ′ (y|x)e R(x,y)/β(4)
+which implies the corresponding reward function:
+R(x, y) = β log π * (y|x) π θ ′ (y|x) + β log Z(x)(5)
+where Z(x) = y π θ ′ (y|x)e R(x,y)/β represents the partition function.DPO circumvents explicit computation of Z(x) by substituting the reward expression from Equation 5 into the Bradley-Terry loss [5], yielding the final objective:
+L DPO (θ) = − (x,yw,y l )∈D log σ(β log π θ (y w |x) π ref (y w |x) − β log π θ (y l |x) π ref (y l |x) )(6)
+The success of DPO has been proven to be both efficient and effective.We attribute its achievements to its direct incorporation of the optimal policy's closed-form solution into the training objective.
+
+
+Unified framework of post-training
+
+As far as we know, post-training algorithms share a unified framework [39,10], in which their losses' gradients share a same format:
+∇ θ L(θ) = − (x,y1,y2,..,y k )∈D k i=1 w i ∇ θ log π θ (y i |x)(7)
+SFT only has one response per prompt, and its w 1 = 1.GRPO's essential weights are the standard scores of its rewards in a prompt group.Though it is not obvious for DPO, its gradients also share the same format, in which
+w w = σ(β log π θ (y l |x) π ref (y l |x) − β log π θ (yw|x) π ref (yw|x)
+) and w l = −w w .Such the unified framework of post-training holds, because of the chain rule of derivatives.Compute rewards {R(x, y i )} k i=1 for every sampled response y i and prompt x 6:
+
+Iteratively update policy π θ by minimizing the GVPO loss (Equation 8, setting π θ ′ = π θ old ) 7: end for 8: Return π θ 3 Group Variance Policy Optimization
+
+
+Motivation
+
+The unified post-training framework (Equation 7) indicates that response preferences can be directly incorporated through the assignment of weights w i .
+
+To determine appropriate weights, we draw inspiration from the success of DPO.In particular, we aim to exploit the closed-form relationship between rewards and the optimal solution to the KL-constrained reward maximization objective: R θ (x, y) = β log(π θ (y|x)/π θ ′ (y|x)) + β log Z(x).
+
+However, the closed-form formula contains a partition function Z(x) that is expensive to estimate in practice, because the function requires calculating the expectation of all possible responses.
+
+To address this issue, we identify a critical condition: when the sum of assigned response weights within a prompt group equals zero, k i=1 w i = 0, the partition function becomes invariant across responses:
+k i=1 w i R θ (x, y i ) = k i=1 w i β log(π θ (y i |x)/π θ ′ (y i |x)).
+
+Method
+
+Build on this insight, we propose Group Variance Policy Optimization (GVPO), whose gradient weight w i is the difference between the central distance of implicit rewards-which derive from policy π θ and policy π θ ′ -and that of actual rewards.Formally, GVPO's gradient yi|x) .We note that GVPO's gradient satisfies k i=1 w i = 0. Algorithm 1 shows our proposed algorithm.We demonstrate that GVPO's objective carries physically meaningful interpretations:
+∇ θ L GVPO (θ) = −β (x,{yi})∈D i=1 log π θ (yi|x) π θ ′ (∇ θ L GVPO (θ) = − x,{yi} k i=1 [(R(x, y i ) − R(x, {y i })) − (R θ (x, y i ) − R θ (x, {y i }))]∇ θ β log π θ (y i |x) = − x,{yi} k i=1 [(R(x, y i ) − R(x, {y i })) − (R θ (x, y i ) − R θ (x, {y i }))]∇ θ R θ (x, y i ) = − x,{yi} k i=1 [(R(x, y i ) − R(x, {y i })) − (R θ (x, y i ) − R θ (x, {y i }))]∇ θ (R θ (x, y i ) − R θ (x, {y i })) = 1 2 ∇ θ x,{yi} k i=1 [(R θ (x, y i ) − R θ (x, {y i })) − (R(x, y i ) − R(x, {y i }))] 2
+The first and second steps hold because β log Z(x) can cancel out.The second step holds because
+k i=1 w i ∇ θ R(x, {y i }) = 0. The third step holds because ∇ x f (x) 2 = 2f (x)∇ x f (x)
+. Essentially, we have established that GVPO's gradient mathematically equals that of a mean squared error loss measuring the discrepancy between implicit and actual reward central distances.Intuitively, when implicit rewards equal actual rewards or with a constant group shift, the GVPO's loss is minimized.This interpretation also implies that the response with higher actual rewards in a group is also encouraged to have higher implicit rewards, indicating higher log π θ (yi|x) π θ ′ (yi|x) .Furthermore, by rearranging the mean squared error loss, we can derive a variance-based formulation, which represents the "Variance" term in the name GVPO:
+1 2 ∇ θ x,{yi} k i=1 [(R θ (x, y i ) − R(x, y i )) − R θ (x, {y i }) − R(x, {y i })] 2
+
+Theoretical guarantee
+
+We show that GVPO has an unique optimal solution, and this unique optimal solution is exactly the optimal solution of reward maximization with KL constraint (Equation 4).Formally, Theorem 3.1.The unique optimal policy that minimizes LGVPO (θ), defined as
+LGVPO (θ) = E x∼D E y∼πs(•|x) [(R θ (x, y) − E y∼πs R θ (x, y)) − (R(x, y) − E y∼πs R(x, y))] 2 (9)
+, is given by π
+θ (y|x) = π * (y|x) = 1 Z(x) π θ ′ (y|x)e R(x,y)/β for π s = π θ ′ .
+We prove the theorem by establishing both necessity and sufficiency, provided in Appendix B.1.
+
+Theorem 3.1 implies that the parameters minimizing LGVPO (θ)-guaranteed to be the sole global optimum-also maximize the expected rewards while maintaining proximity to a reference policy.
+
+The uniqueness of the solution ensures the optimization landscape is well-behaved, avoiding suboptimal local minima and guaranteeing convergence to a single, interpretable policy that optimally balances reward maximization with behavioral consistency relative to the reference.Consequently, this theorem bridges GVPO's practical algorithmic performance with theoretical guarantees.Theorem 3.2.The Theorem 3.1 also holds for any sampling distribution π s satisfying ∀x, {y|π θ ′ (y|x) > 0} ⊆ {y|π s (y|x) > 0}.
+
+Beyond the conventional practice of sampling from the reference policy (π s = π θ ′ ), GVPO retains the theoretical guarantee of a unique optimal solution under any sampling distribution that satisfies a mild condition.This condition is readily met by any policy π where π(y, x) > 0, a criterion inherently fulfilled by contemporary LLM policies utilizing softmax decoding.
+
+The Theorem 3.2 of GVPO opens a new methodological avenue for off-policy LLM post-training.Prior off-policy methods have relied heavily on importance sampling [47], which suffers from two key limitations: (1) when π θ diverges substantially from π s , the importance weight π θ πs can become either excessively large or vanishingly small, destabilizing training; and (2) when sampling involves heuristic or non-parametric components, π s becomes intractable to compute, thereby prohibiting techniques such as experience replay [9] in modern LLM post-training.In contrast, GVPO supports highly flexible off-policy sampling strategies while maintaining strong theoretical guarantees, enabling more robust and practical post-training paradigms for large language models.
+
+
+Discussions with DPO
+
+We begin by analyzing the foundational commonality between GVPO and DPO: both methods integrate the closed-form solution to the reward maximization problem under a KL divergence constraint into their training objectives.This integration establishes a direct relationship between the learned policy π θ and the implicit reward function R θ , yielding two key advantages:
+
+• It ensures an optimization process that inherently respects the KL divergence constraint, thereby preventing excessive deviation of the policy π θ from the reference policy π ref .
+
+• It reduces the joint optimization over policies and rewards to a simpler problem focused solely on rewards.The latter is more tractable, as it requires only aligning the implicit rewards R θ (x, y) with the true reward function R(x, y).
+
+To design effective methods leveraging this closed-form solution, two critical insights emerge:
+
+1. Computational Tractability: The method must avoid intractable terms such as the partition function Z(x).For instance, a naive loss L = (R θ (x, y)−R(x, y)) 2 fails because R θ (x, y) implicitly depends on Z(x), which is computationally infeasible to estimate.DPO circumvents this by adopting the Bradley-Terry preference model, where Z(x) cancels out in pairwise comparisons.GVPO proposes a novel zero-sum property across groups of responses, enabling cancellation of Z(x) in broader multi-sample scenarios.
+
+
+Alignment with Desired Optimality:
+
+The loss function must enforce meaningful convergence.
+
+For example, minimizing L = β log π θ (x,y) π ref (x,y) − R(x, y) 2 yields a suboptimal solution R θ (x, y) = R(x, y) + β log Z(x), which deviates from the true reward R(x, y).A well-designed objective must avoid such misalignment.The method should adapt to available supervision.DPO leverages pairwise preference data without explicit rewards, while GVPO generalizes to group-wise responses with reward signals.
+
+Moreover, GVPO demonstrates stronger theoretical robustness compared to DPO:
+
+• Prior work [4,16] highlights that DPO may fail to converge to the optimal policy for the KLconstrained reward maximization problem, because of the inherent flaw of Bradley-Terry model [52].This arises because the DPO loss admits multiple minimizers, and its correlation with the true reward objective can diminish during training [45].
+
+• In contrast, as formalized in Theorem 3.1 and Theorem 3.2, GVPO guarantees that its loss function is aligned with the original constrained optimization problem, ensuring convergence to the globally optimal policy.This theoretical robustness positions GVPO as a more reliable method for policy optimization in practice.
+
+
+Discussions with GRPO and Policy Gradient methods
+
+Structural similarities.Seeing the forest for the tree, we compare GVPO not only with GRPO but also with the broader family of policy gradient-based RL methods, beginning with their superficial structural similarities.
+
+For simplicity, we assume β = 1 without loss of generality.Then LGVPO (θ)
+∇ θ = E x∼D,y∼πs(•|x) [(R θ (x, y) − E y R θ (x, y)) 2 − 2(R(x, y) − E y R(x, y))R θ (x, y)] ∇ θ = E x,y [V ar(log π θ ) − 2Cov(log π θ , log π θ ′ ) − 2(R(x, y) − E y R(x, y)) log π θ (y|x)] = − 2E x,y [(R(x, y) − E y R(x, y)) log π θ (y|x) + Cov(log π θ , log π θ ′ ) − 0.5V ar(log π θ )](10)
+where V ar(log π θ ) = (log π θ (y|x) − E y log π θ (y|x)) 2 and Cov(log π θ , log
+π θ ′ ) = (log π θ (y|x) − E y log π θ (y|x))(log π θ ′ (y|x) − E y log π θ ′ (y|x)).
+As shown in Equation 10,
+
+• the term (R(x, y) − E y R(x, y)) log π θ (y|x) encourages advantage maximization.Unlike conventional policy gradient methods that rely on explicit value function approximation [36], GRPO directly optimizes advantage by standardizing reward scores across samples.A distinction lies in GVPO's omission of standard deviation normalization. 2 Prior research [29] has also demonstrated that such scaling introduces bias by conflating prompt-level difficulty with reward signals.
+
+• the term Cov(log π θ , log π θ ′ ) serves to constrain deviations of the policy π θ from policy π θ ′ , corresponding to D KL [π θ ||π θ ′ ].Moreover, in GVPO, where π θ ′ = π θold , this term essentially aligns with the trust-region constraint [35], that ensures robustness between policy updates.
+
+• the term V ar(log π θ ) strikes a balance between exploration and exploitation.We juxtapose this term with entropy regularization −E y log π(y|x) [2].
+
+-Increasing entropy encourages diversity by driving the policy toward a uniform distribution, but risks suppressing the likelihood of high-quality responses.Conversely, reducing entropy concentrates probability mass on a narrow set of outputs, diminishing diversity and potentially inducing entropy collapse.Consequently, entropy regularization proves highly sensitive to its coefficient, complicating practical implementation.-In contrast, V ar(log π θ ) circumvents this issue without requiring ad-hoc tuning by enabling scenarios where some responses receive zero probability, while other responses retain comparable probabilities.As the term R − R maximizes advantage, undesirable responses will receive zero probability, while favorable responses will maintain similar probabilities.-To illustrate the benefit, consider a toy example involving generation over the tokens a, b, c, d, e, where π θ (a) = π θ (b) = 0 and π θ (c) = π θ (d) = π θ (e) = 1/3.In this case, V ar(log(π θ )) = 0, indicating minimum variance and thus no penalty on this distribution.In contrast, entropy regularization only reaches its minimum either when the distribution is uniform or when it is one-hot, depending on whether one encourages higher or lower entropy.
+
+This reveals that classical policy gradient under trust-region constraint is a special case of GVPO gradient with π s = π θ .As proven in Theorem 3.1 and Theorem 3.2, GVPO retains the same optimal solution as the policy gradient method while decoupling the sampling distribution π s from the learned policy π θ .GVPO's decoupling addresses two critical limitations:
+
+1. Sample Efficiency: Unlike on-policy methods [41,50], GVPO supports off-policy training with reusable or mixed data (e.g., expert demonstrations, historical policies, or model distillations).2. Stability: By avoiding importance sampling weights π θ π θ old , GVPO eliminates gradient explosion risks without biased clipping.
+
+By synergizing these advantages, GVPO emerges as a competitive online reinforcement learning algorithm capable of leveraging diverse data sources, sustaining stable policy updates, and preserving convergence to optimality-a combination previously unattained in prior policy gradient methods.Task.Following the established experimental setting of GRPO, we conduct a comprehensive evaluation on math reasoning.Specifically, we post-train the Qwen2.5-Math-7Bmodel on Competition Math dataset [14] and assess performance on AIME2024 [26], AMC [26], Math500 [15], Minerva [25], and OlympiadBench [13].For answer verification, we utilize the xVerify framework [6].We adopt the pass@1 accuracy for all benchmarks except AIME2024, where we report avg@32 accuracy to account for its limited size (30 problems) and high difficulty.
+
+In addition to math reasoning, we also evaluate GVPO on the summarization task in Appendix C.
+
+Setup.To ensure a fair comparison across methods, we maintain identical experimental settings while only modifying the algorithmic component.For GVPO, we employ β = 0.1 and π s = π θold in the main experiment.For competing approaches, we utilize hyperparameters specified in their original publications.All experiments generate k = 5 responses per prompt.A comprehensive description of the training details is provided in Appendix A.1.
+
+Main Result.Table 1 shows the main experiment result, which demonstrates that GVPO achieves the best performance, outperforming both the base model and other variants in all benchmarks [28,27,17], particularly in complex problem-solving scenarios.We attribute its effectiveness to its strong theoretical guarantees of convergence.
+
+Ablation on β. Figure 2 analyzes the sensitivity of GVPO to variations in β.The results demonstrate little fluctuation in performance across β, suggesting GVPO exhibits robustness to this hyperparameter.This stability may reduce the need for exhaustive tuning and enhance its practical utility.
+
+Ablation on k. Figure 3 examines how GVPO scales with k, evaluated on Qwen2.5-Math-1.5B.Top and bottom panels show results for MATH500 and AIME2024 respectively.GVPO consistently outperforms GRPO across all k and demonstrates superior scalability.Notably, GVPO matches the AIME2024 performance of a 7B model on the 1.5B architecture through increased k, highlighting its potential for reducing inference costs in practice.
+
+Ablation on π s .Ablation on Regularization Terms.In Section 3.5, we decompose the GVPO loss into three components: an advantage maximization term, a variance regularization term (V ar) on the current policy, and a covariance regularization term (Cov) between the current and reference policies.
+
+Table 2 presents the ablation results for these regularization terms.We first remove V ar(log π θ ) and Cov(log π θ , log π θ ′ ) individually.In both cases, the model fails to converge and generates incoherent outputs, indicating that each term plays a crucial role in stabilizing training.When both regularization terms are removed simultaneously-reducing the objective to R − R-the model initially converges but diverges after approximately 10% of the training steps, further confirming that these regularization components are essential to GVPO's stability.
+
+Study on V ar(log π θ ).We further investigate the role of V ar(log π θ ) by replacing it with an entropy regularization term.As shown in Table 2, the model again fails to converge and produces incoherent outputs.Lowering the learning rate to 1e−6 improves stability marginally, yet substituting it with entropy regularization still lead to divergence or suboptimal performance.These findings suggest that although entropy regularization serves a similar stabilizing purpose, it cannot fully substitute V ar(log π θ ).The degradation likely arises from entropy regularization being either too weak-insufficient to suppress extreme updates-or too strong-impeding convergence.This underscores a key limitation of entropy regularization: its sensitivity to coefficient tuning.In contrast, the coefficient for V ar(log π θ ) in GVPO is derived analytically via the optimal solution theorem, eliminating the need for manual tuning and enhancing overall robustness.Robustness Check with a Different Foundation Model.To further assess generalization, we repeated the experiments using Llama-3.1-8B-Instruct as the foundation model.As shown in Table 5, GVPO again outperforms GRPO, reaffirming the robustness and effectiveness of our approach.
+
+
+Related Work
+
+This paper closely relates to the LLM post-training literature, including SFT [32,8], RLHF [3], PPO [37], TRPO [35], DPO [34], GRPO [39], Dr.GRPO [28], Remax [27], Reinforce++ [17], DAPO [54]; and debates on whether RL improves LLM reasoning capacity [55], spurious reward issue [38], data contamination issue [51], and Pass@K optimization [56].
+
+Beyond post-training, LLMs have demonstrated broad applicability across domains, including visionlanguage modeling [12], graph learning [24,19], AI safety research [53], evaluation frameworks leveraging LLM-as-a-Judge paradigms [22,21], retrieval-augmented generation [7], AI for Education [20,49] and economics of AI [57,58].These broader developments underscore the promising role of post-training in enhancing the adaptability of LLMs across a growing range of applications.
+
+
+Conclusion
+
+In this paper, we present Group Variance Policy Optimization (GVPO).GVPO guarantees a unique optimal solution, exactly the KL-constrained reward maximization objective.Moreover, it supports flexible sampling distributions that avoids on-policy and importance sampling limitations.Through systematic comparisons with other prominent methods both theoretically and empirically, we establish GVPO as a new paradigm for reliable and versatile LLM post-training.
+
+When π θ (y|x) = π * (y|x), we have R θ (x, y) = R(x, y).Substituting this into the loss function gives
+
+LGVPO (θ) = 0, confirming that π * achieves the minimum loss.
+
+Sufficiency: If a policy π θ is optimal, then π θ (y|x) = π * (y|x).
+
+Assume for contradiction that there exists an optimal policy π θ ̸ = π * .Since π θ is optimal,
+
+LGVPO (θ) = 0.This implies:
+
+(R θ (x, y) − E y R θ (x, y)) = (R(x, y) − E y R(x, y)), ∀x, y s.t.π s (y|x) > 0
+
+Rewriting R θ and R in terms of their respective policies:
+
+βlogπ θ (y|x) − E y R θ (x, y) = βlogπ * (y|x) − E y R(x, y).
+
+Rearranging terms yields: Thus, π θ (y|x) = π * (y|x) for all x, y, contradicting the assumption π θ ̸ = π * .
+π θ (y|x) = exp E y [R θ (x,
+Since both necessity and sufficiency hold, the optimal policy is uniquely π * .
+
+
+C Alternative Task on Summarization
+
+To evaluate GVPO in the context of alignment 4 , we conduct experiments on a summarization task following the experimental setup of DPO [34].Specifically, we used the Reddit dataset from [42] and the reward model OpenAssistant/reward-model-deberta-v3-large-v2.First, we fine-tuned Qwen2.5 1.5B using the dataset to obtain an SFT reference model.We then applied both DPO and GVPO for post-training.The training data was sampled from the reference model and scored using the reward model.
+
+For evaluation, we considered:
+
+• The average reward of generated summaries on the test split.
+
+• Win rate against human-written demonstration answers, as scored by the reward model.
+
+• Preference accuracy using human-labeled comparison data: both DPO and GVPO are trained via R θ (x, y) = β log π θ (y|x) log πref(y|x) + β log Z(x).Given a preference pair (y w , y l ) where y w is preferred, we compute whether log π θ (yw|x) log πref(yw|x) > log π θ (y l |x) log πref(y l |x) .• Benchmarking by a set of powerful LLMs.
+
+• Human evaluations by crowd-sourcing workers.We hire three workers to label their preference on 100 prompts on Prolific platform.The results indicate that GVPO outperforms DPO across these metrics, supporting the view that improvements in policy search methods are positively correlated with alignment quality.
+
+Figure 1 :
+1
+Figure 1: Three equivalent loss functions of GVPO offer distinct interpretations: (1) The Negative log-Likelihood perspective (top) illustrates that GVPO accommodates broader sampling distributions compared to conventional policy gradient methods;(2) The Mean Squared Error interpretation (middle) reveals GVPO's unique optimal solution, which simultaneously maximizes reward under a KL constraint; and (3) The Reinforcement Learning viewpoint (bottom) highlights GVPO's implicit regularization terms that ensure stable policy optimization.We assume β = 1 for simplicity.
+
+
+Algorithm 1 3 : 4 :
+134
+Group Variance Policy Optimization Require: initial policy π θ ; prompt distribution D; hyperparameter β 1: for step = 1, . . ., n do 2: Sample a batch D b from D Update the old policy model π θ old ← π θ Sample k responses {y i } k i=1 ∼ π s (•|x) for each prompt x ∈ D b 5:
+
+
+Figure 4 Figure 2 :Figure 3 :Figure 4 :
+4234
+Figure 2: Ablation on β.Each line represents a dataset.
+
+
+
+
+y) − R(x, y)] β π * (y|x).Since y∈{y|π θ ′ (y|x)>0} π θ (y|x) = y∈{y|π θ ′ (y|x)>0} π * (y|x) = 1, we must have:y π θ (y|x) = exp E y [R θ (x, y) − R(x, y)] β y π * (y|x) =⇒ exp E y [R θ (x, y) − R(x, y)] β = 1
+
+
+Table 1 :
+1
+Algorithm Performance Comparison on Mathematical Datasets
+AlgorithmAIME2024 AMC MATH500 Minerva OlympiadbenchQwen2.5-Math-7B14.6838.5564.0027.2030.66+GRPO14.7955.4280.0041.1742.07+Dr.GRPO16.5648.1981.2044.4843.40+Remax17.1960.2482.0040.4445.19+Reinforce++16.6754.2280.4043.0141.78+GVPO20.7262.6583.8045.9546.96
+
+Table 2
+2: Ablation on Regularization TermsAlgorithmAIME24 AMC MATH500 Minerva OlympiadbenchGVPO20.7262.6583.8045.9546.96GVPO -Var0.000.000.000.000.00GVPO -Cov0.000.000.000.000.00GVPO -Var -Cov7.1939.7673.0034.9335.70GVPO -Var + Entropy0.000.000.000.000.00GVPO -Var + Entropy (LR=1e-6)3.0239.7633.2023.168.89
+
+Table 3 :
+3
+Algorithm Performance Comparison with Different Random Seeds We conducted additional experiments using 10 random seeds for both methods on Qwen2.5-Math-1.5B.The results show that GVPO consistently outperforms GRPO in overall performance while exhibiting comparable standard deviations, indicating stable results across different runs.
+Algorithm AIME2024AMCMATH500MinervaOlympiadbenchGRPO13.59±1.11 44.34±2.19 76.30±1.35 35.40±1.0438.65±0.74GVPO15.56±1.05 45.78±2.05 77.36±0.98 36.03±1.1539.58±1.08Robustness Check with Different Random Seeds. Table 4: Algorithm Performance Comparison with Llama-3.1-8B-InstructAlgorithmAIME2024 AMC MATH500 Minerva OlympiadbenchLlama-3.1-8B-Instruct5.0019.2750.4022.4217.04+GRPO8.5419.2752.6025.3716.15+GVPO11.5620.4856.6029.4120.59
+
+Table 5 :
+5
+Algorithm Performance Comparison on SummarizationAlgorithm Reward Win Rate Accuracy Gpt-4o Gemini-2.5-proDeepseek-R1 Human
+SFT2.8441.85%-----+DPO4.8368.28%60.43%31%40%25%34%+GVPO5.7579.49%64.93%69%60%75%66%
+This omission is not a heuristic design but rather a consequence of the theoretical formulation.
+Make sure that 1) each input batch correspond to the k responses of a prompt and 2) the std normalizer in the GRPO advantage calculation has been removed.
+Thank Reviewer X8wt for sponsoring this study.
+Acknowledgments and Disclosure of FundingWe thank all the reviewers, the AC and program committee members for constructive feedback.This work was supported in part by the National Key R&D Program of China (Grant No.2023YFF0725001), in part by the National Natural Science Foundation of China (Grant No.92370204), in part by the guangdong Basic and Applied Basic Research Foundation (Grant No.2023B1515120057), in part by the Education Bureau of Guangzhou.Appendix A Supplementary Experiment InformationA.1 Experiment Settings Hyperparameter Recipe.For each step, we sample 1024 prompts from the training set and set the mini-batch size in each step to 256.We repeat the whole training set for 10 epochs and set the warm-up ratio to 5%.We grid-search the learning rate in {5e − 7, 1e − 6, 5e − 6, 1e − 5} and find 5e − 6 to be the best setting.We conduct the main experiment using an Deepseek-R1-like chat template on top of Qwen2.5-Math-7B as in[18].In the ablation experiments, for faster training and GPU memory limitations, we use the original Qwen chat template on top of Qwen2.5-Math-1.5B.Compute Resources.We conduct our experiments using a server with eight 80GB H800 GPU cards.For Qwen2.5-Math-7B experiments with k = 5, it takes 6 to 8 minutes per training step and approximately 12 hours per experiment.For Qwen2.5-Math-1.5Bexperiments with k = 8, it takes 4 to 5 minutes per training step and approximately 8 hours per experiment.A.2 Code ImplementationIt is easy to implement GVPO based on open-source RL framework.For example 3 , we show the minimum viable implementation of GVPO that only modifies a few line of GRPO loss in verl[40]: The unique optimal policy that minimizes LGVPO (θ), defined as, is given by πProof.We prove the theorem by establishing both necessity and sufficiency.Necessity: If π θ (y|x) = π * (y|x), then it is an optimal policy solution.The loss function LGVPO (θ) is non-negative because it represents the expectation of a squared term:LGVPO (θ) = E x,y (R θ (x, y) − E y R θ (x, y)) − (R(x, y) − E y R(x, y) 2 ≥ 0.
+Learning from negative feedback, or positive feedback or both. A Abdolmaleki, B Piot, B Shahriari, J T Springenberg, T Hertweck, R Joshi, J Oh, M Bloesch, T Lampe, N Heess, arXiv:2410.041662024arXiv preprint
+
+Understanding the impact of entropy on policy optimization. Z Ahmed, N Le Roux, M Norouzi, D Schuurmans, International conference on machine learning. PMLR2019
+
+Training a helpful and harmless assistant with reinforcement learning from human feedback. Y Bai, A Jones, K Ndousse, A Askell, A Chen, N Dassarma, D Drain, S Fort, D Ganguli, T Henighan, arXiv:2204.058622022arXiv preprint
+
+Generalized results for the existence and consistency of the mle in the bradley-terry-luce model. H Bong, A Rinaldo, International Conference on Machine Learning. PMLR2022
+
+Rank analysis of incomplete block designs: I. the method of paired comparisons. R A Bradley, M E Terry, Biometrika. 393/41952
+
+D Chen, Q Yu, P Wang, W Zhang, B Tang, F Xiong, X Li, M Yang, Z Li, xverify: Efficient answer verifier for reasoning model evaluations. 2025
+
+Seper: Measure retrieval utility through the lens of semantic perplexity reduction. L Dai, Y Xu, J Ye, H Liu, H Xiong, arXiv:2503.014782025arXiv preprint
+
+Preference-oriented supervised fine-tuning: Favoring target model over aligned large language models. Y Fan, Y Hong, Q Wang, J Bao, H Jiang, Y Song, Proceedings of the AAAI Conference on Artificial Intelligence. the AAAI Conference on Artificial Intelligence202539
+
+Revisiting fundamentals of experience replay. W Fedus, P Ramachandran, R Agarwal, Y Bengio, H Larochelle, M Rowland, W Dabney, International conference on machine learning. PMLR2020
+
+Towards a unified view of preference learning for large language models: A survey. B Gao, F Song, Y Miao, Z Cai, Z Yang, L Chen, H Hu, R Xu, Q Dong, C Zheng, arXiv:2409.027952024arXiv preprint
+
+D Guo, D Yang, H Zhang, J Song, R Zhang, R Xu, Q Zhu, S Ma, P Wang, X Bi, arXiv:2501.12948Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. 2025arXiv preprint
+
+Logic-in-frames: Dynamic keyframe search via visual semantic-logical verification for long video understanding. W Guo, Z Chen, S Wang, J He, Y Xu, J Ye, Y Sun, H Xiong, arXiv:2503.131392025arXiv preprint
+
+Olympiadbench: A challenging benchmark for promoting agi with olympiad-level bilingual multimodal scientific problems. C He, R Luo, Y Bai, S Hu, Z L Thai, J Shen, J Hu, X Han, Y Huang, Y Zhang, arXiv:2402.140082024arXiv preprint
+
+D Hendrycks, C Burns, S Kadavath, A Arora, S Basart, E Tang, D Song, J Steinhardt, arXiv:2103.03874Measuring mathematical problem solving with the math dataset. 2021arXiv preprint
+
+D Hendrycks, C Burns, S Kadavath, A Arora, S Basart, E Tang, D Song, J Steinhardt, arXiv:2103.03874Measuring mathematical problem solving with the math dataset. 2021arXiv preprint
+
+Energy-based preference model offers better offline alignment than the bradley-terry preference model. Y Hong, H Zhang, J Bao, H Jiang, Y Song, Proceedings of the 42nd International Conference on Machine Learning. the 42nd International Conference on Machine LearningPMLRJul 2025267of Proceedings of Machine Learning Research
+
+Reinforce++: A simple and efficient approach for aligning large language models. J Hu, arXiv:2501.032622025arXiv preprint
+
+Open-reasoner-zero: An open source approach to scaling up reinforcement learning on the base model. J Hu, Y Zhang, Q Han, D Jiang, X Zhang, H.-Y Shum, 2025
+
+Let's ask gnn: Empowering large language model for graph in-context learning. Z Hu, Y Li, Z Chen, J Wang, H Liu, K Lee, K Ding, arXiv:2410.070742024arXiv preprint
+
+Unveiling the learning mind of language models: A cognitive framework and empirical study. Z Hu, J Lian, Z Xiao, S Zhang, T Wang, N J Yuan, X Xie, H Xiong, arXiv:2506.134642025arXiv preprint
+
+Explaining length bias in llm-based preference evaluations. Z Hu, L Song, J Zhang, Z Xiao, T Wang, Z Chen, N J Yuan, J Lian, K Ding, H Xiong, arXiv:2407.010852024arXiv preprint
+
+Z Hu, J Zhang, Z Xiong, A Ratner, H Xiong, R Krishna, arXiv:2410.12869Language model preference evaluation with multiple weak evaluators. 2024arXiv preprint
+
+Sequence tutor: Conservative fine-tuning of sequence generation models with kl-control. N Jaques, S Gu, D Bahdanau, J M Hernández-Lobato, R E Turner, D Eck, International Conference on Machine Learning. PMLR2017
+
+Killing two birds with one stone: Cross-modal reinforced prompting for graph and language tasks. W Jiang, W Wu, L Zhang, Z Yuan, J Xiang, J Zhou, H Xiong, Proceedings of the 30th ACM SIGKDD Conference on Knowledge Discovery and Data Mining. the 30th ACM SIGKDD Conference on Knowledge Discovery and Data Mining2024
+
+Solving quantitative reasoning problems with language models. A Lewkowycz, A Andreassen, D Dohan, E Dyer, H Michalewski, V Ramasesh, A Slone, C Anil, I Schlag, T Gutman-Solo, Advances in Neural Information Processing Systems. 202235
+
+Numinamath: The largest public dataset in ai4maths with 860k pairs of competition math problems and solutions. J Li, E Beeching, L Tunstall, B Lipkin, R Soletskyi, S Huang, K Rasul, L Yu, A Q Jiang, Z Shen, Hugging Face repository. 1392024
+
+Remax: A simple, effective, and efficient reinforcement learning method for aligning large language models. Z Li, T Xu, Y Zhang, Z Lin, Y Yu, R Sun, Z.-Q Luo, arXiv:2310.105052023arXiv preprint
+
+Understanding r1-zero-like training: A critical perspective. Z Liu, C Chen, W Li, P Qi, T Pang, C Du, W S Lee, M Lin, arXiv:2503.207832025arXiv preprint
+
+Understanding r1-zero-like training: A critical perspective. Z Liu, C Chen, W Li, P Qi, T Pang, C Du, W S Lee, M Lin, 2025
+
+Optimizing the Unknown: Reinforcement Learning and Energy-Based Model for Black Box Bayesian Optimization. R Miao, 2024Los AngelesUniversity of California
+
+Large language models: A survey. S Minaee, T Mikolov, N Nikzad, M Chenaghlu, R Socher, X Amatriain, J Gao, 2025
+
+Training language models to follow instructions with human feedback. L Ouyang, J Wu, X Jiang, D Almeida, C Wainwright, P Mishkin, C Zhang, S Agarwal, K Slama, A Ray, Advances in neural information processing systems. 202235
+
+Beyond the next token: Towards prompt-robust zero-shot classification via efficient multi-token prediction. J Qian, Z Zhu, H Zhou, Z Feng, Z Zhai, K Mao, arXiv:2504.031592025arXiv preprint
+
+Direct preference optimization: Your language model is secretly a reward model. R Rafailov, A Sharma, E Mitchell, C D Manning, S Ermon, C Finn, Advances in Neural Information Processing Systems. 362023
+
+Trust region policy optimization. J Schulman, S Levine, P Abbeel, M Jordan, P Moritz, Proceedings of the 32nd International Conference on Machine Learning. F Bach, D Blei, the 32nd International Conference on Machine LearningLille, FrancePMLRJul 201537
+
+High-dimensional continuous control using generalized advantage estimation. J Schulman, P Moritz, S Levine, M Jordan, P Abbeel, arXiv:1506.024382015arXiv preprint
+
+J Schulman, F Wolski, P Dhariwal, A Radford, O Klimov, arXiv:1707.06347Proximal policy optimization algorithms. 2017arXiv preprint
+
+R Shao, S S Li, R Xin, S Geng, Y Wang, S Oh, S S Du, N Lambert, S Min, R Krishna, arXiv:2506.10947Spurious rewards: Rethinking training signals in rlvr. 2025arXiv preprint
+
+Z Shao, P Wang, Q Zhu, R Xu, J Song, X Bi, H Zhang, M Zhang, Y Li, Y Wu, arXiv:2402.03300Pushing the limits of mathematical reasoning in open language models. 2024arXiv preprint
+
+G Sheng, C Zhang, Z Ye, X Wu, W Zhang, R Zhang, Y Peng, H Lin, C Wu, arXiv:2409.19256Hybridflow: A flexible and efficient rlhf framework. 2024arXiv preprint
+
+Convergence results for single-step on-policy reinforcement-learning algorithms. S Singh, T Jaakkola, M L Littman, C Szepesvári, Machine learning. 382000
+
+Learning to summarize with human feedback. N Stiennon, L Ouyang, J Wu, D Ziegler, R Lowe, C Voss, A Radford, D Amodei, P F Christiano, Advances in neural information processing systems. 202033
+
+R Sutton, The bitter lesson. Incomplete Ideas (blog). 20191338
+
+Policy gradient methods for reinforcement learning with function approximation. R S Sutton, D Mcallester, S Singh, Y Mansour, Advances in neural information processing systems. 121999
+
+Generalized preference optimization: A unified approach to offline alignment. Y Tang, Z D Guo, Z Zheng, D Calandriello, R Munos, M Rowland, P H Richemond, M Valko, B Á Pires, B Piot, arXiv:2402.057492024arXiv preprint
+
+. G Tie, Z Zhao, D Song, F Wei, R Zhou, Y Dai, W Yin, Z Yang, J Yan, Y Su, Z Dai, Y Xie, Y Cao, L Sun, P Zhou, L He, H Chen, Y Zhang, Q Wen, T Liu, N Z Gong, J Tang, C Xiong, H Ji, P S Yu, J Gao, 2025A survey on post-training of large language models
+
+Importance sampling: a review. S T Tokdar, R E Kass, Wiley Interdisciplinary Reviews: Computational Statistics. 212010
+
+Llama 2: Open foundation and fine-tuned chat models. H Touvron, L Martin, K Stone, P Albert, A Almahairi, Y Babaei, N Bashlykov, S Batra, P Bhargava, S Bhosale, arXiv:2307.092882023arXiv preprint
+
+Llm-powered multi-agent framework for goal-oriented learning in intelligent tutoring system. T Wang, Y Zhan, J Lian, Z Hu, N J Yuan, Q Zhang, X Xie, H Xiong, Companion Proceedings of the ACM on Web Conference 2025. 2025
+
+Simple statistical gradient-following algorithms for connectionist reinforcement learning. R J Williams, Machine learning. 81992
+
+Reasoning or memorization? unreliable results of reinforcement learning due to data contamination. M Wu, Z Zhang, Q Dong, Z Xi, J Zhao, S Jin, X Fan, Y Zhou, Y Fu, Q Liu, arXiv:2507.105322025arXiv preprint
+
+Asymptotic comparison of identifying constraints for bradley-terry models. W Wu, B W Junker, N M D Niezink, 2022
+
+Y Xu, A Liu, X Hu, L Wen, H Xiong, arXiv:2503.04636Mark your llm: Detecting the misuse of open-source large language models via watermarking. 2025arXiv preprint
+
+Dapo: An open-source llm reinforcement learning system at scale. Q Yu, Z Zhang, R Zhu, Y Yuan, X Zuo, Y Yue, T Fan, G Liu, L Liu, X Liu, arXiv:2503.144762025arXiv preprint
+
+Y Yue, Z Chen, R Lu, A Zhao, Z Wang, S Song, G Huang, arXiv:2504.13837Does reinforcement learning really incentivize reasoning capacity in llms beyond the base model?. 2025arXiv preprint
+
+Rspo: Risk-seeking policy optimization for pass@ k and max@ k metrics in large language models. K Zhang, S Gao, Y Hong, H Sun, J Bao, H Jiang, Y Song, H Dingqian, H Xiong, arXiv:2508.011742025arXiv preprint
+
+K Zhang, Z Yuan, H Xiong, arXiv:2311.07071The impact of generative artificial intelligence on market equilibrium: Evidence from a natural experiment. 2023arXiv preprint
+
+Optimized cost per click in online advertising: A theoretical analysis. K Zhang, Z Yuan, H Xiong, Proceedings of the 30th ACM SIGKDD Conference on Knowledge Discovery and Data Mining. the 30th ACM SIGKDD Conference on Knowledge Discovery and Data Mining2024
+
+W X Zhao, K Zhou, J Li, T Tang, X Wang, Y Hou, Y Min, B Zhang, J Zhang, Z Dong, Y Du, C Yang, Y Chen, Z Chen, J Jiang, R Ren, Y Li, Z Tang, P Liu, J.-Y Liu, J.-R Nie, Wen, A survey of large language models. 2025
+
+. C Zhou, Q Li, C Li, J Yu, Y Liu, G Wang, K Zhang, C Ji, Q Yan, L He, H Peng, J Li, J Wu, Z Liu, P Xie, C Xiong, J Pei, P S Yu, L Sun, 2023A survey on pretrained foundation models: A history from bert to chatgpt

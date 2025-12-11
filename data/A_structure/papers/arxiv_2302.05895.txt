@@ -1,0 +1,582 @@
+Discourse Structure Extraction from Pre-Trained and Fine-Tuned Language Models in Dialogues
+May 2-6, 2023
+
+Chuyuan Li 
+Université de Lorraine
+CNRS
+F-54000NancyInria, LORIAFrance
+
+Patrick Huber 
+University of British Columbia
+V6T 1Z4VancouverBCCanada
+
+Wen Xiao 
+University of British Columbia
+V6T 1Z4VancouverBCCanada
+
+Maxime Amblard 
+Université de Lorraine
+CNRS
+F-54000NancyInria, LORIAFrance
+
+Chloé Braud 3chloe.braud@irit.fr 
+IRIT
+Université de Toulouse
+CNRS
+ANITI
+ToulouseFrance
+
+Giuseppe Carenini carenini@cs.ubc.ca 
+University of British Columbia
+V6T 1Z4VancouverBCCanada
+
+Discourse Structure Extraction from Pre-Trained and Fine-Tuned Language Models in Dialogues
+
+Association for Computational Linguistics: EACL 2023
+May 2-6, 2023
+Discourse processing suffers from data sparsity, especially for dialogues. As a result, we explore approaches to build discourse structures for dialogues, based on attention matrices from Pre-trained Language Models (PLMs). We investigate multiple tasks for fine-tuning and show that the dialogue-tailored Sentence Ordering task performs best. To locate and exploit discourse information in PLMs, we propose an unsupervised and a semi-supervised method. Our proposals thereby achieve encouraging results on the STAC corpus, with F 1 scores of 57.2 and 59.3 for the unsupervised and semisupervised methods, respectively. When restricted to projective trees, our scores improved to 63.3 and 68.1.
+
+Introduction
+
+In recent years, the availability of accurate transcription methods and the increase in online communication have led to a vast rise in dialogue data, necessitating the development of automatic analysis systems. For example, summarization of meetings or exchanges with customer service agents could be used to enhance collaborations or analyze customers issues Feng et al., 2021); machine reading comprehension in the form of question-answering could improve dialogue agents' performance and help knowledge graph construction (He et al., 2021;Li et al., 2021). However, simple surface-level features are oftentimes not sufficient to extract valuable information from conversations (Qin et al., 2017). Rather, we need to understand the semantic and pragmatic relationships organizing the dialogue, for example through the use of discourse information.
+
+Along this line, several discourse frameworks have been proposed, underlying a variety of annotation projects. For dialogues, data has been primarily annotated within the Segmented Discourse Representation Theory (SDRT) (Asher et al., 2003). Discourse structures are thereby represented as dependency graphs with arcs linking spans of text and labeled with semantico-pragmatic relations (e.g. Acknowledgment (Ack) or Question-Answer Pair (QAP)). Figure 1 shows an example from the Strategic Conversations corpus (STAC) . Discourse processing refers to the retrieval of the inherit structure of coherent text, and is often separated into three tasks: EDU segmentation, structure building (or attachment), and relation prediction. In this work, we focus on the automatic extraction of (naked) structures without discourse relations. This serves as a first critical step in creating a full discourse parser. It is important to note that naked structures have already been shown to be valuable features for specific tasks. Louis et al. (2010) mentioned that they are the most reliable indicator of importance in content selection. ; Xiao et al. (2020) on summarization, and Jia et al. (2020) on thread extraction, also demonstrated the advantages of naked structures. Data sparsity has always been an issue for discourse parsing both in monologues and dialogues: the largest and most commonly used corpus annotated under the Rhetorical Structure Theory, the RST-DT (Carlson et al., 2001) contains 21, 789 discourse units. In comparison, the largest dialogue discourse dataset (STAC) only contains 10, 678 units. Restricted to domain and size, the performance of supervised discourse parsers is still low, especially for dialogues, with at best 73.8% F 1 for the naked structure on STAC (Wang et al., 2021). As a result, several transfer learning approaches have been proposed, mainly focused on monologues. Previous work demonstrate that discourse information can be extracted from auxiliary tasks like sentiment analysis (Huber and Carenini, 2020) and summarization (Xiao et al., 2021), or represented in language models (Koto et al., 2021) and further enhanced by fine-tuning tasks (Huber and Carenini, 2022). Inspired by the latter approaches, we are pioneering in addressing this issue for dialogues and introducing effective semi-supervised and unsupervised strategies to uncover discourse information in large pre-trained language models (PLMs). We find, however, that the monologueinspired fine-tuning tasks are not performing well when applied to dialogues. Dialogues are generally less structured, interspersed with more informal linguistic usage (Sacks et al., 1978), and have structural particularities . Thus, we propose a new Sentence Ordering (SO) fine-tuning task tailored to dialogues. Building on the proposal in Barzilay and Lapata (2008), we propose crucial, dialogue-specific extensions with several novel shuffling strategies to enhance the pair-wise, inter-speech block, and inter-speaker discourse information in PLMs, and demonstrate its effectiveness over other fine-tuning tasks.
+
+In addition, a key issue in using PLMs to extract document-level discourse information is how to choose the best attention head. We hypothesize that the location of discourse information in the network may vary, possibly influenced by the length and complexity of the dialogues. Therefore, we investigate methods that enables us to evaluate each attention head individually, in both unsupervised and semi-supervised settings. We introduce a new metric called "Dependency Attention Support" (DAS), which measures the level of support for the dependency trees generated by a specific self-attention head, allowing us to select the optimal head without any need for supervision. We also propose a semi-supervised approach where a small validation set is used to choose the best head.
+
+Experimental results on the STAC dataset reveal that our unsupervised and semi-supervised methods outperform the strong LAST baseline (F 1 56.8%, Sec. 4), delivering substantial gains on the com-plete STAC dataset (F 1 59.3%, Sec. 5.2) and show further improvements on the tree-structured subset (F 1 68.1%, Sec. 6.3).
+
+To summarize, our contributions in this work are: (1) Discourse information detection in pre-trained and sentence ordering fine-tuned LMs; (2) Unsupervised and semi-supervised methods for discourse structure extraction from the attention matrices in PLMs; (3) Detailed quantitative and qualitative analysis of the extracted discourse structures.
+
+
+Related Work
+
+Discourse structures for complete documents have been mainly annotated within the Segmented Discourse Representation Theory (SDRT) (Asher et al., 2003) or the Rhetorical Structure Theory (RST) (Mann and Thompson, 1988), with the latter leading to the largest corpora and many discourse parsers for monologues, while SDRT is the main theory for dialogue corpora, i.e., STAC  and Molweni (Li et al., 2020). In SDRT, discourse structures are dependency graphs with possibly non-projective links (see Figure 1) compared to constituent trees structures in RST. Early approaches to discourse parsing on STAC used varied decoding strategies, such as Maximum Spanning Tree algorithm (Muller et al., 2012;Li et al., 2014; or Integer Linear Programming (Perret et al., 2016). Shi and Huang (2019) first proposed a neural architecture based on hierarchical Gated Recurrent Unit (GRU) and reported 73.2% F 1 on STAC for naked structures. Recently, Wang et al. (2021) adopted Graph Neural Networks (GNNs) and reported marginal improvements on the same test set (73.8% F 1 ).
+
+Data sparsity being the issue, a new trend towards semi-supervised and unsupervised discourse parsing has emerged, almost exclusively for monologues. Huber and Carenini (2019, 2020) leveraged sentiment information and showed promising results in cross-domain setting with the annotation of a silver-standard labeled corpus. Xiao et al. (2021) extracted discourse trees from neural summarizers and confirmed the existence of discourse information in self-attention matrices. Another line of work proposed to enlarge training data with a combination of several parsing models, as done in Jiang et al. (2016); Kobayashi et al. (2021); Nishida and Matsumoto (2022). In a fully unsupervised setting, Kobayashi et al. (2019) used similarity and dissimilarity scores for discourse tree creation, a method that can not be directly used for discourse graphs though. As for dialogues, transfer learning approaches are rare. Badene et al. (2019a,b) investigated a weak supervision paradigm where expert-composed heuristics, combined to a generative model, are applied to unseen data. Their method, however, requires domain-dependent annotation and a relatively large validation set for rule verification. Another study by Liu and Chen (2021) focused on cross-domain transfer using STAC (conversation during online game) and Molweni (Ubuntu forum chat logs). They applied simple adaptation strategies (mainly lexical information) on a SOTA discourse parser and showed improvement compared to bare transfer: trained on Molweni and tested on STAC F 1 increased from 42.5% to 50.5%. Yet, their model failed to surpass simple baselines. Very recently, Nishida and Matsumoto (2022) investigated bootstrapping methods to adapt BERT-based parsers to out-of-domain data with some success. In comparison to all this previous work, to the best of our knowledge, we are the first to propose a fully unsupervised method and its extension to a semi-supervised setting.
+
+As pre-trained language models such as BERT (Devlin et al., 2019), BART (Lewis et al., 2020) or GPT-2 (Radford et al., 2019) are becoming dominant in the field, BERTology research has gained much attention as an attempt to understand what kind of information these models capture. Probing tasks, for instance, can provide fine-grained analysis, but most of them only focus on sentencelevel syntactic tasks (Jawahar et al., 2019;Hewitt and Manning, 2019;Mareček and Rosa, 2019;Kim et al., 2019;Jiang et al., 2020). As for discourse, Zhu et al. (2020) and Koto et al. (2021) applied probing tasks and showed that BERT and BART encoders capture more discourse information than other models, like GPT-2. Very recently, Huber and Carenini (2022) introduced a novel way to encode long documents and explored the effect of different fine-tuning tasks on PLMs, confirming that pre-trained and fine-tuned PLMs both can capture discourse information. Inspired by these studies on monologues, we explore the use of PLMs to extract discourse structures in dialogues.
+
+3 Method: from Attention to Discourse
+
+
+Problem Formulation and Simplifications
+
+Given a dialogue D with n Elementary Discourse Units (EDUs) {e 1 , e 2 , e 3 , ..., e n }, which are the minimal spans of text (mostly clauses, at most a sentence) to be linked by discourse relations, the goal is to extract a Directed Acyclic Graph (DAG) connecting the n EDUs that best represents its SDRT discourse structure from attention matrices in PLMs 1 (see Figure 2 for an overview of the process). In our proposal, we make a few simplifications, partially adopted from previous work. We do not deal with SDRT Complex Discourse Units (CDUs) following Muller et al. (2012) and Afantenos et al. (2015), and do not tackle relation type assignment. Furthermore, similar to Shi and Huang (2019), our solution can only generate discourse trees. Extending our algorithm to non-projective trees (≈ 6% of edges are non-projectives in treelike examples) and graphs (≈ 5% of nodes with multiple incoming arcs) is left as future work.
+
+
+Which kinds of PLMs to use?
+
+We explore both vanilla and fine-tuned PLMs, as they were both shown to contain discourse information for monologues (Huber and Carenini, 2022).
+
+Pre-Trained Models: We select BART (Lewis et al., 2020), not only because its encoder has been shown to effectively capture discourse information, but also because it dominated other alternatives in preliminary experiments, including DialoGPT  and DialogLM (Zhong et al., 2022) -language models pre-trained with conversational data 2 . Fine-Tuning Tasks: We fine-tune BART on three discourse-related tasks:
+
+(1) Summarization: we use BART fine-tuned on the popular CNN-DailyMail (CNN-DM) news corpus (Nallapati et al., 2016), as well as on the SAMSum dialogue corpus (Gliwa et al., 2019).
+
+(2) Question Answering: we use BART finetuned on the latest version of the Stanford Question Answering Dataset (SQuAD 2.0) (Rajpurkar et al., 2018).
+
+(3) Sentence Ordering: we fine-tune BART on the Sentence Ordering task -reordering a set of shuffled sentences to their original order. We use an in-domain and an out-of-domain dialogue datasets (Sec. 4) for this task. Since fully random shuffling showed very limited improvements, we considered additional strategies to support a more gradual training tailored to dialogues. Specifically, as shown in Figure 3, we explore: (a) partial-shuf : randomly picking 3 utterances in a dialogue (or 2 utterances if the dialogue is shorter than 4) and shuffling them while maintaining the surrounding context. (b) minimal-pair-shuf : shuffling minimal pairs, comprising of a pair of speech turns from 2 different speakers with at least 2 utterances. A speech turn marks the start of a new speaker's turn in the dialogue. (c) block-shuf : shuffling a block containing multiple speech turns. We divide one dialogue into [2, 5] blocks based on the number of utterances 3 and shuffle between blocks. (d) speakerturn-shuf : grouping all speech productions of one speaker together. The sorting task consists of ordering speech turns from different speakers' production. We evenly combine all permutations mentioned above to create our mixed-shuf data set and conduct the SO task.
+
+3 Block size is designed to be as twice or 3 times bigger than "min-pair", we thus set criteria aiming to have ≈ 6 EDUs per block: |utt.| < 12 : b = 2, |utt.| ∈ [12, 22] : b = 3, |utt.| ∈ [22, 33] : b = 4, |utt.| ≥ 33 : n = 5.
+
+Choice of Attention Matrix: The BART model contains three kinds of attention matrices: encoder, decoder and cross attention. We use the encoder attention in this work, since it has been shown to capture most discourse information (Koto et al., 2021) and outperformed the other alternatives in preliminary experiments on a validation set.
+
+
+How to derive trees from attention heads?
+
+Given an attention matrix A t ∈ R k×k where k is the number of tokens in the input dialogue, we derive the matrix A edu ∈ R n×n , with n the number of EDUs, by computing A edu (i, j) as the average of the submatrix of A t corresponding to all the tokens of EDUs e i and e j , respectively. As a result, A edu captures how much EDU e i depends on EDU e j and can be used to generate a tree connecting all EDUs by maximizing their dependency strength. Concretely, we find a Maximum Spanning Tree (MST) in the fully-connected dependency graph A edu using the Eisner algorithm (Eisner, 1996). Conveniently, since an utterance cannot be anaphorically and rhetorically dependent on following utterances in a dialogue, as they are previously unknown , we can further simplify the inference by applying the following hard constraint to remove all backward links from the attention matrix A edu : a ij = 0, if i > j.
+
+3.4 How to find the best heads? Xiao et al. (2021) and Huber and Carenini (2022) showed that discourse information is not evenly distributed between heads and layers. However, they do not provide a strategy to select the head(s) containing most discourse information. Here, we propose two effective selection methods: fully unsupervised or semi-supervised.
+
+
+Unsupervised Best Head(s) Selection
+
+Dependency Attention Support Measure (DAS): Loosely inspired by the confidence measure in Nishida and Matsumoto (2022), where the authors define the confidence of a teacher model based on predictive probabilities of the decisions made, we propose a DAS metric measuring the degree of support for the maximum spanning (dependency) tree (MST) from the attention matrix. Formally, given a dialogue g with n EDUs, we first derive the EDU matrix A edu from its attention matrix A g (see Sec. 3.3). We then build the MST T g by selecting n−1 attention links l ij from A edu based on the tree generation algorithm. DAS measures the strength of all those connections by computing the average score of all the selected links:
+DAS(T g ) = 1 n − 1 n i=1 n j=1 Sel(A g , i, j) (1) with Sel(A g , i, j) = A g ij , if l ij ∈ T g , 0 otherwise
+. Note that DAS can be easily adapted for a general graph by removing the restriction to n − 1 arcs.
+
+Selection Strategy: With DAS, we can now compute the degree of support from each attention head h on each single example g for the generated tree DAS(T g h ). We therefore propose two strategies to select attention heads based on the DAS measure, leveraging either global or local support. The global support strategy selects the head with highest averaged DAS score over all the data examples:
+H global = arg max h M g=1 DAS(T g h )(2)
+where M is the number of examples. In this way, we select the head that has a generally good performance on the target dataset. The second strategy is more adaptive to each document, by only focusing on the local support. It does not select one specific head for the whole dataset, but instead selects the head/tree with the highest support for each single example g, i.e.,
+H g local = arg max h DAS(T g h )(3)
+
+Semi-Supervised Best Head(s) Selection
+
+We also propose best heads selection using a few annotated examples. In conformity with real-world situations where labeled data is scarce, we sample three small subsets with {10, 30, 50} data points (i.e., dialogues) from the validation set. We examine every attention matrix individually, resulting in 12 layers × 16 heads candidate matrices for each dialogue. Then, the head with the highest micro-F 1 score on the validation set is selected to derive trees in the test set. We also consider layer-wise aggregation, with details in Appendix A.
+
+
+Experimental Setup
+
+Datasets: We evaluate our approach on predicting discourse dependency structures using the STAC corpus , a multi-party dialogue dataset annotated in the SDRT framework.
+
+For the summarization and question-answering  fine-tuning tasks, we use publicly available Hug-gingFace models (Wolf et al., 2020) (see Appendix F). For the novel sentence ordering task, we train BART model on the STAC corpus and the DailyDialog corpus (Li et al., 2017). The key statistics for STAC and DailyDialog can be found in Table 1. These datasets are split into train, validation, and test sets at 82%, 9%, 9% and 85%, 8%, 8% respectively. The Molweni corpus (Li et al., 2020) is not included in our experiments due to quality issues, as detailed in Appendix B.
+
+Baselines: We compare against the simple yet strong unsupervised LAST baseline (Schegloff, 2007), attaching every EDU to the previous one. Furthermore, to assess the gap between our approach and supervised dialogue discourse parsers, we compare with the Deep Sequential model by Shi and Huang (2019) and the Structure Self-Aware (SSA) model by Wang et al. (2021).
+
+
+Metrics:
+
+We report the micro-F 1 and the Unlabeled Attachment Score (UAS) for the generated naked dependency structures.
+
+Implementation Details: We base our work on the transformer implementations from the Hugging-Face library (Wolf et al., 2020) and follow the textto-marker framework proposed in Chowdhury et al.
+
+(2021) for the SO fine-tuning procedure. We use the original separation of train, validation, and test sets; set the learning rate to 5e − 6; use a batch size of 2 for DailyDialog and 4 for STAC, and train for 7 epochs. All other hyper-parameters are set following Chowdhury et al. (2021). We do not do any hyper-parameter tuning. We omit 5 documents in DailyDialog during training since the documents lengths exceed the token limit. We replace speaker names with markers (e.g. Sam → "spk1"), following the preprocessing pipeline for dialogue utterances in PLMs.
+
+
+Results
+
+
+Results with Unsupervised Head Selection
+
+Results using our novel unsupervised DAS method on STAC are shown in Table 2 for both the global (H g ) and local (H l ) head selection strategies. These are compared to: (1) the unsupervised LAST baseline (at the top), which only predicts local attachments between adjacent EDUs. LAST is considered a strong baseline in discourse parsing (Muller et al., 2012), but has the obvious disadvantage of completely missing long-distance dependencies which may be critical in downstream tasks. (2) The supervised Deep Sequential parser by Shi and Huang (2019) and Structure Self-Aware model by Wang et al. (2021) (center of the table), both trained on STAC, reaching resp. 71.4% 4 and 73.8% in F 1 . In the last sub-table we show unsupervised scores from pre-trained and fine-tuned LMs on three auxiliary tasks: summarization, questionanswering and sentence ordering (SO) with the mixed shuffling strategy. We present the global head (H g ) and local heads (H l ) performances selected by the DAS score (see section 3.4.1). The best possible scores using an oracle head selector (H ora ) are presented for reference.
+
+Comparing the values in the bottom sub-table, we find that the pre-trained BART model underperforms LAST (56.8), with global head and local heads achieving similar performance (56.6 and 56.4 resp.). Noticeably, models fine-tuned on the summarization task ("+CNN", "+SAMSum") and question-answering ("+SQuAD2") only add marginal improvements compared to BART. In the last two lines of the sub-table, we explore our novel sentence ordering fine-tuned BART models. We find that the BART+SO approach surpasses LAST when using local heads (57.1 and 57.2 for Daily-Dialog and STAC resp.). As commonly the case, the intra-domain training performs best, which is further strengthened in this case due to the special vocabulary in STAC. Importantly, our PLMbased unsupervised parser can capture some longdistance dependencies compared to LAST (Section 6.2). Additional analysis regarding the chosen heads is in Section 6.1.
+
+
+Results with Semi-Sup. Head Selection
+
+While the unsupervised strategy only delivered minimal improvements over the strong LAST baseline, Table 3 shows that if a few annotated examples are provided, it is possible to achieve substantial gains. In particular, we report results on the vanilla BART model, as well as BART model fine-   tuned on DailyDialog ("+SO-DD") and STAC itself ("+SO-STAC"). We execute 10 runs for each semisupervised setting ([10, 30, 50]) and report average scores and the standard deviation. The oracle heads (i.e., H ora ) achieve superior performance compared to LAST. Furthermore, using a small scale validation set (50 examples) to select the best attention head remarkably improves the F 1 score from 56.8% (LAST) to 59.3% (+SO-STAC). F 1 improvements across increasingly large validation-set sizes are consistent, accompanied by smaller standard deviations, as would be expected.  We now take a closer look at the performance degradation of our unsupervised approach based on DAS in comparison to the upper-bound defined by the performance of the oracle-picked head. To this end, Figure 4 shows the DAS score matrices (left) for three models with the oracle heads and DAS selected heads highlighted in green and yellow, respectively. These scores correspond to the global support strategy (i.e., H g ). It becomes clear that the oracle heads do not align with the DAS selected heads. Making a comparison between models, we find that discourse information is consistently located in deeper layers, with the oracle heads (light green) consistently situated in the same head for all three models. It is important to note that this information cannot be determined beforehand and can only be uncovered through a thorough examination of all attention heads.
+
+While not aligning with the oracle, the top performing DAS heads (in yellow) are among the top 10% best heads in all three models, as shown in the box-plot on the right. Hence, we confirm that the DAS method is a reasonable approximation to find discourse intense self-attention heads among the 12 × 16 attention matrices.
+
+
+Document and Arc Lengths
+
+The inherent drawback of the simple, yet effective LAST baseline is its inability to predict indirect arcs. To test if our approach can reasonably predict distant arcs of different length in the dependency trees, we analyze our results in regards to the arc lengths. Additionally, since longer documents tend to contain more distant arcs, we also examine the performance across different document lengths.
+
+Arc Distance: To examine the extracted discourse structures for data sub-sets with specific arc lengths, we present the UAS score plotted against different arc lengths on the left side in Figure 5. Our analysis thereby shows that direct arcs achieve high UAS score (> 80%), independent of the model used. We further observe that the performance drops considerably for arcs of distance two and onwards, with almost all models failing to predict arcs longer than 6. BART+SO-STAC model correctly captures an arc of distance 13. Note that the presence for long-distance arcs (≥ 6) is limited, accounting for less than 5% of all arcs.
+
+We further analyze the precision and recall scores when separating dependency links into direct (adjacent forward arcs) and indirect (all other non-adjacent arcs), following Xiao et al. (2021). For direct arcs, all models perform reasonably well (see Figure 6 at the bottom). The precision is higher (≈ +6% among all three BART models) and recall is lower than the baseline (100%), indicating that our models predict less direct arcs but more precisely. For indirect arcs (top in Figure 6), the best model is BART+SO-STAC (20% recall, 44% precision), closely followed by original BART (20% recall, 41% precision). In contrast, the LAST baseline model completely fails in this scenario (0 precision and recall). Document Length: Longer documents tend to be more difficult to process because of the growing number of possible discourse parse trees. Hence, we analyze the UAS performance of documents in regards to their length, here defined as the number of EDUs. Results are presented on the right side in Figure 5, comparing the UAS scores for the three selected models and LAST for different document lengths. We split the document length range into 5 even buckets between the shortest (2 EDUs) and longest (37 EDUs) document, resulting in 60, 25, 16, 4 and 4 examples per bucket.  (  For documents with less than 23 EDUs, all fine-tuned models perform better than LAST, with BART fine-tuned on STAC reaching the best result. We note that PLMs exhibit an increased capability to predict distant arcs in longer documents. However, in the range of [23,30], the PLMs are inclined to predict a greater number of false positive distant arcs, leading to under-performance compared to the LAST baseline. As a result, we see that longer documents (≥ 23) are indeed more difficult to predict, with even the performance of our best model (BART+STAC) strongly decreasing.
+
+
+Projective Trees Examination
+
+Given the fact that our method only extracts projective tree structures, we now conduct an additional analysis, exclusively examining the subset of STAC containing projective trees, on which our method could in theory achieve perfect accuracy. Table 4 gives some statistics for this subset ("proj. tree"). For the 48 projective tree examples, the document length decreases from an average of 11 to 7 EDUs, however, still contains ≈ 40% indirect arcs, keeping the task difficulty comparable. The scores for the extracted structures are presented in Table 5. As shown, all three unsupervised models outperform LAST. The best model is still BART fine-tuned on STAC, followed by the inter-domain   fine-tuned +SO-DD and BART models. Using the semi-supervised approach, we see further improvement with the F 1 score reaching 68% (+6% than LAST). Degradation for direct and indirect edges' precision and recall scores see Appendix C. Following Ferracane et al. (2019), we analyze key properties of the 48 gold trees compared to our extracted structures using the semi-supervised method. To test the stability of the derived trees, we use three different seeds to generate the shuffled datasets to fine-tune BART. Table 6 presents the averaged scores and the standard deviation of the trees. In essence, while the extracted trees are generally "thinner" and "taller" than gold trees and contain slightly less branches, they are well aligned with gold discourse structures and do not contain "vacuous" trees, where all nodes are linked to one of the first two EDUs. Further qualitative analysis of inferred structures is presented in Appendix D. Tellingly, on two STAC examples our model succeeds in predicting > 82% of projective arcs, some of which span across 4 EDUs. This is encouraging, providing anecdotal evidence that our method is suitable to extract reasonable discourse structures.
+
+
+Performance with Predicted EDUs
+
+Following previous work, all our experiments have started with gold-standard EDU annotations. However, this would not be possible in a deployed dis-   course parser for dialogues. To assess the performance of such system, we conduct additional experiments in which we first perform EDU segmentation and then feed the predicted EDUs to our methods.
+
+To perform EDU segmentation, we employ the DisCoDisCo model (Gessler et al., 2021), pretrained on a random sample of 50 dialogues from the STAC validation set. We repeat this process three times to accommodate instability. Our results, as shown in Table 7, align with those previously reported in Gessler et al. (2021) (94.9), with an F-score of 94.8. In the pre-training phase, we utilize all 12 hand-crafted features 5 , and opt for treebanked data for enhanced performance (94.9 compared to 91.9 for plain text data). The treebanked data is obtained using the Stanza Toolkit (Qi et al., 2020).
+
+For evaluation, we adapt the discourse analysis pipeline proposed by Joty et al. (2015). The results are shown in Table 8, comparing the predicted and gold EDUs. The best head (i.e., H ora ) performance decreases by ≈ 7 points, from 59.5 to 52.6, as well as unsupervised and semi-supervised results. Despite the drop, our unsupervised and semi-supervised models still outperform the LAST baseline. A similar loss of ≈ 6 points is also observed for RST-style parsing in monologues, as reported in Nguyen et al. (2021).
+
+
+Conclusion
+
+In this study, we explore approaches to build naked discourse structures from PLMs attention matrices to tackle the extreme data sparsity issue in dialogues. We show sentence ordering to be the best 5 Such as POS tag, UD deprel, sentence length, etc.. fine-tuning task and our unsupervised and semisupervised methods for selecting the best attention head outperform a strong baseline, delivering substantial gains especially on tree structures. Interestingly, discourse is consistently captured in deeper PLMs layers, and more accurately for shorter links.
+
+In the near future, we intend to explore graphlike structures from attention matrices, for instance, by extending treelike structures with additional arcs of high DAS score and applying linguistically motivated constraints, as in Perret et al. (2016). We would also like to expand shuffling strategies for sentence ordering and to explore other auxiliary tasks. In the long term, our goal is to infer full discourse structures by incorporating the prediction of rhetorical relation types, all while remaining within unsupervised or semi-supervised settings.
+
+
+Limitations
+
+Similarly to previous work, we have focused on generating only projective tree structures. This not only covers the large majority of the links (≈ 94%), but it can also provide the backbone for accurately inferring the remaining non-projective links in future work. We focus on the naked structure, as it is a significant first step and a requirement to further predict relations for discourse parsing.
+
+We decided to run our experiments on the only existing high quality corpus, i.e., STAC. In essence, we traded-off generalizability for soundness of the results. A second corpus we considered, Molweni, had to be excluded due to serious quality issues.
+
+Lastly, since we work with large language models and investigate every single attention head, computational efficiency is a concern. We used a 4-core GPU machine with the highest VRAM at 11MiB. The calculation for one discourse tree on one head was approximately 0.75 seconds (in STAC the averaged dialogue length is 11 EDUs), which quickly summed up to 4.5 hours with only 100 data points for 192 candidate trees in one LM. When dealing with much longer documents, for example AMI and conversational section in GUM (in average > 200 utterances/dialogue), our estimation shows that one dialogue takes up to ≈ 2 minutes, which means 6.5 hours for 192 candidate trees. Even though we use parallel computation, the exhaustive "head" computation results in a tremendous increase in time and running storage. One possibility is to investigate only those "discourse-rich" heads, mainly in the deeper layers, for future work.
+
+
+Ethical Considerations
+
+We carefully select the dialogue corpora used in this paper to control for potential biases, hatespeech and inappropriate language by using human annotated corpora and professionally curated resources. Further, we consider the privacy of dialogue partners in the selected datasets by replacing names with generic user tokens.
+
+Since we are investigating the nature of the discourse structures captured in large PLMs, our work can be seen as making these models more transparent. This will hopefully contribute to avoid unintended negative effects, when the growing number of NLP applications relying on PLMs are deployed in practical settings.
+
+In terms of environmental cost, the experiments described in the paper make use of RTX 2080 Ti GPUs for tree extraction and A100 GPUs for BART fine-tuning. We used up to 4 GPUs for the parallel computation. The experiments on corpus STAC took up to 1.2 hours for one language model, and we tested a dozen models. We note that while our work is based on exhaustive research on all the attention heads in PLMs to obtain valuable insights, future work will able to focus more on discourserich heads, which can help to avoid the quadratic growth of computation time for longer documents. 
+
+
+A Semi-sup. Layer-Wise Results
+
+We consider both layer-wise attention matricesaveraging 16 attention heads for every layer which gives 12 candidate layers -, and head-wise attention matrices -taking each attention matrix individually which results in 192 candidate matrices. Here we show results completed with layer-wise matrices for the whole test set and treelike examples in Table 9 and Table 10.
+
+
+B Molweni Corpus Quality Investigation
+
+Molweni (Li et al., 2020) is a corpus derived from Ubuntu Chat Corpus (Lowe et al., 2015). It contains 10, 000 short dialogues between 8 to 15 utterances, annotated in SDRT framework.
+
+Considering the complexity of Ubuntu chat logs (multiple speakers, entangled discussion with various topics), we first conduct an examination of the corpus. Disappointingly, we found heavy repetition within sequential documents and inconsistency in discourse annotation among the same utterances. We thus decide not to include it in this work.    Table 11: Quantitative resume of link and relation inconsistency in Molweni test set. "Theor =arc": number of arcs between the same utterances, a priori should be linked in the same way; "Theor =rel": number of relations between the linked utterances.
+
+Clusters: Among 500 dialogues in discourse augmented test set, we found 105 "clusters". One cluster groups all the documents with only one or two different utterances. For instance, document id 10 and 11 are in the same cluster since only the second utterance is different ( Figure 10) Figure 10: apart from EDU 2 , we expect the same links and relations among other EDUs. However, we observe one link inconsistency (in red) and two relation inconsistencies (in blue). In total, we find 6% of link errors (#Err arc) within the same EDUs and 14% of relation errors (#Err rel) in the test set 6 . The scores are shown in Table 11. The Ubuntu Chat Corpus contains long dialogues with entangled discussion. A pre-processing had been made to generate shorter dialogues. While these slightly different short dialogues could be interesting for other dialogue studies in the field. Our focus on the discourse structure request more various data points and most importantly, the coherent discourse annotation.
+
+
+C Precision and Recall Scores for Direct and Indirect Arcs in STAC Tree Set
+
+To compare the performance of the whole test set and tree-structured subset, we present the recall and 6 For validation and train sets we find similar error rates. 2575 Figure 7: Recall and precision metrics in whole test set (darker color) vs. projective tree subset (brighter color), with BART model. precision scores of BART (Fig. 7), BART+SO-DD (Fig. 8), and BART+SO-STAC ( Fig. 9) separately.
+
+
+D Qualitative Analysis in STAC
+
+We show a few concrete tree examples: 3 well predicted ( Figure 11, 12, 13), 3 badly predicted ( Figure 14, 15, 16), and 2 random examples (Figure 17, 18). Some patterns observed from badly predicted structures: (1) chain-style prediction: as shown in Figure 15 and 18 where only adjacent EDUs are linked together; (2) inaccurate indirect arc prediction: especially for long documents such as the one in Figure 16.
+
+
+E Results with other PLMs
+
+We test with RoBERTa (Liu et al., 2019), Di-aloGPT , and DialogLED (Di-alogLM with Longformer) (Zhong et al., 2022) to see how different language models encode discourse information. As shown in Table 12, the most discourse-rich head in RoBERTa slightly under-  perform BART (−0.2%), so does the DialogLED (−0.4%) and DialoGPT (−1.4%). Sentence ordering fine-tuned DialogLED model outperforms the original one, proving that our proposed SO task can help encoding the discourse information. Table 13 shows the models and the sources we obtained from Huggingface library (Wolf et al., 2020). 
+
+
+F Huggingface Models
+
+Figure 1 :
+1Excerpt of dependency structures in file s2-leagueM-game4, STAC. Red links are non-projective.
+
+Figure 2 :
+2Pipeline for discourse structure extraction.
+
+Figure 3 :
+3Shuffling strategies (left to right: partial, minimal-pair, block, speaker-turn) on a sequence of utterances 1 to 6, with A, B, C as the speakers.
+
+
+The semi-supervised results are very encouraging: with 30 annotated examples, we already reach a performance close to the oracle result, and with more examples we can further reduce the gap.
+
+Figure 4 :
+4Heatmaps: DAS score matrices (layers: top to bottom=12 to 1, heads: left to right=1 to 16) for BART, BART+SO-DD, BART+SO-STAC. Darker pur-ple=higher DAS score. Boxplot: Head-aggregated UAS scores for model BART (orange), BART+SO-DD (green) andBART+SO- STAC (red). Light green=head with highest UAS. Yel-low=head with highest DAS score.
+
+Figure 5 :
+5Left: UAS and arcs' distance. x axis: arc distance. Right: averaged UAS for different length of document. x axis: #EDUs in a document. y axis: UAS.
+
+Figure 6 :
+6Comparison of recall (left) and precision (right) scores of indirect (top) and direct (bottom) links in LAST, BART, and SO fine-tuned BART models. #EDUs #Arcs #Doc Single-in Multi-in Proj. N-proj.
+
+Figure 8 :
+8Recall and precision metrics in whole test set (darker color) vs. projective tree subset (brighter color), with BART+SO-DD model.
+
+
+Dataset #Doc #Utt/doc #Tok/doc #Spk/doc DomainDailyDialog 13, 118 
+13 
+119 
+2 
+Daily 
+STAC 
+1, 161 
+11 
+50 
+3 
+Game 
+
+
+
+Table 1 :
+1Key statistics of datasets. Utt = sentences in DD or EDUs in STAC; Tok = tokens; Spk = speakers.
+
+Table 2 :
+2Micro-F 1 on STAC for LAST, supervised 
+SOTA models and unsupervised PLMs. H g /H l /H ora : 
+global/local/oracle heads. Best (non-oracle) score in the 
+3 rd block is in bold. DD: DailyDialog. 
+
+Train on → 
+BART + SO-DD + SO-STAC 
+Test with ↓ 
+F 1 
+F 1 
+F 1 
+
+LAST BSL 
+56.8 
+56.8 
+56.8 
+
+H ora 
+57.6 
+58.2 
+59.5 
+
+Unsup H g 
+56.6 
+56.8 
+56.7 
+Unsup H l 
+56.4 
+57.1 
+57.2 
+
+Semi-sup 10 57.0 0.012 
+57.2 0.012 
+57.1 0.026 
+Semi-sup 30 57.3 0.005 
+57.3 0.013 
+59.2 0.009 
+Semi-sup 50 57.4 0.004 
+57.7 0.005 
+59.3 0.007 
+
+
+
+Table 3 :
+3Micro-F 1 on STAC from BART and SO finetuned BART with unsupervised and semi-supervised approaches. Semi-supervised scores are averaged from 10 random runs. Subscription is standard deviation.
+
+Table 4 :
+4STAC test set ground-truth tree and non-tree statistics. "Single-in" and "multi-in" means EDU with single or multiple incoming arcs.
+
+Table 5 :
+5Micro-F 1 scores on STAC projective tree subset with BART and SO fine-tuned BART models.Avg.branch Avg.height 
+%leaf Norm. arc 
+
+GT 
+1.67 
+3.96 
+0.46 
+0.43 
+
+BART 
+1.20 
+5.31 
+0.31 
+0.34 
++SO-DD 
+1.32 0.014 
+5.31 0.146 0.32 0.019 
+0.37 0.003 
++SO-STAC 
+1.27 0.076 
+5.28 0.052 0.32 0.011 
+0.35 0.015 
+
+
+
+Table 6 :
+6Statistics for gold and extracted projective trees in BART and fine-tuned BART models.
+
+
+Gold # Predicted # Precision % Recall % F 1 %1155 
+1081 
+96.0 
+93.4 94.8 
+
+
+
+Table 7 :
+7EDU segmentation results on STAC test set using DisCoDisCo model(Gessler et al., 2021), which is re-trained on 50 random dialogues from the validation set. Scores are averaged over three runs.LAST 
+Unsupervised 
+Semi-supervised 
+H g 
+H l H ora semi-10 semi-30 semi-50 
+
+Gold 
+56.8 56.7 57.2 59.5 57.4 0.004 57.7 0.005 59.3 0.007 
+Pred 
+48.9 50.8 51.1 52.6 50.6 0.020 52.1 0.007 52.2 0.004 
+
+
+
+Table 8 :
+8Gold EDUs and predicted EDUs parsing results with BART+SO-STAC model. Scores for predicted EDUs are averaged over three runs.
+
+Table 9 :
+9Micro-F 1 scores on STAC test set with BART and fine-tuned models. H = "head", L = "layer". Best semi-supervised score is in bold. Subscription is std. deviation.Train on → 
+BART + SO-DD + SO-STAC 
+Test with ↓ 
+F 1 
+F 1 
+F 1 
+
+Gold H 
+64.8 
+67.4 
+68.6 
+
+Semi-sup-10 1L 59.4 0.028 
+60.6 0.029 
+58.3 0.018 
+Semi-sup-30 1L 62.1 0.002 
+61.8 0.012 
+59.8 0.009 
+Semi-sup-50 1L 62.1 0.000 
+62.3 0.003 
+59.9 0.006 
+Semi-sup-10 1H 54.6 0.058 
+59.2 0.047 
+61.6 0.056 
+Semi-sup-30 1H 60.3 0.047 
+60.3 0.044 
+65.6 0.043 
+Semi-sup-50 1H 64.8 0.000 
+66.3 0.023 
+68.1 0.014 
+
+
+
+Table 10 :
+10Micro-F 1 scores on STAC projective tree subset with BART and SO fine-tuned BART models.Clus 
+Doc #Theor #Err #Theor 
+#Err 
+ID 
+ID 
+=arc 
+arc 
+=rel 
+rel 
+
+1 
+{1, 2, 3} 
+18 
+2 
+16 
+2 
+2 
+{7, 8, 9} 
+18 
+0 
+18 
+7 
+3 
+{10, 11, 12, 13, 14} 
+80 
+4 
+76 
+25 
+... 
+
+105 
+500 
+4787 
+284 
+4503 
+606 
+-
+-
+100% 5.9% 
+100% 13.5% 
+
+
+
+
+. A similar situation is attested in the documents {1, 2, 3}, {7, 8, 9}, {19, 20, 21}, to name a few. Annotation Inconsistency: A closer examination of the annotation in similar examples reveals inconsistency for both discourse links and rhetorical relations. Precisely, we investigate every document pair (two documents in the same cluster) in all 105 clusters in the test set. A visualization of inconsistency for documents 10 and 11 is shown in
+
+Figure 9 :
+9Recall and precision metrics in whole test set (darker color) vs. projective tree subset (brighter color), with model BART+SO-STAC. SO-STAC 59.5 56.7 57.2 57.1 0.026 59.2 0.009 59.3 0.007 SO-STAC 58.4 56.8 57.1 57.7 0.001 58.2 0.005 57.7 0.001Model 
+Unsup 
+Semi-sup 
+H ora 
+H g 
+H l 
+Semi10 
+Semi30 
+Semi50 
+
+BART 
+57.6 56.6 56.4 57.0 0.012 57.3 0.005 57.4 0.004 
++ SO-DD 
+58.2 56.8 57.1 57.2 0.012 57.3 0.013 57.7 0.005 
++ RoBERTa 
+57.4 56.8 56.8 55.6 0.013 56.8 0.002 56.9 0.003 
+DialoGPT 
+56.2 42.7 36.2 52.9 0.043 55.1 0.017 56.2 0.000 
+DialogLED 
+57.2 56.8 56.7 54.6 0.026 54.7 0.061 56.6 0.019 
++ SO-DD 
+57.7 56.4 56.6 55.0 0.028 56.1 0.024 57.3 0.009 
++ 
+
+Table 12 :
+12Micro-F 1 on STAC with other PLMs. Best score (except H ora ) in each row is underlined.
+
+
+Figure 12: Well predicted example: pilot02-18. #EDUs: 19. UAS: 88.9%. In red: FP arcs; in blue: FN arcs.[e 1  ] william: hi markus.[e 2  ] william: how many people are we waiting for?[e 3  ] Thomas: think it's 1 more[e 4  ] william: ok[e 5  ] Markus: yes, one more[e 6  ] Markus: seems there's a hickup logging into the game ...[e 7  ] Thomas: that's ok, I not on a schedule[e 8  ] Thomas: *I'm [e 9 ] Markus: I guess you two had no problems joining the game? [e 10 ] william: nope [e 11 ] Markus: Ah great! [e 12 ] Markus: So, one of you can now start the game. [e 13 ] Markus: Have fun! [e 14 ] william: the arrow is pointing at me [e 15 ] william: but i cant press roll [e 16 ] william: oh sorry [e 17 ] Thomas: u can place a settlement [e 18 ] Thomas: first [e 19 ] Thomas: u roll later Figure 13: Well predicted example: s1-league3-game3. #EDUs: 7. UAS: 83.3%. In red: FP arcs; in blue: FN arcs. [e 1 ] Gaeilgeoir: ? [e 2 ] yiin: build road [e 3 ] inca: think we're meant to negotiate trades in the chat before offering [e 4 ] yiin: oop [e 5 ] yiin: ok then [e 6 ] inca: part of the guys' experiment [e 7 ] yiin: oh i see Figure 14: Badly predicted example: s2-leagueM-game4. #EDUs: 5. UAS: 20%. In red: FP arcs; in blue: FN arcs. [e 1 ] dmm: i can give a sheep or wood for a wheat. [e 2 ] dmm: any takers? [e 3 ] inca: sheep would be good. [e 4 ] CheshireCatGrin: Not here. [e 5 ] dmm: okay. Figure 15: Badly predicted example: s1-league3-game3. #EDUs: 5. UAS: 25%. In red: FP arcs; in blue: FN arcs. [e 1 ] nareik15: anyone have ore. [e 2 ] nareik15: I have some wood to trade. [e 3 ] yiin: no sorry. [e 4 ] inca: nope, sorry. [e 5 ] Gaeilgeoir: no, sorry. Figure 16: Badly predicted example: s1-league4-game2. #EDUs: 21. UAS: 30%. In red: FP arcs; in blue: FN arcs. [e 1 ] Shawnus: need wheat [e 2 ] Shawnus: want..clay? [e 3 ] ztime: you odo? [e 4 ] ztime: yer.. [e 5 ] ztime: I need clay.. [e 6 ] ztime: can give wheat [e 7 ] Shawnus: k [e 8 ] Shawnus: this might be where i lose my road card a? [e 9 ] ztime: er.. [e 10 ] ztime: I think the trade is wrong? [e 11 ] ztime: did you want wheat? [e 12 ] Shawnus: yes [e 13 ] Shawnus: for clay [e 14 ] ztime: it said you wanted clay... [e 15 ] somdechn: We all want wheat man [e 16 ] somdechn: and clay... [e 17 ] ztime: ok [e 18 ] ztime: thanks.. [e 19 ] Shawnus: haha [e 20 ] Shawnus: thanks [e 21 ] somdechn: That happens in the real game as well. Figure 17: Random example: s2-league4-game2. #EDUs: 14. UAS: 53.9%. In red: FP arcs; in blue: FN arcs. [e 1 ] ztime: 7!!!! [e 2 ] somdechn: Yeah right... [e 3 ] ztime: what... is this a fix? [e 4 ] Shawnus: hahaha [e 5 ] ztime: ok anyone want wheat? [e 6 ] Shawnus: nope [e 7 ] Shawnus: just someone to roll 9's.. [e 8 ] somdechn: Yes [e 9 ] somdechn: I can give you wood. [e 10 ] ztime: was that yes to a trade somdech? [e 11 ] ztime: OK.. cool.. for 1 wheat? [e 12 ] somdechn: and an ore.. :) [e 13 ] ztime: err.. don't have ore.. [e 14 ] ztime: thanks.. Figure 18: Random example: s1-league3-game3. #EDUs: 11. UAS: 50%. In red: FP arcs; in blue: FN arcs. [e 1 ] nareik15: anyone have wood to trade. I have sheep [e 1 ] yiin: no [e 1 ] Gaeilgeoir: Sorry, [e 1 ] Gaeilgeoir: I need wood too [e 1 ] Gaeilgeoir: I have wheat [e 1 ] Gaeilgeoir: if you want [e 1 ] inca: do you have wheat kieran? [e 1 ] inca: if so [e 1 ] inca: i can trade wood [e 1 ] nareik15: sorry, [e 1 ] nareik15: plenty of sheep though :)
+For more details on extracting discourse information from attention mechanisms seeLiu and Lapata (2018).2 See Appendix E for additional results with other PLMs.
+We re-train the model, scores are slightly different due to different train-test splits, as inWang et al. (2021).
+
+Modelling strategic conversation: model, annotation design and corpus. Stergos Afantenos, Nicholas Asher, Farah Benamara, Anaıs Cadilhac, Cedric Dégremont, Pascal Denis, Markus Guhe, Simon Keizer, Alex Lascarides, Oliver Lemon, Proceedings of the 16th Workshop on the Semantics and Pragmatics of Dialogue (Seinedial). the 16th Workshop on the Semantics and Pragmatics of Dialogue (Seinedial)ParisStergos Afantenos, Nicholas Asher, Farah Benamara, Anaıs Cadilhac, Cedric Dégremont, Pascal Denis, Markus Guhe, Simon Keizer, Alex Lascarides, Oliver Lemon, et al. 2012. Modelling strategic conversation: model, annotation design and corpus. In Proceedings of the 16th Workshop on the Semantics and Pragmat- ics of Dialogue (Seinedial), Paris.
+
+Discourse parsing for multiparty chat dialogues. Stergos Afantenos, Eric Kow, Nicholas Asher, Jérémy Perret, 10.18653/v1/D15-1109Proceedings of the 2015 Conference on Empirical Methods in Natural Language Processing. the 2015 Conference on Empirical Methods in Natural Language ProcessingLisbon, PortugalAssociation for Computational LinguisticsStergos Afantenos, Eric Kow, Nicholas Asher, and Jérémy Perret. 2015. Discourse parsing for multi- party chat dialogues. In Proceedings of the 2015 Conference on Empirical Methods in Natural Lan- guage Processing, pages 928-937, Lisbon, Portugal. Association for Computational Linguistics.
+
+Logics of conversation. Nicholas Asher, Nicholas Michael Asher, Alex Lascarides, Cambridge University PressNicholas Asher, Nicholas Michael Asher, and Alex Las- carides. 2003. Logics of conversation. Cambridge University Press.
+
+Discourse structure and dialogue acts in multiparty dialogue: the STAC corpus. Nicholas Asher, Julie Hunter, Mathieu Morey, Benamara Farah, Stergos Afantenos, Proceedings of the Tenth International Conference on Language Resources and Evaluation (LREC'16). the Tenth International Conference on Language Resources and Evaluation (LREC'16)Portorož, SloveniaEuropean Language Resources Association (ELRANicholas Asher, Julie Hunter, Mathieu Morey, Bena- mara Farah, and Stergos Afantenos. 2016. Discourse structure and dialogue acts in multiparty dialogue: the STAC corpus. In Proceedings of the Tenth In- ternational Conference on Language Resources and Evaluation (LREC'16), pages 2721-2727, Portorož, Slovenia. European Language Resources Association (ELRA).
+
+Data programming for learning discourse structure. Sonia Badene, Kate Thompson, Jean-Pierre Lorré, Nicholas Asher, 10.18653/v1/P19-1061Proceedings of the 57th. the 57thSonia Badene, Kate Thompson, Jean-Pierre Lorré, and Nicholas Asher. 2019a. Data programming for learn- ing discourse structure. In Proceedings of the 57th
+
+Association for Computational Linguistics. Annual Meeting of the Association for Computational Linguistics. Florence, ItalyAnnual Meeting of the Association for Computational Linguistics, pages 640-645, Florence, Italy. Associa- tion for Computational Linguistics.
+
+Weak supervision for learning discourse structure. Sonia Badene, Kate Thompson, Jean-Pierre Lorré, Nicholas Asher, EMNLP. Sonia Badene, Kate Thompson, Jean-Pierre Lorré, and Nicholas Asher. 2019b. Weak supervision for learn- ing discourse structure. In EMNLP.
+
+Modeling local coherence: An entity-based approach. Regina Barzilay, Mirella Lapata, Computational Linguistics. 341Regina Barzilay and Mirella Lapata. 2008. Modeling local coherence: An entity-based approach. Compu- tational Linguistics, 34(1):1-34.
+
+Building a discourse-tagged corpus in the framework of Rhetorical Structure Theory. Lynn Carlson, Daniel Marcu, Mary Ellen Okurovsky, Proceedings of the Second SIGdial Workshop on Discourse and Dialogue. the Second SIGdial Workshop on Discourse and DialogueLynn Carlson, Daniel Marcu, and Mary Ellen Okurovsky. 2001. Building a discourse-tagged cor- pus in the framework of Rhetorical Structure Theory. In Proceedings of the Second SIGdial Workshop on Discourse and Dialogue.
+
+Is everything in order? a simple way to order sentences. Somnath Basu, Roy Chowdhury, Faeze Brahman, Snigdha Chaturvedi, Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing. the 2021 Conference on Empirical Methods in Natural Language ProcessingSomnath Basu Roy Chowdhury, Faeze Brahman, and Snigdha Chaturvedi. 2021. Is everything in order? a simple way to order sentences. In Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing, pages 10769-10779.
+
+BERT: Pre-training of deep bidirectional transformers for language understanding. Jacob Devlin, Ming-Wei Chang, Kenton Lee, Kristina Toutanova, 10.18653/v1/N19-1423Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies. the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language TechnologiesMinneapolis, MinnesotaAssociation for Computational Linguistics1Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. 2019. BERT: Pre-training of deep bidirectional transformers for language under- standing. In Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Tech- nologies, Volume 1 (Long and Short Papers), pages 4171-4186, Minneapolis, Minnesota. Association for Computational Linguistics.
+
+Three new probabilistic models for dependency parsing: An exploration. Jason Eisner, The 16th International Conference on Computational Linguistics. 1COLINGJason Eisner. 1996. Three new probabilistic models for dependency parsing: An exploration. In COLING 1996 Volume 1: The 16th International Conference on Computational Linguistics.
+
+arXiv:2107.03175Xiachong Feng, Xiaocheng Feng, and Bing Qin. 2021. A survey on dialogue summarization: Recent advances and new frontiers. arXiv preprintXiachong Feng, Xiaocheng Feng, and Bing Qin. 2021. A survey on dialogue summarization: Re- cent advances and new frontiers. arXiv preprint arXiv:2107.03175.
+
+Evaluating discourse in structured text representations. Elisa Ferracane, Greg Durrett, Junyi Jessy Li, Katrin Erk, 10.18653/v1/P19-1062Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics. the 57th Annual Meeting of the Association for Computational LinguisticsFlorence, ItalyAssociation for Computational LinguisticsElisa Ferracane, Greg Durrett, Junyi Jessy Li, and Katrin Erk. 2019. Evaluating discourse in structured text representations. In Proceedings of the 57th Annual Meeting of the Association for Computational Lin- guistics, pages 646-653, Florence, Italy. Association for Computational Linguistics.
+
+Discodisco at the disrpt2021 shared task: A system for discourse segmentation, classification, and connective detection. Luke Gessler, Shabnam Behzad, Yang Janet Liu, Siyao Peng, Yilun Zhu, Amir Zeldes, Proceedings of the 2nd Shared Task on Discourse Relation Parsing and Treebanking (DISRPT 2021). the 2nd Shared Task on Discourse Relation Parsing and Treebanking (DISRPT 2021)Luke Gessler, Shabnam Behzad, Yang Janet Liu, Siyao Peng, Yilun Zhu, and Amir Zeldes. 2021. Discodisco at the disrpt2021 shared task: A system for discourse segmentation, classification, and connective detec- tion. In Proceedings of the 2nd Shared Task on Dis- course Relation Parsing and Treebanking (DISRPT 2021), pages 51-62.
+
+SAMSum corpus: A humanannotated dialogue dataset for abstractive summarization. Bogdan Gliwa, Iwona Mochol, Maciej Biesek, Aleksander Wawer, 10.18653/v1/D19-5409Proceedings of the 2nd Workshop on. the 2nd Workshop onBogdan Gliwa, Iwona Mochol, Maciej Biesek, and Alek- sander Wawer. 2019. SAMSum corpus: A human- annotated dialogue dataset for abstractive summa- rization. In Proceedings of the 2nd Workshop on
+
+Keep meeting summaries on topic: Abstractive multi-modal meeting summarization. Manling Li, Lingyu Zhang, Ji Heng, Richard J Radke, 10.18653/v1/P19-1210Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics. the 57th Annual Meeting of the Association for Computational LinguisticsFlorence, ItalyAssociation for Computational LinguisticsManling Li, Lingyu Zhang, Heng Ji, and Richard J. Radke. 2019. Keep meeting summaries on topic: Abstractive multi-modal meeting summarization. In Proceedings of the 57th Annual Meeting of the Asso- ciation for Computational Linguistics, pages 2190- 2196, Florence, Italy. Association for Computational Linguistics.
+
+Text-level discourse dependency parsing. Sujian Li, Liang Wang, Ziqiang Cao, Wenjie Li, 10.3115/v1/P14-1003Proceedings of the 52nd Annual Meeting of the Association for Computational Linguistics. the 52nd Annual Meeting of the Association for Computational LinguisticsBaltimore, MarylandAssociation for Computational Linguistics1Sujian Li, Liang Wang, Ziqiang Cao, and Wenjie Li. 2014. Text-level discourse dependency parsing. In Proceedings of the 52nd Annual Meeting of the As- sociation for Computational Linguistics (Volume 1: Long Papers), pages 25-35, Baltimore, Maryland. Association for Computational Linguistics.
+
+DailyDialog: A manually labelled multi-turn dialogue dataset. Yanran Li, Hui Su, Xiaoyu Shen, Wenjie Li, Ziqiang Cao, Shuzi Niu, Proceedings of the Eighth International Joint Conference on Natural Language Processing. the Eighth International Joint Conference on Natural Language ProcessingTaipei, TaiwanLong Papers1Asian Federation of Natural Language ProcessingYanran Li, Hui Su, Xiaoyu Shen, Wenjie Li, Ziqiang Cao, and Shuzi Niu. 2017. DailyDialog: A manually labelled multi-turn dialogue dataset. In Proceedings of the Eighth International Joint Conference on Nat- ural Language Processing (Volume 1: Long Papers), pages 986-995, Taipei, Taiwan. Asian Federation of Natural Language Processing.
+
+Learning structured text representations. Yang Liu, Mirella Lapata, 10.1162/tacl_a_00005Transactions of the Association for Computational Linguistics. 6Yang Liu and Mirella Lapata. 2018. Learning structured text representations. Transactions of the Association for Computational Linguistics, 6:63-75.
+
+Yinhan Liu, Myle Ott, Naman Goyal, Jingfei Du, Mandar Joshi, Danqi Chen, Omer Levy, Mike Lewis, Luke Zettlemoyer, Veselin Stoyanov, arXiv:1907.11692Roberta: A robustly optimized bert pretraining approach. arXiv preprintYinhan Liu, Myle Ott, Naman Goyal, Jingfei Du, Man- dar Joshi, Danqi Chen, Omer Levy, Mike Lewis, Luke Zettlemoyer, and Veselin Stoyanov. 2019. Roberta: A robustly optimized bert pretraining ap- proach. arXiv preprint arXiv:1907.11692.
+
+Improving multi-party dialogue discourse parsing via domain integration. Zhengyuan Liu, Nancy Chen, 10.18653/v1/2021.codi-main.11Proceedings of the 2nd Workshop on Computational Approaches to Discourse. the 2nd Workshop on Computational Approaches to DiscoursePunta Cana, Dominican Republic and OnlineAssociation for Computational LinguisticsZhengyuan Liu and Nancy Chen. 2021. Improving multi-party dialogue discourse parsing via domain integration. In Proceedings of the 2nd Workshop on Computational Approaches to Discourse, pages 122- 127, Punta Cana, Dominican Republic and Online. Association for Computational Linguistics.
+
+Discourse indicators for content selection in summaization. Annie Louis, K Aravind, Ani Joshi, Nenkova, Annie Louis, Aravind K Joshi, and Ani Nenkova. 2010. Discourse indicators for content selection in sum- maization.
+
+The Ubuntu dialogue corpus: A large dataset for research in unstructured multi-turn dialogue systems. Ryan Lowe, Nissan Pow, Iulian Serban, Joelle Pineau, 10.18653/v1/W15-4640Proceedings of the 16th Annual Meeting of the Special Interest Group on Discourse and Dialogue. the 16th Annual Meeting of the Special Interest Group on Discourse and DialoguePrague, Czech RepublicAssociation for Computational LinguisticsRyan Lowe, Nissan Pow, Iulian Serban, and Joelle Pineau. 2015. The Ubuntu dialogue corpus: A large dataset for research in unstructured multi-turn dia- logue systems. In Proceedings of the 16th Annual Meeting of the Special Interest Group on Discourse and Dialogue, pages 285-294, Prague, Czech Repub- lic. Association for Computational Linguistics.
+
+C William, Sandra A Mann, Thompson, Rhetorical structure theory: Toward a functional theory of text organization. Text-interdisciplinary Journal for the Study of Discourse. 8William C Mann and Sandra A Thompson. 1988. Rhetorical structure theory: Toward a functional the- ory of text organization. Text-interdisciplinary Jour- nal for the Study of Discourse, 8(3):243-281.
+
+From balustrades to pierre vinken: Looking for syntax in transformer self-attentions. David Mareček, Rudolf Rosa, 10.18653/v1/W19-4827Proceedings of the 2019 ACL Workshop BlackboxNLP: Analyzing and Interpreting Neural Networks for NLP. the 2019 ACL Workshop BlackboxNLP: Analyzing and Interpreting Neural Networks for NLPFlorence, ItalyAssociation for Computational LinguisticsDavid Mareček and Rudolf Rosa. 2019. From balustrades to pierre vinken: Looking for syntax in transformer self-attentions. In Proceedings of the 2019 ACL Workshop BlackboxNLP: Analyzing and Interpreting Neural Networks for NLP, pages 263- 275, Florence, Italy. Association for Computational Linguistics.
+
+Constrained decoding for textlevel discourse parsing. Philippe Muller, Stergos Afantenos, Pascal Denis, Nicholas Asher, The COL-ING 2012 Organizing Committee. Mumbai, IndiaProceedings of COLING 2012Philippe Muller, Stergos Afantenos, Pascal Denis, and Nicholas Asher. 2012. Constrained decoding for text- level discourse parsing. In Proceedings of COLING 2012, pages 1883-1900, Mumbai, India. The COL- ING 2012 Organizing Committee.
+
+Abstractive text summarization using sequence-to-sequence RNNs and beyond. Ramesh Nallapati, Bowen Zhou, Çaglar Cicero Dos Santos, Bing Gulçehre, Xiang, 10.18653/v1/K16-1028Proceedings of The 20th SIGNLL Conference on Computational Natural Language Learning. The 20th SIGNLL Conference on Computational Natural Language LearningBerlin, GermanyAssociation for Computational LinguisticsRamesh Nallapati, Bowen Zhou, Cicero dos Santos, Çaglar Gulçehre, and Bing Xiang. 2016. Abstrac- tive text summarization using sequence-to-sequence RNNs and beyond. In Proceedings of The 20th SIGNLL Conference on Computational Natural Lan- guage Learning, pages 280-290, Berlin, Germany. Association for Computational Linguistics.
+
+Rst parsing from scratch. Thanh-Tung Nguyen, Xuan-Phi Nguyen, Shafiq Joty, Xiaoli Li, Proceedings of the 2021 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies. the 2021 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language TechnologiesThanh-Tung Nguyen, Xuan-Phi Nguyen, Shafiq Joty, and Xiaoli Li. 2021. Rst parsing from scratch. In Proceedings of the 2021 Conference of the North American Chapter of the Association for Computa- tional Linguistics: Human Language Technologies, pages 1613-1625.
+
+Out-ofdomain discourse dependency parsing via bootstrapping: An empirical analysis on its effectiveness and limitation. Noriki Nishida, Yuji Matsumoto, https:/direct.mit.edu/tacl/article/doi/10.1162/tacl_a_00451/109472Transactions of the Association for Computational Linguistics. 10Noriki Nishida and Yuji Matsumoto. 2022. Out-of- domain discourse dependency parsing via bootstrap- ping: An empirical analysis on its effectiveness and limitation. Transactions of the Association for Com- putational Linguistics, 10:127-144.
+
+Integer linear programming for discourse parsing. Jérémy Perret, Stergos Afantenos, Nicholas Asher, Mathieu Morey, 10.18653/v1/N16-1013Proceedings of the 2016 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies. the 2016 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language TechnologiesSan Diego, CaliforniaAssociation for Computational LinguisticsJérémy Perret, Stergos Afantenos, Nicholas Asher, and Mathieu Morey. 2016. Integer linear programming for discourse parsing. In Proceedings of the 2016 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, pages 99-109, San Diego, California. Association for Computational Linguis- tics.
+
+Stanza: A python natural language processing toolkit for many human languages. Peng Qi, Yuhao Zhang, Yuhui Zhang, Jason Bolton, Christopher D Manning, Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics: System Demonstrations. the 58th Annual Meeting of the Association for Computational Linguistics: System DemonstrationsPeng Qi, Yuhao Zhang, Yuhui Zhang, Jason Bolton, and Christopher D Manning. 2020. Stanza: A python natural language processing toolkit for many human languages. In Proceedings of the 58th Annual Meet- ing of the Association for Computational Linguistics: System Demonstrations, pages 101-108.
+
+Joint modeling of content and discourse relations in dialogues. Kechen Qin, Lu Wang, Joseph Kim, 10.18653/v1/P17-1090Proceedings of the 55th Annual Meeting of the Association for Computational Linguistics. the 55th Annual Meeting of the Association for Computational LinguisticsVancouver, CanadaAssociation for Computational LinguisticsLong Papers)Kechen Qin, Lu Wang, and Joseph Kim. 2017. Joint modeling of content and discourse relations in dia- logues. In Proceedings of the 55th Annual Meeting of the Association for Computational Linguistics (Vol- ume 1: Long Papers), pages 974-984, Vancouver, Canada. Association for Computational Linguistics.
+
+Language models are unsupervised multitask learners. Alec Radford, Jeffrey Wu, Rewon Child, David Luan, Dario Amodei, Ilya Sutskever, OpenAI blog. 189Alec Radford, Jeffrey Wu, Rewon Child, David Luan, Dario Amodei, Ilya Sutskever, et al. 2019. Language models are unsupervised multitask learners. OpenAI blog, 1(8):9.
+
+Know what you don't know: Unanswerable questions for SQuAD. Pranav Rajpurkar, Robin Jia, Percy Liang, 10.18653/v1/P18-2124Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics. the 56th Annual Meeting of the Association for Computational LinguisticsMelbourne, AustraliaAssociation for Computational Linguistics2Pranav Rajpurkar, Robin Jia, and Percy Liang. 2018. Know what you don't know: Unanswerable ques- tions for SQuAD. In Proceedings of the 56th Annual Meeting of the Association for Computational Lin- guistics (Volume 2: Short Papers), pages 784-789, Melbourne, Australia. Association for Computational Linguistics.
+
+. Harvey Sacks, A Emanuel, Gail Schegloff, Jefferson, Harvey Sacks, Emanuel A Schegloff, and Gail Jefferson.
+
+Sequence organization in interaction: A primer in conversation analysis I. A Emanuel, Schegloff, Cambridge university press1Emanuel A Schegloff. 2007. Sequence organization in interaction: A primer in conversation analysis I, volume 1. Cambridge university press.
+
+A deep sequential model for discourse parsing on multi-party dialogues. Zhouxing Shi, Minlie Huang, https:/dl.acm.org/doi/abs/10.1609/aaai.v33i01.33017007Proceedings of the AAAI Conference on Artificial Intelligence. the AAAI Conference on Artificial Intelligence33Zhouxing Shi and Minlie Huang. 2019. A deep se- quential model for discourse parsing on multi-party dialogues. In Proceedings of the AAAI Conference on Artificial Intelligence, volume 33, pages 7007-7014.
+
+A structure self-aware model for discourse parsing on multi-party dialogues. Ante Wang, Linfeng Song, Hui Jiang, Shaopeng Lai, Junfeng Yao, Min Zhang, Jinsong Su, Proceedings of the Thirtieth International Conference on International Joint Conferences on Artificial Intelligence. the Thirtieth International Conference on International Joint Conferences on Artificial IntelligenceAnte Wang, Linfeng Song, Hui Jiang, Shaopeng Lai, Junfeng Yao, Min Zhang, and Jinsong Su. 2021. A structure self-aware model for discourse parsing on multi-party dialogues. In Proceedings of the Thirti- eth International Conference on International Joint Conferences on Artificial Intelligence.
+
+Transformers: State-of-the-art natural language processing. Thomas Wolf, Lysandre Debut, Victor Sanh, Julien Chaumond, Clement Delangue, Anthony Moi, Pierric Cistac, Tim Rault, Remi Louf, Morgan Funtowicz, Joe Davison, Sam Shleifer, Clara Patrick Von Platen, Yacine Ma, Julien Jernite, Canwen Plu, Teven Le Xu, Sylvain Scao, Mariama Gugger, Quentin Drame, Alexander Lhoest, Rush, 10.18653/v1/2020.emnlp-demos.6Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing: System Demonstrations. the 2020 Conference on Empirical Methods in Natural Language Processing: System DemonstrationsOnlineAssociation for Computational LinguisticsThomas Wolf, Lysandre Debut, Victor Sanh, Julien Chaumond, Clement Delangue, Anthony Moi, Pier- ric Cistac, Tim Rault, Remi Louf, Morgan Funtow- icz, Joe Davison, Sam Shleifer, Patrick von Platen, Clara Ma, Yacine Jernite, Julien Plu, Canwen Xu, Teven Le Scao, Sylvain Gugger, Mariama Drame, Quentin Lhoest, and Alexander Rush. 2020. Trans- formers: State-of-the-art natural language processing. In Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing: System Demonstrations, pages 38-45, Online. Association for Computational Linguistics.
+
+Do we really need that many parameters in transformer for extractive summarization? discourse can help !. Wen Xiao, Patrick Huber, Giuseppe Carenini, 10.18653/v1/2020.codi-1.13Proceedings of the First Workshop on Computational Approaches to Discourse. the First Workshop on Computational Approaches to DiscourseOnline. Association for Computational LinguisticsWen Xiao, Patrick Huber, and Giuseppe Carenini. 2020. Do we really need that many parameters in trans- former for extractive summarization? discourse can help ! In Proceedings of the First Workshop on Com- putational Approaches to Discourse, pages 124-134, Online. Association for Computational Linguistics.
+
+Predicting discourse trees from transformer-based neural summarizers. Wen Xiao, Patrick Huber, Giuseppe Carenini, 10.18653/v1/2021.naacl-main.326Proceedings of the 2021 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies. the 2021 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language TechnologiesOnline. Association for Computational LinguisticsWen Xiao, Patrick Huber, and Giuseppe Carenini. 2021. Predicting discourse trees from transformer-based neural summarizers. In Proceedings of the 2021 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies, pages 4139-4152, Online. Association for Computational Linguistics.
+
+Discourse-aware neural extractive text summarization. Jiacheng Xu, Zhe Gan, Yu Cheng, Jingjing Liu, Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics. the 58th Annual Meeting of the Association for Computational LinguisticsJiacheng Xu, Zhe Gan, Yu Cheng, and Jingjing Liu. 2020. Discourse-aware neural extractive text sum- marization. In Proceedings of the 58th Annual Meet- ing of the Association for Computational Linguistics, pages 5021-5031.
+
+DIALOGPT : Large-scale generative pre-training for conversational response generation. Yizhe Zhang, Siqi Sun, Michel Galley, Yen-Chun Chen, Chris Brockett, Xiang Gao, Jianfeng Gao, Jingjing Liu, Bill Dolan, 10.18653/v1/2020.acl-demos.30Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics: System Demonstrations. the 58th Annual Meeting of the Association for Computational Linguistics: System DemonstrationsOnline. Association for Computational LinguisticsYizhe Zhang, Siqi Sun, Michel Galley, Yen-Chun Chen, Chris Brockett, Xiang Gao, Jianfeng Gao, Jingjing Liu, and Bill Dolan. 2020. DIALOGPT : Large-scale generative pre-training for conversational response generation. In Proceedings of the 58th Annual Meet- ing of the Association for Computational Linguistics: System Demonstrations, pages 270-278, Online. As- sociation for Computational Linguistics.
+
+Dialoglm: Pre-trained model for long dialogue understanding and summarization. Ming Zhong, Yang Liu, Yichong Xu, Chenguang Zhu, Michael Zeng, Proceedings of the AAAI Conference on Artificial Intelligence. the AAAI Conference on Artificial Intelligence36Ming Zhong, Yang Liu, Yichong Xu, Chenguang Zhu, and Michael Zeng. 2022. Dialoglm: Pre-trained model for long dialogue understanding and summa- rization. In Proceedings of the AAAI Conference on Artificial Intelligence, volume 36, pages 11765- 11773.
+
+Examining the rhetorical capacities of neural language models. Zining Zhu, Chuer Pan, Mohamed Abdalla, Frank Rudzicz, 10.18653/v1/2020.blackboxnlp-1.3Proceedings of the Third BlackboxNLP Workshop on Analyzing and Interpreting Neural Networks for NLP. the Third BlackboxNLP Workshop on Analyzing and Interpreting Neural Networks for NLPOnline. Association for Computational LinguisticsZining Zhu, Chuer Pan, Mohamed Abdalla, and Frank Rudzicz. 2020. Examining the rhetorical capacities of neural language models. In Proceedings of the Third BlackboxNLP Workshop on Analyzing and In- terpreting Neural Networks for NLP, pages 16-32, Online. Association for Computational Linguistics.
+
+Table 13: Huggingface models and URLs. Table 13: Huggingface models and URLs.
+
+In red: inconsistent discourse arcs; in blue: inconsistent rhetorical relation. Figure. 10Similar documents in the same cluster. e 1 ] matthew99857: so do i need additional hardware to fix it ? [e 2 ] vocx: ca n't you disable the raid from the bios ? check your motherboard manualFigure 10: Similar documents in the same cluster. Circled EDUs are different. In red: inconsistent discourse arcs; in blue: inconsistent rhetorical relation. test id 10: [e 1 ] matthew99857: so do i need additional hardware to fix it ? [e 2 ] vocx: ca n't you disable the raid from the bios ? check your motherboard manual .
+
+sugi: vocxi : oh i am sorry . i misunderstood you . thank i will try it now. just use the disk as an individual disk. e 4 ]. e 5 ] vocx: you need to word better your answers , seems like nobody in getting you today3 ] ikonia: just use the disk as an individual disk [e 4 ] sugi: vocxi : oh i am sorry . i misunderstood you . thank i will try it now [e 5 ] vocx: you need to word better your answers , seems like nobody in getting you today .
+
+] sugi: -mount -o loop but instead of .iso .mdf ? or the .mds file ? [e 9 ] ikonia: try it , linux see 's it as a " image " so it may work [e 10 ] sugi: vocx : wow it worked , i feel retard for nto test id. vocx : iso 9660 cd-rom filesystem data udf filesystem data ( unknown version , id 'nsr01 ') [e 7 ] ikonia: looks like that should work as a loop back file system. 11e 8. e 1 ] matthew99857: so do i need additional hardware to fix it ? [e 2 ] ikonia: no you need to stop using raid [e 3 ] ikonia: just use the disk as an individual disk [e 4 ] sugi: vocxi : oh i am sorry . i misunderstood you . thank i will try it now [e 5 ] vocx: you need to word better your answers , seems like nobody in getting you today6 ] sugi: vocx : iso 9660 cd-rom filesystem data udf filesystem data ( unknown version , id 'nsr01 ') [e 7 ] ikonia: looks like that should work as a loop back file system [e 8 ] sugi: -mount -o loop but instead of .iso .mdf ? or the .mds file ? [e 9 ] ikonia: try it , linux see 's it as a " image " so it may work [e 10 ] sugi: vocx : wow it worked , i feel retard for nto test id: 11 [e 1 ] matthew99857: so do i need additional hardware to fix it ? [e 2 ] ikonia: no you need to stop using raid [e 3 ] ikonia: just use the disk as an individual disk [e 4 ] sugi: vocxi : oh i am sorry . i misunderstood you . thank i will try it now [e 5 ] vocx: you need to word better your answers , seems like nobody in getting you today .
+
+] ikonia: looks like that should work as a loop back file system [e 8 ] sugi: -mount -o loop but instead of .iso .mdf ? or the .mds file ? [e 9 ] ikonia: try it , linux see 's it as a " image " so it may work [e 10 ] sugi: vocx : wow it worked , i feel retard for nto Figure. vocx : iso 9660 cd-rom filesystem data udf filesystem data ( unknown version , id 'nsr01 '). 11e 7. Well predicted example: pilot02-4. #EDUs: 11. UAS: 90%. In red: FP arcs; in blue: FN arcs6 ] sugi: vocx : iso 9660 cd-rom filesystem data udf filesystem data ( unknown version , id 'nsr01 ') [e 7 ] ikonia: looks like that should work as a loop back file system [e 8 ] sugi: -mount -o loop but instead of .iso .mdf ? or the .mds file ? [e 9 ] ikonia: try it , linux see 's it as a " image " so it may work [e 10 ] sugi: vocx : wow it worked , i feel retard for nto Figure 11: Well predicted example: pilot02-4. #EDUs: 11. UAS: 90%. In red: FP arcs; in blue: FN arcs.

@@ -1,0 +1,675 @@
+gfpop: an R Package for Univariate Graph-Constrained Change-point Detection
+
+
+Vincent Runge Université D&apos;évry 
+Northern Arizona University
+Lancaster University
+Northern Arizona University
+Lancaster University
+INRAE -Université d'Évry
+
+
+Toby Dylan Hocking 
+Northern Arizona University
+Lancaster University
+Northern Arizona University
+Lancaster University
+INRAE -Université d'Évry
+
+
+Gaetano Romano 
+Northern Arizona University
+Lancaster University
+Northern Arizona University
+Lancaster University
+INRAE -Université d'Évry
+
+
+Fatemeh Afghah 
+Northern Arizona University
+Lancaster University
+Northern Arizona University
+Lancaster University
+INRAE -Université d'Évry
+
+
+Paul Fearnhead 
+Northern Arizona University
+Lancaster University
+Northern Arizona University
+Lancaster University
+INRAE -Université d'Évry
+
+
+Guillem Rigaill 
+Northern Arizona University
+Lancaster University
+Northern Arizona University
+Lancaster University
+INRAE -Université d'Évry
+
+
+gfpop: an R Package for Univariate Graph-Constrained Change-point Detection
+change-point detectionconstrained inferencemaximum likelihood inferencedynamic programmingrobust losses
+In a world with data that change rapidly and abruptly, it is important to detect those changes accurately. In this paper we describe an R package implementing a generalized version of an algorithm recently proposed by  for penalized maximum likelihood inference of constrained multiple change-point models. This algorithm can be used to pinpoint the precise locations of abrupt changes in large data sequences. There are many application domains for such models, such as medicine, neuroscience or genomics. Often, practitioners have prior knowledge about the changes they are looking for. For example in genomic data, biologists sometimes expect peaks: up changes followed by down changes. Taking advantage of such prior information can substantially improve the accuracy with which we can detect and estimate changes. Hocking et al.[2020] described a graph framework to encode many examples of such prior information and a generic algorithm to infer the optimal model parameters, but implemented the algorithm for just a single scenario. We present the gfpop package that implements the algorithm in a generic manner in R/C++. gfpop works for a user-defined graph that can encode prior assumptions about the types of change that are possible and implements several loss functions (Gauss, Poisson, binomial, biweight and Huber). We then illustrate the use of gfpop on isotonic simulations and several applications in biology. For a number of graphs the algorithm runs in a matter of seconds or minutes for 10 5 data points.
+
+Introduction
+
+
+Multiple change-point R packages
+
+In the last decade there has been an increasing interest in algorithms for detecting changes in mean. There are a variety of approaches to detecting such change-points, see Truong et al. [2020] for a recent review of the area. Many of these recursively apply a test for a single change-point. These include binary segmentation [Scott and Knott, 1974] and its variants [Olshen et al., 2004, Fryzlewicz, 2014, multiscale methods [Frick et al., 2014] and MOSUM methods [Eichinger and Kirch, 2018]. R packages that implement these and related methods include wbs [Baranowski and Fryzlewicz, 2014], not [Baranowski et al., 2019], breakfast [Anastasiou et al., 2020], stepR [Pein et al., 2020], and mosum [Meier et al., 2021]. See  for a comparison of many of these methods.
+
+Alternatively one can try to jointly estimate the location of all change-points by maximizing a penalized likelihood or, equivalently, minimizing a penalized cost. Dynamic programming was originally proposed in the change-point literature in the context of the "segment neighborhood" (SN) and "optimal partitioning" (OP) algorithms Lawrence, 1989, Jackson et al., 2005]. More recently Killick et al. [2012] proposed the PELT pruning rules, which reduces time complexity from quadratic to linear in asymptotic regimes where the number of changepoints increases as we observe more data. This work has stimulated a new interest in these problems. The R package changepoint [Killick and Eckley, 2014] and changepoint.np [Haynes et al., 2016] are based on these PELT inequality pruning rules. A new functional pruning rule was independently discovered by Johnson [2013] and Rigaill [2015]. When comparing these two pruning rules, the functional pruning always prunes more than PELT inequality pruning [see Theorem 2 and Figures 4 and 5 in Maidstone et al., 2017]. Furthermore functional pruning empirically shows reduced time complexity in many situations. For example, when we have data with no changes, PELT pruning algorithms have a quadratic complexity, but functional pruning algorithms can have a log-linear complexity [see Section 7 in Maidstone et al., 2017]. Functional pruning algorithms are implemented in R packages fpop, Segmentor3IsBack [Cleynen et al., 2014] and jointseg [Pierre-Jean et al., 2019].
+
+Besides time efficiency, recent efforts have been made to extend the class of change-point models considered by adding constraints. For example, in applications which involve detecting peaks in genomic data, the inference is constrained to return a sequence of down and up segments by packages PeakSegDP [Hocking et al., 2015], PeakSegOptimal , PeakSegDisk [Hocking et al., 2022], and PeakSegJoint . Including such constraints, when appropriate for the application, has been shown to substantially improve the accuracy of change-point detection . Whereas these previous packages only implement up/down constraints and the Poisson loss, the proposed gfpop package is the first to implement inference for a wide range of constraints, allows specifying models that can mix different types of changes through a graph, and also allows for other loss functions. For that reason we named our package gfpop as an abbreviation for "generalized functional pruning optimal partitioning". Our intention is to provide a user-friendly package which popularizes these recent discoveries about the functional pruning method, by allowing the user to specify a wide variety of constraints and loss functions, using prior information about their data and application domain.
+
+
+Standard multiple change-point model
+
+Multiple change-point models are designed to find abrupt changes in a signal. In the standard Gaussian noise model, we have data Y 1:n = (Y 1 , . . . , Y n ) where each data point, Y t , is an independent random variable with Y t ∼ N (µ t , σ 2 ) and t → µ t is piecewise constant. The goal is to estimate the number and position of the changes, that is to find all t such that µ t = µ t+1 from the observed data (y t ) t=1,...,n . A classical way to proceed is to optimize the log-likelihood by fixing the number of changes. It is also possible to penalize each change by a positive penalty β and minimize in µ = (µ 1 , ..., µ n ) ∈ R n the following least squares criterion:
+Q std n (µ) = n t=1 (y t − µ t ) 2 + β n−1 t=1 I µt =µ t+1 ,
+where I ∈ {0, 1} is the indicator function (I x = 1 if x is true, and is zero otherwise). In both cases, fast dynamic programming algorithms can solve the related optimization problem exactly [Killick et al., 2012, Rigaill, 2015, Maidstone et al., 2017. In Section 3.2 we derive the explicit form of the simpler FPOP update-rule for our more general graph framework.
+
+
+Constrained multiple change-point model
+
+In many applications, it is desirable to constrain the parameters of successive segments [Hocking et al., 2015, Maidstone et al., 2017, Jewell et al., 2020, Baranowski and Fryzlewicz, 2014. This means that the µ parameter is restricted by inequalities to a subset of R n . Arguably, the simplest and most studied case is isotonic regression [Barlow et al., 1972]. In this case the goal is to minimize in µ the constrained least-squares criterion:
+Q iso n (µ) = n t=1 (y t − µ t ) 2 , subject to the constraint µ t ≤ µ t+1 , ∀ t ∈ {1, ..., n − 1}.
+The obtained estimator is piecewise constant, which makes the link with the multiple changepoint problem. Several efficient inference algorithms have been proposed [Best and Chakravarti, 1990, Johnson, 2013, Gao et al., 2020, and the isotone package provide an implementation [De Leeuw et al., 2010]. More generally, we may want to impose more complex patterns, such as unimodality [Stout, 2008] or a succession of up and down changes [Hocking et al., 2015] to detect peaks. There are very efficient algorithms for the isotonic and unimodal cases [Best andChakravarti, 1990, Stout, 2008] at least if the number of changes is not penalized. For more complex constraints like the up-down pattern,  proposed an exact algorithm. This algorithm is a generalization of the functional dynamic programming algorithm of Rigaill [2015] and Maidstone et al. [2017]. Variants of this algorithm allow penalizing or constraining the number of changes. Other variants allow robust losses, including the biweight loss, instead of the least-squares criterion for assessing fit to the data. In the case of non-constrained (standard) multiple change-point detection, the biweight loss has good statistical properties [Fearnhead and Rigaill, 2019]. The simulations of Bach [2018] in the context of isotonic regression also show the benefit of such losses.
+
+
+Contributions
+
+Hocking et al.
+
+[2020] described a graph-based framework to encode prior constraints on how parameters change at each change-point, and a generic algorithm to infer the optimal model parameters. However, they implemented the algorithm for a single scenario (Poisson loss and up/down constraints). The gfpop package implements their algorithm in a generic manner in R/C++, for user-defined graphs and several loss functions.
+
+
+Outline
+
+In Section 2 we formally define the graphs and explain their connection to HMM. We also provide numerous graph examples to illustrate the versatility of our framework. In Section 3 we present the optimization problem solved by our package. In Section 4 we go through the main functions of the package. We illustrate in Section 5 the use of our package on various real data sets. Finally, using simulations we compare in Section 6 the result of our package with those of standard isotonic packages and show the benefit of using robust losses and penalizing the number of segments.
+
+
+Constraint graphs and change-points model as a HMM
+
+We begin by recasting the standard and constrained multiple change-point problem as a continuous hidden Markov model (HMM) with a particular transition kernel represented as a graph [Johnson, 2013]. At each time t the signal can be in a number of states, which are nodes of the graph. Possible transitions between states at time t and t + 1 are represented by the edges of the graph. Each edge has three properties: a constraint (e.g., µ t ≤ µ t+1 ), a penalty (possibly null) and a loss function (cost associated to a data-point). In gfpop the set of transitions is constant over time, leading to a collapsed representation of the graph. We then formalize the concept of a valid signal or path, that is one satisfying all constraints, and finally present a number of examples.
+
+
+Transition kernel and graph of constraints
+
+Standard multiple change-point model as a HMM. It is possible to recast the classic multiple change-point model as a Hidden Markov Model with a continuous state space. Precisely, we define random variables Z 1 , ..., Z n in R or some interval [a, b]. We consider a transition kernel k(x, y) ∝ I x=y + e −β I x =y . Finally, in the Gaussian case, observations are obtained as (Y i |Z i = µ) ∼ N (µ, σ 2 ). The Bayesian Network of this model is given in Figure 1. Here the state space is R, the set of values that the mean can take. The˝gfpop algorithm of  allows one to consider a more complex state space in S × R where S is a finite set. In that case the transition kernel is more complex and can be described using a graph. Below, we first present the graph and then explain how it is linked to the transition kernel.
+Z 1 Z 2 Z 3 Z 4 Z n Y 1 Y 2 Y 3 Y 4 Y n
+Graph of constraints. The graph of constraints G n is an acyclic directed graph defined as follows.
+
+1. Nodes are indexed by time t ∈ {1, ..., n} and a state s ∈ S = {1, ...S}; 2. We include two undefined states #, ∅ for the starting nodes, v 0 = (0, #), and arrival nodes, v n+1 = (n + 1, ∅);
+
+3. Edges are transitions between consecutive "time" nodes of type v = (t, s) and v = (t + 1, s ). Edges e are then described by a triplet e = (t, s, s ) for t ∈ {0, ..., n};
+
+4. Each edge e = (t, s, s ) is associated with
+
+• An indicator function I e : R × R → {0, 1} constraining successive means 1 µ t and µ t+1 . For example an edge e with the corresponding indicator function I e (µ t , µ t+1 ) = 1 We call this parameter a mean for convenience but some models consider changes in variance or in other natural parameters.
+
+I µt≤µ t+1 ensures that means are non-decreasing; while an edge with indicator function I e (µ t , µ t+1 ) = I µt=µ t+1 would correspond to no change.
+
+• A penalty β e ≥ 0 which is used to regularize the model (larger penalty values result in more costly change-points and thus fewer change-points in the optimal model).
+
+• A loss function γ e for data-point y t+1 2 .
+
+Transition kernel. Coming back to our HMM representation of change-point models, the transition from state (s, µ t ) to (s , µ t+1 ) (up to proportionality) is
+
+• k((s, µ t ), (s , µ t+1 )) = exp(−β e )I e (µ t , µ t+1 ), if there is an edge e = (t, s, s ) in the graph;
+
+• k((s, µ t ), (s , µ t+1 )) = 0 if there is no edge e = (t, s, s ) in the graph.
+
+Some simple examples. In Figures 2 and 3 we provide the corresponding graphs for the standard and isotonic models. Notice that the only difference is that the transitions between nodes (t, 1) and (t + 1, 1) are restricted to non-decreasing means in the isotonic case.
+
+(0, #) (n + 1, ∅) (t, 1) (t + 1, 1) I µt=µt+1 I µt =µt+1 , β Figure 2: Graph of constraints for the standard multiple change-point model. We have S = {1}, the loss function is always the 2 (Gaussian loss). The penalty is omitted when equal to zero.
+
+(0, #) (n + 1, ∅) (t, 1) (t + 1, 1) I µt=µt+1 I µt≤µt+1 , β Figure 3: Graph of constraints for the isotonic change-point model. We have S = {1}, the loss function is always the 2 . The penalty is omitted when equal to zero.
+
+
+Collapsed graph of constraints
+
+In gfpop we only consider transitions that do not depend on time. We then collapse the previous graph structure. To be specific, we have a single node for each s and a transition from node s to s if there is a transition from (t, s) to (t + 1, s ) in the full graph structure. In Figures 4 and 5 we provide the corresponding collapsed graphs for the standard and isotonic models.
+
+Path and constraints validation. In Section 3 we show how we can estimate the changes by maximizing a penalized loss equal to the loss associated with the path of µ t values plus the sum of the penalties for the edges used. This can be viewed as a maximum a-posteriori estimate based on the kernel associated with each edge and the likelihood associated with each 2 The loss function can be edge-specific: see Figure 17 and the graph construction in Section 4.1. observation. To define this maximum properly we formalize the notion of a signal validating our constraints through the concept of a valid path in the collapsed graph.
+# ∅ 1 I µt=µ t+1 I µt =µ t+1 , β
+A path p of the collapsed graph G n is a collection of n+2 nodes (v 0 , ..., v n+1 ) with v 0 = (0, #), v n+1 = (n + 1, ∅) and v t = (t, s t ) for t ∈ {1, ..., n} and s t ∈ {1, ...S}. In addition, the path is made of n + 1 edges named e 0 , ..., e n . Recall that each edge e t is associated to a penalty β et , a loss γ et and a constraint I et . A vector µ ∈ R n validates the path p if for all t ∈ {1, ..., n − 1}, we have I et (µ t , µ t+1 ) = 1 (true). We write p(µ) to say that the vector µ checks the path p.
+
+The starting and arrival edges e 0 and e n are exceptions. For them there are neither indicator function nor associated penalty (see Figures 2 and 3). However, there is a loss function γ e 0 for the starting edge to add the first data-point.
+
+Definition. From now on when we use the word "graph" we mean the collapsed graph of constraints. In this graph, the triplet notation (t, s, s ) for edges is replaced by (s, s ). We remove the time dependency also for edges associated with starting and arrival nodes to simplify notations (even if in that case, there is a time dependency).
+
+
+A few examples
+
+We present a few constraint models and their graphs. Some models have been already proposed in the literature, but not necessarily using our HMM formalism.
+
+• (Up -Down) To model peaks Hocking et al. [2015] proposed an up-down constraint using two states S = {U p, Dw}. Transitions from Dw to U p are forced to go up I µt≤µ t+1 . Transitions from U p to Dw are forced to go down I µt≥µ t+1 . The graph of this model is given in Figure 6.
+
+• (Up -Exponentially Down) To model pulses Jewell et al. [2020] proposed a model where the mean decreases exponentially between positive spikes. In that case a unique state with two transitions is sufficient. The first transition corresponds to an up change I µt≤µ t+1 and the second to an exponential decay I αµt=µ t+1 with 0 < α < 1. The graph of this model is given in Figure 7.
+
+• (Segment Neighborhood) One often considers a known number of segments, D say [Auger and Lawrence, 1989]. This is encoded by a graph with D states, S = {1, ...D}. From any d ∈ S there are two transitions to consider. One from d to d with constraint I µt=µ t+1 and one from d to d + 1 with constraints I µt =µ t+1 . The graph of this model for D = 3 is given in Figure 8.
+
+• (At least 2 data-points per segment) It is often desirable to impose a minimum segment length. For at least 2 data-points one should consider two states S = {W ait, Seg}. There are 3 transitions to consider one from Seg to W ait with the constraint I µt =µ t+1 , one from Seg to Seg with I µt=µ t+1 and one from W ait to Seg with I µt=µ t+1 . The graph of this model is given in Figure 9. This can be extended to p data-points. The graph for at least 3 data-points per segment is given in Appendix A ( Figure 18).  
+I µt≥µ t+1 , β I µt=µ t+1 I µt≤µ t+1 , β t µI µt=µ t+1 I µt =µ t+1 I µt=µ t+1 I µt =µ t+1 I µt=µ t+1
+Figure 8: Graph for the 3-segment change-point model. We have S = {1, 2, 3}, the loss function is always the 2 . The penalty is always equal to zero. Figure 9: Graph for the at least 2 data-points per segment change-point model. We have S = {W ait, Seg}, the loss function is always the 2 . The penalty is omitted when equal to zero.
+# ∅ Seg Wait I µt=µ t+1 I µt =µ t+1 , β I µt=µ t+1
+
+Optimization problem solved by gfpop 3.1 Penalized maximum likelihood
+
+We now present the constrained change-point optimization problem. The goal is to minimize the negative log-likelihood over all model parameters that validate the constraints (see Section 2.2):
+Q n = min p=(v,e) ∈ Gn µ|p(µ) n t=1 (γ et (y t , µ t ) + β et ) .
+This is a discrete optimization problem. A naive exploration of the 2 n−1 change-point positions is not feasible in practice. Due to the constraints, segments are dependent and Q n cannot be written as a sum over all segments. Therefore the algorithms of Auger and Lawrence [1989], Jackson et al. [2005], Killick et al. [2012] are not applicable.  have shown that it is possible to optimize Q n using functional dynamic programming techniques. The idea is to consider the quantity Q n as a function of the mean and the state of the last data-point:
+Q s n (θ) = min p=(v,e) ∈ Gn µ | p(µ) µn=θ , vn=(n,s) n t=1 (γ et (y t , µ t ) + β et ) ,(1)
+where we use the subscript n to denote the number of data points analyzed, s to denote the state of the most recent transition, and θ the mean of the last data point. By construction, each Q s n is a piecewise function and can be defined as the pointwise minimum of a finite number of functions, with the form of these functions depending on the loss used. In the package three analytical decompositions for the pieces of Q s n are implemented: L2 decomposition. f 1 : θ → 1, f 2 : θ → θ and f 3 : θ → θ 2 . This decomposition allows one to consider Gaussian (least-square), biweight and Huber loss functions;
+
+Lin-log decomposition. f 1 : θ → 1, f 2 : θ → θ and f 3 : θ → log(θ). This decomposition allows one to consider loss functions for Poisson and exponential models. It is also possible to consider a change in the variance of a Gaussian distribution of mean 0 3 ;
+
+Log-log decomposition. f 1 : θ → 1, f 2 : θ → log(θ) and f 3 : θ → log(1 − θ). This decomposition allows one to consider loss functions for the binomial and negative binomial likelihoods.
+
+As in the Viterbi algorithm for finite state space HMM, it is possible to define an update formula linking the set of functions {θ → Q s n−1 (θ) , s ∈ S} to θ → Q s n (θ) for all states s . Computationally, the update is applied per interval using some edge-dependent operators described in the following subsection [Rigaill, 2015, Maidstone et al., 2017.
+
+
+Operators and update-rule for˝gfpop
+
+Let us consider a transition from s to s at step n. Its edge is (s, s ) and its associated constraint is I (s,s ) . The˝gfpop algorithm involves calculating the best (θ, s) to reach state (θ , s ), i.e., minimizing the functional cost while satisfying the constraint I (s,s ) . Formally this is defined as an operator:
+O s,s n (θ ) = min θ|I (s,s ) (θ,θ ) {Q s n (θ)} .
+Operator calculation For a general constraint I and a general function Q s n it is not easy to compute O s,s n . Recall that Q s n (θ) are piecewise analytical, i.e., they can be exactly represented by a finite set of real-valued coefficients. For algorithmic simplicity  requires that O s,s n (θ) has the same analytical decomposition per interval (L2, Lin-Log or Log-Log). In practice here are the constraints we can accommodate.
+
+L2 decomposition: any linear constraint, e.g., aµ t + bµ t+1 + c ≤ 0 or aµ t + bµ t+1 + c = 0;
+
+Lin-log decomposition: any proportional constraint e.g., aµ t ≤ µ t+1 or aµ t = µ t+1 ;
+
+Log-log decomposition: only the two inequalities µ t ≤ µ t+1 or µ t ≥ µ t+1 .
+
+Note that constraints can be combined by considering more than one edge from one state to another. In particular, for L2 decomposition the constraint |µ t+1 − µ t | ≥ c can be implemented using µ t + c ≤ µ t+1 or µ t ≥ µ t+1 + c. This constraint encodes the idea of detecting sufficiently large changes (also called relevant changes) described in Dette and Wied [2016].
+
+Computationally, it is possible to compute O s,s n (θ) by scanning from left to right or from right to left all intervals which correspond to a different functional form of Q s n (θ) (See examples in ).
+
+Update-rule. Given this operator function we can now define the update rule used by the gfpop algorithm.
+Q s n+1 (θ) = min s|∃ edge (s,s ) O s,s n (θ) + γ (s,s ) (y n+1 , θ) + β (s,s ) .(2)
+For simplicity, we do not describe the update for initial and final steps. The proof of this update rule is very similar to the proof of the Viterbi algorithm and is given in Appendix B). It follows the strategy of . Notice also that recovering the optimal set of change-points from all Q s 1 , ..., Q s n by backtracking is not straightforward because of the need to validate the constraints between consecutive segments. We provide some details in Appendix C.
+
+An example with fpop. With the standard multiple change-point model (see Section 1.2 and Figure 4) we have only one vertex (1) and two edges denoted here 0 (no change) and 1 (a change) replacing the notation (s, s ). We get with Equation 2:
+Q 1 n+1 (θ) = min O 0 n (θ) + γ 0 (y n+1 , θ) + β 0 , O 1 n (θ) + γ 1 (y n+1 , θ) + β 1 .
+Only edge 1 is penalized, so that β 0 = 0 and β 1 = β > 0. As we have no robust loss or parameter constraint on the cost function:
+γ 0 (·, ·) = γ 1 (·, ·) = γ(·, ·). For edge 0, O 0 n (θ ) = min θ|θ=θ {Q 1 n (θ)} = Q 1 n (θ ) and for edge 1, O 1 n (θ ) = min θ|θ =θ {Q 1 n (θ)} = min θ {Q 1 n (θ)}.
+Removing the state index, we eventually obtain the well-known FPOP update-rule:
+Q n+1 (θ) = min Q n (θ), min θ {Q n (θ)} + β + γ(y n+1 , θ) .
+If we assume a Gaussian loss for change in mean, we have γ(y n+1 , θ) = (y n+1 − θ) 2 , quadratic in θ. The update consists in reconstructing the optimal cost by finding for all θ the minimum between Q n (θ) and the min θ {Q n (θ)} constant line leading to a function Q n+1 (·) piecewise quadratic in θ. Ways to deal efficiently with this update rule have been presented in Maidstone et al. [2017]. For implementing the constraints included in the package, see  and Hocking et al. [2022]; for other loss functions see also Fearnhead and Rigaill [2019] and Jewell et al. [2020].
+
+
+How to choose the loss function and penalty
+
+The choice of the loss function γ is linked to the choice of the noise model. This choice is not necessarily easy. For example for continuous data it might make sense to consider the least square error [Picard et al., 2005]; in the presence of outliers considering a robust loss is natural [Fearnhead and Rigaill, 2019]; and for count data a Poisson loss is often used . It is our experience that visualizing the data beforehand is a good way to avoid simple modeling mistakes.
+
+The choice of the penalty β is critical to select the number of change-points. In the absence of constraint several penalties have been proposed. For detecting a change in mean with independent Gaussian data, a penalty of β = 2σ 2 log(n) was proposed by Yao and Au [1989]. It tends to work well when the number of changes is small. More complex penalties exist, e.g., Zhang and Siegmund [2007], Lebarbier [2005], Baraud et al. [2009]. For penalties that are concave in the number of segments one can run the Operators and update-rule for˝gfpop() algorithm for various values of β and recover several segmentations (with a varying number of change-points) [Killick et al., 2012]. This can be done efficiently using the CROPS algorithm [Haynes et al., 2017]. In labeled data sets, supervised learning algorithms can be used to infer an accurate model for predicting penalty values β [Rigaill et al., 2013, Hocking et al., 2015.
+
+For models with constraints, to the best of our knowledge there is very little statistical literature available. The paper of Gao et al. [2020] describes a penalty in the isotonic case but it was not calibrated. It is our experience that the penalties proposed for the unconstrained case tend to work reasonably well, although they are probably sub-optimal from a statistical perspective.
+
+
+The gfpop package 4.1 Graph construction
+
+Our gfpop package deals with collapsed graphs for which all the cost functions γ have the same decomposition (L2, Lin-log or Log-log). All other characteristics are local and fixed per edge. The graph G n (see Section 2.2) is defined in the gfpop package by a collection of edges.
+
+Edge parameters. An edge is a list of four main elements:
+
+•˝state1: the starting node defined by a string;
+
+•˝state2: the arrival node defined by a string;
+
+•˝type: a string equal to˝null,˝std,˝up,˝down or˝abs defining the type of constraints between successive nodes respectively corresponding to indicators I µt=µ t+1 , I µt =µ t+1 , I µt+c≤µ t+1 , I µt≥µ t+1 +c and I |µ t+1 −µt|≥c ;
+
+•˝penalty: the penalty β e associated to this edge (it can be zero);
+
+and some optional elements:
+
+•˝decay: a number between 0 and 1 for the mean exponential decay (in case type is˝null) corresponding to the constraint I µ t+1 =αµt ;
+
+• gap: the gap c between successive means of the˝up,˝down and˝abs types;
+
+•˝K: the threshold for the biweight and Huber losses (K > 0);
+
+•˝a: the slope for the Huber robust loss (a ≥ 0).
+
+An example of an edge. We can define an edge˝e1 with the function˝Edge as:
+
+R> e1 <-Edge(state1 = "Dw", state2 = "Up", type = "up", penalty = 10, gap = 0.5)
+
+which is an edge from node˝Dw to node˝Up with an up constraint, penalty β = 10 and a minimal jump size of 0.5.
+
+An example of a graph. We provide an example of graph for collective anomalies detection with the gfpop package given in Figure 17  R> graph( + Edge(state1 = "mu0", state2 = "mu0", penalty = 0, K = 3), + Edge(state1 = "mu0", state2 = "Coll", penalty = 10, type = "std"), + Edge(state1 = "Coll", state2 = "Coll", penalty = 0), + Edge(state1 = "Coll", state2 = "mu0", penalty = 0, type = "std", K = 3), + StartEnd(start = "mu0", end = c("mu0", "Coll")), + Node(state = "mu0", min = 0, max = 0) + ) Notice that the graph is encoded into a data-frame.
+
+Note 1. Most graphs (such as the previous one) contain recursive edges, that is edges with the same starting and arrival node. The absence of this edge forces a change and is useful to enforce a minimal segment length (see Figures 9 and 18).
+
+Note 2. In the gfpop graph definition, a starting (resp. arrival) node is a state s for which there exists an edge between the starting v 0 = (0, #) (resp. arrival v n+1 = (n + 1, ∅)) node and s (See Section 2.2). These specific states are defined using function˝StartEnd. If not specified, all nodes are starting and arrival nodes. The range of values for parameter inference at each node can be constrained using function˝Node.
+
+In this example we have two states,˝mu0 and˝coll. Both states can be arrival states, but we have fixed the start node to be˝mu0. This node˝mu0 is restricted by˝min = 0 and˝max = 0 using the˝Node function, such that only the zero value can be inferred for any segment in that state. Some default graphs. We included in function˝graph() the possibility to directly build some standard graphs. Here is an example for the isotonic case corresponding to Figure 5: R> graph(type = "isotonic", penalty = 12) state1 state2 type parameter penalty K a min max 1 Iso Iso null 1 0 Inf 0 NA NA 2 Iso Iso up 0 12 Inf 0 NA NA Three other standard graph types are:˝std,˝updown corresponding to Figures 4 and 6 and relevant corresponding to Figure 19. All graphs presented in this paper are available in our package through the function˝paperGraph(), where its first parameter is the figure number.
+
+
+The˝gfpop() function
+
+The˝gfpop() function takes as an input the data and the graph and runs the algorithm. It returns a set of change-points and the non-penalized cost (that is the value of the fit to the data ignoring the penalties for adding changes). It also returns the mean value and the state of each segment. The boolean˝forced value indicates whether a linear inequality constraint is active, which means that the µ t and µ t+1 values lie on the frontier defined by the inequality constraint. Below we illustrate the use of the˝gfpop() function for various graphs and loss functions.
+
+We first simulate data. To do this we use the˝dataGenerator() function provided by the gfpop package. The function generate˝n data-points using a distribution of˝type˝mean (by default),˝poisson,˝exp,˝variance or˝negbin following a change-point model given by relative change-point positions (a vector of increasing values in (0, 1]). Standard deviation parameter sigma and decay˝gamma are specific to the Gaussian mean model, whereas˝size is linked to the R˝rnbinom function from R˝stats package.
+
+Gaussian model with an up-down graph. Here is an example with a Gaussian cost and a standard penalty of 2 log(n) for the up-down graph. We simulate data from a change in mean model with Gaussian observations. R> set.seed(75) R> n <-1000 R> myData <-dataGenerator(n, c(0.1, 0.3, 0.5, 0.8, 1), + c(1, 2, 1, 3, 1), sigma = 1)
+
+This data has 5 segments, with the end of segments at relative positions 0.1, 0.3, 0.5, 0.8 and 1 along the n = 1000 data points; and with segment means being respectively 1, 2, 1, 3 and 1.
+
+R> set.seed(75) R> n <-1000 R> myData <-dataGenerator(n, c(0.1, 0.3, 0.5, 0.8, 1), + c(1, 2, 1, 3, 1), sigma = 1) R> myGraph <-graph(penalty = 2 * log(n), type = "updown") R> gfpop(data = myData, mygraph = myGraph, type = "mean") $changepoints [1] 108 295 500 800 1000 $states [1] "Dw" "Up" "Dw" "Up" "Dw" The call to the˝gfpop function requires specifying the data, the graph that encapsulates the changepoint model, and the type of loss function. Here˝type = "mean" specifies the use of the L2 or biweight loss.
+
+The response contains four vectors. A vector˝changepoints contains the last index of each segment, a vector˝states gives the nodes in which lie the successive parameter values of the parameters vector. The vector˝forced is a vector of booleans of size 'number of segments -1' with entry˝TRUE when the transition between two states (nodes) has been forced. The globalCost is the non-penalized cost.
+
+Gaussian Robust biweight model with an up-down graph. Below we illustrate the use of the biweight loss on data where 10% of the data points are outliers. We shift these data by ±5 using function˝rbinom (4th line of code below). We use the biweight loss with K = 3 and an updown graph with a difference of at least 1 between consecutive means.
+
+R> n <-1000 R> chgtpt <-c(0.1, 0.3, 0.5, 0.8, 1) R> myData <-dataGenerator(n, chgtpt, c(0, 1, 0, 1, 0), sigma = 1) R> myData <-myData + 5 * rbinom(n, 1, 0.05) -5 * rbinom(n, 1, 0.05) R> beta <-2 * log(n) R> myGraph <-graph( + Edge("Dw", "Up", type = "up", penalty = beta, gap = 1, K = 3), + Edge("Up", "Dw", type = "down", penalty = beta, gap = 1, K = 3), + Edge("Dw", "Dw", type = "null", K = 3), + Edge("Up", "Up", type = "null", K = 3), + StartEnd(start = "Dw", end = "Dw")) R> gfpop(data = myData, mygraph = myGraph, type = "mean") The difference between this graph and the one for the previous example is the specification˝K = 3 for each edge. This enforces the use of the biweight loss (with K = 3) as opposed to the L2 loss.
+
+Poisson model with isotonic up graph. We provide an example with a Lin-log cost decomposition with Poisson data constrained to up changes, with the mean at least a doubling at each change.
+
+R> n <-1000 R> chgtpt <-c(0.1, 0.3, 0.5, 0.8, 1) R> myData <-dataGenerator(n, chgtpt, c(1, 3, 5, 7, 12), type = "poisson") R> beta <-2 * log(n) R> myGraph <-graph(type = "isotonic", gap = 2) R> gfpop(data = myData, mygraph = myGraph, type = "poisson") The use of Poisson loss is enforced by˝type = "poisson" in the call to˝gfpop. The graph that describes our change-point model is the default one for isotonic changes, but with the additional constraint on means at least doubling being specified by˝gap = 2.
+
+Negative binomial model with 3-segment graph. The parameters to find are probabilities and we restrict the inference to 3 segments. The optional parameter˝all.null.edges in graph function automatically generates˝null edges for all nodes.
+
+R> myGraph <-graph( + Edge("1", "2", type = "std", penalty = 0), + Edge("2", "3", type = "std", penalty = 0), + StartEnd(start = "1", end = "3"), + all.null.edges = TRUE) R> myData <-dataGenerator(n = 1000, changepoints = c(0.3,0.7,1), + parameters = c(0.2,0.25,0.3), type = "negbin") R> gfpop(myData, myGraph, type = "negbin") 
+
+
+Some additional useful functions in gfpop
+
+Standard deviation estimation. For many real-data-sets examples, we are obliged to estimate the standard deviation from the observed data. This value is then used to normalize the data or to be included in edge penalties. The˝sdDiff() returns such an estimation with the default HALL method [Hall et al., 1990] well suited for time series with change-points.
+
+A plotting function. We defined a plotting function˝plot(), which shows data-points and the results of the˝gfpop() function by using inferred segment parameters and change-points. The user can plot the result in two graphs or only one for˝mean and˝poisson types (see parameter multiple) and has to explicitly use the˝data parameter as in following examples. Example 1:
+
+R> set.seed(86) R> myData <-dataGenerator(1000, c(0.3, 0.4, 0.7, 0.95, 1), + c (1, 3, 1, -1, 4), "mean", sigma = 3) R> s <-sdDiff(myData) R> g <-gfpop(myData, + graph(type = "relevant", gap = 0.5, penalty = 2 * s^2 * log(1000)), + type = "mean") R> plot(x = g, data = myData, multiple = FALSE) Example 2: R> set.seed(86) R> myData <-dataGenerator (1000, c(0.4, 0.8, 1), c(1, 1.3, 2.3), "exp") R> s <-sdDiff(myData) R> g <-gfpop(myData, type = "exp", + graph(type = "isotonic", penalty = 2 * s^2 * log(1000))) R> plot(x = g, data = myData, multiple = TRUE) 
+
+
+Modeling real data with graph-constrained models
+
+In this section we illustrate the use of our package on several real datasets. For each application we illustrate several possible sets of constraints and briefly discuss their relative advantages.
+
+
+Gaussian model for DNA copy number data
+
+We consider DNA copy number data, which are biological measurements that characterize the number of chromosomes in cell samples. Abrupt changes along chromosomes in these data are important indicators of severity in cancers such as neuroblastoma [Schleiermacher et al., 2010]. The non-constrained Gaussian segmentation model has been shown to have state-of-the-art change-point detection accuracy in these data . However, in some high-density copy number data sets, this model incorrectly detects small changes in mean which are not relevant [Hocking and Rigaill, 2012]. One such data set is shown in Figure 11, which also has positive and negative labels from an expert genomic scientist that indicated regions with (1breakpoint) or without (0breakpoints) relevant change-points. We used these labels to quantify the accuracy of three unconstrained Gaussian change-point models with several different penalties β. are forced to be greater than a in absolute value. Below: Four subsets/windows of a DNA copy number profile (panels from left to right) and four change-point models (panels from top to bottom); rectangles show expert-provided labels which are assumed to be a gold standard. Top panel with blue model: abs model with 13 segments enforces the constraint that the absolute value of each change must be at least 1, |µ t+1 − µ t | ≥ 1, which achieves zero label errors in these data. Bottom panels with green models: each model with no constraints between adjacent segment means has label errors (4 false positives for 3 segments, 2 false positives and 1 false negative for 7 segments, 1 false positive for 13 segments). We computed all non-constrained Gaussian models from 1 to 20 segments for these data, and none of them were able to provide change-point predictions that perfectly match the expert-provided labels (each model had at least one false positive or false negative). It is thus problematic to use the unconstrained change-point model in this context, because none of the unconstrained models achieve zero label errors.
+
+To solve this problem we propose a graph (Figure 11, top graph) which enforces only "relevant" change-points |µ t+1 − µ t | ≥ c, for some relevant threshold c > 0. For the DNA copy number data set, we set c = 1 and choose β such that the algorithm returns 13 segments ( Figure 11, top panel with blue model). The proposed model predicts a change-point in each of the positive labels, but does not predict a change-point in the negative label. The proposed graph-constrained change-point model is therefore able to predict change-points that perfectly match the expert-provided labels. If overfitting is a concern with this procedure, we can consider using the two labels in the last region as a test set (105.9-106.5 mega bases), and the other labels as a train set. In that case we chose the penalty with minimal errors with respect to the train set labels, and we observed that the test set label error was also minimized.
+
+
+Gaussian multi-modal regression for neuro spike train data
+
+The so-called AR1 change-point model, where the mean decreases exponentially within each segment has been proposed for detecting spikes in calcium imaging data from neuroscience [Jewell et al., 2020]. We fit this model to one calcium imaging data set ( Figure 12, Right top) and observed that it is difficult to find a parameter that detects both labeled spikes. Red rectangles in Figure 12 indicate labels provided by an electrophysiological method which is taken as ground-truth in order to emphasize the qualitative difference between the two algorithms. Part of the difficulty of the AR1 model is the fact that there are two parameters to tune, the penalty β and also the exponential decay parameter γ. It is more difficult to tune two parameters using grid search because of its quadratic time complexity. Another issues is that a visual inspection of the data suggests that the rate of decay of the mean between spikes may not be constant as assumed by the AR1 model.
+
+We therefore propose a new multi-modal regression model (Isotonic up -Isotonic down graph shown in Figure 12, left) with only one parameter, the penalty β. We can view this model as detecting modes in the data. Each mode consists of a period before-hand where the mean increases followed by a period where then mean decreases. The period where the mean increases can be interpreted as a period of time where a spike occurs, with the periods where the mean decreases modeling the decay in the data after the spike end. The number of detected spikes is equal to the number of regions where the mean increases, and is controlled by the penalty β. We observed that it is easy to find a penalty β which detects both labeled spikes. Overall these results indicate that the proposed multi-modal regression model (Isotonic up -Isotonic down) is promising for spike detection in calcium imaging data. We leave a more extensive quantitative comparison to future work.
+
+
+Gaussian nine-state model for electrocardiogram data
+
+In the context of monitoring hospital patients with heart problems, electrocardiogram (ECG) analysis is one of the most common non-invasive techniques for diagnosing several heart arrhythmia [Afghah et al., 2015].
+
+A preliminary and fundamental step in ECG analysis is the detection of the QRS complex that leads to detecting the heartbeat and classifying the rhythms Mousavi and Afghah [2019].
+
+Here, we utilize the proposed change-point detection method to locate the QRS complex in ECG waveforms. The ECG signals used in this study are extracted from the publicly available Physionet Challenge 2015 database PhysioNet [2015], Clifford et al. [2016] that includes measurements for three physiological signals (including ECG) for 750 patients. The resolution and frequency of each signal are 12bit and 250 Hz, respectively. Also, each signal has been filtered by a finite impulse response (FIR) band pass [0.05 to 40Hz] and mains notch filters.
+# ∅ Up Dw I µt ≥ µ t+1 I µt ≤ µ t+1 I µt ≥ µ t+1 I µt ≤ µ t+1 , β
+Pan-Tompkins algorithm is one of the most common segmentation methods used for ECG analysis [Pan andTompkins, 1985, Agostinelli et al., 2017]. This method uses a patient-specific threshold-based approach for real-time detection of the QRS complex in ECG signals, which represents the ventricular depolarization. In this algorithm, after a pre-processing step by a band-pass filter, the signal is passed through differentiation and squaring blocks to determine and amplify the slope of QRS, followed by a moving window integration step with an adaptive set of thresholds to determine the peaks. The detection thresholds are learned at the beginning of the algorithm and are calibrated periodically to follow the variations of the ECG signal. Figure 14 (top) shows four seconds of ECG data for which we predicted the QRS complex using the well-known Pan-Tompkins method. The peak of each heartbeat should be predicted as R, but the algorithm incorrectly predicts S in two cases. In contrast the peak is correctly classified as R (bottom) using our proposed model with nine states (see Figure 13), which were determined using prior knowledge about the expected sequence of changes. In this model, the QRS complex is modeled by an up-spike followed by a down spike with the maximum amplitude difference related to adjacent spikes. The graph model considers a vertex for each main waveform(i.e., P, Q, R, S, T) as well as three baselines, which are intermediate states [Fotoohinasab et al., 2021].
+
+
+Isotonic regression using constraint graph with robust loss
+
+Our package can be used with robust loss functions which have been shown to be useful in the presence of outliers [Fearnhead and Rigaill, 2019] and in particular in the context of isotonic regression [Bach, 2018]. Here we illustrate this on simulations inspired by those of Bach [2018] (see Figure 15 with corrupted data). We compare our package using the isotonic model described in Figure 5 with several implementations of the PAVA algorithm [Best andChakravarti, 1990, De Leeuw et al., 2010].
+
+Relative to the very fast O(n) PAVA, our dynamic programming algorithm is slower. How-
+O 1 Q R S O 2 O 3 O 4 O 5 O 6 β ∆µ t ≤ 0 ∆ µ t ≥ 2 ∆µt ≤ 5 ∆ µ t ≥ 2 ∆ µ t ≥ 1 ∆µ t ≥ 0 ∆µ t ≤ 0 ∆µ t ≤ 0 ∆ µ t ≥ 0
+Figure 13: Graph structure of proposed nine-state constrained change-point model. The graph is cyclic: the last node O 1 is the first node O 1 . Only one transition (from O 1 to Q) to enter the QRS complex is penalized by a positive penalty β = 8 × 10 3 . We used the notation ∆µ t = µ t+1 − µ t . Transitions from state Q to state O 3 are constrained with a minimal gap size of 2, 5, 2 and 1. Due to lack of space, we removed the indicator function I on this graph. Dashed arrows correspond to I µt=µ t+1 transitions. The vertical position of the states gives information on the direction of the constrained changes. Figure 14: In these electrocardiogram data, it is important for models (blue) to accurately detect the QRS complex (Q is before the peak, R is the peak marked in red, S is the local minimum after the peak, other states o1-o6). Top: Previous model of Pan and Tompkins [1985] mistakenly predicts S at the peak. Bottom: proposed constrained change-point model accurately predicts R at each peak.
+
+ever, PAVA only works for the square loss and the non-penalized model (maximum number of changes). In contrast,˝gfpop() can handle non-convex losses (such as the biweight loss) and can include a positive penalty in order to reduce the number of changes.
+
+
+Parametrization
+
+gfpop. In all simulations we used gfpop with the graph of Figure 5 and a quadratic (L2) or a biweight loss (bw). We considered two different values for the penalty β: 0 and 2σ 2 log(n), with σ 2 the true variance. Thus, we have 4 different algorithms of the˝gfpop() function:˝gfpop1 (β = 0, K = 0),˝gfpop2 (β = 2σ 2 log(n), K = 0),˝gfpop3 (β = 0, K = 3σ) and˝gfpop4 (β = 2σ 2 log(n), K = 3σ).
+
+Competitors. We compared the output of gfpop with those of 2 isotonic regression package functions:
+
+•˝isoreg() function of the stats package which is based on the very fast Pool adjacent violators algorithm for the 2 loss [Best and Chakravarti, 1990];
+
+•˝reg˝1d() function developed in package UniIsoRegression which solves the isotonic regression problem for the 2 and 1 losses [Stout, 2008].
+
+We also include a simple linear regression approach (˝lm() function of the stats package) as a reference. In total we have 4 competitors (˝lm(),˝isoreg(),˝reg˝1d() with the 2 and 1 losses).
+
+
+Simulated data
+
+We focused on two types of increasing signals:
+
+linear: as in Bach [2018] we consider linearly increasing time series with a signal
+s i = α(i − n 2 ) i = 1, ..., n ;
+step-wise: as our package is devoted to change-point inference we also consider a step-wise increasing series (with 10 steps) with a signal s i = 10(i − 1) n − n 2 , i = 1, ..., n .
+
+We consider three ways to corrupt the data.
+
+Gaussian noise: here we simply add a Gaussian noise, with a variance σ 2 to the signal (i.e., Y i = s i + ε i ).
+
+Student noise: we also considered a Student noise with a degree of freedom equal to 3.
+
+Corrupted noise: in the most difficult scenario, suggested by Bach [2018], we randomly select a proportion p of data-points and multiply them by −1 and then add a Gaussian noise, i.e.,
+Y i = X i s i + ε i , where X i ∼ B(p)
+is a Bernoulli trial with probability p to get −1 and probability 1 − p to get 1. We fix p = 0.3 for all simulations.
+
+In total we have 6 scenarios (2 signals and 3 ways to corrupt the data). In Figure 15 we illustrate those 6 scenarios with n = 10 4 and σ = 10, which is an example of time series used in following simulations.
+
+
+Criteria.
+
+To assess the quality of the results, we compute the Mean-Squared Error (MSE) as well as the ability to recover the true number of changes when there are changes in the data in the step-wise scenario. Figure 15: For the two types of signal, we show simulated data with n = 10 4 data-points and σ = 10 for the three different noises (Gauss, Student, corrupted).
+
+
+A simple illustration
+
+We illustrate our results on a step-wise increasing signal with corrupted data. In Figure 16, we represent the data and the results of various approaches. We see that using a biweight loss our package in blue is closer to the true signal in black than other approaches. Figure 16: Isotonic regression with 30% of corrupted data in step-wise scenario with 10 steps. We have 10 4 data-points and σ = 10.˝gfpop4() is close to the signal and with a number of segments equal to 10.
+
+In Appendix we considered Monte-Carlo simulations to confirm this result: see Section D.1 for the linear increasing scenario and Section D.2 for the step-wise increasing scenario. As expected, recovering the true number of changes with corrupted data with also a small MSE is a challenging task for all methods excepted for˝gfpop4() using a robust loss, a positive penalty and the isotonic constraint graph. The R code of these simulations can be found on the Github page https://github.com/vrunge/gfpop/tree/master/simulations.
+
+
+Conclusion
+
+In this paper we described the gfpop package, which provides a generalized version of an algorithm recently proposed by  for penalized maximum likelihood inference of constrained multiple change-point models. The gfpop package implements the algorithm in a generic manner in R/C++ and allows the user to specify the constraint graph in R code. We explained how these constrained multiple change-point models can also be seen as constrained continuous state space HMM. gfpop allows one to encode modeling assumptions on the type of changes using a graph of states and constraints. We illustrated the use of gfpop on isotonic simulations and several applications in biology.
+
+For a number of graphs the algorithm runs in a matter of seconds or minutes for 10 5 datapoints. While gfpop can be used to fit simple change-point models, such as the standard change in mean in Gaussian data, it is slower than fpop which implements functional programming specifically for that model: For example, for 10 5 points with no change fpop runs in 0.031 seconds and gfpop in 0.35 seconds. This is because the gfpop is coded in a more generic manner, as it handles constraints and various losses. As we illustrated with numerous examples, the advantage of gfpop is that it allows one to include constraints and/or unconventional losses, and thus fit a range of change-point models that cannot be fit by other generic software.
+
+Future Work. For future work we are interested to explore generalizations which allow timedependent constraints. As mentioned in Section 2.2 our implementation only allows inference in models that can be represented by a collapsed graph with transitions that are valid for all time points. We are interested in exploring new frameworks for defining which transitions and/or states are feasible at which time points, in order to efficiently support inference in models such as Labeled Optimal Partitioning [Dylan Hocking and Srivastava, 2020]. There are a number of other extensions of gfpop that are possible, including allowing local fluctuations in the parameter between change-points and modeling auto-correlated noise -these can be both be incorporated using ideas from Romano et al. [2021]. Another extension would be to consider the detection of change-points in trees as proposed in chapter three of the Ph.D. thesis of Thépaut [2019]. Furthermore, the underlying˝gfpop algorithm is sequential and thus can be adapted to allow for online change-point detection.
+
+
+A Some other graphs
+
+Here are three graphs for models discussed in the main part of the paper. Note that the value of µ 0 is given and that the loss function is either the 2 or the biweight bw. The penalty is omitted when equal to zero. Figure 18: Graph for the at least 3 data-point per segment model. We have S = {W ait 1 , W ait 2 , Seg}, the loss function is always the 2 . The penalty is omitted when equal to zero. Below we provide a few other constraint models and their graphs.
+# ∅ Coll µ 0 I µt=µ t+1 , bw I µt =µ t+1 , 2 , β I µt =µ t+1 , bw I µt=µ t+1 , 2# ∅ Seg Wait 1 Wait 2 I µt=µ t+1 I µt =µ t+1 , β I µ t = µ t + 1 I µ t = µ t + 1# ∅ 1 I µt=µ t+1 I |µt−µ t+1 |≥c , β
+• (Up -Down Relevant) It might make sense to consider sufficiently large changes. This is a simple modification of the Up -Down model (see Figure 6). The Dw to U p constraint I µt≤µ t+1 can be replaced by I c+µt≤µ t+1 for c > 0 or I aµt≤µ t+1 for a > 1 if µ t are positive. The graph is shown in Figure 20.
+
+• (Up -Down with at least two data-points) If one wants to detect peaks and is certain that segments are at least of length 2 it suffices to add two waiting states in the Up -Down graph. The graph of this model is given Figure 21.
+
+• (Up -Isotonic Down) In the pulse detection example (Up -Exponentially Down model in Figure 7) if one is not sure of the exponential decrease it could make sense to consider an isotonic decrease. For this it suffices to consider two states S = {U p, Dw}. Compared to the Up -Down model, described earlier, we add an additional transition from Dw to Dw with the constraint I µt≥µ t+1 . The graph of this model is given in Figure 22.
+
+• (Isotonic Up -Isotonic Down) In the previous model one considers a sharp transition up. It might make sense to consider an isotonic increase. For this it suffices to add an edge from U p to U p in the previous model. Only transitions from U p to Dw and Dw to U p are penalized. The graph of this model is given in Figure 23.
+
+∅ .
+
+
+Up Dw
+I µ t = µ t + 1 I µt=µ t+1
+I µt ≥ µ t+1 +c , β I µt=µ t+1 I µt+c ≤ µ t+1 , β 
+
+
+D Simulation results for isotonic regression D.1 Linear signal
+
+We simulate 100 linearly increasing time series and compute the mean of the MSE for each noise structure. The results are in Table 1. We highlight in bold the two best results in each row and also give the standard deviation (SD).
+
+In the Gaussian case the 2 isotonic regression and˝gfpop1 (with β = 0 and K = ∞) are better. For the Student and for the Corrupted scenarios the robust biweight loss with β = 0 is performing better in terms of MSE. Note that it is however much slower than PAVA. Including a penalty for change-points (β 0 = 2σ 2 log(n)) deteriorates the results. This make sense as there are in fact no change-points in the data. (ŝ i − s i ) 2 for different algorithms on linear simulations with its empirical standard deviation (SD). We consider three types of noise: Gaussian, Student and corrupted.
+
+
+D.2 Iso-step signal
+
+We simulate 100 step-wise increasing time series with 10 segments and compute the mean of the MSE for each noise structure. The results are in Table 2. We highlight in bold the two best results in each row and also give the standard deviation (SD).
+
+In Gaussian and Student cases the penalized algorithms˝gfpop3 and˝gfpop4 with β = β 0 = 2σ 2 log(n) are better. For the corrupted scenario, we need the robust loss of algorithms gfpop2 and˝gfpop4 to get a much better MSE than other approaches. To confirm the benefit of using a penalized approach in Student case, we plot the distribution of the MSE for the five best algorithms in Figure 24.
+
+We also compare the ability of the different methods to estimate the number of steps. The average number of steps over 100 simulations is reported in Table 3. Only the penalized algorithms are able to recover the true number of steps (10). The choice of a good penalty in isotonic simulations is an area of ongoing research in statistics [Gao et al., 2020].  (ŝ i − s i ) 2 for different algorithms on stepwise simulations with its empirical standard deviation (SD). We consider three types of noise: Gaussian, Student and corrupted.   Table 3: Mean number of segments over 100 simulations with 10 4 data-points for different algorithms on step-wise simulations. We consider three types of noise: Gaussian, Student and corrupted.
+
+Figure 1 :
+1Multiple change-point model as a Hidden Markov Model.
+
+Figure 4 :Figure 5 :
+45Collapsed graph of constraints for the standard multiple change-point model. We have S = {1}. The loss function is always the 2 . The penalty is omitted when equal to zero. (Left) Collapsed graph of constraints for the isotonic change-point model. We have S = {1}, the loss function is always the 2 . The penalty is omitted when equal to zero. (Right) In red, a piecewise constant function validating the graph of constraints.
+
+Figure 6 :Figure 7 :
+67(Top) Graph for the up-down change-point model proposed inHocking et al. [2015]. We have S = {U p, Dw}, the loss function is always the 2 . The penalty is omitted when equal to zero. (Bottom) In red, a piecewise constant function validating the graph of constraints. The penalty is omitted when equal to zero. (Top) Graph for the up -exponential decrease change-point model proposed inJewell et al. [2020]. We have S = {Dw α }, the loss function is always the 2 . The penalty is omitted when equal to zero. (Bottom) In red, a function validating the graph of constraints.
+
+
+(see Fisch et al. [2018]):
+
+Figure 10 :
+10The red piecewise constant signal is the µ vector find by the˝gfpop() function, the blue vertical lines indicate the change-point positions. They are built using response vectors changepoints and˝parameters. The left graph presents the result of example 1, the right graph of example 2.
+
+Figure 11 :
+11Top graph: Relevant change-point model; all changes
+
+•
+The model with 13 segments predicts a change-point in each positive label (0/6 false negatives), but predicts one change-point in the negative label (1 false positive), for a total of 1 incorrectly predicted label. (bottom panel)• The model with 7 segments predicts a change-point in four positive labels (2/6 false negatives), and also predicts the false positive change-point in the negative label, for a total of 3 incorrectly predicted labels. (second panel from bottom)• The model with 3 segments predicts a change-point in only two positive labels (4/6 false negatives), and predicts no change-point in the negative label (0/1 false positive), for a total of 4 incorrectly predicted labels. (second panel from top)
+
+Figure 12 :
+12Left: Graph for multi-modal regression. Right top: In these data the previously proposed AR1 model misses a spike in the left label (false negative) and predicts two spikes where there should be only one in the right label (false positive). Right bottom: The proposed multi-modal regression model correctly detects one spike in all the labeled regions.
+
+Figure 17 :
+17Graph for the model proposed in Fisch et al. [2018] We have S = {µ 0 , Coll}.
+
+Figure 19 :
+19Graph for relevant change-point model. We have S = {1}, the loss function is always the 2 . The penalty is omitted when equal to zero.
+
+Figure 20 :Figure 21 :Figure 22 :Figure 23 :
+20212223Graph for the Up-Down relevant model.We have S = {U p, Dw}, the loss function is always the 2 . The penalty is omitted when equal to zero. Graph for the Up-Down model with segments of size at least 2. We have S = {Up1, Up, Dw1, Dw}. The loss function is always the 2 or the Poisson. The penalty is omitted when equal to zero. (Top) Graph for the up-down* change-point model. We have S = {Dw, U p}, the loss function is always the 2 . The penalty is omitted when equal to zero. (Bottom) In red, a piecewise constant function validating the graph of constraints. Graph for the up*-down* change-point model. We have S = {Dw, U p}, the loss function is always the 2 . The penalty is omitted when equal to zero.
+
+Figure 24 :
+24Violin plots of the MSE for iso-step simulations with Student noise. The shape of the distribution is very similar for the 5 best methods considered.
+
+
+Each data-point can be weighted using parameter˝weights in˝gfpop function. It can be useful to gather consecutive identical values for count data time-series in order to speed-up the change-point analysisCleynen et al. [2014].$changepoints 
+[1] 300 714 1000 
+
+$states 
+[1] "1" "2" "3" 
+
+$forced 
+[1] FALSE FALSE 
+
+$parameters 
+[1] 0.2117808 0.2652162 0.3212748 
+
+$globalCost 
+[1] 2193.216 
+
+attr(,"class") 
+[1] "gfpop" "negbin" 
+
+
+
+
+Table 1: Mean squared errors MSE = 1Isolinear 
+linear˝isoreg˝reg˝1d˝reg˝1d˝gfpop1˝gfpop2˝gfpop3˝gfpop4 
+simulations 
+fit 
+
+2 
+1 
+2 
+
+β = 0 
+β = 0 
+β = β 0 
+β = β 0 
+
+2 
+
+K = 3σ 
+
+2 
+
+K = 3σ 
+Gauss 
+MSE 
+0.0190 
+0.714 
+0.712 
+1.08 
+0.826 
+0.931 
+2.60 
+3.10 
+(SD) 
+(0.020) (0.098) 
+(0.098) 
+(0.17) 
+(0.15) 
+(0.13) 
+(0.27) 
+(0.30) 
+Student 
+MSE 
+0.0185 
+0.683 
+0.681 
+0.550 
+0.780 
+0.555 
+2.56 
+2.57 
+(SD) 
+(0.19) 
+(0.12) 
+(0.12) 
+(0.077) 
+(0.17) 
+(0.076) 
+(0.24) 
+(0.22) 
+Corrupted 
+MSE 
+299 
+298 
+298 
+28.7 
+294 
+4.05 
+301 
+7.23 
+(SD) 
+(9.1) 
+(8.8) 
+(8.8) 
+(2.2) 
+(11) 
+(0.63) 
+(8.9) 
+(0.89) 
+
+n 
+
+n 
+
+i=1 
+
+Table 2 :
+2Mean squared errors MSE = 1n 
+
+n 
+
+i=1 
+To be clear, in that case the log-likelihood is 1 2 log( 1 σ 2 ) − y t 2σ 2 and we get the Lin-Log decomposition by taking θ = 1 σ 2
+B Update-rule proofWe recall here the update-rule (2) given at the end of Section 3.2. O s,s n (θ) + γ (s,s ) (y n+1 , θ) + β(s,s ).We name the path and vector realizing the best cost Q s n+1 (θ), defined in Equation 1, p * and µ * . We call s * the corresponding vector of states. We have s * n+1 = s , µ * n+1 = θ andWe will first show that n t=1 γ e * t (y t , µ * t ) + β e * t = Q s * n n (µ * n ) = O s * n ,s n (θ).(Proof) Restricting the path p * and the vector µ * to their first n elements, by definition of Q s * n n (µ * n ) we have n t=1 γ e * t (y t , µ * t ) + β e * t ≥ Q s * n n (µ * n ). Also, given that a move from parameter µ * n to θ is a valid transition from state s * n to s and by the definition of O. We will now proceed by contradiction. Let us assume that. We name the path and vector realizing the O s * n ,s n (θ) p + and µ + . Extending this path and vector to n + 1 with s + n+1 = s and µ + n+1 = θ we get a better cost than p * for Q s n+1 (θ) which is a contradiction.So we have Q s n+1 (θ) = O s * n ,s n (θ) + γ (s,s ) (y n+1 , θ) + β (s * n ,s ) , and considering all possible states at time n we get the update-rule.C BacktrackingAfter running the Viterbi-like algorithm with update-rule 2, we need a backward procedure called backtracking to return the optimal change-point vector. First, we recover using Algorithm 1 the optimal vector of statesŝ ∈ {1, ..., S} n and vector of meansμ ∈ R n . We then find the best change-point vectorτ ⊂ {1, ..., n} with Algorithm 2. The basic idea of Algorithm 1 is that if we knewŝ t+1 andμ t+1 we could recover firstŝ t and thenμ t taking the argmin of the update-rule (see lines 8 and 9 of Algorithm 1).Algorithm 1 Backtrackingŝ andμ 1: procedure Backtrack((Q 1 1 , ..., Q S 1 ), ..., (Q 1 n , ..., Q S n )) 2:μ ← empty vector of size n 3:ŝ ← empty vector of size n 4: (ŝ n ,μ n ) = argmin(s,µ){Q s n (µ)}5:We can impose a subset of arrival statesS ⊂ {1, ..., S} 6:Ifμ t is such that the constraint is active, 10:we have 'forced = TRUE' in˝gfpop() response 11: end for 12: return (ŝ,μ)The obtained vectorsŝ andμ are simplified removing repetitions of consecutive identical states or values: i.e.,ŝ t = σ 0 andμ t = m 0 γ t 2 −t for t = t 1 , ..., t 2 (including the case of exponential decay with parameter γ and γ = 1 if no decay). In that case, the index t 2 is an element of the change-point vector and m 0 its associated segment parameter. The vector of change-points can be built by a linear-in-time procedure described in Algorithm 2.Algorithm 2 Change-point vector 1: procedure Change-point(ŝ,μ) 2:τ ← N U LL 3: t ← n + 1 4: while t > 1 do 5:τ ← (t − 1,τ ) 6:while (ŝ t−1 , γμ t−1 ) = (ŝ t ,μ t ) do 7:t ← t − 1 8: end while 9: end while 10: returnτ Notice thatτ is the˝changepoints vector returned by the˝gfpop() function. Restrictingŝ andμ vectors to positions inτ , these vectors are respectively the˝states and the˝parameters vectors.
+Constrained dynamic programming and supervised penalty learning algorithms for peak detection in genomic data. Toby Dylan Hocking, Guillem Rigaill, Paul Fearnhead, Guillaume Bourque, Journal of Machine Learning Research. 2187Toby Dylan Hocking, Guillem Rigaill, Paul Fearnhead, and Guillaume Bourque. Constrained dynamic programming and supervised penalty learning algorithms for peak detection in genomic data. Journal of Machine Learning Research, 21(87):1-40, 2020.
+
+Selective review of offline change point detection methods. Charles Truong, Laurent Oudre, Nicolas Vayatis, Signal Processing. 167107299Charles Truong, Laurent Oudre, and Nicolas Vayatis. Selective review of offline change point detection methods. Signal Processing, 167:107299, 2020.
+
+A cluster analysis method for grouping means in the analysis of variance. J Alastair, M Scott, Knott, Biometrics. 303Alastair J Scott and M Knott. A cluster analysis method for grouping means in the analysis of variance. Biometrics, 30(3):507-512, 1974.
+
+Circular binary segmentation for the analysis of array-based DNA copy number data. Adam B Olshen, Robert Venkatraman, Michael Lucito, Wigler, Biostatistics. 54Adam B Olshen, ES Venkatraman, Robert Lucito, and Michael Wigler. Circular binary segmen- tation for the analysis of array-based DNA copy number data. Biostatistics, 5(4):557-572, 2004.
+
+Wild binary segmentation for multiple change-point detection. Piotr Fryzlewicz, Annals of Statistics. 426Piotr Fryzlewicz. Wild binary segmentation for multiple change-point detection. Annals of Statistics, 42(6):2243-2281, 2014.
+
+Multiscale change point inference. Klaus Frick, Axel Munk, Hannes Sieling, Journal of the Royal Statistical Society B. 763Klaus Frick, Axel Munk, and Hannes Sieling. Multiscale change point inference. Journal of the Royal Statistical Society B, 76(3):495-580, 2014.
+
+A MOSUM procedure for the estimation of multiple random change points. Birte Eichinger, Claudia Kirch, Bernoulli. 241Birte Eichinger and Claudia Kirch. A MOSUM procedure for the estimation of multiple random change points. Bernoulli, 24(1):526-564, 2018.
+
+wbs: Wild Binary Segmentation for multiple change-point detection. R Baranowski, P Fryzlewicz, R package version 1.4.R Baranowski and P Fryzlewicz. wbs: Wild Binary Segmentation for multiple change-point detection, 2014. R package version 1.4.
+
+Narrowest-over-threshold detection of multiple change points and change-point-like features. Rafal Baranowski, Yining Chen, Piotr Fryzlewicz, Journal of the Royal Statistical Society B. 813Rafal Baranowski, Yining Chen, and Piotr Fryzlewicz. Narrowest-over-threshold detection of multiple change points and change-point-like features. Journal of the Royal Statistical Society B, 81(3):649-672, 2019.
+
+breakfast: Methods for fast multiple change-point detection and estimation. Andreas Anastasiou, Yining Chen, Haeran Cho, Piotr Fryzlewicz, Andreas Anastasiou, Yining Chen, Haeran Cho, and Piotr Fryzlewicz. breakfast: Methods for fast multiple change-point detection and estimation, 2020. URL https://CRAN.R-project. org/package=breakfast. R package version 2.1.
+
+stepR: Multiscale changepoint inference. Florian Pein, Thomas Hotz, Hannes Sieling, Timo Aspelmeier, Florian Pein, Thomas Hotz, Hannes Sieling, and Timo Aspelmeier. stepR: Multiscale change- point inference, 2020. URL https://CRAN.R-project.org/package=stepR. R package ver- sion 2.1-1.
+
+mosum: A package for moving sums in change point analysis. Alexander Meier, Claudia Kirch, Haeran Cho, Journal of Statistical Software. to appearAlexander Meier, Claudia Kirch, and Haeran Cho. mosum: A package for moving sums in change point analysis. Journal of Statistical Software, to appear, 2021.
+
+Relating and comparing methods for detecting changes in mean. Paul Fearnhead, Guillem Rigaill, Stat. 91291Paul Fearnhead and Guillem Rigaill. Relating and comparing methods for detecting changes in mean. Stat, 9(1):e291, 2020.
+
+Algorithms for the optimal identification of segment neighborhoods. E Ivan, Charles E Auger, Lawrence, Bulletin of Mathematical Biology. 511Ivan E Auger and Charles E Lawrence. Algorithms for the optimal identification of segment neighborhoods. Bulletin of Mathematical Biology, 51(1):39-54, 1989.
+
+An algorithm for optimal partitioning of data on an interval. Brad Jackson, D Jeffrey, David Scargle, Sundararajan Barnes, Alina Arabhi, Peter Alt, Elyus Gioumousis, Paungkaew Gwin, Linda Sangtrakulcharoen, Tun Tao Tan, Tsai, IEEE Signal Processing Letters. 122Brad Jackson, Jeffrey D Scargle, David Barnes, Sundararajan Arabhi, Alina Alt, Peter Giou- mousis, Elyus Gwin, Paungkaew Sangtrakulcharoen, Linda Tan, and Tun Tao Tsai. An algorithm for optimal partitioning of data on an interval. IEEE Signal Processing Letters, 12(2):105-108, 2005.
+
+Optimal detection of changepoints with a linear computational cost. Rebecca Killick, Paul Fearnhead, Eckley, Journal of the American Statistical Association. 107500Rebecca Killick, Paul Fearnhead, and Idris A Eckley. Optimal detection of changepoints with a linear computational cost. Journal of the American Statistical Association, 107(500):1590- 1598, 2012.
+
+A pruned dynamic programming algorithm to recover the best segmentations with 1 to k max change-points. Guillem Rigaill, Journal de la Société Française de Statistique. 1564Guillem Rigaill. A pruned dynamic programming algorithm to recover the best segmentations with 1 to k max change-points. Journal de la Société Française de Statistique, 156(4):180- 205, 2015.
+
+On optimal multiple changepoint algorithms for large data. Robert Maidstone, Toby Hocking, Guillem Rigaill, Paul Fearnhead, Statistics and Computing. 272Robert Maidstone, Toby Hocking, Guillem Rigaill, and Paul Fearnhead. On optimal multiple changepoint algorithms for large data. Statistics and Computing, 27(2):519-533, 2017.
+
+Seg-mentor3IsBack: an R package for the fast and exact segmentation of seq-data. Alice Cleynen, Michel Koskas, Emilie Lebarbier, Guillem Rigaill, Stéphane Robin, Algorithms for Molecular Biology. 91Alice Cleynen, Michel Koskas, Emilie Lebarbier, Guillem Rigaill, and Stéphane Robin. Seg- mentor3IsBack: an R package for the fast and exact segmentation of seq-data. Algorithms for Molecular Biology, 9(1):1-11, 2014.
+
+jointseg: Joint segmentation of multivariate (copy number) signals. Morgane Pierre-Jean, Guillem Rigaill, Pierre Neuvial, R package version 1.0.2Morgane Pierre-Jean, Guillem Rigaill, and Pierre Neuvial. jointseg: Joint segmentation of multivariate (copy number) signals, 2019. URL https://CRAN.R-project.org/package= jointseg. R package version 1.0.2.
+
+PeakSeg: constrained optimal segmentation and supervised penalty learning for peak detection in count data. Toby Hocking, Guillem Rigaill, Guillaume Bourque, International Conference on Machine Learning. PMLRToby Hocking, Guillem Rigaill, and Guillaume Bourque. PeakSeg: constrained optimal seg- mentation and supervised penalty learning for peak detection in count data. In International Conference on Machine Learning, pages 324-332. PMLR, 2015.
+
+Generalized functional pruning optimal partitioning (gfpop) for constrained changepoint detection in genomic data. Toby Dylan Hocking, Guillem Rigaill, Paul Fearnhead, Guillaume Bourque, 10.18637/jss.v101.i10Journal of Statistical Software. 10110Toby Dylan Hocking, Guillem Rigaill, Paul Fearnhead, and Guillaume Bourque. Generalized functional pruning optimal partitioning (gfpop) for constrained changepoint detection in genomic data. Journal of Statistical Software, 101(10):1-31, 2022. doi: 10.18637/jss.v101.i10. URL https://www.jstatsoft.org/index.php/jss/article/view/v101i10.
+
+Machine learning algorithms for simultaneous supervised detection of peaks in multiple samples and cell types. Toby Dylan Hocking, Guillaume Bourque, Proc. Pacific Symposium on Biocomputing. Pacific Symposium on Biocomputing25Toby Dylan Hocking and Guillaume Bourque. Machine learning algorithms for simultaneous supervised detection of peaks in multiple samples and cell types. In Proc. Pacific Symposium on Biocomputing, volume 25, pages 367-378, 2020.
+
+Fast nonconvex deconvolution of calcium imaging data. Sean Jewell, Toby Dylan Hocking, Paul Fearnhead, Daniela Witten, Biostatistics. 214Sean Jewell, Toby Dylan Hocking, Paul Fearnhead, and Daniela Witten. Fast nonconvex deconvolution of calcium imaging data. Biostatistics, 21(4):709-726, 2020.
+
+Statistical inference under order restrictions: The theory and application of isotonic regression. E Richard, David J Barlow, James M Bartholomew, Bremner, Brunk, ReportDefense Technology Information CentreRichard E Barlow, David J Bartholomew, James M Bremner, and H Daniel Brunk. Statis- tical inference under order restrictions: The theory and application of isotonic regression. Technical report, 1972. Defense Technology Information Centre, Report AD0751311.
+
+Active set algorithms for isotonic regression; a unifying framework. J Michael, Nilotpal Best, Chakravarti, Mathematical Programming. 471-3Michael J Best and Nilotpal Chakravarti. Active set algorithms for isotonic regression; a unifying framework. Mathematical Programming, 47(1-3):425-439, 1990.
+
+On estimation of isotonic piecewise constant signals. Chao Gao, Fang Han, Cun-Hui Zhang, Annals of Statistics. 482Chao Gao, Fang Han, and Cun-Hui Zhang. On estimation of isotonic piecewise constant signals. Annals of Statistics, 48(2):629-654, 2020.
+
+Isotone optimization in r: pool-adjacentviolators algorithm (pava) and active set methods. Jan De Leeuw, Kurt Hornik, Patrick Mair, Journal of statistical software. 32Jan De Leeuw, Kurt Hornik, and Patrick Mair. Isotone optimization in r: pool-adjacent- violators algorithm (pava) and active set methods. Journal of statistical software, 32:1-24, 2010.
+
+Unimodal regression via prefix isotonic regression. F Quentin, Stout, Computational Statistics and Data Analysis. 532Quentin F Stout. Unimodal regression via prefix isotonic regression. Computational Statistics and Data Analysis, 53(2):289-297, 2008.
+
+Changepoint detection in the presence of outliers. Paul Fearnhead, Guillem Rigaill, Journal of the American Statistical Association. 114525Paul Fearnhead and Guillem Rigaill. Changepoint detection in the presence of outliers. Journal of the American Statistical Association, 114(525):169-183, 2019.
+
+Efficient algorithms for non-convex isotonic regression through submodular optimization. Francis Bach, NIPS'18: Proceedings of the 32nd International Conference on Neural Information Processing Systems. Francis Bach. Efficient algorithms for non-convex isotonic regression through submodular op- timization. In NIPS'18: Proceedings of the 32nd International Conference on Neural Infor- mation Processing Systems, pages 1-10, 2018.
+
+A linear time method for the detection of point and collective anomalies. Alexander Tristan , Maximilian Fisch, Idris Arthur Eckley, Paul Fearnhead, arXiv:1806.01947Alexander Tristan Maximilian Fisch, Idris Arthur Eckley, and Paul Fearnhead. A linear time method for the detection of point and collective anomalies, 2018. arXiv:1806.01947.
+
+Detecting relevant changes in time series models. Holger Dette, Dominik Wied, Journal of the Royal Statistical Society B. 782Holger Dette and Dominik Wied. Detecting relevant changes in time series models. Journal of the Royal Statistical Society B, 78(2):371-394, 2016.
+
+A statistical approach for array CGH data analysis. Franck Picard, Stephane Robin, Marc Lavielle, Christian Vaisse, Jean-Jacques Daudin, BMC bioinformatics. 6127Franck Picard, Stephane Robin, Marc Lavielle, Christian Vaisse, and Jean-Jacques Daudin. A statistical approach for array CGH data analysis. BMC bioinformatics, 6(1):27, 2005.
+
+Least-squares estimation of a step function. Yi- , Ching Yao, Siu-Tong Au, Sankhyā: The Indian Journal of Statistics, Series A. 513Yi-Ching Yao and Siu-Tong Au. Least-squares estimation of a step function. Sankhyā: The Indian Journal of Statistics, Series A, 51(3):370-381, 1989.
+
+A modified bayes information criterion with applications to the analysis of comparative genomic hybridization data. R Nancy, David O Zhang, Siegmund, Biometrics. 631Nancy R Zhang and David O Siegmund. A modified bayes information criterion with appli- cations to the analysis of comparative genomic hybridization data. Biometrics, 63(1):22-32, 2007.
+
+Detecting multiple change-points in the mean of gaussian process by model selection. Emilie Lebarbier, Signal processing. 854Emilie Lebarbier. Detecting multiple change-points in the mean of gaussian process by model selection. Signal processing, 85(4):717-736, 2005.
+
+Gaussian model selection with an unknown variance. Yannick Baraud, Christophe Giraud, Sylvie Huet, The Annals of Statistics. 372Yannick Baraud, Christophe Giraud, and Sylvie Huet. Gaussian model selection with an unknown variance. The Annals of Statistics, 37(2):630-672, 2009.
+
+Efficient penalty search for multiple changepoint problems. Kaylea Haynes, A Idris, Paul Eckley, Fearnhead, Journal of Computational and Graphical Statistics. 261Kaylea Haynes, Idris A Eckley, and Paul Fearnhead. Efficient penalty search for multiple changepoint problems. Journal of Computational and Graphical Statistics, 26(1):134-143, 2017.
+
+Learning sparse penalties for change-point detection using max margin interval regression. Guillem Rigaill, D Toby, Jean-Philippe Hocking, Francis Vert, Bach, Proc. 30th ICML. 30th ICMLGuillem Rigaill, Toby D Hocking, Jean-Philippe Vert, and Francis Bach. Learning sparse penalties for change-point detection using max margin interval regression. In Proc. 30th ICML, pages 172-180, 2013.
+
+Asymptotically optimal difference-based estimation of variance in nonparametric regression. Peter Hall, D M Kay, Titterinton, Biometrika. 773Peter Hall, JW Kay, and DM Titterinton. Asymptotically optimal difference-based estimation of variance in nonparametric regression. Biometrika, 77(3):521-528, 1990.
+
+Accumulation of segmental alterations determines progression in neuroblastoma. Gudrun Schleiermacher, Isabelle Janoueix-Lerosey, Agnès Ribeiro, Jerzy Klijanienko, Jérôme Couturier, Gaëlle Pierron, Véronique Mosseri, Alexander Valent, Nathalie Auger, Dominique Plantaz, Hervé Rubie, Dominique Valteau-Couanet, Franck Bourdeaut, Valérie Combaret, Christophe Bergeron, Jean Michon, Olivier Delattre, 10.1200/JCO.2009.26.795520516441Journal of Clinical Oncology. 2819Gudrun Schleiermacher, Isabelle Janoueix-Lerosey, Agnès Ribeiro, Jerzy Klijanienko, Jérôme Couturier, Gaëlle Pierron, Véronique Mosseri, Alexander Valent, Nathalie Auger, Dominique Plantaz, Hervé Rubie, Dominique Valteau-Couanet, Franck Bourdeaut, Valérie Combaret, Christophe Bergeron, Jean Michon, and Olivier Delattre. Accumulation of segmental al- terations determines progression in neuroblastoma. Journal of Clinical Oncology, 28(19): 3122-3130, 2010. doi: 10.1200/JCO.2009.26.7955. PMID: 20516441.
+
+Learning smoothing models of copy number profiles using breakpoint annotations. Toby Dylan Hocking, Gudrun Schleiermacher, Isabelle Janoueix-Lerosey, Valentina Boeva, Julie Cappo, Oliver Delattre, Francis Bach, Jean-Philippe Vert, BMC Bioinformatics. 14164Toby Dylan Hocking, Gudrun Schleiermacher, Isabelle Janoueix-Lerosey, Valentina Boeva, Julie Cappo, Oliver Delattre, Francis Bach, and Jean-Philippe Vert. Learning smoothing models of copy number profiles using breakpoint annotations. BMC Bioinformatics, 14(164), May 2013.
+
+SegAnnot: an R package for fast segmentation of annotated piecewise constant signals. HAL technical report 00759129. T D Hocking, G J , T. D. Hocking and G. J. Rigaill. SegAnnot: an R package for fast segmentation of annotated piecewise constant signals. HAL technical report 00759129, 2012.
+
+A shapley value solution to game theoretic-based feature reduction in false alarm detection. F Afghah, A Razi, K Najarian, arXiv:1512.01680Neural Information Processing Systems (NIPS), Workshop on Machine Learning in Healthcare. F. Afghah, A. Razi, and K. Najarian. A shapley value solution to game theoretic-based feature reduction in false alarm detection. Neural Information Processing Systems (NIPS), Workshop on Machine Learning in Healthcare, arXiv:1512.01680, Dec. 2015.
+
+Inter-and intra-patient ecg heartbeat classification for arrhythmia detection: A sequence to sequence deep learning approach. S Mousavi, F Afghah, 10.1109/ICASSP.2019.8683140ICASSP 2019 -2019 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP). S. Mousavi and F. Afghah. Inter-and intra-patient ecg heartbeat classification for arrhythmia detection: A sequence to sequence deep learning approach. In ICASSP 2019 -2019 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP), pages 1308- 1312, 2019. doi: 10.1109/ICASSP.2019.8683140.
+
+Reducing false arrhythmia alarms in the ICU. Physionet, PhysioNet. Reducing false arrhythmia alarms in the ICU, 2015. URL http://www.physionet. org/challenge/2015/. accessed July 28, 2016.
+
+False alarm reduction in critical care. G Clifford, I Silva, B Moody, Q Li, D Kella, A Chahin, T Kooistra, D Perry, R Mark, Physiological Measurement. 378G. Clifford, I. Silva, B. Moody, Q. Li, D. Kella, A. Chahin, T. Kooistra, D. Perry, and R. Mark. False alarm reduction in critical care. Physiological Measurement, 37(8):5-23, 2016.
+
+A real-time QRS detection algorithm. J Pan, W J Tompkins, 0018-9294. doi: 10.1109/ TBME.1985.325532IEEE Transactions on Biomedical Engineering, BME. 323J. Pan and W. J. Tompkins. A real-time QRS detection algorithm. IEEE Transactions on Biomedical Engineering, BME-32(3):230-236, March 1985. ISSN 0018-9294. doi: 10.1109/ TBME.1985.325532.
+
+Noninvasive fetal electrocardiography part i: Pan-tompkins' algorithm adaptation to fetal r-peak identification. A Agostinelli, I Marcantoni, E Moretti, A Sbrollini, S Fioretti, F Di Nardo, L Burattini, The Open Biomedical Engineering Journal. 11A. Agostinelli, I. Marcantoni, E. Moretti, A. Sbrollini, S. Fioretti, F. Di Nardo, and L. Burattini. Noninvasive fetal electrocardiography part i: Pan-tompkins' algorithm adaptation to fetal r-peak identification. The Open Biomedical Engineering Journal, 11:17-24, 2017.
+
+A greedy graph search algorithm based on changepoint analysis for automatic qrs complex detection. Atiyeh Fotoohinasab, Toby Hocking, Fatemeh Afghah, Computers in Biology and Medicine. 130104208Atiyeh Fotoohinasab, Toby Hocking, and Fatemeh Afghah. A greedy graph search algorithm based on changepoint analysis for automatic qrs complex detection. Computers in Biology and Medicine, 130:104208, 2021.
+
+Labeled optimal partitioning. Toby Dylan Hocking, Anuraag Srivastava, 2006arXiv e-printsToby Dylan Hocking and Anuraag Srivastava. Labeled optimal partitioning. arXiv e-prints, pages arXiv-2006, 2020.
+
+Detecting abrupt changes in the presence of local fluctuations and autocorrelated noise. Gaetano Romano, Guillem Rigaill, Vincent Runge, Paul Fearnhead, Journal of the American Statistical Association. Gaetano Romano, Guillem Rigaill, Vincent Runge, and Paul Fearnhead. Detecting abrupt changes in the presence of local fluctuations and autocorrelated noise. Journal of the Amer- ican Statistical Association, pages 1-16, 2021.
+
+Problèmes de clustering liésà la synchronie enécologie : estimation de rang effectif et détection de ruptures sur les arbres. Solène Thépaut, 2019Christophe Mathématiques aux interfaces Université Paris-Saclay (ComUEThèse de doctorat dirigée par GiraudSolène Thépaut. Problèmes de clustering liésà la synchronie enécologie : estimation de rang effectif et détection de ruptures sur les arbres. PhD thesis, 2019. URL http://www.theses. fr/2019SACLS477. Thèse de doctorat dirigée par Giraud, Christophe Mathématiques aux interfaces Université Paris-Saclay (ComUE) 2019.

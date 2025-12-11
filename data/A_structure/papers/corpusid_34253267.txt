@@ -1,0 +1,481 @@
+Optimization of a regularized distortion measure to generate curved high-order unstructured tetrahedral meshes
+24 February 2015
+
+A Gargallo-Peiró 
+Departament de Matemàtica Aplicada III
+Laboratori de Càlcul Numèric (LaCàN)
+Universitat Politècnica de Catalunya
+Jordi Girona 1E-08034BarcelonaSpain
+
+X Roca xeviroca@mit.edu 
+Department of Aeronautics and Astronautics
+Massachusetts Institute of Technology
+02139CambridgeMAUSA
+
+J Peraire 
+Department of Aeronautics and Astronautics
+Massachusetts Institute of Technology
+02139CambridgeMAUSA
+
+J Sarrate 
+Departament de Matemàtica Aplicada III
+Laboratori de Càlcul Numèric (LaCàN)
+Universitat Politècnica de Catalunya
+Jordi Girona 1E-08034BarcelonaSpain
+
+
+Department of Aeronautics and Astronautics
+Massachusetts Institute of Technology
+02139CambridgeMAUSA
+
+Optimization of a regularized distortion measure to generate curved high-order unstructured tetrahedral meshes
+24 February 2015D6F347FB7BE58115DDE78E59CC09D66810.1002/nme.4888Received 8 May 2014; Revised 15 November 2014; Accepted 24 December 2014unstructured high-order methodsmesh generationCADmesh optimizationmesh qualitycurved meshing
+We present a robust method for generating high-order nodal tetrahedral curved meshes.The approach consists of modifying an initial linear mesh by first, introducing high-order nodes, second, displacing the boundary nodes to ensure that they are on the computer-aided design surface, and third, smoothing and untangling the mesh obtained after the displacement of the boundary nodes to produce a valid curved highorder mesh.The smoothing algorithm is based on the optimization of a regularized measure of the mesh distortion relative to the original linear mesh.This means that whenever possible, the resulting mesh preserves the geometrical features of the initial linear mesh such as shape, stretching, and size.We present several examples to illustrate the performance of the proposed algorithm.Furthermore, the examples show that the implementation of the optimization problem is robust and capable of handling situations in which the mesh before optimization contains a large number of invalid elements.We consider cases with polynomial approximations up to degree ten, large deformations of the curved boundaries, concave boundaries, and highly stretched boundary layer elements.The meshes obtained are suitable for high-order finite element analyses.
+
+INTRODUCTION
+
+In the last decade, unstructured high-order methods [1][2][3][4][5] have attracted considerable attention from the computational mechanics community.This attention has been prompted by the ability of these methods to approximate with high-fidelity the solution of partial differential equations on complex domains.It is well known that for problems with smooth solutions, the approximation obtained with high-order methods converges exponentially with the order of the approximating polynomial.More generally, high-order methods have been shown to deliver higher accuracy with a lower computational cost than low-order methods in many practical applications [6][7][8][9][10][11][12][13][14][15].In addition, the accurate approximation of the domain geometry eliminates the spurious effects in the solution that can arise from a piecewise linear representation of the curved domain boundaries [16][17][18][19][20].An implicit assumption in high-order methods is that the geometry is represented with sufficient accuracy to enable high-convergence rates to be realized.
+
+Despite the attractive features of high-order methods, their adoption for practical applications has been hampered by technical challenges such as the development of robust implementations and generation of suitable 3D-curved meshes.In this paper, we focus our attention on the generation of high-order meshes for general geometries that are suitable for high-order finite element analyses.To that end, the generated meshes must satisfy two requirements.On one hand, each tetrahedral element must be the image of a valid straight-sided reference element through an element-wise invertible mapping.On the other hand, the boundary elements must be curved to ensure that the error introduced in the solution by the inexact approximation of the geometry is smaller than the solution discretization error.
+
+High-order meshes are usually generated using a posteriori approaches [17,[21][22][23][24][25] whereby the final mesh is obtained by modifying an initial linear mesh.Starting from an initial linear mesh that approximates the domain geometry, the first step consists of adding high-order nodes, either by enriching the linear tetrahedra uniformly or according to a suitable distribution aimed at minimizing interpolation errors [4,26].Next, the boundary nodes are projected onto exact curved boundary.Finally, the mesh is smoothed and untangled to remove the invalid (folded) and low-quality (distorted) elements that might be created during the curving of the mesh boundary.This last step is indeed the most critical to ensure the quality of the generated meshes.When the grid deformation dictated by the projection of the boundary nodes onto the boundary of the domain is small, existing approaches are effective at producing suitable high-order meshes, but they often fail for more extreme cases where the required deformation is larger.
+
+The main goal of this work is to use an a posteriori approach to generate 3D-curved high-order meshes in which the boundary nodes are on CAD surfaces.To this end, we propose a robust smoothing and untangling method that converts an initial linear mesh to the desired curved highorder mesh.Specifically, the main contribution of this work is the formulation of a minimization problem for a regularized measure of the distortion of a non-linear mapping in which the decision variables are the coordinates of the interior mesh nodes.For each element, we consider the mapping between the initial linear tetrahedron and curved element in the final mesh.The mapping distortion measure is minimum when the element shape (but not necessarily its size) in the final and initial configurations is preserved.In addition, the mapping distortion measure is regularized so that it is well defined for both valid (unfolded) elements, where the mapping between the linear and curved elements is one-to-one, and invalid (folded) elements, where the mapping becomes singular and the determinant of the transformation Jacobian becomes non-positive.For folded elements, the value of the distortion measure is a large positive value, which forces the minimization process to untangle the mesh.Once all the elements are untangled, the regularization can be switched off.In that case, the resulting objective function tends to infinity if the Jacobian determinant tends to zero.This form of the objective function prevents untangled (valid) configurations from becoming tangled (invalid) during the optimization process.
+
+The proposed formulation has the following advantages: first, it is capable of transforming an invalid curved high-order mesh to a valid mesh, thanks to the use of the regularized objective function; second, it ensures that initially valid configurations remain valid after transformation; third, it can deal with polynomials of any degree; fourth, it can handle curved boundaries; and fifth, geometrical mesh features such as element shape anisotropy are preserved.
+
+We present several examples that demonstrate the advantages of the proposed method.Specifically, we show that the proposed approach is able to untangle consistently invalid initial elements for approximations up to degree ten and large deformations of the initial mesh boundaries.Moreover, we show that some features of the initial mesh such as non-uniform element size and anisotropy (boundary layers) are preserved.Finally, we demonstrate our approach with some examples in which the geometry is defined by a 3D CAD model.
+
+The remainder of the paper is organized as follows.In Section 2, we review previous literature relevant to this work.In Section 3, we present the proposed optimization formulation.In Section 4, we describe the regularization of the distortion measure to untangle invalid meshes.In Section 5, we describe the steps required to generate a curved high-order mesh using the proposed optimization method.Finally, in Section 6, we present several examples to illustrate the advantages and application of the proposed method.
+
+
+344
+
+A. GARGALLO-PEIRÓ ET AL.
+
+
+RELATED WORK
+
+A posteriori methods for high-order mesh generation can be divided in three main categories depending on the technique used to curve the mesh and match the domain boundary.The first group of methods [21][22][23] curve the mesh boundary, identify mesh entities that produce invalid elements, and eliminate the invalid elements by a combination of local mesh refinements, edge and face swaps, and node relocations.The second group of methods deform an initial linear mesh composed of straight-sided elements using a linear [27][28][29] or a non-linear [25] elasticity analogy.The displacements of the boundary nodes are prescribed to lie on the curved boundary, and an elasticity problem is solved using a high-order continuous Galerkin method.The final group of methods [30][31][32][33][34][35], solve an optimization problem for the node locations according to an objective function that attempts to guarantee the accurate representation of the domain boundary and element quality.
+
+The main challenge of a posteriori mesh deformation methods is to repair the invalid elements that may arise from displacing the boundary nodes of the initial straight-sided mesh.In some cases, these elements may be excessively distorted, having an adverse effect on the accuracy of the finite element solutions, or may even be invalid in which case the mapping between the master element and curved deformed element is not invertible.A first requirement to repair invalid elements is an algorithm to detect them and to quantify the level of distortion.For high-order elements, several approaches have been proposed to detect the validity of the mapping [17,[21][22][23][24][36][37][38][39], and to define suitable quality measures [31-33, 35, 40-45].
+
+The mesh repairing can be accomplished by means of topological changes and node relocation.In general, node relocation is necessary, because some interior high-order nodes close to the boundary may end up outside the domain after the boundary nodes are displaced.The node relocation can be formulated as a global problem involving the coordinates of all the interior nodes or as a local problem involving only one or several nodes at a time.The benefit of the global formulation is that the number of iterations to solve the problem is smaller than with a local formulation.However, local formulations tend to be easier to implement and require less computer memory.For linear elements, several local [46][47][48] and global [49][50][51][52][53][54][55] approaches have been proposed to improve the mesh quality.For high-order meshes, similar local [32] and global relocation methods [31,[33][34][35] have also been developed.It is worth noting that global methods can be implemented locally if a suitable iterative method can be devised.The approach adopted here borrows from the strategy presented in [55] for surface mesh generation where the node relocation problem is formulated as a global problem but solved using a non-linear Gauss-Seidel iteration.
+
+When the starting mesh in the optimization process is valid, a strategy to prevent elements from becoming invalid is to use an objective function, which penalizes the appearance of small Jacobian determinants.This approach has been used in [48,55,56] for linear elements and in [25,[32][33][34][35] for high-order elements.A more challenging problem occurs when the starting mesh already contains invalid elements.In such cases, one can either use a log-barrier method [34,54] or define a regularized distortion quality measure, which is defined for all element configurations and has very large values when the element is invalid.One such regularized distortion measure is presented in [32,33] for high-order planar and surface elements and used to generate curved meshes.This technique is based on the extension to high-order elements of the definition of quality and distortion measure for linear elements presented in [57,58].
+
+In this work, we extend the approach proposed in [32,33] to high-order tetrahedral meshes using the untangling approach proposed in [48,55].Furthermore, we propose an expression to evaluate the untangling parameter introduced in [48,56], eliminating the need for a user-defined input.
+
+
+FORMULATION OF THE MESH OPTIMIZATION
+
+In this section, we present a new formulation to solve the mesh deformation problem, which is based on the optimization of a measure of the mesh distortion.To this end, we first review a distortion measure for linear elements.This measure can be interpreted as a point-wise measure of the distortion of a deformation map between an ideal domain and the physical one.The continuous version of the curving problem is stated as finding a deformation map that features an ideal pointwise distortion.Then, we write down the discrete version of the problem where the ideal domain is a straight-sided mesh, and the physical domain is a mesh with known curved boundaries.Finally, we pose a global and non-linear optimization problem to find the curved mesh that provides the ideal point-wise distortion in the least-squares sense.
+
+
+Distortion measures for linear elements
+
+We start by reviewing the distortion measures for linear elements presented in [57,58].Consider a linear tetrahedron in the initial configuration, E I , having the desired shape and size and the corresponding linear tetrahedron in the physical space, E P .To measure the deviation between these two elements, we consider the unique affine mapping, E , from E I to E P (see Figure 1(a)).The mapping E , can be easily expressed in terms of two additional mapping, P and I , between the master element E M and the initial, E I , and physical element, E P , respectively.Thus, E is determined by the composition
+E W E I 1 I ! E M P ! E P :
+Because E is affine, its Jacobian, D P , is constant.The element shape distortion measure [57] is given by,
+Á.D E / D kD E k 2 d j j 2=d ;(1)
+where d D 3 is the spatial dimension, k k is the Frobenius norm, and D det.D E /.This distortion measure quantifies the deviation of the shape of the physical tetrahedron E P with respect to the shape of the initial tetrahedron, E I .We note that this distortion measure is invariant to translation and rotations and equals 1 when the two elements only differ by a scale factor, and tends to 1 as E P becomes degenerate.When working with linear meshes, it is convenient to work with the quality measure
+q D 1 Á ;(2)
+which takes values in the interval OE0; 1.
+
+To extend the former distortion (quality) framework to high-order elements, we consider that the physical element, E P , is a nodal high-order tetrahedron of degree p determined by n p nodes with coordinates x i 2 R 3 , for i D 1; : : : ; n p .The ideal element, E I , corresponds to a nodal high-order tetrahedron with the desired shape, size, and it is characterized by a target node distribution (see Figure 1(b)).Similarly to the linear case, we measure the distortion in terms of a unique mapping (a) (b)  E , from E I to E P .To this end, the master element, E M , is characterized by a node distribution i 2 R 3 , for i D 1; : : : ; n p , that provides a quasi-optimal Lebesgue constant [4].Again, the mapping from each ideal element, E I , to the corresponding physical element, E P , can be expressed as
+E D P ı 1 I .
+However, E is no longer affine, because I and P are not, in general, affine mappings.Therefore, the Jacobian D E is, in general, also not constant.Note that if we consider the basis ¹N i º i D1;:::;n p of nodal shape functions (Lagrange interpolation) of degree p for the given point distribution of the master element, we have that
+x D E .y/ D n p X i D1 x i N i 1 I .y/(3)
+and therefore, E is explicitly expressed in terms of the element nodal coordinates x i , for i D 1; : : : ; n p .
+
+
+Curving: globally defined smooth mapping
+
+Given an initial domain I R d , and a physical domain P R d , we want to characterize P in terms of I .We assume that the physical domain can be defined as the image of a diffeomorphism 2 C 1 .I ; P / (see Figure 2).To determine the desired diffeomorphism , we need a distortion measure for non-linear mappings.To this end, given a distortion measure for linear elements Á, we define the distortion measure of at a point y 2 I as, M .y/WD Á.D .y//:
+
+We note that the Jacobian D at a given point y is a linear map and therefore, the distortion measure M is well defined.Given the initial domain I and boundary of the physical domain, @ P , the continuous problem is that of finding a diffeomorphism between I and P such that the distortion measure M is ideal.That is,
+M D 1; in I ; D g; on @ I ;
+where g is the mapping between @ I and @ P .
+
+
+Curving: element-wise defined smooth mapping
+
+We consider that the domain I is approximated by the mesh M I composed by the union of the elements E I e , for e D 1; : : : ; n E .In addition, we consider that the prescribed curved boundary @ P is approximated by a surface mesh @M P determined by a mapping g h from @M I to @M P .In this setting, we seek an optimal mapping h from M I to M P such that for all E I in M I , it has an ideal distortion measure (see Figure 3).That is,
+M h D 1; in M I ;(5)
+h D g h ; on @M I : Because we want to obtain a conformal nodal high-order mesh, we seek for the mapping h in the space of vector functions
+U WD °u 2 C 0 .M I / d j u j E I 2 P p .E I / d ; 8E I 2 M I ± ;
+where P p .E I / is the space of polynomials of degree p on the element E I (see Figure 3).For a given mesh M I and boundary configuration g h , a mapping h such that Equation ( 5) and Equation ( 6) are verified may be, in general, not achievable.To address this issue, we impose the optimality condition in a least-squares sense.That is, we seek h in U D such that
+h D argmin h 2U D kM h 1k 2 M I ;(7)
+where
+U D WD ® h 2 U j .M h 1/ 2 L 2 .M I /; and h D g h on @M I ¯:
+In Equation ( 7) we define the norms
+kf k M I WD q hf; f i M I ; (8) kf k E I WD p hf; f i E I ;(9)
+and the inner product for scalar functions f and g in
+M I hf; gi M I WD n E X eD1 hf j E I e ; g j E I e i E I e ; (10) hf; gi E I WD Z E I
+f .y/g.y/dy:
+
+Once h is found, each element in the physical domain can be obtained as
+E P e D h E I e ;
+and therefore, the desired physical mesh M P is composed by the union of the elements E P e , for e D 1; : : : ; n E .
+
+
+Curving: nodal high-order mesh optimization
+
+The minimization problem stated in Equation ( 7) can be rewritten in terms of elemental contributions.In particular, according to Equations ( 10) and ( 8), we have that
+kM h 1k 2 M I D n E X eD1 kM h j E P e 1k 2 E I e D n E X eD1 kM E e 1k 2 E I e ;
+where h j E P e is the mapping E e between E I e and its physical element E P e .Therefore, we seek h in U D such that:
+h D argmin h 2U D kM h 1k 2 M I D argmin h 2U D n E X eD1 kM E e 1k 2 E I e :(12)
+In particular, for nodal high-order elements, and according to Equation ( 3), E e depends on the coordinates of the n p element nodes.Thus, the distortion at a point y in E I e in Equation ( 12) can be written as:
+
+M E e .y/D M E e .yIx e;1 ; : : : ; x e;n p / where the pairs .e;j / in x e;j denotes the local j -th node of element e.Thus, for nodal high-order elements, determining h in Equation ( 12) is equivalent to determining the coordinates of the nodes of the high-order mesh.Moreover, the element contribution to the objective function only depends on the nodes of that element.
+
+We reorder the coordinates of the nodes, x i , in such a manner that i D 1; : : : ; n F are the indexes corresponding to the free (interior) nodes, and i D n F C 1; : : : ; n N correspond to the fixed nodes (nodes on the CAD surfaces).Note that the coordinates of the fixed nodes are determined by the function g h and can be obtained using the technique presented in [33,55].Defining f .x 1 ; : : : ; x n F I x n F C1 ; : : : ;
+x n N / WD 1 2 kM h 1k 2 M I ;(13)
+we can formulate the mesh optimization problem as finding ® x 1 ; : : : ;
+x n F ¯ R 3 such that: ® x 1 ; : : : ; x n F ¯D argmin x 1 ;:::;x n F 2R 3 f x 1 ; : : : ; x n F I x n F C1 ; : : : ; x n N ;(14)
+where x i D g h .yi / for i D n F C 1; : : : ; n N .In Appendix A, we detail our approach to solve the global minimization problem stated in Equation ( 14).
+
+
+MESH UNTANGLING
+
+The minimization problem presented in Equation ( 14) is based on a Jacobian-based distortion measure presented in Equation ( 1).This distortion measure becomes infinity when the high-order element is degenerated (when D det.D E / D 0).This feature precludes its use in an untangling procedure.In order to address this issue, we replace the distortion measure in Equation ( 1) by a regularized form.
+
+
+Regularization of the distortion measure
+
+To incorporate the untangling capability to the optimization method, we use the regularization proposed in [48] and replace in Equation ( 1) by
+ı . / D 1 2 C p 2 C 4ı 2 Á ; (15)
+where ı is a positive element-wise parameter, and its selection is discussed in Section 4.2.The regularized Jacobian, ı ./, is a monotonically increasing function of , such that ı .0/D ı, and tends to 0 when tends to 1 (see Figure 4).Using the regularized Jacobian, the modified shape distortion measure becomes, The use of the regularized Jacobian removes the vertical asymptote at D 0, and therefore, allows the optimization procedure to recover from the invalid configurations.Moreover, for small values of ı, the minimum of Á ı is close to the minimum of the original shape distortion measure Á.We note that the element-wise parameter ı is only set to non-zero values when an invalid mesh configuration is considered.Once all the elements are valid, ı can be set to zero for all the elements.To analyze the validity of a mesh, we set ı D 0, replacing ı in Equation ( 16) by 0 D .C j j/=2.In this way, for invalid meshes, becomes negative and, Á ı D 1 and q D 0.
+Á ı .D E / D kD E k 2 3j ı j 2=3 :(16)
+
+Selection of the regularization parameter
+
+The regularization parameter ı needs to satisfy the following criteria.On the one hand, ı has to be large enough to ensure that ı 2 is significant compared with 2 .On the other hand, it has to be small enough to ensure that the minimum of the modified mesh distortion function is not too far from the original minimum.
+
+In order to simplify the computation of the derivatives of the distortion measure, we select a constant value of ı for each element.In particular, we determine ı taking into account the determinant of the Jacobian of the straight-sided initial element .detI / and only use the regularized distortion measure when the element is invalid .6 0/.
+
+Let D det I be a reference (negative) value of the determinant of that element.Then, we determine ı by ensuring that ı ./ is always positive.Because ı is a strictly increasing function, then we guarantee that ı > 0 for > .In particular, we impose
+ı . / D 1 2 C p . / 2 C 4ı 2 Á D > 0;
+where is a given tolerance.Hence,
+ı. / D 1 2 p .2 C j j/ 2 . / 2 D p 2 C j j:(17)
+The parameter should be small compared with .We propose to select according to
+D ˛j j;(18)
+where ˛D 10 3 has been found to work well in practice and used for all the presented examples.
+
+The final expression for ı becomes,
+ı. / D j j p ˛2 C ˛;(19)
+which implies that (see Figure 4): In order to illustrate the behavior of the regularized distortion measure presented in Equation ( 15), we consider a triangular element with two fixed nodes, x 0 D .0;0:5/ and x 1 D .0;0:5/, and examine the mesh distortion measure as the third node x 2 .x/D .x;0/ is moved along the x-axis (see Figure 5).In addition, we select the equilateral triangle as the initial element and ı D 0:05 for the regularized distortion measure.Figure 6(a) shows the shape distortion measure, Equation (1), when node x 2 moves from x D 5 to x D 5. Note that only 0 < x < 1 correspond to valid configurations.For x !˙1 the distortion measure tends to infinity because the triangle tends to 3=2, the element is inverted and has negative area.Moreover, at x D 0, when the triangle has null area, the shape distortion measure has a vertical asymptote.Figure 6(b) shows the value of the regularized shape distortion measure, Equation ( 16), when node x 2 moves from x D 5 to x D 5. To show that the asymptote has been removed, we plot in Figure 6(c and  d) the distortion measure using a logarithmic scale.The regularization removes the vertical asymptote at x D 0, and results in a continuous and differentiable function with a single minimum near x D p 3=2 (the ideal configuration).Figure 6(e and f) plot the shape quality measure and the regularized shape quality measure, respectively.Note that, according to Equation (2), the quality measures are computed as the inverse of the corresponding distortion measure.Finally, Figure 7 shows the distortion and quality measures when the free node x 2 moves in R 2 .Specifically, Figure 7(a) displays the shape distortion measure, Equation (1), and Figure 7(b) displays the regularized shape distortion measure, Equation (16).When the regularized distortion measure is used, the local minimum outside the feasible region is removed, and the function is continuous and differentiable.Figure 7(c  and d) presents the corresponding quality measures.
+
+
+CURVED HIGH-ORDER MESH GENERATION PROCESS
+
+The a posteriori high-order mesh generation process is composed of three steps: generating the ideal mesh, curving the mesh boundary, and curving the mesh volume.Figure 8 illustrates these three main steps in 2D.
+
+
+Generating the ideal mesh
+
+A starting linear mesh can be generated using any established mesh generation procedure that provides control over the size and shape of the generated elements.Note that these mesh characteristics will be inherited by the final high-order mesh.That is, in terms of topology and element size and shape, we assume that the initial linear mesh is optimal.Once the linear mesh is generated, we add additional nodes to increase its polynomial degree to that of the final mesh (see Figure 8(a)).This straight-sided high-order mesh becomes the ideal mesh M I .
+
+
+Curving the mesh boundary
+
+The second step of the proposed method is to curve the faces of the high-order straight-sided mesh that lie on the boundary of the geometry.This will allow generating high-quality elements near the boundaries.To generate a valid and high-quality high-order surface mesh, g h , we use the technique presented in [33,55], which is based on an optimization method to generate high-order meshes with the nodes on the CAD surfaces.Generating a valid surface mesh is of the major importance for ensuring the robustness of the proposed procedure.Next, we curve the boundary faces of the straight-sided to match the surface mesh determined by g h and set the resulting high-order mesh to be the initial configuration, 0 h .M I /, for our optimization procedure.It is important to point out that this initial configuration may contain invalid (tangled) elements on the boundary, the dark gray element in Figure 8(b) illustrates this situation in 2D.In Section 6.3, we show several configurations where invalid tetrahedra appear close to the curved features of the geometry.
+
+
+Curving the mesh volume
+
+Finally, we smooth and untangle the curved and high-order mesh using the optimization procedure proposed in Section 3.3.Specifically, we solve the minimization problem stated in Equation (7) starting from the initial curved mesh 0 h .M I /. Figure 8(c) shows the optimized mesh, h .M I /, in the 2D case.Note that in this example the regularized mesh distortion measure of Equation ( 16) was used to explicitly penalize those elements that have negative values of the Jacobian determinant.
+
+
+RESULTS
+
+In this section, we present several examples to illustrate the main features of the proposed approach.In all figures, the meshes are colored according to the point-wise quality, i.e. the inverse of the distortion (see Equations ( 2) and ( 4)).It is also convenient to quantify the distortion and quality of an element.We follow [32,35], and define the element distortion as,
+Á E WD kM E k E I k1k E I ;
+which results in an element quality given by q E WD 1=Á E .For each example, we present a table summarizing the element quality statistics.Specifically, we show the minimum quality and the number of tangled elements (#inv) before the smoothing and untangling process is initiated.We highlight that in all cases, the optimized mesh increases the minimum and it does not include any inverted element.Because the element distortion (quality) measure is defined as a normalized average, we have that the maximum (minimum) value of the point-wise distortion (quality) measure on that element is bigger (smaller) than the value of the element distortion (quality) measure.Accordingly, the figures present information on the quality with more resolution and restrictiveness than the quality statistics tables.Nevertheless, an invalid element is always detected in the tables because it has a null (divergent) value of the element quality (distortion).All the results have been obtained on a MacBook Pro with one dual-core Intel Core i7 CPU (Apple Inc., Cupertino, California, US), with a clock frequency of 3.0 GHz, and total memory of 16 GBytes.As a proof of concept, a mesh optimizer has been fully developed in MATLAB without using any additional toolbox.The MATLAB prototyping code is sequential (one execution thread), corresponds to the implementation of the method presented in this work, and uses the non-linear Gauss-Seidel procedure detailed in Appendix A. Although the code is not optimized, not parallel, and not compiled, we provide an indication of its performance to illustrate the cost of the mesh optimization.To this end, we consider a unit-length 3D box as the initial geometry and three fully tangled meshes of interpolation degree four composed of 100 (1,289), 1051 (12,431), and 10,067 (112,615) elements (nodes).To fully untangle and smooth the four meshes, the interpreted optimizer has needed 1.55, 4.3, and 22.4 min, respectively.It is important to point out that for bigger meshes the code seems to perform more efficiently.The explanation is that the function call overhead arising from the MATLAB-interpreted code is more relevant for smaller meshes than for bigger meshes.Specifically, the code runs in chunks of nodes the same optimization operations (vectorization) to remove the overhead of interpreted loops.Smaller meshes benefit less from this vectorization because the amount of work is smaller in the resulting chunks of nodes, and therefore, the function call overhead is relatively more significant.
+
+
+Robustness for high-polynomial degrees
+
+To illustrate the ability of our approach to untangle meshes, which may contain a large number of inverted elements, we consider a cube of side length 5 with a spheric cavity of diameter 1 placed at the center of the cube.The initial isotropic linear mesh consists of 1441 elements.Next, we increase the polynomial degree of the elements to degrees 2, 5, and 10.We then curve the boundary faces to match the geometry.In order to test our approach, we randomly perturb the interior nodes obtaining meshes that have 373, 1333, and 1439 inverted elements, respectively (see Table I).Finally, we apply our optimization procedure to obtain valid meshes for all cases.Figure 9 shows the initial meshes containing invalid elements and the final high-quality meshes for the different polynomial degrees.In Table I, we summarize the element quality statistics for the initial and final meshes.
+
+In the next example, we illustrate the robustness of our approach to deal with large boundary deformations and non-convex geometries.We consider the valid curved mesh of polynomial degree 5 of the previous example and displace the sphere 1.5 units toward the right boundary.The resulting mesh contains 134 invalid elements (see Figure 10(a)).Using the proposed method, we are able to untangle this inverted configuration obtaining a valid mesh (see Figure 10(b)).We compare our approach with a linear method obtained by imposing, for each element, that the Jacobian of the physical configuration is equal to the Jacobian of the initial configuration in a least-squares sense.Hence, the objective function in that case is:
+f x 1 ; : : : ; x n F I x n F C1 ; : : : ; x n N D kD h Idk 2 :(20)
+This simpler formulation fails to generate a valid mesh when it starts from the tangled configuration presented in Figure 10(a).The fact that the linear approach is unable to handle inverted elements is further illustrated by the fact that starting from the valid mesh obtained by our non-linear method (see Figure 10(b)), the linear method generates an invalid mesh that contains 15 inverted elements (see Figure 10(c)).The mesh quality statistics for this example considering the different objective functions in the optimization process are summarized in Table II.We note that our proposed nonlinear least-squares approach combined with the ability to handle inverted elements is the only approach capable of consistently producing valid meshes.The objective of the comparison of our non-linear method with a standard linear least-squares method is to highlight that it is required to account for the Jacobian of the iso-parametric mapping in a non-linear manner.Thus, it is possible to penalize the inversion of previously valid elements.On the contrary, in the linear case, the optimal position can correspond to a configuration composed of invalid elements even when the initial approximation is valid.This is a well-known issue of standard smoothers, such as Laplacian-based methods.In practice, invalid elements usually appear next to non-convex geometries and where large deformations are imposed, as in the presented example.Notice that Laplacian smoothing can be interpreted as an iterative method that minimizes an energy functional that has a constant Hessian, such as the linear method presented in this example.
+
+
+Preservation of the features of the initial mesh including boundary layers
+
+In this example, we illustrate how our approach preserves the features of the linear mesh such as a stretched boundary layer mesh (see [59]).We consider a linear boundary layer mesh for an SD7003 airfoil.We increase the order of the polynomial degree to 2. Next, we curve the boundary faces to match the geometry (see Figure 11(a)).In Table III, we observe that this initial mesh contains 1096 tangled elements, all of them adjacent to the airfoil.Figure 11(c) shows a zoom of the inverted elements in the lower surface close to the leading edge.In these two figures we highlight with white edges the inverted high-order elements that appear in the initial curved high-order mesh.
+
+obtained by using the straight-sided high-order mesh as the initial configuration in our optimization process.All the inverted elements have been untangled, and the final mesh presents a minimum quality of 0.29 (see Table III).Figure 11(d) shows that the inverted elements in the leading edge have been untangled.
+
+
+Generation of curved high-order tetrahedral meshes from CAD models
+
+We consider the CAD definition of a simplified Falcon aircraft and a mesh of degree 4 with valid and high-quality elements on the exterior domain.The straight-sided high-order mesh is shown in Figure 12(a).We choose this mesh as the ideal mesh because we want to preserve the mesh features   a-c), two inverted high-order elements that appear when the mesh is curved are shown with the edges in white.(shape, size, anisotropy, etc.) of the linear mesh.We curve the boundary faces by relocating the nodes on the CAD surface [33,55].This process leads to 12 invalid elements.Figure 12(b) presents a detail of the initial curved mesh near the nose and Figure 12(c) shows a detail of the optimized mesh near the nose including the two inverted elements highlighted in Figure 12(b).We highlight that the final mesh is composed of valid and high-quality elements (see Table IV).Additional details of the different meshes are shown in Figure 13.
+
+
+Inviscid flow solution on a curved and high-order tetrahedral mesh
+
+We perform a flow simulation using a high-order mesh for the simplified Falcon geometry of the previous example.We consider an inviscid flow with a free stream Mach number of 0.6 .M 1 / and an angle of attack of 0 ı .˛/.The mesh quality statistics of the initial and optimized meshes are shown in Table V.Then, we use this mesh to obtain an approximation of the steady-state solution of the Euler equations.This approximation is obtained with a 3D and parallel solver [60] using the hybridized discontinuous Galerkin (HDG) method [61][62][63][64].Both the steady-state solution and mesh are represented by element-wise polynomials of degree 4. The mesh is composed of 64,992 elements and 129,984 faces.Each element (face) of polynomial degree 4 contains 35 (21) points.Furthermore, the solution of the compressible Euler equations has 5 components per point that correspond to the conserved quantities, namely, the density, momentum, and energy.This results in an HDG solution having a total of 14,103,264 degrees of freedom (DOFs) where:  11,373,600 DOFs are on the elements, and 2,729,664 DOFs are on the faces.To reduce the computation time, the mesh is partitioned in 128 sub-domains and accordingly, the HDG solver is run on 128 cores.In Figure 14, we present the magnitude of the velocity of the steady state of the inviscid flow and a detail of the curved and high-order mesh on the aircraft surface.We point out that the curved elements are required to obtain a steady state solution of the Euler equations.Note that if the initial linear mesh is converted to a high-order mesh of degree 4, but composed of straight-sided tetrahedra, the HDG solver does not converge to a steady state solution.This is in full agreement with the results reported in [16], where they show that piece-wise linear approximations of the curved surfaces lead to artificially polluted solutions of the Euler equations.On the contrary, the meshes generated with the proposed method allow the convergence of the HDG solver.
+
+
+CONCLUDING REMARKS
+
+We have presented an a posteriori method for generating curved, high-order conformal tetrahedral meshes from CAD models.The main driver for the proposed method is to obtain valid meshes for high-order finite element analyses.We remark that for the proposed smoothing and untangling method to work, it is necessary that the initial tetrahedral mesh (determining the ideal mesh) and the curved and high-order surface mesh (determining the boundary mapping) are valid meshes.The untangling procedure requires that one scalar parameter be specified to control the amount of regularization in case of inverted elements.To this end, we have proposed a practical approach to choose this scalar parameter.The robustness of the smoothing and untangling method emerges from the properties of the proposed optimization, namely, to repair invalid curved meshes (untangling), transform valid configurations to valid configurations (consistency), deal with any polynomial degree (high-order), and preserve the geometrical features of the initial mesh (shape, stretching, and size).To test the robustness of the untangling capability, we have considered several examples.Specifically, we have shown that the method untangles meshes, which contain large number of invalid initial elements for the following: approximations up to degree 10, large deformations of the curved boundaries, concave boundaries, and highly stretched boundary layer elements.Finally, we have shown one example that demonstrates that the generated meshes are valid, and therefore, allow obtaining converged solutions with an unstructured, high-order HDG inviscid flow solver.
+
+Several aspects of the proposed method have to be investigated and improved in the near future.First, we have planned to implement the method in parallel to deal with larger meshes.In addition, we will perform a study on the cost of the optimization.This study will analyze the number of iterations required to converge, scalability of the solver in terms of the number of elements, and speed-up obtained with the parallel implementation.Second, note that the proposed mesh curving method tries to minimize the distortion and therefore, to maximize a measure of the mesh quality.In this sense, it could be interesting to perform a study on the influence of the quality of the curved meshes on different aspects of the HDG solver: non-linear solver robustness, mesh convergence rate, and accuracy of several outputs of interest.Finally, in this work, we did not perform any viscous flow simulation using the boundary layer capability developed.To address this issue, in future works we will perform viscous flow simulations of practical interest on meshes that feature properly curved boundary layers obtained with the proposed method.
+
+
+APPENDIX A: NUMERICAL OPTIMIZATION
+
+To solve the optimization problem in Equation ( 14), we can choose a global or local approach.For small problems, solving the global system resulting from assembling the contributions of all the elements works well.If the problem is too large and we want to reduce the memory requirements, we choose a non-linear iterative method that exploits the locality of the problem, avoids solving large linear systems, and is well suited for parallelization (by coloring the mesh nodes).Specifically, we use a non-linear iterative Gauss-Seidel method determined by the iteration
+x kC1 i D x k i ˛k i h r 2 i i f w k i Ái 1 r i f w k i Á i D 1; : : : ; n F ; (A.1)
+where ˛k i is the step length, and
+w k i D x kC11
+; : : : ; x kC1 i 1 ; x k i ; x k i C1 ; : : : ; x k n F I x 0 n F C1 ; : : : ; x 0 n N Á is the vector of updated node locations for the i 1 first nodes.Note that r i and r 2 i i denote the gradient and Hessian with respect to the coordinates x i of node i.
+
+To implement this iterative non-linear solver, we have to compute the gradient r i f , Hessian r 2 i i f , and step length, ˛k i .According to Equation ( 13) and taking into account Equation ( 8), the computation of the gradient r i f x 1 ; : : : ; x n F I x n F C1 ; : : : ;
+x n N D @ @x i n E X eD1
+kM E e 1k Finally, we have to compute the step length ˛k i .To this end, we use the Backtracking Line Search algorithm [65] detailed in Algorithm 1, where we set: ˛D 1; D 0:5 and c D 10 4 .Note that in this algorithm, we have to evaluate the global objective function f and its gradient to check the sufficient decrease condition in Line 4. From Equation (A.3), the sufficient decrease condition is equivalent to
+f w į > f w k i Á C c˛hr i O f x k i Ái T p k i ;
+where w į is defined in Line 3 of Algorithm 1.Moreover, we have that
+f w į f w k i Á D O f x į O f x k i Á ;
+because the contributions of the elements that do not depend on the free node are mutually canceled, being x į D x k i C ˛pk i .Therefore, the sufficient decrease condition is equivalent to
+O f x į > O f x k i Á C c˛hr i O f x k i Ái T p k i : (A.5)
+Taking into account Equations (A.3), (A.4), and (A.5), we observe that we only need to compute the gradients, Hessian, and value of the local function O f introduced in Equation (A.2).In our implementation, we exploit the computational reduction associated with the evaluation of the function O f .To this end, we denote by M x the elements that contain a free node x.The set of elements M x is referred as the submesh associated with node x. .M E e .y/1/ 2 dy is a local merit function that measures the deviation respect on an ideal configuration of the submesh distortion associated with x i .According to this merit function, and to Equations (A.3), (A.4), and (A.5), we can implement the iteration k C 1 for node i of the proposed non-linear method, Equation (A.1), as
+x kC1 i D x k i ˛k i h r 2 i i O f x k i Ái 1 r i O f x k i Á iD
+Figure 1 .
+1
+Figure 1.Mappings between the master, initial, and physical elements: (a) linear case and (b) highorder case.
+
+
+Figure 2 .
+2
+Figure 2. Mapping between the initial and physical domains.
+
+
+Figure 3 .
+3
+Figure 3. Mapping between the initial and physical meshes.
+
+
+Figure 4 .
+4
+Figure 4. Representation of ı ./.
+
+
+
+
+ı. / .0/D ı. /; ı. / ./ D :
+
+
+Figure 5 .Figure 6 .Figure 7 .
+567
+Figure 5. Triangle with x 2 moving on a segment.
+
+
+Figure 8 .
+8
+Figure 8. High-order mesh generation procedure: (a) ideal high-order mesh M I , (b) initial curved mesh 0 h .M I /, and (c) final optimized high-order mesh h .M I /.Invalid elements are colored in dark gray.
+
+
+Figure 9 .Figure 10 .
+910
+Figure 9.Initial and smoothed curved high-order meshes on a cube with a spherical cavity.Polynomial degrees: (a and d) 2, (b and e) 5, and (c and f) 10.
+
+
+Figure 11 .
+11
+Figure 11.Tetrahedral meshes of polynomial degree 2 with boundary layer around an SD7003 airfoil.Initial curved high-order mesh (a) overview and (c) zoom.Final smoothed high-order mesh: (b) overview and (d) zoom.In these two figures we highlight with white edges the inverted high-order elements that appear in the initial curved high-order mesh.
+
+
+Figure 12 .
+12
+Figure 12.Tetrahedral meshes of polynomial degree 4 around a simplified Falcon aircraft.Detail of the: (a) ideal straight-sided mesh, (b) initial-curved mesh, and (c) smoothed mesh.(d and e) General views of the smoothed mesh.In Figures(a-c), two inverted high-order elements that appear when the mesh is curved are shown with the edges in white.
+
+
+Figure 13 .
+13
+Figure 13.Tetrahedral meshes of polynomial degree 4 around a simplified Falcon aircraft.Detail of the mesh where inverted elements can be observed: (a and d) straight-sided mesh, (b and e) initial curved mesh, and (c and f) smoothed mesh.Some inverted high-order elements that appear when the mesh is curved (b and d) are shown with white edges.
+
+
+Figure 14 .
+14
+Figure 14.Curved mesh and inviscid flow around a simplified Falcon aircraft for polynomial degree 4, ˛D 0 ı and M 1 D 0:6.Distribution of the magnitude of the velocity on different cut planes: (a,b, and c) general view, and (d) detailed view.
+
+
+Remark 1
+1
+Let x k i be the coordinates of node i at step k, and let M x k i be the corresponding associated submesh composed of m i elements.We say that O f .xi / D X
+
+
+
+
+
+
+
+Table I .
+I
+Quality statistics for the meshes shown in Figure9.
+(a)(b)(c)(d)(e)(f)The meshes are composed of 1441 elements; and 2327,32,382, and 249,387 nodes, for polynomial degrees 2,5, and10, respectively.MeshFigureMin#invInitial9(a)0.00373Smoothed9(b)0.960Initial9(c)0.001333Smoothed9(d)0.970Initial9(e)0.001439Smoothed9(f)0.960
+
+Table III .
+III
+Quality statistics of a mesh of polynomial degree 2 for an SD7003 airfoil.The mesh is composed of 177,208 elements and 244,346 nodes.
+
+
+Table IV .
+IV
+Quality statistics of a mesh of polynomial degree 4 for a simplified Falcon aircraft.The mesh is composed of 27,511 elements and 317,854 nodes.
+MeshFigureMin#invStraight-sided12(a)1.000Initial12(b)0.0012Smoothed12(c)0.310Copyright © 2015 John Wiley & Sons, Ltd.
+Int. J. Numer.Meth.Engng 2015; 103:342-363 DOI: 10.1002/nme
+
+
+Table V .
+V
+Quality statistics of the mesh of polynomial degree 4 for a simplified Falcon aircraft used in the numerical simulation.The mesh is composed of 64,992 elements and 96,258 nodes.
+MeshFigureMin#invInitial-0.0011Smoothed140.850
+
+
+
+.Á.D E e .y/1/ 2 dy only depends on the coordinates of the nodes of the element E P e .Therefore, we have that E e .y//1/ 2 dy D 0 for all the elements that do not contain the node i.Thus, the gradient can be evaluated as r i f x 1 ; : : : ; x n F I x n F C1 ; : : : ; x n N D X i f x 1 ; : : : ; x n F I x n F C1 ; : : : ;x n N D r i O f .xi/: (A.3)Moreover, the Hessian can be computed as r 2 i i f x 1 ; : : : ; x n F I x n F C1 ; : : : ; x n N D r 2
+we have thati iO f .x i /:(A.4)can be simplified. That is,R E I2 E I eDn E X eD1@ @x iZ E I e.M E e .y/ 1/ 2 dy;@ @x iZ E I e.M E e .y/ 1/ 2 dy D .M E e i Z @ @x i E I e .Á .D e i Z @ @x i E I e Z e i E I kM E e 1k 2 E I e;(A.2)
+e e .y/1/ 2 dy; where e i denotes that the summation is performed only for the elements that contain the node i.Therefore, if we defineO f .xi/ WD X e.M E e .y/1/ 2 dy D X r
+
+Copyright © 2015 John Wiley & Sons, Ltd. Int. J. Numer. Meth. Engng 2015; 103:342-363 DOI: 10.1002/nme
+A. GARGALLO-PEIRÓ ET AL.
+ACKNOWLEDGEMENTSThe first author was sponsored by CUR from DIUE of the Generalitat de Catalunya and the European Social Fund (grants FI-DGR'11 and BE-DGR '12), and by the Ferran Sunyer i Balaguer Foundation (grant FSB '13).
+Finite Element Analysis. B Szabo, I Babuška, 1991John Wiley & SonsNew York
+
+C Schwab, Hp- P-And, Finite Element Methods: Theory and Applications in Solid and Fluid Mechanics. OxfordClarendon Press1998
+
+High-Order Methods for Incompressible Fluid Flow. M O Deville, P F Fischer, E H Mund, 2002Cambridge University Press9Cambridge, UK
+
+J Hesthaven, T Warburton, Nodal Discontinuous Galerkin Methods: Algorithms, Analysis, and Applications. Texts in Applied Mathematics. Springer2007
+
+G Karniadakis, S Sherwin, Spectral/hp Element Methods for Computational Fluid Dynamics. Oxford, UKOxford University Press2013
+
+From h to p efficiently: implementing finite and spectral/hp element methods to achieve optimal performance for low-and high-order discretisations. P E Vos, S Sherwin, R Kirby, Journal of Computational Physics. 229132010
+
+From h to p efficiently: strategy selection for operator evaluation on hexahedral and tetrahedral elements. C Cantwell, S Sherwin, R Kirby, P Kelly, Computers & Fluids. 4312011
+
+From h to p efficiently: selecting the optimal spectral/hp discretisation in three dimensions. C Cantwell, S Sherwin, R Kirby, P Kelly, Mathematical Modelling of Natural Phenomena. 632011
+
+Error and work estimates for high-order elements. R Löhner, International Journal for Numerical Methods in Fluids. 67122011
+
+An optimization framework for adaptive higher-order discretizations of partial differential equations on anisotropic simplex meshes. M Yano, 2012Massachusetts Institute of TechnologyPh.D. Thesis
+
+To CG or to HDG: a comparative study. R Kirby, S Sherwin, B Cockburn, Journal of Scientific Computing. 5112012
+
+Are high-order and hybridizable discontinuous Galerkin methods competitive?. A Huerta, X Roca, A Angeloski, J Peraire, Oberwolfach Reports. 912012
+
+Efficiency of high-order elements for continuous and discontinuous Galerkin methods. A Huerta, A Angeloski, X Roca, J Peraire, 10.1002/nme.4547International Journal for Numerical Methods in Engineering. 962013
+
+Improved error and work estimates for high-order elements. R Löhner, International Journal for Numerical Methods in Fluids. 722013
+
+High-order cfd methods: current status and perspective. Z Wang, K Fidkowski, R Abgrall, F Bassi, D Caraeni, A Cary, H Deconinck, R Hartmann, K Hillewaert, H Huynh, N Kroll, G May, P O Persson, B Van Leer, M Visbal, International Journal for Numerical Methods in Fluids. 7282013
+
+High-order accurate discontinuous finite element solution of the 2D Euler equations. F Bassi, S Rebay, Journal of Computational Physics. 13821997
+
+Geometry representation issues associated with p-version finite element computations. S Dey, M S Shephard, J E Flaherty, Computer Methods in Applied Mechanics and Engineering. 1501-41997
+
+The influence of geometric approximation on the accuracy of higher order methods. X Luo, M S Shephard, J F Remacle, 8th International Conference on Numerical Grid Generation in Computational Field Simulations. Honolulu, Hawaii, US2002
+
+Control of geometry induced error in hp finite element (FE) simulations. I. Evaluation of FE error for curvilinear geometries. D Xue, L Demkowicz, International Journal of Numerical Analysis and Modeling. 232005
+
+NURBS-Enhanced Finite Element Method (NEFEM): a seamless bridge between CAD and FEM. R Sevilla, S Fernández-Méndez, A Huerta, Archives of Computational Methods in Engineering. 1842011
+
+Curvilinear mesh generation in 3D. S Dey, O 'bara, R Shephard, M S , Computer-Aided Design. 332001
+
+P-version mesh generation issues. X Luo, M S Shephard, J F Remacle, O 'bara, R Beall, M Szabó, B Actis, R , Proceedings of the 11th International Meshing Roundtable. Citeseer: State. the 11th International Meshing Roundtable. Citeseer: StateCollege, Pennsylvania, US2002
+
+Automatic p-version mesh generation for curved domains. X Luo, M S Shephard, O 'bara, R Nastasia, R Beall, M , Engineering with Computers. 2032004
+
+Adaptive mesh generation for curved domains. M S Shephard, J E Flaherty, K Jansen, X Li, X Luo, N Chevaugeon, J F Remacle, M Beall, O Bara, R , Applied Numerical Mathematics. 522-32005
+
+Curved mesh generation and mesh refinement using lagrangian solid mechanics. P O Persson, J Peraire, Proceedings 47th AIAA. 47th AIAAOrlando, Florida, US2009
+
+An explicit construction of interpolation nodes on the simplex. T Warburton, Journal of Engineering Mathematics. 5632006
+
+Recent improvements in aerodynamic design optimization on unstructured meshes. E J Nielsen, W K Anderson, AIAA Journal. 4062002
+
+. © Copyright, 10.1002/nmeLtd. Int. J. Numer. Meth. Engng. 1032015. 2015John Wiley & Sons
+
+A high-order, adaptive, discontinuous Galerkin finite element method for the Reynolds-averaged Navier-Stokes equations. T Oliver, 2008Massachusetts Institute of TechnologyPh.D. Thesis
+
+The generation of arbitrary order curved meshes for 3D finite element analysis. Z Xie, R Sevilla, O Hassan, K Morgan, Computational Mechanics. 512012
+
+Mesh generation in curvilinear domains using high-order elements. S Sherwin, J Peiró, International Journal for Numerical Methods in Engineering. 5312002
+
+Construction of tetrahedral meshes of degree two. P L George, H Borouchaki, International Journal for Numerical Methods in Engineering. 9092012
+
+Defining quality measures for high-order planar triangles and curved mesh generation. X Roca, A Gargallo-Peiró, J Sarrate, Proceedings of the 20th International Meshing Roundtable. the 20th International Meshing RoundtableHeidelberg, GermanySpringer International Publishing2012
+
+Defining quality measures for mesh optimization on parameterized CAD surfaces. A Gargallo-Peiró, X Roca, J Peraire, J Sarrate, Procedings of the 21st International Meshing Roundtable. edings of the 21st International Meshing RoundtableGermanySpringer International Publishing: Heidelberg2013
+
+Robust untangling of curvilinear meshes. T Toulorge, C Geuzaine, J F Remacle, J Lambrechts, Journal of Computational Physics. 2542013
+
+Defining quality measures for validation and generation of high-order tetrahedral meshes. A Gargallo-Peiró, X Roca, J Peraire, J Sarrate, Proceedings of the 22nd International Meshing Roundtable. the 22nd International Meshing RoundtableGermanySpringer International Publishing: Heidelberg2014
+
+Forbidden shapes in the finite element method. A Mitchell, G Phillips, E Wachspress, IMA Journal of Applied Mathematics. 822601971
+
+Algorithms for determining invertible two-and three-dimensional quadratic isoparametric finite element transformations. D Field, International Journal for Numerical Methods in Engineering. 1961983
+
+A note on invertible two-dimensional quadratic finite element transformations. M Baart, E Mulder, Communications in Applied Numerical Methods. 361987
+
+Geometrical validity of curvilinear finite elements. A Johnen, J F Remacle, C Geuzaine, Journal of Computational Physics. 2332013
+
+Robust distortion metric for quadratic triangular 2D finite elements. A Salem, S Canann, S Saigal, Applied Mechanics Division ASME. 2201997
+
+Mid-node admissible spaces for quadratic triangular arbitrarily curved 2D finite elements. A Salem, S Canann, S Saigal, International Journal for Numerical Methods in Engineering. 5022001
+
+Inverse mapping and distortion measures for quadrilaterals with curved boundaries. K Yuan, Y Huang, T Pian, International Journal for Numerical Methods in Engineering. 3751994
+
+Label-invariant mesh quality metrics. P M Knupp, Proceedings fo the 18th International Meshing Roundtable. fo the 18th International Meshing Roundtable2009
+
+Extension of a mesh quality metric for elements with a curved boundary edge or surface. L Branets, G Carey, Journal of Computing and Information Science in Engineering. 542005
+
+Mid-node admissible space for 3D quadratic tetrahedral finite elements. A Salem, S Saigal, S Canann, Engineering with Computers. 1712001
+
+Local optimization-based simplicial mesh untangling and improvement. L A Freitag, P Plassmann, International Journal for Numerical Methods in Engineering. 492000
+
+Tetrahedral mesh improvement via optimization of the element condition number. L A Freitag, P M Knupp, International Journal for Numerical Methods in Engineering. 532002
+
+Simultaneous untangling and smoothing of tetrahedral meshes. J M Escobar, E Rodríguez, R Montenegro, G Montero, J M González-Yuste, Computer Methods in Applied Mechanics and Engineering. 192252003
+
+Simple and effective variational optimization of surface and volume triangulations. X Jiao, D Wang, H Zha, Engineering with Computers. 272011
+
+Hexahedral and tetrahedral mesh untangling. P M Knupp, Engineering with Computers. 1732001
+
+A method for hexahedral mesh shape optimization. P M Knupp, International Journal for Numerical Methods in Engineering. 5822003
+
+Simultaneous untangling and smoothing of moving grids. E J López, N M Nigro, M A Storti, International Journal for Numerical Methods in Engineering. 7672008
+
+Triangular and quadrilateral surface mesh quality optimization using local parametrization. R Garimella, M Shashkov, P M Knupp, Computer Methods in Applied Mechanics and Engineering. 1939-112004
+
+A log-barrier method for mesh quality improvement and untangling. S Sastry, S Shontz, S Vavasis, 10.1007/s00366-012-0294-6Engineering with Computers. 3032014
+
+A surface mesh smoothing and untangling method independent of the CAD parameterization. A Gargallo-Peiró, X Roca, J Sarrate, 10.1007/s00466-013-0920-1Computational Mechanics. 5342014
+
+A log-barrier method for mesh quality improvement. S Sastry, S Shontz, S Vavasis, Proceedings of the 20th International Meshing Roundtable. the 20th International Meshing RoundtableHeidelberg, GermanySpringer International Publishing2012
+
+Algebraic mesh quality metrics. P M Knupp, SIAM Journal on Numerical Analysis. 2312001
+
+Algebraic mesh quality metrics for unstructured initial meshes. P M Knupp, Finite Elements in Analysis and Design. 3932003
+
+. © Copyright, 10.1002/nmeLtd. Int. J. Numer. Meth. Engng. 1032015. 2015John Wiley & Sons
+
+Inserting curved boundary layers for viscous flow simulation with high-order tetrahedra. A Gargallo-Peiró, X Roca, J Peraire, J Sarrate, Research Notes, 22nd International Meshing Roundtable. GermanyHeidelberg2013
+
+Scalable parallelization of the hybridized discontinuous Galerkin method for compressible flow. X Roca, N Nguyen, J Peraire, 43rd AIAA Fluid Dynamics Conference and Exhibit. San Diego, California, US2013
+
+A hybridizable discontinuous Galerkin method for steady-state convection-diffusion-reaction problems. B Cockburn, B Dong, J Guzmán, M Restelli, R Sacco, SIAM Journal of Scientific Computing. 312009
+
+An implicit high-order hybridizable discontinuous Galerkin method for linear convection-diffusion equations. N Nguyen, J Peraire, B Cockburn, Journal of Computational Physics. 2282009
+
+An implicit high-order hybridizable discontinuous Galerkin method for nonlinear convection-diffusion equations. N Nguyen, J Peraire, B Cockburn, Journal of Computational Physics. 2282009
+
+A hybridizable discontinuous Galerkin method for the compressible Euler and Navier-Stokes equations. J Peraire, N Nguyen, B Cockburn, Proceedings of the 48th AIAA Aerospace Sciences Meeting and Exhibit. the 48th AIAA Aerospace Sciences Meeting and ExhibitAtlanta, Georgia, US2010AIAA Paper
+
+Numerical Optimization. J Nocedal, S Wright, 10.1002/nmeLtd. Int. J. Numer. Meth. Engng. 1031999. 2015. 2015John Wiley & Sons

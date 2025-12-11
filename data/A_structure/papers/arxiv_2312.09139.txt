@@ -1,0 +1,191 @@
+Class-Wise Buffer Management for Incremental Object Detection: An Effective Buffer Training Strategy
+14 Dec 2023
+
+Junsu Kim 
+UNIST
+South Korea
+
+Sumin Hong 
+SeoulTech
+South Korea
+
+Chanwoo Kim 
+UNIST
+South Korea
+
+Jihyeon Kim 
+UNIST
+South Korea
+
+Yihalem Yimolal Tiruneh 
+UNIST
+South Korea
+
+Jeongwan On 
+Chonnam National University
+South Korea
+
+Jihyun Song 
+LG Electronics
+South Korea
+
+Sunhwa Choi 
+LG Electronics
+South Korea
+
+Seungryul Baek 
+UNIST
+South Korea
+
+Class-Wise Buffer Management for Incremental Object Detection: An Effective Buffer Training Strategy
+14 Dec 20238C350518231C46FCABAB128693528B91arXiv:2312.09139v1[cs.CV]
+Class incremental learning aims to solve a problem that arises when continuously adding unseen class instances to an existing model This approach has been extensively studied in the context of image classification; however its applicability to object detection is not well established yet.Existing frameworks using replay methods mainly collect replay data without considering the model being trained and tend to rely on randomness or the number of labels of each sample.Also, despite the effectiveness of the replay, it was not yet optimized for the object detection task.In this paper, we introduce an effective buffer training strategy (eBTS) that creates the optimized replay buffer on object detection.Our approach incorporates guarantee minimum and hierarchical sampling to establish the buffer customized to the trained model.Furthermore, we use the circular experience replay training to optimally utilize the accumulated buffer data.Experiments on the MS COCO dataset demonstrate that our eBTS achieves state-of-the-art performance compared to the existing replay schemes.
+
+Introduction
+
+Traditional machine learning models tend to forget previously learned patterns when trained on new datasets, a phenomenon called "catastrophic forgetting" [14].This poses challenges for models operating in dynamic environments.However, unlike machines, humans can learn new concepts without entirely forgetting pre-existing knowledge.Building on this insight, incremental learning aims to address this issue by training models to assimilate new concepts progressively without retraining on the entire past dataset, effectively preserving knowledge from prior tasks while integrating new task.
+
+Most incremental methods [2,4,6,7,11,12,15] handle image classification task.We can also apply these incre- mental methods to object detection; however, due to varying labels for foreground objects in the scene, the strategies for object detection are relatively ineffective.Nevertheless, this task can play an important role in real-world applications.This allows us to adapt to environments where new object labels are constantly appearing.For example, when a new product is discovered, the detection system should recognize it while simultaneously detecting previous labels.Instead of completely retraining the model every time new labels appear, it helps to update the model to accommodate the unseen label incrementally.This greatly improves flexibility and persistence in real-world applications and saves computing resources.We call this work class incremental object detection (CIOD).
+
+One of the most commonly used methods in CIOD is experience replay (ER) [1,3,5,10,15,16].Random-based ER [3,4,15,16] mitigates the complexity of multiple labels by simply randomly sampling from the previous data and building a buffer [15] for integration with the new data.
+
+RODEO [1] and Hard [10] suggested replay designed for CIOD, but it is still unclear whether they are the best strategy for preventing forgetting.Due to the lack of clarity on this effectiveness, we consider that there is room for enhancing these learning strategies, specifically replay strategy.
+
+In this paper, we propose an effective class-wise buffer training strategy, eBTS.Our methods consist of two buffer configuration components and a simple but efficient training approach.First, guarantee minimum ensures the inclusion of a minimum quantity of each class sample, reflecting the class distribution of the prior dataset in the buffer.Second, hierarchical sampling prioritizes samples with high number of unique labels and low loss when the buffer becomes full.This helps to retrain more diverse labels and optimize data to the trained model.In terms of training approach, we propose circular experience replay (CER) that deals with the asymmetry between current and prior tasks' data.It combines original ER training [1,10,15] and CER training, which are designed to avoid overfitting and to enhance prior knowledge.In Fig. 1, our method demonstrates the ability to accurately reflect the prior distribution in the buffer, as well as excellent performance.Our contributions can be summarized as follows: 1) We introduce a buffer management strategy that is easily compatible with CIOD.The buffer manager operates the buffer based on two criteria: high number of unique labels and low loss, rather than any other single measures (e.g.many labels, randomness, etc.).We experimentally verified that it is the viable measure that reflects the tendency of the trained model.2) We propose an effective buffer training scheme, i.e. circular training, to overcome the imbalance caused by the limited capacity of the replay buffer and enhance previous detection performance.
+
+
+Methods
+
+
+Overview
+
+Our goal is to continually expand our knowledge by incorporating new labels while retaining previous knowledge in class incremental object detection (CIOD).The setting of CIOD consists of multiple tasks, each with a predefined number of object classes denoted as T t = T 1 , . . ., T N , where N is the total number of tasks.Each task has its own corresponding dataset D t which includes a set of input images X t and corresponding labels Y t :
+D t ∼ ({X t : x 1 , ..., x nt ∈ T t }, {Y t : y 1 , ..., y nt ∈ T t }) (1)
+where n t is the number of data contained in T t , and t is task index.Also, we use the buffer B which is a memory used for replay to store sample data (i.e.x, y).The B consists of data structured as follows:
+
+Algorithm 1: Guarantee Minimum process
+U = {u ∈ U d | count(u, UB) < m} // Eq. 4 if U = ∅ then R ← get samples(B) else R ← get samples excluding labels(B, U) end B ← BufferManager(B, R, U, (I d , L d , U d )) end end Output: B {I i : (L i , U i )}(2)
+where I i denotes the i-th image, L i is the associated sample loss, and U i signifies the list of unique classes in it.
+
+Our effective buffer training strategy, eBTS has three main components: 1) guarantee minimum process to construct the representative image buffer (Sec.2.2), 2) hierarchical sampling for effective buffer configuration (Sec.2.3), 3) circular training for utilization of the buffer (Sec.2.4).The overall flow is shown in Fig. 2. We will describe more details in the following subsection.
+
+
+Guarantee minimum process
+
+Data imbalance is a common problem in object detection tasks.Specifically, when creating a replay buffer, classes that are already under-represented in the data distribution may become scarcer, which can degrade detection performance.Therefore, it is important to ensure each class within the replay buffer has a minimum number of data.To address the issue, we propose the guarantee minimum (GM) method.This method maintains class-wise diversity in B and preserves the original data distribution D 1:t−1 by ensuring a minimum of m samples for every class.Data structure.We generate an extra dataset D e by combining D t and B 1:t−1 , and uses input sample d as Eq. 2. Given I d and U d , we calculate the L d with pre-trained model M 1:t .Since we employ a transformer-based detector, we construct the loss function as follows:
+L d = L Bbox + L GIoU + L Label (3)
+where L Bbox and L GIoU represent L1 loss and generalized IOU loss [13] for bounding box.Additionally, L Label [9] is
+Input Image 𝑰 𝒅 𝑫 𝒆 Dataset … 𝑰 𝑰𝑫 ∶ 1 𝑳 𝟏 ∶ 0.5 𝑪 𝟏 ∶ 0.5 𝑰 𝑰𝑫 ∶ 1 𝑳 𝟏 ∶ 0.5 𝑪 𝟏 ∶ 0.5 𝑰 𝑰𝑫 ∶ 1 𝑳 𝟏 ∶ 0.5 𝑪 𝟏 ∶ 0.5 {𝐼 𝑑 : 𝐿 𝑑 , 𝑈 𝑑 } 𝑈 𝑑 = {1, 5} Results 𝐶 1 𝐶 5
+
+Results
+
+
+Buffer configuration Training
+U = {u ∈ U d | count(u, U B ) < m}(4)
+where, u is an element of the unique labels from the input data U d , and m represents the minimum guarantee value.Then, we select the replacement candidates set R which contains samples without labels from U in B. If U is empty (i.e.all classes above m), we choose all samples in B as replacement candidates R.This approach ensures that our buffer reflects the overall class distribution, while also covering the rare labels more effectively.Finally, we use buffer manager employing hierarchical sampling (Sec.2.3) to compare R with a new sample.We summarize our GM algorithm in Alg. 1.
+
+
+Hierarchical sampling strategy
+
+In this section, we introduce hierarchical sampling to create a buffer containing representative samples of the prior knowledge through two strategies: high number of unique labels and low loss.The high number of unique labels strategy [1] is used to diversify the buffer configuration, preserving previously learned labels within a limited capacity.However, when the buffer needs replacement, samples with an equally low number of unique labels are randomly replaced without specific conditions.Therefore, we use a // insert new data to buffer end Output: B low-loss approach for a more sophisticated configuration.In general, a low loss value indicate that the prediction is similar to the actual sample and the model has been well-trained on that particular sample.Thus, we prioritize data by using the loss for samples with the same number of unique labels.We utilize hierarchical sampling (summarized in Alg. 2) to compare replacement candidates R and the input sample.We allocate an additional epoch to process all configuration procedures.
+
+
+Circular experience replay training
+
+Previous CIOD replay methods [1,10] used experience replay (ER) training method, which utilized a large buffer capacity to prevent forgetting a relatively small number of   buffer data.However, this approach results in significant resource wastage.To address this issue, we propose the circular experience replay (CER) training strategy to make full use of the buffer which has limited capacity.First, we separates D t+1 and B 1:t to create the distinct training datasets.We then train the model with randomly selecting data from both datasets.The B 1:t is repeatedly utilized with uniform probability until all D t+1 is fully used.To enhance the utilization of previous information, we apply CER training following ER training.
+
+
+Experiments
+
+
+Implementation and experiments
+
+eBTS is based on Deformable DETR [18] trained from scratch on the COCO [8] for 50 epochs in each task.All experiments are performed using 4 RTX3090 GPUs with batch size of 3. In the first, two-phase, we incrementally train 40+40 and 70+10 divided classes.We evaluate the model on T 1+2 and T 1 to assess the degree of forgetting.In the second, multiple-phase, we train 40+20+20 divided classes.Then, we test the model by combining the added classes.To ensure a fair comparison, we only extracted the replay components from various CIOD methods [1,10,16] that use replay and trained them using our baseline.We kept all conditions identical, except for the buffer composition (random [16], high number of unique labels [1], many la- bels [10] and training method (original ER [1,10], Cut-Mix [17] based CutMix ER [16]).In all our experiments, we set the buffer capacity at around 1% (1200) of the COCO, and the least m set at 1% (12) of the buffer capacity.
+
+
+Experimental results
+
+We analyze two-phase results using the mAP metric on COCO dataset [8].In Table 1, we qualitatively show that our approach eBTS achieved state-of-the-art results in the T 1 and T 1+2 .Furthermore, our method ("ours w/o CER") performs well even without using the circular training strategy, in comparison to previous methods.This indicates the effectiveness of our buffer configuration algorithm, which includes guarantee minimum processing and a hierarchical sampling strategy, in retaining previous knowledge T 1 .As shown in Fig. 3, our method ("Ours w/o CER") also demonstrates good performance after training the last task in the multi-phase.To ensure a fair, we exclusively employed ER training for all methods, excluding CER from our complete algorithm and omitting CutMix training [17] used in Cut-Mix [16].CutMix demonstrates comparable performance to our approach at task 2, but becomes less effective as the number of classes to be collected increases.
+
+
+Ablation
+
+In Table 2, we demonstrate how the ratio of ER and CER is defined within the specified 50 epochs.The best performance is achieved with a 48:2 ratio in both the 70+10 and 40+40.Furthermore, Table 1 highlights that CER significantly improves performance in the 70+10 setup, where a larger number of classes need to be retained.The mAP increases from 0.190 to 0.221, compared to a smaller improvement from 0.270 to 0.271 in the 40+40.
+
+
+Conclusion
+
+In this paper, we propose an improved replay scheme to overcome the existing constraints in the class incremental object detection task.Our approach, eBTS, effectively manages the replay buffer with the guarantee minimum process and hierarchical sampling.In addition, we use a circular training strategy to address data imbalance.Our method demonstrates better performance in reducing catastrophic forgetting on the COCO dataset compared to existing methods.The ablation study demonstrates the optimal ratios for experience replay and circular experience replay.In future work, we aim to integrate our proposed method with other strategies to deal with the forgetting problem more effectively.
+
+Figure 1 .
+1
+Figure 1.The final mean average precision (mAP .%) and the number of classes that satisfy COCO's distribution at the 40+40 setup.We use the following formula buffer capacity × Number of samples in C i Total number of samples in C 1,...,n to check the distribution for the previous classes.
+
+
+:Figure 2 .
+2
+Figure 2. The overall process.During the buffer configuration process, when the buffer is full, we perform the GM process to ensure coverage of all classes.Next, we select a candidate from the buffer to compare with new data based on two conditions.When training new data, we use the CER training strategy following ER training strategy within a specific epoch.
+
+
+Algorithm 2 :
+2
+BufferManager Input: B, R, U, I d , L d , U d // inputs from Alg. 1 define: B, R ≡ {I : (L, U )} // buffer & candidates format Rmin U ← min U(R) // cond.1: number of unique labels Iopt, Lopt, Uopt ← highest L(Rmin U) // cond.2: loss if U = ∅ then if Lopt > L d then del B[Iopt] // delete data in buffer B ← (I d , L d , U d ) // insert new data to buffer else no change end else del B[Iopt] // delete data in buffer B ← (In, L d , Un)
+
+
+Figure 3 .
+3
+Figure 3. Multi-phase result.
+
+
+
+
+De ≡ {x1, ..., xN e } // extra dataset format De = B1:t−1 ∪ Dt if t > 1 else Dt // extra dataset for d = 1, . . ., Ne do I
+
+Input: K, m, Dt, B1:t−1, M1:t define: B ≡ {I : (L, U )} // buffer data format define: d , U d ← get info(d) // id, unique labels of d L d ← M1:t(d) // loss value of d if |B| < K then B ← (I d , L d , U d ) else // pick all labels set.(e.g.U1, . . ., UK ) UB ← get all unique labels set(B) // pick the labels that appear less than m in U d
+
+
+Table 1 .
+1
+Incremental results for the COCO validation set using Deformable DETR in various scenarios.T1 (40 or 70) represents the previous classes, and T (1+2) (80) denotes testing for all classes.The best result is highlighted in bold.(Overall) mAP .5:.95 mAP .5 mAP .75mAP S mAP M mAP L mAP .5:.95 mAP .5 mAP .75mAP S mAP M mAP L
+Scenarios Method CutMix [16] RODEO [1] T (1+2) 70 + 10 T 1 (Old) 0.087 0.207 0.065 0.028 0.098 0.141 0.086 0.206 0.063 0.064 0.109 0.066 0.042 0.097 0.091 0.094 0.151 0.100 Hard [10] 0.068 0.124 0.067 0.059 0.104 0.075 0.095 0.161 0.0980.034 0.056 0.0740.097 0.127 0.1280.135 0.137 0.120Ours w/o CER0.1790.2880.1920.0890.2090.2380.1900.3040.2030.0970.2180.261Ours0.2130.3340.2310.1040.2370.2950.2210.3450.2400.1140.2460.308CutMix [16]0.1310.2860.1040.0580.1500.2010.1350.2950.1060.0510.1480.212RODEO [1]0.0950.1530.0990.0730.1130.1030.2330.3430.2520.1300.2560.31140 + 40Hard [10]0.0720.1310.0720.0700.1070.0590.2200.3320.2390.1210.2500.285Ours w/o CER0.1680.2710.1760.0990.1990.1940.2700.4050.2930.1440.2970.367Ours0.2220.3560.2340.1250.2550.2960.2710.4190.2940.1360.2960.376
+
+Table 2 .
+2
+Comparison of the appropriate proportions of CER used with ER on COCO.The best result is highlighted in bold
+phase70104040ER-CER RatioT 1T (1+2)T 1T (1+2)ER+ CERAPAPAPAP40100.1680.1830.1720.2534280.1690.1850.1920.2624460.1880.1990.2100.2714640.1940.2080.1920.2604820.2130.2210.2220.271
+
+Rodeo: Replay for online object detection. Manoj Acharya, Tyler L Hayes, Christopher Kanan, 2020. 1, 2, 3, 4BMVC
+
+Rainbow memory: Continual learning with a memory of diverse samples. Jihwan Bang, Heesu Kim, Youngjoon Yoo, Jung-Woo Ha, Jonghyun Choi, CVPR. 2021
+
+Riemannian walk for incremental learning: Understanding forgetting and intransigence. Arslan Chaudhry, Thalaiyasingam Puneet K Dokania, Philip Ajanthan, Torr Hs, ECCV. 2018
+
+Tianbao Yang, and Tajana Rosing. Improved schemes for episodic memory-based lifelong learning. Yunhui Guo, Mingrui Liu, NIPS. 2020
+
+Exemplar-supported generative reproduction for class incremental learning. Chen He, Ruiping Wang, Shiguang Shan, Xilin Chen, BMVC. 2018
+
+Overcoming catastrophic forgetting in neural networks. James Kirkpatrick, Razvan Pascanu, Neil Rabinowitz, Joel Veness, Guillaume Desjardins, Andrei A Rusu, Kieran Milan, John Quan, Tiago Ramalho, Agnieszka Grabska-Barwinska, 2017PNAS
+
+Hyunseo Koh, Dahyun Kim, Jung-Woo Ha, Jonghyun Choi, arXiv, 2021. 1Online continual learning on class incremental blurry task configuration with anytime inference. 
+
+Microsoft coco: Common objects in context. Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Perona, Deva Ramanan, Piotr Dollár, Lawrence Zitnick, ECCV. 2014
+
+Kaiming He, and Piotr Dollár. Focal loss for dense object detection. Tsung-Yi Lin, Priya Goyal, Ross Girshick, ICCV. 2017
+
+Multi-task incremental learning for object detection. arXiv. Xialei Liu, Hao Yang, Avinash Ravichandran, Rahul Bhotika, Stefano Soatto, 2020. 1, 2, 3, 4
+
+Gradient episodic memory for continual learning. David Lopez, - Paz, Marc'aurelio Ranzato, NIPS. 2017
+
+icarl: Incremental classifier and representation learning. Sylvestre-Alvise, Alexander Rebuffi, Georg Kolesnikov, Christoph H Sperl, Lampert, CVPR. 2017
+
+Generalized intersection over union: A metric and a loss for bounding box regression. Hamid Rezatofighi, Nathan Tsoi, Junyoung Gwak, Amir Sadeghian, Ian Reid, Silvio Savarese, CVPR. 2019
+
+Catastrophic forgetting, rehearsal and pseudorehearsal. Anthony Robins, Connection Science. 11995
+
+Experience replay for continual learning. David Rolnick, Arun Ahuja, Jonathan Schwarz, Timothy Lillicrap, Gregory Wayne, NIPS. 20191
+
+Continual learning strategy in one-stage object detection framework based on experience replay for autonomous driving vehicle. Jeng-Lun, Qazi Shieh, Muhamad Mazhar Ul Haq, Said Amirul Haq, Peter Karam, Chondro, De-Qin, Shanq-Jang Gao, Ruan, Sensors. 142020
+
+Cutmix: Regularization strategy to train strong classifiers with localizable features. Sangdoo Yun, Dongyoon Han, Seong Joon Oh, Sanghyuk Chun, Junsuk Choe, Youngjoon Yoo, ICCV. 2019
+
+Deformable detr: Deformable transformers for end-to-end object detection. ICLR. Xizhou Zhu, Weijie Su, Lewei Lu, Bin Li, Xiaogang Wang, Jifeng Dai, 2020

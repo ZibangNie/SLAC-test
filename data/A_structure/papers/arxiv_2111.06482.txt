@@ -1,0 +1,283 @@
+Autonomous Teamed Exploration of Subterranean Environments using Legged and Aerial Robots
+16 May 2022
+
+Mihir Kulkarni 
+Mihir Dharmadhikari 
+Marco Tranzatto 
+Samuel Zimmermann 
+Victor Reijgwart 
+Paolo De Petris 
+Huan Nguyen 
+Nikhil Khedekar 
+Christos Papachristos 
+Lionel Ott 
+Roland Siegwart 
+Marco Hutter 
+Kostas Alexis 
+Autonomous Teamed Exploration of Subterranean Environments using Legged and Aerial Robots
+16 May 2022
+This paper presents a novel strategy for autonomous teamed exploration of subterranean environments using legged and aerial robots. Tailored to the fact that subterranean settings, such as cave networks and underground mines, often involve complex, large-scale and multi-branched topologies, while wireless communication within them can be particularly challenging, this work is structured around the synergy of an onboard exploration path planner that allows for resilient long-term autonomy, and a multi-robot coordination framework. The onboard path planner is unified across legged and flying robots and enables navigation in environments with steep slopes, and diverse geometries. When a communication link is available, each robot of the team shares submaps to a centralized location where a multi-robot coordination framework identifies global frontiers of the exploration space to inform each system about where it should re-position to best continue its mission. The strategy is verified through a field deployment inside an underground mine in Switzerland using a legged and a flying robot collectively exploring for 45 min, as well as a longer simulation study with three systems.
+
+I. INTRODUCTION
+
+The collective progress in robotic systems has enabled their utilization in a multitude of autonomous exploration and mapping missions. Aerial and ground robots are now employed in diverse search and rescue [1][2][3][4], industrial inspection [5][6][7][8][9][10][11][12], surveillance [13], planetary exploration [14][15][16][17][18][19] and other mission scenarios. Despite the progress, a set of environments remain particularly demanding for robots to autonomously explore and challenge the state-of-the-art in robot navigation and autonomy. Among them, subterranean settings such as underground mines, subway infrastructure and cave networks are especially strenuous. Motivated by the goals and aspirations of the DARPA Subterranean Challenge [20], this work culminates on a sequence of developments in autonomous exploration path planning for both legged and aerial robots that have enabled the robots of Team CERBERUS to explore underground mines, multi-level power plants, tunnels, sewers, caverns, lava tubes and more.
+
+Specifically, we present two synergistic contributions, namely a) "GBPlanner2", a revised and enhanced version of our Graph-Based subterranean exploration path Planner [21] to uniformly guide both legged and aerial robots (opensourced at https://s.ntnu.no/gbplanner), as well as b) the newly developed CoOperation for HeterOgeneous Robot Teams (COHORT) framework that facilitates the synergistic exploration of large-scale, multi-branching, and diverse subterranean settings having both narrow and wide sections. The two methods working in harmony enable the autonomous cooperative exploration and mapping of complex underground domains using legged and flying systems that coordinate their exploration, while each retains complete individual exploratory capacity.
+
+To verify the proposed solution for teamed exploration path planning, a set of evaluations are presented including a deployment in the Hagerbach underground mine in Switzerland ( Figure 1) using legged and aerial robots exploring for 37 min and 8 min respectively, as well as a large-scale simulation study. We demonstrate that due to the individual properties of GBPlanner2 and COHORT, as well as their synergy, the robots present efficient autonomous exploration behaviors that are resilient against the complexities introduced by the vast scale of the environments, the challenging terrain and complicated geometries involved, as well as the difficulty of establishing reliable communications. A page of results is maintained at https://s.ntnu.no/exploration.
+
+In the remaining paper, Section II presents related work, followed by the problem statement in III. The proposed approach is detailed in Section IV, with evaluation studies in Section V and conclusions in Section VI.
+
+
+II. RELATED WORK
+
+A rich body of work has focused on the problems of autonomous single and multi-robot exploration [21][22][23][24][25][26][27][28][29][30][31][32][33][34][35]. Early work in single-robot exploration included the sampling of "next-best-views" [25], and the detection of frontiers [26], while recent efforts have focused on powerful planning techniques such as random trees and graphs possibly combined with volumetric calculations [22,23,[36][37][38][39], receding horizon techniques [23], multi-objective optimization [36,37], information-theoretic schemes [40], learning-based methods [41], and approaches that account for the likelihood of accumulating localization drift [22,42]. In multi-robot exploration, the seminal work in [30] presented a strategy for multi-robot coordination exploiting a grid map and a planning policy that tries to minimize the collective exploration time by considering both the cost of reaching a certain frontier cell and the "exploration utility" of each such cell as a function of the number of robots moving to that cell. Recent efforts have included distributed inferencebased schemes [35], volumetric gain-driven multi-robot exploration [32], methods on the collaboration of ground and aerial systems [43], techniques that consider the effect of limited communication range and endurance [29,31], concepts on how robots can work together to physically clear blocked paths [44] and more. The community has recently focused on the specific problem of subterranean exploration given the accelerating effects of the DARPA Subterranean Challenge. In response, groups around the world have proposed novel methods both for single-and multi-robot exploration. This includes techniques for quadruped robots [28], methods tailored to fast exploration using aerial platforms [27], schemes for both legged and flying systems [21], hierarchical frameworks to exploit dense local and sparse global information [45], multi-robot exploration strategies [34], approaches exploiting underground mine and cave topologies [46,47], and significant field robotics work [48][49][50][51]. Motivated by the importance of autonomous exploration and tailored to the teamed deployment of legged and flying robots inside subterranean settings, this work contributes two methods, namely on teamed exploration coordination and single-robot planning that enable resilient multi-robot teaming and reliable single-robot operation when communication to and from a robot is not possible, ability to negotiate challenging terrain and capacity to map diverse and large-scale geometries.
+
+
+III. PROBLEM FORMULATION
+
+The overall problem considered in this work is that of autonomously exploring a bounded volume V ⊂ R 3 enclosing a subterranean environment with a heterogeneous team of robots given models of their motion constraints, as well as of their onboard depth sensors {S i } with horizontal and vertical Fields Of View (FoV) [F i H , F i V ], and effective range d i max . As subterranean environments such as underground mines, subway infrastructure, and caves often consist of complex networks of branches, multiple levels, large rooms, vertical structures, steep slopes, and anomalous terrain, we concentrate on the teaming of legged and flying systems that exploit their synergies, while maintaining a high degree of individual autonomy.
+
+The total exploration problem is cast globally and refers to determining which parts of the initially unmapped space
+V unm init = V are free V f ree ⊂ V or occupied V occ ⊂ V .
+The environment is represented as an occupancy map M discretizing the volume in (free, occupied or unknown) cubical voxels m ∈ M with edge size r V . Since most depth sensing modalities cannot pass through objects, the environment may contain hollow, narrow, or more generally occluded sections that can not be explored:
+
+Definition 1 (Residual Volume) Let Ξ be the simply connected set of collision free configurations andV m ⊆ Ξ the set of all configurations from which the voxel m can be perceived by a depth sensor S. Then the residual volume is given as V res = m∈M (m|V m = ∅).
+
+The multi-robot exploration problem is then defined as:
+
+
+Problem 1 (Multi-Robot Volumetric Exploration)
+
+Given a bounded volume V and a team of N R heterogeneous robots, find a set of N R collision free paths σ i , i = 1, ..., N R starting at an initial configuration ξ init ∈ Ξ that leads to identifying the free and occupied parts V f ree and V occ , such that there does not exist any collision free configuration from which any piece of
+V \ {V f ree , V occ } could be perceived (V f ree ∪ V occ = V \ V res ).
+Feasible paths σ i of this problem are subject to the limited Field of View (FoV) of the sensor, its modeled range, and applicable robot motion constraints. As noted however, it is in the core principle of this work that multi-robot exploration takes place by robots demonstrating major individual autonomy since subterranean environments present topologies and materials that may prohibit continuous network connectivity. Respectively, we define the single-robot exploration problem given that a volume V S k i ⊂ V is allocated to a robot i at time instance t k and for a duration T i k . Problem 2 (Single-Robot Volumetric Exploration) Given a bounded volume V S k i and a robot i, find a collision free path σ S k i starting at an initial configuration ξ k init,i ∈ Ξ that identifies the free and occupied parts V 
+V S k i \ {V S k i f ree , V S k i occ } could be perceived. Thus, V S k i f ree ∪ V S k i occ = V S k i \ V res .
+A feasible path must respect the sensor model, and applicable motion, namely a max yaw rate and -for legged robotstraversability limitations requiring that M presents supportive ground along every path and its inclination is affordable.
+
+IV. PROPOSED APPROACH The presented contribution outlines a strategy for multirobot ground and flying exploration of predominantly subterranean environments that exploits increased levels of individual robot autonomy based on a comprehensive exploration planner. We detail both the new single-robot Graph-Based exploration Planner (GBPlanner 2.0) and the CoOperation for HeterOgeneous Robot Teams (COHORT) planning method. 
+
+
+A. Graph-based Subterranean Exploration Revisited
+
+At the core of the presented policy for autonomous subterranean exploration through ground and aerial robot teaming is a path planner for single-robot autonomous exploration of assigned, initially unmapped, underground volumes V S k i . The method builds on top of our previous open-source work on graph-based subterranean exploration [21], which we will refer to as "GBPlanner1". The new GBPlanner version presented in this paper, "GBPlanner2", has been heavily improved to best handle challenging subterranean geometries and steep slopes, and to provide improved computational performance. GBPlanner2 retains the bifurcated local/global planning architecture originally proposed, with the local planner being responsible for identifying efficient exploration paths that respect the robot motion and perception constraints, while the global planner is triggered to reposition the robot towards a previously perceived frontier of the exploration space when the local layer reports inability to find a path of significant exploration gain or to ensure that the robot returns home within its endurance limits. Figure 2 provides a graphical overview of GBPlanner2. Like GBPlanner1, the new method considers exploration gain, as the new volume to be observed by the robot i if it moves along a certain path σ L,best given a depth sensor
+S i with FoV [F i H , F i V ]
+and modeled range d i max (Algorithm 1). As compared to GBPlanner1, most changes are in the local exploration step. For ground robots, the method now explicitly handles the case of (steep) positive or negative slopes, vertical obstacles, and ditches, thus offering true 3D exploration capabilities for ground systems. Exploiting the volumetric map representation based on Voxblox [52], the method randomly samples vertices in the known free space within a local bounding box that is adaptively calculated to best fit the locally explored geometry. To identify the best fitting bounding box D L , Principal Component Analysis (PCA) is performed on the locally aggregated point cloud and the respective normalized eigenvectors [v x , v y , v z ] are scaled by µ V > 0 (tunable). Accordingly, a random local graph G L can be built. For a flying robot, admissible edge connections between two vertices are simply collision-free straight line segments. Conversely, when planning for a ground robot, the method checks each edge between two vertices by a) projecting points along the edge onto the ground and verifying that ground exists and is mapped, thus being able to support the robot's traversal, and b) verifying that the path inclination is within feasible bounds for the given robot (Algorithm 2). Notably, the projection also queries points on a circle around the shortest point to the ground as ground voxels may occasionally be incorrectly mapped as "free" (e.g., due to high LiDAR incidence angle, water puddles). This key feature also allows for the organization of vertices in those that have supportive ground, and those that are in free space but do not have any ground (occupied) voxels below them, called "hanging" vertices. They can be connected to other vertices in G L through edges adhering to the edge inclination limit and are used for volumetric gain purposes, but their gain is scaled by e −γH , γ H > 0 and the edges to them are not allowed to be commanded to the robot.
+Algorithm 1 Local Planner 1: ξ 0 ← GetCurrentConfiguration() 2: G L ← BuildLocalGraph(ξ 0 ) ⊲ Algorithm 2 3: Σ L ← GetDijkstraShortestPaths(G L , ξ 0 ) 4: ComputeVolumetricGain(G L )
+⊲ Algorithm 3 5: g best ← 0 6: σ L,best ← ∅ 7: for all σ ∈ Σ L do 8: g σ ← ExplorationGain(σ) 9: if g σ > g best then 10: g best ← g σ ; σ L,best ← σ 11: σ L,best ← ImprovePath(σ L,best ) 12: return σ L,best Provided these modifications, the method then builds a local random graph as in GBPlanner1. Once the graph is built, Dijkstra's algorithm is used to derive shortest paths from the robot's location to all vertices. Along these paths Σ L , volumetric exploration gain is calculated over each of if AdmissibleEdge(e) then 21:
+V ← V ∪ {ξ new }; E ← E ∪ {e} 22: Ξ near ← NearestVertices(G L , ξ new , δ) 23:
+for all ξ near ∈ Ξ near do 24: if GroundRobot then 25: enear ← ProjectEdge(ξnew, ξnear) 26: else 27: enear ← LineSegment(ξnew, ξnear) 28: if AdmissibleEdge(e near ) then 
+V l ← GetLeafVertices(G L ) 3: while V l = ∅ do 4: v ← V l [0] 5: V near ← NearestVertices(G L , v, ρ) 6: v.Gain ← V olumetricGain(v) 7:
+if v.Hanging then 8: v.Gain ← e −γH v.Gain
+
+
+9:
+
+for all v near ∈ V near do 10:
+
+v near .Gain ← v.Gain
+
+
+11:
+
+if v near .Hanging then 12: v near .Gain ← e −γH v near .Gain
+
+
+13:
+
+V near ← V near \ v near their vertices and accumulated to derive the total gain of a path as in [21]. Since this process is among the most computationally demanding within the method, GBPlanner2 offers the option to calculate the gain only on leaf vertices of the Dijkstra paths and also cluster these vertices using a radius ρ > 0 thus allowing to approximate the gain of some vertices based on the calculated gain of a nearby vertex.
+
+This modification is tailored to computationally-constrained micro flying robots operating in very wide, long and tall environments as ray casting, used to identify the number of unknown voxels to be observed by a depth sensor from a new vertex location, can be very demanding. Algorithms 1-3 offer an overview of the revised local planning in GBPlanner2. The best path σ L,best is derived and conducted by the robot. Beyond utilizing the revised edges from the local layer and other small improvements, the global planning stage of GBPlanner2 is identical to that of GBPlanner1 as in [21].
+
+
+B. Cooperation for Heterogeneous Robot Teams
+
+COHORT enables teamed operation by heterogeneous robotic systems, each empowered with single-agent exploration autonomy based on GBPlanner2. A prerequisite for this task is that all robots' poses and maps are expressed in the same inertial frame I C , an ability facilitated by the global multi-modal, multi-robot mapping (M3RM) and Voxgraph frameworks detailed in [48,53,54]. M3RM requires software to run both onboard the robot and on a Centralized Computational Hub (C2H), with the robot iteratively sending selective and compressed local map data and the C2H improving and aligning the map estimates of the robots thus requiring a (possibly intermittently available) communication link. COHORT operates as outlined in Figure 3 in order to support the exploration of the unknown volume V (and map M) by a team of N R robots. At any time, every robot i, i = 1, ..., N R builds a local "submap" M l i which is the volumetric representation of the environment over a predefined window as developed by Voxblox [52] with resolution r C . The submap window is defined based both on a fixed time-slot (here 45 s) and a maximum robot displacement from the point of starting a new submap (here 20 m) with a new submap initiated when any of these thresholds is exceeded.
+
+Once submaps are received and aligned with the global map estimate M C using Voxgraph [54], they are processed by COHORT. Upon receiving a new submap, wavefront propagation is performed to identify map frontiers. As wavefront we define the list of unvisited voxels neighboring visited ones in this submap. The wavefront propagation utilizes Breadth-First Search (BFS) and results in getting back adjacent voxels forming common frontiers which are defined as a collection of neighboring frontier points (centroids of unknown voxels neighboring a free mapped voxel). Using the extremities of the visited voxels above, a local bounding box D M l i is derived per submap. Within D M l i the method randomly samples a fixed number of vertices expressed in the local frame B l i of that submap which are also checked for lying in free space. Using the sampled set of free points ([x, y, z] T ) in the submap, a graph G M l i (called "subgraph") with N C vertices and all collision-free edges within a radius ρ C > 0 of each of the sampled points, alongside sampled points over the trajectory of the robot within M l i is constructed. Finally, the built G M l i is added to the COHORT's global graph of all robots G C which in turn grows to expand through all the explored space from all the robots as subgraphs are integrated into it. Fig. 3. Outline of how COHORT combines submaps from multiple robots to identify global frontiers and build individual subgraphs, that are merged to form a global graph to allow re-positioning to those frontiers in the global map that are likely to best enable future exploration.
+
+When a new submap is added or the transformation to the submaps changes due to updated multi-robot map alignment, each frontier point is checked in the global map M C for occupancy. If a frontier point for a submap turns out to lie in a known voxel for another submap, that frontier point is deleted. The frontier points are then clustered into frontiers by identifying all connected components via BFS with 26-connectivity [55]. Frontiers that are smaller than a set minimum size f min > 0 (here, f min = 250) are discarded and their frontier points are deleted. Once each frontier is re-clustered, then the global graph is checked to identify the points of G C that are near the geometric centroid of the points forming the frontier. These points are linked to the frontier and facilitate multi-robot exploration coordination.
+
+Specifically, multi-robot exploration in COHORT takes place by exploiting the above data structure organization and the services of GBPlanner2. In particular, any robot in the team operates by exploring the environment using GBPlanner2 but periodically seeks to update where it explores based on COHORT by re-positioning itself towards a frontier of the map M C as explored by the team of robots. In detail, as long as a robot is in communication range to the C2H (possibly via multiple network-hops through other robots or breadcrumbed communication nodes as in [48]), at every T C seconds of exploration the following steps are taken: First, the distances from all robots to all points on the COHORT's global graph G C and the distances from the home location (ξ init ) to all G C vertices are calculated using Dijkstra. Then, the frontier points are all expressed into the global frame I C and re-clustered such that overlapping frontiers from different submaps are not treated separately and an accurate estimate of the size of each frontier is derived. The re-clustered frontiers are sorted and the best n C % are derived. Among the top n C % frontiers, the one that is closest to the robot calling for re-positioning is derived and using G C the path for the robot to traverse is found, expressed in the robot's coordinate frame, and commanded to the system. COHORT also provides to the robot a new (fixed-size) bounding box D S k i updating the GBPlanner2 exploration goal volume V S k i such that it is now around the targeted frontier region. Upon arrival to the selected frontier, GBPlanner2 is re-triggered using the new V S k i (D S k i ) as goal volume to explore. After T C seconds of GBPlanner2-based exploration, COHORT will be called again to update where the robot will be exploring, while the procedure continues iteratively on this robot and works in an identical fashion across all robots. Notably, when a robot interacts with COHORT it also stores onboard the location it was at during that interaction. If at a subsequent attempt to interact with COHORT the communication channel is not available, the system will check if the whole assigned V S k i is explored and if so, it will return to the point that last offered a communication link (or iteratively proceed to previous such points if needed). If V S k i is not fully explored yet, the robot continues for an extra T e C seconds using GBPlanner2 before it backtracks to a previous communication point.
+
+
+V. EVALUATION STUDIES
+
+To systematically evaluate the proposed contributions, we present two sets of experimental and simulation results. The first involves the field deployment and exploration of different sections of the Hagerbach underground mine in Switzerland using an ANYmal C quadruped robot [56,57], and a custom flying robot called "RMF-Obelix" (built as a follow-up of the work in [58]) with both implementing GBPlanner2 onboard. ANYmal C integrated a Velodyne VLP-16 which was used for the purposes of mapping and volumetric gain evaluation. RMF-Obelix is a lightweight (1.4 kg) aerial robot integrating an OUSTER OS0-64 Li-DAR. Table I summarizes the GBPlanner2 parameters for ANYmal C and RMF-Obelix, alongside the total robot endurance T end , mission time T M , average processing time t p and mapping resolution r V , while µ V = 50 m. It is noted that both systems rely on our work in [59] for localization and mapping, but have very diverse processing capabilities, namely an Intel i7 8850H CPU with 6 cores (12 threads) on ANYmal and an Amlogic A311D ARM big.LITTLE (4× A73 @2.2 GHz, 2× A53 @1.8 GHz) CPU for RMF-Obelix, and thus have different GBPlanner2 settings. Figure 4 presents the results of this mission with ANYmal C exploring for 37 min and RMF-Obelix for 8 min, both without any manual interruptions, automatically re-positioning to different sections of the mine and safely returning to home. 
+
+
+Parameter
+
+ANYmal C RMF-Obelix We also provide detailed video overview of these missions, available at https://s.ntnu.no/exploration. To evaluate COHORT and its inter-operation with GBPlan-ner2, we present a large-scale simulation scenario involving 3 flying robot models that our team has openly released in the DARPA Subterranean Challenge repositories [60] (Robot 1: RMF-Obelix [61], Robots 2,3: M100 [62]) but with "virtual endurances" of [2000, 2500, 2500] s respectively. Figure 5 presents the results for teamed exploration and shows the path of each robot, instances where COHORT re-positioned robots to global frontiers of the commonly explored map (with r C = 0.4 m, N C = 200, ρ C = 4.0 m, n C % = 50%), and examples of exploration outside of communications range. Every time COHORT commands a robot to re-position itself towards a frontier, GBPlanner2 is engaged (T C = 50 s, D S k i = 360 × 360 × 20 m) onboard the robot. As communication constraints are also modeled, at certain instances GBPlanner2 continues the exploration for an additional T e C = 150 s before commanding the robot to backtrack to a node where communications were available.
+r V 0.2 m 0.3 m N V,
+
+VI. CONCLUSIONS
+
+This paper presented a complete framework for the autonomous teamed exploration of complex environments such as large-scale, multi-branching subterranean settings involving challenging terrain. The method relies on the harmonic synergy between resilient exploration path planning at the level of each individual robot, combined with a multi-robot  (5), and path to frontier outside communication range with new bounds calculated by COHORT (2,3) using its global graph. GBPlanner2 explores outside communication range (shown as cyan circles) and returns after T e C (4,6,7). Map 3D views in (8,9). exploration coordination framework that exploits aligned maps to identify the global frontiers of the mapped environment and is robust against communications-deprived environments. To evaluate our contribution, a set of largescale field deployments and simulations are presented.
+
+Fig. 1 .
+1Instances of autonomous exploration of a subterranean environment.
+
+
+there does not exist any reachable collision free configuration from which any piece of
+
+Fig. 2 .
+2Outline of the key functional steps of the revised graph-based subterranean exploration planner for aerial and ground (legged) robots.
+
+Fig. 4 .
+4Autonomous exploration using the ANYmal C legged robot and RMF-Obelix flying system running GBPlanner2 in the Hagerbach underground mine in Switzerland. ANYmal C conducted exploration for 37 minutes demonstrating navigation over slopes, global repositioning and homing, whereas RMF-Obelix performed an 8 minute mission including homing. For ANYmal C's mission, γ H = 5 is used to tune the weight of hanging vertices.
+
+Fig. 5 .
+5Instances of teamed exploration with 3 flying robots showing the combined map at the C2H (1), frontiers
+
+
+GBPLANNER2 PARAMETERS FOR BOTH ROBOTS.max 
+1000 
+500 
+[F H , F V ], used dmax 
+[360, 30] • , 30 m 
+[360, 90] • , 30 m 
+ρ 
+0 (disabled) 
+1 m 
+T end 
+70 min 
+8.5 min 
+T M 
+37.6 min 
+8.2 min 
+tp 
+605.53 ms 
+278.59 ms 
+
+TABLE I 
+
+
+
+Integrated data management for a fleet of search-and-rescue robots. H Balta, J Bedkowski, S Govindaraj, K Majek, P Musialik, D Serrano, K Alexis, R Siegwart, G De Cubber, Journal of Field Robotics. 343H. Balta, J. Bedkowski, S. Govindaraj, K. Majek, P. Musialik, D. Ser- rano, K. Alexis, R. Siegwart, and G. De Cubber, "Integrated data management for a fleet of search-and-rescue robots," Journal of Field Robotics, vol. 34, no. 3, pp. 539-582, 2017.
+
+Toward a fully autonomous uav: Research platform for indoor and outdoor urban search and rescue. T Tomic, K Schmid, P Lutz, A Domel, M Kassecker, E Mair, I L Grixa, F Ruess, M Suppa, D Burschka, IEEE robotics & automation magazine. 193T. Tomic, K. Schmid, P. Lutz, A. Domel, M. Kassecker, E. Mair, I. L. Grixa, F. Ruess, M. Suppa, and D. Burschka, "Toward a fully autonomous uav: Research platform for indoor and outdoor urban search and rescue," IEEE robotics & automation magazine, vol. 19, no. 3, pp. 46-56, 2012.
+
+Collaborative mapping of an earthquake-damaged building via ground and aerial robots. N Michael, S Shen, K Mohta, Y Mulgaonkar, V Kumar, K Nagatani, Y Okada, S Kiribayashi, K Otake, K Yoshida, Journal of Field Robotics. 295N. Michael, S. Shen, K. Mohta, Y. Mulgaonkar, V. Kumar, K. Na- gatani, Y. Okada, S. Kiribayashi, K. Otake, K. Yoshida et al., "Col- laborative mapping of an earthquake-damaged building via ground and aerial robots," Journal of Field Robotics, vol. 29, no. 5, pp. 832-841, 2012.
+
+The current state and future outlook of rescue robotics. J Delmerico, S Mintchev, A Giusti, B Gromov, K Melo, T Horvat, C Cadena, M Hutter, A Ijspeert, D Floreano, L M Gambardella, R Siegwart, D Scaramuzza, https:/onlinelibrary.wiley.com/doi/abs/10.1002/rob.21887Journal of Field Robotics. 367J. Delmerico, S. Mintchev, A. Giusti, B. Gromov, K. Melo, T. Horvat, C. Cadena, M. Hutter, A. Ijspeert, D. Floreano, L. M. Gambardella, R. Siegwart, and D. Scaramuzza, "The current state and future outlook of rescue robotics," Journal of Field Robotics, vol. 36, no. 7, pp. 1171-1191, oct 2019. [Online]. Available: https://onlinelibrary.wiley.com/doi/abs/10.1002/rob.21887
+
+Three-dimensional coverage path planning via viewpoint resampling and tour optimization for aerial robots. A Bircher, M Kamel, K Alexis, M Burri, P Oettershagen, S Omari, T Mantel, R Siegwart, Autonomous Robots. A. Bircher, M. Kamel, K. Alexis, M. Burri, P. Oettershagen, S. Omari, T. Mantel and R. Siegwart, "Three-dimensional coverage path planning via viewpoint resampling and tour optimization for aerial robots," Autonomous Robots, pp. 1-25, 2015.
+
+Structural inspection path planning via iterative viewpoint resampling with application to aerial robotics. A Bircher, K Alexis, M Burri, P Oettershagen, S Omari, T Mantel, R Siegwart, IEEE International Conference on Robotics and Automation (ICRA). A. Bircher, K. Alexis, M. Burri, P. Oettershagen, S. Omari, T. Mantel and R. Siegwart, "Structural inspection path planning via iterative viewpoint resampling with application to aerial robotics," in IEEE International Conference on Robotics and Automation (ICRA), May 2015, pp. 6423-6430. [Online]. Available: https://github.com/ethz-asl/StructuralInspectionPlanner
+
+Highly compact robots for inspection of power plants. G Caprari, A Breitenmoser, W Fischer, C Hürzeler, F Tâche, R Siegwart, O Nguyen, R Moser, P Schoeneich, F Mondada, Journal of Field Robotics. 291G. Caprari, A. Breitenmoser, W. Fischer, C. Hürzeler, F. Tâche, R. Siegwart, O. Nguyen, R. Moser, P. Schoeneich, and F. Mondada, "Highly compact robots for inspection of power plants," Journal of Field Robotics, vol. 29, no. 1, pp. 47-68, 2012.
+
+A climbing autonomous robot for inspection applications in 3d complex environments. C Balaguer, A Giménez, J M Pastor, V Padron, M Abderrahim, Robotica. 183C. Balaguer, A. Giménez, J. M. Pastor, V. Padron, and M. Abderrahim, "A climbing autonomous robot for inspection applications in 3d complex environments," Robotica, vol. 18, no. 3, pp. 287-297, 2000.
+
+A mobile robot for inspection of power transmission lines. J Sawada, K Kusumoto, Y Maikawa, T Munakata, Y Ishikawa, IEEE Transactions on Power Delivery. 61J. Sawada, K. Kusumoto, Y. Maikawa, T. Munakata, and Y. Ishikawa, "A mobile robot for inspection of power transmission lines," IEEE Transactions on Power Delivery, vol. 6, no. 1, pp. 309-315, 1991.
+
+Anymal in the field: Solving industrial inspection of an offshore hvdc platform with a quadrupedal robot. C Gehring, P Fankhauser, L Isler, R Diethelm, S Bachmann, M Potz, L Gerstenberg, M Hutter, 12th Conference on Field and Service Robotics (FSR 2019). C. Gehring, P. Fankhauser, L. Isler, R. Diethelm, S. Bachmann, M. Potz, L. Gerstenberg, and M. Hutter, "Anymal in the field: Solving industrial inspection of an offshore hvdc platform with a quadrupedal robot," in 12th Conference on Field and Service Robotics (FSR 2019), 2019.
+
+Towards a generic solution for inspection of industrial sites. M Hutter, R Diethelm, S Bachmann, P Fankhauser, C Gehring, V Tsounis, A Lauber, F Guenther, M Bjelonic, L Isler, Field and Service Robotics. SpringerM. Hutter, R. Diethelm, S. Bachmann, P. Fankhauser, C. Gehring, V. Tsounis, A. Lauber, F. Guenther, M. Bjelonic, L. Isler et al., "Towards a generic solution for inspection of industrial sites," in Field and Service Robotics. Springer, 2018, pp. 575-589.
+
+Tactile Inspection of Concrete Deterioration in Sewers with Legged Robots. H Kolvenbach, G Valsecchi, R Grandia, A Ruiz, F Jenelten, M Hutter, Field and Service Robots (FSR). Tokyo, Japan14H. Kolvenbach, G. Valsecchi, R. Grandia, A. Ruiz, F. Jenelten, and M. Hutter, "Tactile Inspection of Concrete Deterioration in Sewers with Legged Robots," in Field and Service Robots (FSR), Tokyo, Japan, 2019, p. 14. [Online]. Available: https://youtu.be/fdGKRgVYAtg
+
+Cooperative air and ground surveillance. B Grocholsky, J Keller, V Kumar, G Pappas, IEEE Robotics & Automation Magazine. 133B. Grocholsky, J. Keller, V. Kumar, and G. Pappas, "Cooperative air and ground surveillance," IEEE Robotics & Automation Magazine, vol. 13, no. 3, pp. 16-25, 2006.
+
+Mobile robots for planetary exploration. K Schilling, C Jungius, Control Engineering Practice. 44K. Schilling and C. Jungius, "Mobile robots for planetary exploration," Control Engineering Practice, vol. 4, no. 4, pp. 513-524, 1996.
+
+Ambler: An autonomous rover for planetary exploration. J Bares, M Hebert, T Kanade, E Krotkov, T Mitchell, R Simmons, W Whittaker, Computer. 226J. Bares, M. Hebert, T. Kanade, E. Krotkov, T. Mitchell, R. Simmons, and W. Whittaker, "Ambler: An autonomous rover for planetary exploration," Computer, vol. 22, no. 6, pp. 18-26, 1989.
+
+Towards autonomous planetary exploration. M J Schuster, S G Brunner, K Bussmann, S Büttner, A Dömel, M Hellerer, H Lehner, P Lehner, O Porges, J , Journal of Intelligent & Robotic Systems. 933M. J. Schuster, S. G. Brunner, K. Bussmann, S. Büttner, A. Dömel, M. Hellerer, H. Lehner, P. Lehner, O. Porges, J. Reill et al., "Towards autonomous planetary exploration," Journal of Intelligent & Robotic Systems, vol. 93, no. 3, pp. 461-494, 2019.
+
+Systems engineering the curiosity rover: A retrospective. R Welch, D Limonadi, R Manning, 2013 8th international conference on system of systems engineering. IEEER. Welch, D. Limonadi, and R. Manning, "Systems engineering the curiosity rover: A retrospective," in 2013 8th international conference on system of systems engineering. IEEE, 2013, pp. 70-75.
+
+The ingenuity helicopter on the perseverance rover. J Balaram, M Aung, M P Golombek, Space Science Reviews. 2174J. Balaram, M. Aung, and M. P. Golombek, "The ingenuity helicopter on the perseverance rover," Space Science Reviews, vol. 217, no. 4, pp. 1-11, 2021.
+
+Mars 2020: mission, science objectives and build. P A Boeder, C E Soares, Systems Contamination: Prediction, Control, and Performance 2020. 114891148903P. A. Boeder and C. E. Soares, "Mars 2020: mission, science objec- tives and build," in Systems Contamination: Prediction, Control, and Performance 2020, vol. 11489. International Society for Optics and Photonics, 2020, p. 1148903.
+
+Defense Advanced Research Projects Agency (DARPA). DARPA Subterranean ChallengeDefense Advanced Research Projects Agency (DARPA), "DARPA Subterranean Challenge." [Online].
+
+Graph-based subterranean exploration path planning using aerial and legged robots. T Dang, M Tranzatto, S Khattak, F Mascarich, K Alexis, M Hutter, Journal of Field Robotics. 378T. Dang, M. Tranzatto, S. Khattak, F. Mascarich, K. Alexis, and M. Hutter, "Graph-based subterranean exploration path planning using aerial and legged robots," Journal of Field Robotics, vol. 37, no. 8, pp. 1363-1388, 2020.
+
+Uncertainty-aware receding horizon exploration and mapping using aerial robots. C Papachristos, S Khattak, K Alexis, IEEE International Conference on Robotics and Automation (ICRA). C. Papachristos, S. Khattak, and K. Alexis, "Uncertainty-aware re- ceding horizon exploration and mapping using aerial robots," in IEEE International Conference on Robotics and Automation (ICRA), May 2017.
+
+Receding horizon "next-best-view" planner for 3d exploration. A Bircher, M Kamel, K Alexis, H Oleynikova, R Siegwart, IEEE International Conference on Robotics and Automation (ICRA). A. Bircher, M. Kamel, K. Alexis, H. Oleynikova and R. Siegwart, "Receding horizon "next-best-view" planner for 3d exploration," in IEEE International Conference on Robotics and Automation (ICRA), May 2016. [Online]. Available: https://github.com/ethz-asl/nbvplanner
+
+Autonomous exploration for infrastructure modeling with a micro aerial vehicle. L Yoder, S Scherer, Field and Service Robotics. SpringerL. Yoder and S. Scherer, "Autonomous exploration for infrastructure modeling with a micro aerial vehicle," in Field and Service Robotics. Springer, 2016, pp. 427-440.
+
+The determination of next best views. C Connolly, IEEE International Conference on Robotics and Automation. IEEEC. Connolly et al., "The determination of next best views," in IEEE International Conference on Robotics and Automation 1985. IEEE, 1985.
+
+A frontier-based approach for autonomous exploration. B Yamauchi, CIRA'97. IEEEB. Yamauchi, "A frontier-based approach for autonomous exploration," in CIRA'97. IEEE, 1997, pp. 146-151.
+
+Motion primitives-based path planning for fast and agile exploration using aerial robots. M R Dharmadhikari, T Dang, L Solanka, J B Loje, D H Nguyen, N Khedekar, K Alexis, IEEE International Conference on Robotics and Automation (ICRA). M. R. Dharmadhikari, T. Dang, L. Solanka, J. B. Loje, D. H. Nguyen, N. Khedekar, and K. Alexis, "Motion primitives-based path planning for fast and agile exploration using aerial robots," in IEEE International Conference on Robotics and Automation (ICRA), May 2019.
+
+Mine tunnel exploration using multiple quadrupedal robots. I D Miller, F Cladera, A Cowley, S S Shivakumar, E S Lee, L Jarin-Lipschitz, A Bhat, N Rodrigues, A Zhou, A Cohen, IEEE Robotics and Automation Letters. 52I. D. Miller, F. Cladera, A. Cowley, S. S. Shivakumar, E. S. Lee, L. Jarin-Lipschitz, A. Bhat, N. Rodrigues, A. Zhou, A. Cohen et al., "Mine tunnel exploration using multiple quadrupedal robots," IEEE Robotics and Automation Letters, vol. 5, no. 2, pp. 2840-2847, 2020.
+
+Coordinated multi-robot real-time exploration with connectivity and bandwidth awareness. Y Pei, M W Mutka, N Xi, 2010 IEEE international conference on robotics and automation. IEEEY. Pei, M. W. Mutka, and N. Xi, "Coordinated multi-robot real-time exploration with connectivity and bandwidth awareness," in 2010 IEEE international conference on robotics and automation. IEEE, 2010, pp. 5460-5465.
+
+Coordinated multi-robot exploration. W Burgard, M Moors, C Stachniss, F E Schneider, IEEE Transactions on robotics. 213W. Burgard, M. Moors, C. Stachniss, and F. E. Schneider, "Coordi- nated multi-robot exploration," IEEE Transactions on robotics, vol. 21, no. 3, pp. 376-386, 2005.
+
+Multiuav exploration with limited communication and battery. K Cesare, R Skeele, S.-H Yoo, Y Zhang, G Hollinger, 2015 IEEE international conference on robotics and automation (ICRA). K. Cesare, R. Skeele, S.-H. Yoo, Y. Zhang, and G. Hollinger, "Multi- uav exploration with limited communication and battery," in 2015 IEEE international conference on robotics and automation (ICRA).
+
+. IEEE. IEEE, 2015, pp. 2230-2235.
+
+Volumetric objectives for multirobot exploration of three-dimensional environments. M Corah, N Michael, arXiv:2103.11625arXiv preprintM. Corah and N. Michael, "Volumetric objectives for multi- robot exploration of three-dimensional environments," arXiv preprint arXiv:2103.11625, 2021.
+
+Fast exploration using multirotors: Analysis, planning, and experimentation. K Goel, M Corah, C Boirum, N Michael, Field and Service Robotics. SpringerK. Goel, M. Corah, C. Boirum, and N. Michael, "Fast exploration using multirotors: Analysis, planning, and experimentation," in Field and Service Robotics. Springer, 2021, pp. 291-305.
+
+Rapid and high-fidelity subsurface exploration with multiple aerial robots. K Goel, W Tabib, N Michael, arXiv:2012.10788arXiv preprintK. Goel, W. Tabib, and N. Michael, "Rapid and high-fidelity subsurface exploration with multiple aerial robots," arXiv preprint arXiv:2012.10788, 2020.
+
+Distributed inference-based multirobot exploration. A J Smith, G A Hollinger, Autonomous Robots. 428A. J. Smith and G. A. Hollinger, "Distributed inference-based multi- robot exploration," Autonomous Robots, vol. 42, no. 8, pp. 1651-1668, 2018.
+
+Visual saliency-aware receding horizon autonomous exploration with application to aerial robotics. T Dang, C Papachristos, K Alexis, IEEE International Conference on Robotics and Automation (ICRA). T. Dang, C. Papachristos, and K. Alexis, "Visual saliency-aware receding horizon autonomous exploration with application to aerial robotics," in IEEE International Conference on Robotics and Automa- tion (ICRA), May 2018.
+
+Hypergame-based adaptive behavior path planning for combined exploration and visual search. M R Dharmadhikari, H Deshpande, T Dang, K Alexis, IEEE International Conference on Robotics and Automation (ICRA). M. R. Dharmadhikari, H. Deshpande, T. Dang, and K. Alexis, "Hypergame-based adaptive behavior path planning for combined exploration and visual search," in IEEE International Conference on Robotics and Automation (ICRA), May 2021.
+
+Graph-based topological exploration planning in large-scale 3d environments. F Yang, D.-H Lee, J Keller, S Scherer, arXiv:2103.16829arXiv preprintF. Yang, D.-H. Lee, J. Keller, and S. Scherer, "Graph-based topological exploration planning in large-scale 3d environments," arXiv preprint arXiv:2103.16829, 2021.
+
+Real: Rapid exploration with active loop-closing toward large-scale 3d mapping using uavs. E M Lee, J Choi, H Lim, H Myung, arXiv:2108.02590arXiv preprintE. M. Lee, J. Choi, H. Lim, and H. Myung, "Real: Rapid exploration with active loop-closing toward large-scale 3d mapping using uavs," arXiv preprint arXiv:2108.02590, 2021.
+
+Computationally efficient information-theoretic exploration of pits and caves. W Tabib, M Corah, N Michael, R Whittaker, 2016W. Tabib, M. Corah, N. Michael, and R. Whittaker, "Computationally efficient information-theoretic exploration of pits and caves," in 2016
+
+IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEEIEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEE, 2016, pp. 3722-3727.
+
+Learning-based path planning for autonomous exploration of subterranean environments. R Reinhart, T Dang, E Hand, C Papachristos, K Alexis, 2020 IEEE International Conference on Robotics and Automation (ICRA). IEEER. Reinhart, T. Dang, E. Hand, C. Papachristos, and K. Alexis, "Learning-based path planning for autonomous exploration of sub- terranean environments," in 2020 IEEE International Conference on Robotics and Automation (ICRA). IEEE, 2020, pp. 1215-1221.
+
+A unified approach for autonomous volumetric exploration of large scale environments under severe odometry drift. L Schmid, V Reijgwart, L Ott, J Nieto, R Siegwart, C Cadena, IEEE Robotics and Automation Letters. 63L. Schmid, V. Reijgwart, L. Ott, J. Nieto, R. Siegwart, and C. Cadena, "A unified approach for autonomous volumetric exploration of large scale environments under severe odometry drift," IEEE Robotics and Automation Letters, vol. 6, no. 3, pp. 4504-4511, 2021.
+
+Active autonomous aerial exploration for ground robot path planning. J Delmerico, E Mueggler, J Nitsch, D Scaramuzza, IEEE Robotics and Automation Letters. 22J. Delmerico, E. Mueggler, J. Nitsch, and D. Scaramuzza, "Active autonomous aerial exploration for ground robot path planning," IEEE Robotics and Automation Letters, vol. 2, no. 2, pp. 664-671, 2017.
+
+Collaboration in multi-robot exploration: to meet or not to meet?. T Andre, C Bettstetter, Journal of Intelligent & Robotic Systems. 822T. Andre and C. Bettstetter, "Collaboration in multi-robot exploration: to meet or not to meet?" Journal of Intelligent & Robotic Systems, vol. 82, no. 2, pp. 325-337, 2016.
+
+Tare: A hierarchical framework for efficiently exploring complex 3d environments. C Cao, H Zhu, H Choset, J Zhang, C. Cao, H. Zhu, H. Choset, and J. Zhang, "Tare: A hierarchical framework for efficiently exploring complex 3d environments."
+
+Mav navigation in unknown dark underground mines using deep learning. S S Mansouri, C Kanellakis, P Karvelis, D Kominiak, G Nikolakopoulos, 2020 European Control Conference (ECC). S. S. Mansouri, C. Kanellakis, P. Karvelis, D. Kominiak, and G. Niko- lakopoulos, "Mav navigation in unknown dark underground mines using deep learning," in 2020 European Control Conference (ECC).
+
+. IEEE. IEEE, 2020, pp. 1943-1948.
+
+Large-scale exploration of cave environments by unmanned aerial vehicles. P Petracek, V Kratky, M Petrlik, T Baca, R Kratochvil, M Saska, IEEE Robotics and Automation Letters. P. Petracek, V. Kratky, M. Petrlik, T. Baca, R. Kratochvil, and M. Saska, "Large-scale exploration of cave environments by unmanned aerial vehicles," IEEE Robotics and Automation Letters, 2021.
+
+Cerberus: Autonomous legged and aerial robotic exploration in the tunnel and urban circuits of the darpa subterranean challenge. M Tranzatto, F Mascarich, L Bernreiter, C Godinho, M Camurri, S M K Khattak, T Dang, V Reijgwart, J Loeje, D Wisth, Field Robotics. M. Tranzatto, F. Mascarich, L. Bernreiter, C. Godinho, M. Camurri, S. M. K. Khattak, T. Dang, V. Reijgwart, J. Loeje, D. Wisth et al., "Cerberus: Autonomous legged and aerial robotic exploration in the tunnel and urban circuits of the darpa subterranean challenge," Field Robotics, 2021.
+
+Nebula: Quest for robotic autonomy in challenging environments; team costar at the darpa subterranean challenge. A Agha, K Otsu, B Morrell, D D Fan, R Thakker, A Santamaria-Navarro, S.-K Kim, A Bouman, X Lei, J Edlund, arXiv:2103.11470arXiv preprintA. Agha, K. Otsu, B. Morrell, D. D. Fan, R. Thakker, A. Santamaria- Navarro, S.-K. Kim, A. Bouman, X. Lei, J. Edlund et al., "Nebula: Quest for robotic autonomy in challenging environments; team costar at the darpa subterranean challenge," arXiv preprint arXiv:2103.11470, 2021.
+
+Darpa subterranean challenge: Multi-robotic exploration of underground environments. T Rouček, M Pecka, P Čížek, T Petříček, J Bayer, V Šalanskỳ, D Heřt, M Petrlík, T Báča, V Spurnỳ, International Conference on Modelling and Simulation for Autonomous Systems. ChamSpringerT. Rouček, M. Pecka, P.Čížek, T. Petříček, J. Bayer, V.Šalanskỳ, D. Heřt, M. Petrlík, T. Báča, V. Spurnỳ et al., "Darpa subterranean challenge: Multi-robotic exploration of underground environments," in International Conference on Modelling and Simulation for Au- tonomous Systems. Springer, Cham, 2019, pp. 274-290.
+
+S Scherer, V Agrawal, G Best, C Cao, K Cujic, R Darnley, R Debortoli, E Dexheimer, B Drozd, R Garg, I Higgins, J Keller, D Kohanbash, L Nogueira, R Pradhan, M Tatum, V K Viswanathan, S Willits, S Zhao, H Zhu, D Abad, T Angert, G Armstrong, R Boirum, A Dongare, M Dworman, S Hu, J Jaekel, R Ji, A Lai, Y Lee, A Luong, J Mangelson, J Maier, J Picard, K Pluckter, A Saba, M Saroya, E Scheide, N Shoemaker-Trejo, J Spisak, J Teza, F Yang, A Wilson, H Zhang, H Choset, M Kaess, A Rowe, S Singh, J Zhang, G A Hollinger, M Travers, Field Robotics. Resilient and modular subterranean exploration with a team of roving and flying robotsS. Scherer, V. Agrawal, G. Best, C. Cao, K. Cujic, R. Darnley, R. DeBortoli, E. Dexheimer, B. Drozd, R. Garg, I. Higgins, J. Keller, D. Kohanbash, L. Nogueira, R. Pradhan, M. Tatum, V. K. Viswanathan, S. Willits, S. Zhao, H. Zhu, D. Abad, T. Angert, G. Armstrong, R. Boirum, A. Dongare, M. Dworman, S. Hu, J. Jaekel, R. Ji, A. Lai, Y. Hsuan Lee, A. Luong, J. Mangelson, J. Maier, J. Picard, K. Pluckter, A. Saba, M. Saroya, E. Scheide, N. Shoemaker-Trejo, J. Spisak, J. Teza, F. Yang, A. Wilson, H. Zhang, H. Choset, M. Kaess, A. Rowe, S. Singh, J. Zhang, G. A. Hollinger, and M. Travers, "Resilient and modular subterranean exploration with a team of roving and flying robots," Field Robotics, 2021.
+
+Voxblox: Incremental 3d euclidean signed distance fields for on-board mav planning. H Oleynikova, Z Taylor, M Fehr, R Siegwart, J Nieto, IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). H. Oleynikova, Z. Taylor, M. Fehr, R. Siegwart, and J. Nieto, "Voxblox: Incremental 3d euclidean signed distance fields for on-board mav planning," in IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS), 2017.
+
+maplab: An open framework for research in visual-inertial mapping and localization. T Schneider, M Dymczyk, M Fehr, K Egger, S Lynen, I Gilitschenski, R Siegwart, IEEE Robotics and Automation Letters. 33T. Schneider, M. Dymczyk, M. Fehr, K. Egger, S. Lynen, I. Gilitschen- ski, and R. Siegwart, "maplab: An open framework for research in visual-inertial mapping and localization," IEEE Robotics and Automa- tion Letters, vol. 3, no. 3, pp. 1418-1425, 2018.
+
+Voxgraph: Globally consistent, volumetric mapping using signed distance function submaps. V Reijgwart, A Millane, H Oleynikova, R Siegwart, C Cadena, J Nieto, IEEE Robotics and Automation Letters. 51V. Reijgwart, A. Millane, H. Oleynikova, R. Siegwart, C. Cadena, and J. Nieto, "Voxgraph: Globally consistent, volumetric mapping using signed distance function submaps," IEEE Robotics and Automation Letters, vol. 5, no. 1, pp. 227-234, 2019.
+
+Sequential operations in digital picture processing. A Rosenfeld, J L Pfaltz, Journal of the ACM (JACM). 134A. Rosenfeld and J. L. Pfaltz, "Sequential operations in digital picture processing," Journal of the ACM (JACM), vol. 13, no. 4, pp. 471-494, 1966.
+
+ANYmal Legged Robots. Anybotics, ANYbotics, "ANYmal Legged Robots," available at https://www.anybotics.com/.
+
+Learning robust perceptive locomotion for quadrupedal robots in the wild. T Miki, J Lee, J Hwangbo, L Wellhausen, V Koltun, M Hutter, https:/www.science.org/doi/10.1126/scirobotics.abk2822Science Robotics. 762T. Miki, J. Lee, J. Hwangbo, L. Wellhausen, V. Koltun, and M. Hutter, "Learning robust perceptive locomotion for quadrupedal robots in the wild," Science Robotics, vol. 7, no. 62, jan 2022. [Online]. Available: https://www.science.org/doi/10.1126/scirobotics.abk2822
+
+Resilient collision-tolerant navigation in confined environments. P De Petris, H Nguyen, M Kulkarni, F Mascarich, K Alexis, IEEE International Conference on Robotics and Automation (ICRA). P. De Petris, H. Nguyen, M. Kulkarni, F. Mascarich, and K. Alexis, "Resilient collision-tolerant navigation in confined environments," in IEEE International Conference on Robotics and Automation (ICRA), May 2021.
+
+Complementary multi-modal sensor fusion for resilient robot pose estimation in subterranean environments. S Khattak, H Nguyen, F Mascarich, T Dang, K Alexis, 2020 International Conference on Unmanned Aircraft Systems (ICUAS). IEEES. Khattak, H. Nguyen, F. Mascarich, T. Dang, and K. Alexis, "Complementary multi-modal sensor fusion for resilient robot pose estimation in subterranean environments," in 2020 International Con- ference on Unmanned Aircraft Systems (ICUAS). IEEE, 2020, pp. 1024-1029.
+
+Subt tech repo. Open Robotics. Openrobotics, OpenRobotics. Subt tech repo. Open Robotics. [Online]. Available: https://subtchallenge.world/openrobotics
+
+Cerberus rmf sensor config 1. Autonomous Robots Lab. M Kulkarni, D P Paolo, M. Kulkarni and D. P. Paolo. (September) Cerberus rmf sensor config 1. Autonomous Robots Lab. [Online]. Available:

@@ -1,0 +1,440 @@
+Smoothing Structured Decomposable Circuits
+
+
+Andy Shih andyshih@cs.ucla.edu 
+Guy Van Den Broeck 
+Paul Beame beame@cs.washington.edu 
+Antoine Amarilli antoine.amarilli@telecom-paris.fr 
+
+University of California
+Los Angeles
+
+
+University of California
+Los Angeles
+
+
+University of Washington
+LTCI
+Télécom Paris, IP Paris
+
+Smoothing Structured Decomposable Circuits
+
+We study the task of smoothing a circuit, i.e., ensuring that all children of a ⊕-gate mention the same variables. Circuits serve as the building blocks of state-of-the-art inference algorithms on discrete probabilistic graphical models and probabilistic programs. They are also important for discrete density estimation algorithms. Many of these tasks require the input circuit to be smooth. However, smoothing has not been studied in its own right yet, and only a trivial quadratic algorithm is known. This paper studies efficient smoothing for structured decomposable circuits. We propose a near-linear time algorithm for this task and explore lower bounds for smoothing decomposable circuits, using existing results on range-sum queries. Further, for the important case of All-Marginals, we show a more efficient linear-time algorithm. We validate experimentally the performance of our methods.
+
+Introduction
+
+Circuits are directed acyclic graphs that are used for many logical and probabilistic inference tasks. Their structure captures the computation of reasoning algorithms. In the context of machine learning, state-of-the-art algorithms for exact and approximate inference in discrete probabilistic graphical models [Chavira and Darwiche, 2008;Kisa et al., 2014;Friedman and Van den Broeck, 2018] and probabilistic programs [Fierens et al., 2015;Bellodi and Riguzzi, 2013] are built on circuit compilation. In addition, learning tractable circuits is the current method of choice for discrete density estimation [Gens and Domingos, 2013;Rooshenas and Lowd, 2014;Vergari et al., 2015;. Circuits are also used to enforce logical constraints on deep neural networks [Xu et al., 2018].
+
+Most of the probabilistic inference algorithms on circuits actually require the input circuit to be smooth (also referred to as complete) [Sang et al., 2005;Poon and Domingos, 2011]. The notion of smoothness was first introduced by Darwiche [2001] to ensure efficient model counting and cardinality minimization and has since been identified as essential to probabilistic inference algorithms. Yet, to the best of our knowledge, no efficient algorithm to smooth a circuit has been proposed beyond the original quadratic algorithm by Darwiche [2001].
+
+The quadratic complexity can be a major bottleneck, since circuits in practice often have hundreds of thousands of edges when learned, and millions of edges when compiled from graphical models. As such, in the latest Dagstuhl Seminar on "Recent Trends in Knowledge Compilation", this task of smoothing a circuit was identified as a major research challenge . Therefore, a more efficient smoothing algorithm will increase the scalability of circuit-based inference algorithms.
+
+Intuitively, smoothing a circuit amounts to filling in the missing variables under its ⊕-gates. In Figure 1a we see that the ⊕-gate does not mention the same variables on its left side and right side, 33rd Conference on Neural Information Processing Systems (NeurIPS 2019), Vancouver, Canada. ! " ! # ! $ -! $ ! " -! " ! $ ! # -! # (b) A smooth circuit. Figure 1: Two equivalent circuits computing (x 0 ⊗ x 1 ) ⊕ x 2 . The left one is not smooth and the right one is smooth. so we fill in the missing variables by adding tautological gates of the form x i ⊕ −x i , resulting in the smooth circuit in Figure 1b. Filling in these missing variables is necessary for probabilistic inference tasks such as computing marginals, computing probability of evidence, sampling, and approximating Maximum A Posteriori inference [Sang et al., 2005;Chavira and Darwiche, 2008;Friesen and Domingos, 2016;Friedman and Van den Broeck, 2018;Mei et al., 2018]. The task of smoothing was also explored by Peharz et al. [2017], where they look into preserving smoothness when augmenting Sum-Product Networks for computing Most Probable Explanations.
+
+In this paper we propose a more efficient smoothing algorithm. We focus on the commonly used class of structured decomposable circuits, which include structured decomposable Negation Normal Form, Sentential Decision Diagrams, and more [Pipatsrisawat and Darwiche, 2008;Darwiche, 2011]. Intuitively, structuredness requires that circuits always consider their variables in a certain way, which is formalized as a tree structure on the variables called a vtree.
+
+Our first contribution (Section 4) is to show a near-linear time algorithm for smoothing such circuits, which is a clear improvement on the naive quadratic algorithm. Specifically, our algorithm runs in time proportional to the circuit size multiplied by the inverse Ackermann function α of the circuit size and number of variables 1 (Theorem 4.7).
+
+Our second contribution (Section 5) is to show a lower bound of the same complexity, on smoothing decomposable circuits for the restricted class of smoothing algorithms that we call smoothing-gate algorithms (Theorem 5.2). Intuitively, smoothing-gate algorithms are those that retain the structure of the original circuit and can only make them smooth by adding new gates to cover the missing variables. This natural class corresponds to the example in Figure 1 and our near-linear time smoothing algorithm also falls in this class. We match its complexity and show a lower bound on the performance of any smoothing-gate algorithm, relying on known results in the field of range-sum queries.
+
+Our third contribution (Section 6) is to focus on the probabilistic inference task of All-Marginals and to propose a novel linear time algorithm for this task which bypasses the need for smoothing, assuming that the weight function is always positive and supports all four elementary operations of ⊕, , ⊗, (Theorem 6.1). These results are summarized in Table 1.
+
+Our fourth contribution (Section 7) is to study how to make a circuit smooth while preserving structuredness. We show that we cannot achieve a sub-quadratic smoothing algorithm if we impose the same vtree structure on the output circuit unless the vtree has low height (Prop. 7.1).
+
+Our final contribution (Section 8) is to experiment on smoothing and probabilistic inference tasks. We evaluate the performance of our smoothing and of our linear time All-Marginals algorithm.
+
+The rest of the paper is structured as follows. In Section 2 we review the necessary definitions, and in Section 3 we motivate the task of smoothing in more detail. We then present each of our five contributions in order in Sections 4, 5, 6, 7 and 8. We conclude in Section 9.
+
+
+Background
+
+Let us now define the model of circuits that we study (refer again to Figure 1 for an example): Table 1: Summary of results on structured decomposable circuits. We let n be the number of variables and m be the size of the circuit.
+
+
+Task Operations Complexity
+
+Smoothing
+⊕, ⊗ O(m · α(m, n)) Smoothing * ⊕, ⊗ Ω(m · α(m, n)) * All-Marginal ⊕, , ⊗,
+Θ(m) * For smoothing-gate algorithms on decomposable circuits.
+
+Definition 2.1. A logical circuit is a rooted directed acyclic graph where leaves are literals, and internal gates perform disjunction (⊕-gates) or conjunction (⊗-gates). An arithmetic circuit is one where leaves are numeric constants or variables, and internal gates perform addition (⊕-gates) or multiplication (⊗-gates). The children of an internal gate are the gates that feed into it.
+
+We focus on circuits that are decomposable and more precisely that are structured. We first define decomposability:
+
+Definition 2.2. For any gate p, we call vars p the set of variables that appear at or below gate p. A circuit is decomposable if these sets of variables are disjoint between the two children of every ⊗-gate. Formally, for every ⊗-gate p with children c 1 and c 2 , we have vars c1 ∩ vars c2 = ∅.
+
+We then define structuredness, by introducing the notion of a vtree on a set of variables:
+
+Definition 2.3. A vtree on a set of variables S is a full binary tree whose leaves have a one-to-one correspondence with the variables in S. We denote the set of variables under a vtree node p as u p .
+
+Definition 2.4. A circuit respects a vtree V if each of its ⊗-gate has 0 or 2 inputs, and there is a mapping ρ from its gates to V such that:
+
+• For every variable c, the node ρ(c) is mapped to the leaf of V corresponding to c.
+
+• For every ⊕-gate c and child c of c, the node ρ(c ) is ρ(c) or a descendant of ρ(c) in V .
+
+• For every ⊗-gate c with children c 1 , c 2 , letting v l and v r be the left and right children of ρ(c), the node ρ(c 1 ) is v l or a descendant of v l and ρ(c 2 ) is v r or a descendant of v r .
+
+A circuit is structured decomposable if it respects some vtree V . The circuit is then decomposable.
+
+Recall that a circuit can be preprocessed in linear time to ensure that each ⊗-gate has 0 or 2 inputs.
+
+Structured decomposability was introduced in the context of logical circuits, and it is also enforced in Sentential Decision Diagrams, a widely used tractable representation of Boolean functions [Darwiche, 2011]. This property allows for a polytime conjoin operation and symmetric/group queries on logical circuits [Pipatsrisawat and Darwiche, 2008;Bekker et al., 2015]. For circuits that represent distributions, structured decomposability allows multiplication of these distributions [Shen et al., 2016], efficient computation of the KL-divergence between two distributions , and more. Structured decomposable circuits are also used when one wants to induce distributions over arbitrary logical formulae [Kisa et al., 2014] or compile a logical formula bottom-up [Oztok and Darwiche, 2015].
+
+Next, we review another property of logical circuits that is relevant for probabilistic inference tasks [Darwiche, 2001;Choi and Darwiche, 2017].
+
+Definition 2.5. A logical circuit on variables X is deterministic if under any input x, at most one child of each ⊕-gate evaluates to true.
+
+In the rest of this paper, we will let n denote the number of variables in a circuit and let m ≥ n denote the size of a circuit, measured by the number of edges in the circuit.
+
+
+Smoothing
+
+We focus on the probabilistic inference tasks of weighted model counting and computing All-Marginals [Sang et al., 2005;Chavira and Darwiche, 2008]. We will study weighted model counting in the more general form of Algebraic Model Counting (AMC) [Kimmig et al., 2016]. To describe these tasks, we define instantiations, knowledge bases and models.
+
+Definition 3.1. Given a set of variables X, a full assignment of all the variables in X is called an instantiation. A set f of instantiations is called a knowledge base, and each instantiation in f is called a model.
+
+The AMC task on a knowledge base f and a weight function w (a mapping from the literals to the reals) is to compute s from Equation 1. The task of All-Marginals is to compute the partial derivative of s with respect to the weight of each literal as in Equation 2.
+s = x∈f x∈x w(x) AMC (1) ∂s ∂w(x) , ∂s ∂w(−x) X ∈ X All-Marginals (2)
+On probabilistic models, s is often the partition function or the probability of evidence, where the partial derivatives of these quantities correspond to all (conditional) marginals in the distribution. Computing All-Marginals efficiently significantly speeds up probabilistic inference, and is used as a subroutine in the collapsed sampling algorithm in our later experiments.
+
+These tasks are difficult in general, unless we have a tractable representation of the knowledge base f . Moreover, it is important to have a smooth representation. Indeed, suppose f is represented as a logical circuit that is only deterministic and decomposable but not smooth. Then, there is in general no known technique to perform the AMC and All-Marginals tasks in linear time (although there is a special case where AMC can be performed in linear time, explained below). By contrast, if f is represented as a logical circuit that is deterministic, decomposable and smooth, then the AMC and All-Marginals tasks can be performed in time O(m). For example, the AMC task is done by converting the deterministic, decomposable and smooth logical circuit into an arithmetic circuit, attaching the weights of the variables as numeric constants in the circuit, and then evaluating the circuit. Furthermore, when a decomposable arithmetic circuit computes a factor (a mapping from instantiations to the reals), enforcing smoothness allows it to compute factor marginals in linear time [Choi and Darwiche, 2017].
+
+As smoothing is necessary to efficiently solve these inference tasks, we are interested in studying the complexity of smoothing a circuit. To do so, we formally define the task of smoothing.
+
+Definition 3.2. Two logical circuits on variables X are equivalent if they evaluate to the same output on any input x. Definition 3.4. The task of smoothing a decomposable logical circuit is to output a smooth and decomposable logical circuit that is equivalent to the input circuit. Similarly, the task of smoothing a deterministic and decomposable logical circuit is to output a smooth, deterministic, and decomposable circuit that is equivalent to the input circuit.
+
+We only define the smoothing task over logical circuits. This is because the probabilistic inference tasks are performed by smoothing a logical circuit and then converting it into an arithmetic circuit, so it is easier for the reader to only consider smoothing on logical circuits. For the rest of the paper, we will refer to logical circuits simply as circuits. Note that we require the output smooth circuit to preserve the same properties (decomposability/determinism) as the input circuit. Indeed, there is a trivial linear time algorithm for smoothing that breaks decomposability (i.e., simply conjoin all gates with a tautological gate that mentions all variables), but then the resulting circuit may not be useful for probabilistic inference. Again, we need decomposability to compute factor marginals, and we need decomposability along with determinism to compute AMC and All-Marginals. By contrast, we do not require the output smooth circuit to be structured, because structuredness is not required to solve our tasks of AMC or All-Marginals (nevertheless, we do study structuredness in Section 7).
+
+Sometimes, when the weight function allows division, there exists a renormalization technique that can solve AMC in linear time without smoothing the initial circuit [Kimmig et al., 2016]. However, this restriction is limiting, since even if the weight function is defined over a field, division by zero may be unavoidable . Also, the weight function may only be defined over a semiring (⊕, ⊗) [Friesen and Domingos, 2016]. In these cases, there is no known technique to bypass smoothing. Therefore, developing an efficient smoothing algorithm is an important problem, which we address next in Sections 4 & 5.
+
+On the other hand, one may still be interested in settings where all four elementary operations of ⊕, , ⊗, on the weight function are allowed. To this end, we also propose in Section 6 a novel technique that solves the All-Marginals task in linear time when the weight function is positive, and when subtraction and division are allowed.
+
+
+Smoothing Algorithm
+
+We present our algorithm for smoothing structured decomposable circuits, based on the semigroup range-sum literature. First, we define a class of common strategies to smooth a circuit, which encompasses both the previously-known algorithm and our new algorithm.
+
+The existing quadratic algorithm for smoothing a circuit goes to each ⊕-gate and inserts missing variables one by one [Darwiche, 2001]. This algorithm retains the original gates of the circuit, and adds additional gates to fill in missing variables. We will define smoothing-gate algorithms as the family of smoothing algorithms that retain the original gates of the circuit.
+
+Definition 4.1. Edge contraction is the process of removing each ⊕-gate or ⊗-gate with a single child, and feeding the child as input to each parent of the removed gate.
+
+Definition 4.2. A subcircuit of a circuit is another circuit formed by taking a subset of the gates and edges of the circuit, and picking a new root. The gate subset must include the new root and all endpoints of the edge subset.
+
+Definition 4.3. Two circuits g and h with gate sets G and H are isomorphic if there exists a bijection B : G → H between their gates such that the following conditions hold.
+
+1. For any gate p ∈ G, B(p) is the same type of gate as p.
+
+2. For any gate p 1 ∈ G and child p 2 ∈ G of p 1 , the gate B(p 2 ) is a child of B(p 1 ) in h.
+
+
+For any gate
+p 1 ∈ H and child p 2 ∈ H of p 1 , the gate B −1 (p 2 ) is a child of B −1 (p 1 ) in g.
+
+The root of g maps to the root of h.
+
+An algorithm is a smoothing-gate algorithm if for any edge-contracted (deterministic and) decomposable input circuit g, the output circuit is smooth and (deterministic and) decomposable, is equivalent to g, and has a subcircuit that is isomorphic to g after edge contraction.
+
+Smoothing-gate algorithms are intuitive, since the structure of the original circuit is preserved. This includes the quadratic algorithm, as well as algorithms which identify missing variables under each gate and attach tautological gates to fill in those missing variables, as was done in Figure 1. Formally:
+
+Definition 4.4. A gate g is called a smoothing gate for a set of variables X if vars g = X and the circuit rooted at g is tautological and decomposable. We denote such a gate by SG(X).
+
+The structure of a smoothing gate SG(X) is not specified. The only requirement is that it mentions all variables in X and is tautological and decomposable. For example, the quadratic algorithm constructs each SG(X) by naively conjoining x ⊕ −x for each variable in X one at a time, leading to a linear amount of work per gate. In the case of structured decomposable circuits, we can do much better.
+
+Lemma 4.5. Consider a structured decomposable circuit, and let π be the sequence of its variables written following the in-order traversal of its vtree. For any two vtree nodes (ρ(p), ρ(c)), we have that u ρ(p) \u ρ(c) can be written as the union of at most two intervals in π.
+
+Proof. Since v is a binary tree, the in-order traversal of v visits the variables of u ρ(p) consecutively, and the variables of u ρ(c) consecutively. Hence, u ρ(p) and u ρ(c) can each be written as one interval, and u ρ(p) \u ρ(c) can be written as the union of at most two intervals.
+
+We then smooth a circuit in one bottom-up pass. If p is a leaf ⊗-gate, replace it with SG(u ρ(p) ). If p is an internal ⊗-gate, letting v l , v r and c 1 , c 2 be the children of ρ(p) and p respectively, replace c 1 with c 1 ⊗ SG(u v l \u ρ(c1) ) and c 2 with c 2 ⊗ SG(u vr \u ρ(c2) ). If p is a ⊕-gate, replace each child c with c ⊗ SG(u ρ(p) \u ρ(c) ). By Lemma 4.5, each smoothing gate can be built by multiplying together two gates of the form X (x ⊕ −x), where X forms an interval in π. Thus, we can appeal to results from semigroup range-sums, by treating each x ⊕ −x as an element in a semigroup, and treating the computation of X (x ⊕ −x) as a "summation" in the semigroup over an interval (range).
+a = w(x_2) + w(x_3) b = a + w(x_1) c = a + w(x_4) output b, c (a) Sequence of additions to compute intervals % & ' ! # -! # ! $ -! $ ! ( -! ( ! ) -! ) (b)
+Tracing the additions into a circuit Figure 2: We construct smoothing gates for {x 1 , x 2 , x 3 } and {x 2 , x 3 , x 4 } by first passing the intervals [1, 3] and [2, 4] to the range-sum algorithm, and then tracing the sequence of additions. The trace is done by replacing w(x i ) with x i ⊕ −x i and replacing each addition with a ⊗-gate.
+
+Semigroup Range-Sum. The semigroup range-sum problem considers a sequence of n variables
+x 1 , . . . , x n , a sequence of m ≥ n intervals [a 1 , b 1 ], . . . , [a m , b m ]
+of these variables, and a weight function w from the variables to a semigroup. The task is to compute the sum of weights of the variables in each interval, i.e. s j = Σ i∈ [aj ,bj ] w(x i ) for all j ∈ [1, m] [Yao, 1982;Chazelle and Rosenberg, 1989]. Since w is only defined over a semigroup, subtraction is not supported. That is, we cannot follow the efficient strategy of precomputing all p k = Σ i∈ [1,k] w(x i ) and outputting s j = p bj − p aj −1 . Still, there is an efficient algorithm to compute all the required sums in time O(m · α(m, n)), where α is the inverse Ackermann function. We restate their result here.
+
+Theorem 4.6. Given n variables defined over a semigroup and m intervals, the sum of all intervals can be computed using O(m · α(m, n)) additions [Chazelle and Rosenberg, 1989].
+
+Our smoothing task can be reduced to the semigroup range-sum problem as follows. Smoothing a structured decomposable circuit of size m reduces to constructing smoothing gates for O(m) intervals. We pass these intervals as input to the range-sums algorithm, which will then generate a sequence of additions that computes the sum of each interval: each addition adds two numbers that are either individual variable weights or a sum that was previously computed.
+
+We then trace this sequence of additions (see Figure 2). For the base case of w(x i ), let g(w(x i )) be the gate x i ⊕ −x i . Then for each addition s = t + u, we construct a corresponding ⊗-gate g(s) = g(t) ⊗ g(u). In particular, when an addition in the sequence has computed the sum of an interval, then the corresponding gate is a smoothing gate for that interval. This process preserves determinism, so it converts a (deterministic and) structured decomposable circuit into a smooth and (deterministic and) decomposable circuit. The output circuit is generally no longer structured.
+
+Theorem 4.7. The task of smoothing a (deterministic and) structured decomposable circuit has time complexity O(m · α(m, n)), where n is the number of variables and m is the size of the circuit.
+
+Although Chazelle and Rosenberg [1989] do not formally assert a time complexity on determining the sequence of additions to perform, we show that there is no overhead to this step. That is, Chazelle and Rosenberg [1989] show that there exists a sequence of O(m · α(m, n)) additions, and we additionally prove that this sequence can be computed in time O(m · α(m, n)). The proof is in the Appendix.
+
+
+Lower Bound
+
+In this section we show a lower bound on the task of smoothing a decomposable circuit, for the family of smoothing-gate algorithms. First we state an existing lower bound on semigroup range-sums:
+
+Theorem 5.1. Given n variables defined over a semigroup, for all algorithms there exists a set of m = n intervals such that computing the sum of the weights of the variables for each interval takes Ω(m · α(m, n)) number of additions [Chazelle and Rosenberg, 1989].
+
+We cannot immediately assert the same lower bound for the problem of smoothing decomposable circuits, for two reasons. First, we must reduce the computation of the m interval sums to a smoothing problem, and express this reduction in a circuit taking no more than O(m) space. Second, we must show that no smoothing algorithm is more efficient than smoothing-gate algorithms. We address the first issue but leave the second open, leading to the following theorem with the proof in the Appendix.
+
+Theorem 5.2. For smoothing-gate algorithms, the task of smoothing a decomposable circuit has space complexity Ω(m · α(m, n)), where n is the number of variables and m is the size of the circuit.
+
+
+Computing All-Marginals
+
+In this section, we focus on the specific task of computing All-Marginals on a knowledge base represented as a deterministic and structured decomposable circuit. Remember that the goal is to compute the partial derivative of the circuit with respect to the weight of each literal (Equation 2 in Section 3). If the input circuit is smooth, then we can solve the task in time linear in the size of the circuit. Therefore, with the techniques in Section 4, given an input deterministic and structured decomposable circuit, we can smooth it and then convert it into an arithmetic circuit to compute All-Marginals, all in time O(m · α(m, n)). In this section, we show a more efficient algorithm that bypasses smoothing altogether, when we assume that the weight function also supports division and subtraction and is always positive (so that we never divide by zero). The method that we propose takes time O(m), which is optimal and saves us the effort of modifying the input circuit.
+
+Algorithm 1 all-marginals(g, w)
+
+We compute partial derivatives of positive literals. The negative literals are handled similarly. input: A deterministic and structured decomposable circuit g on n variables and a weight function w that is always positive and supports ⊕, , ⊗, . output: Partial derivatives d j for 1 ≤ j ≤ n. if p is a ⊕-gate with children C then 9:
+
+for each child k in C do 10: l 1 , r 1 , l 2 , r 2 ← getinterval(p, k) 11:
+∆ l1 ← ∆ l1 ⊕ D[p] 12: ∆ r1+1 ← ∆ r1+1 D[p] 13: ∆ l2 ← ∆ l2 ⊕ D[p] 14: ∆ r2+1 ← ∆ r2+1 D[p] 15: D[k] ← D[k] ⊕ D[p] 16: d 1 ← d 1 ⊕ ∆ 1 17: for i ← [2, n] do d j ← d j−1 ⊕ ∆ j 18: return d
+The algorithm is a form of backpropagation, and goes as follows (Algorithm 1). First, we compute the circuit output using a linear bottom-up pass over the circuit in the bottom-up subroutine, the details of which are omitted. During this process, we keep track of the contribution of each internal gate using the dictionary s. Next, we traverse the circuit top-down in order to compute the partial derivative of each gate. At a ⊗-gate or ⊕-gate, we propagate the partial derivative down to the children as needed. However, since the circuit is not smooth, there may be missing variables in the children of ⊕-gates, in which case the propagation is incomplete. The challenge is then to efficiently complete the propagation to the missing variables. We optimize this propagation step using range increments, which gives us the next theorem with a proof in the Appendix.
+
+Theorem 6.1. The All-Marginals task on a deterministic and structured decomposable circuit g and a weight function w that is always positive and supports ⊕, , ⊗, has time complexity Θ(m), where n is the number of variables and m is the size of g.
+
+
+On Retaining Structuredness
+
+Recall that our smoothing algorithm in Theorem 4.7 does not preserve structuredness of the input circuit, because it constructs smoothing gates in a way that is efficient but not structured. While structuredness is not required to solve problems such as AMC or all-marginals, it is still useful because it allows for a polytime conjoin operation, multiplication of distributions, and more (see Section 2). In this section, we show that we cannot match the performance of Theorem 4.7 while retaining structuredness, because any smoothing algorithm that maintains the same vtree structure must run in quadratic time. We leave open the question of whether there would be an efficient smoothing algorithm producing a circuit structured with a different vtree.
+
+Proposition 7.1. The task of smoothing a (deterministic and) structured decomposable circuit g while enforcing the same vtree has space complexity Θ(hm), where h is the height of the vtree and m is the size of g.
+
+Proof. Upper bound: We construct smoothing gates following the structure of the vtree: for each vtree node p with children p l and p r , we build in constant time a structured smoothing gate for the variables that are descendants of p, using the smoothing gate for the variables that are descendants of p l and the one for the variables that are descendants of p r . Now, we can use these gates to smooth the circuit: any interval of variables in the in-order traversal of the vtree can be written as h intervals corresponding to vtree nodes, so smoothing g has time complexity O(hm). As with Theorem 4.6, the process of attaching smoothing gates preserves determinism.
+
+Lower bound: Consider a right-linear vtree v with height h = n and variables X 1 , . . . , X n , in that order. For simplicity, let n be a multiple of 3, and consider the following functions for y ∈ [0, 2 n/3 ):
+J y = n/3 i=1 β(i, y)x i K y = n i=2n/3+1 β(i, y)x i
+where β(i, y) = 1 if the i-th bit of the binary representation of y is set, and −1 otherwise.
+
+Next
+, consider f = ( n i=1 −x i ) ⊕ ( 2 n/3−1 y=1 (J y ⊗ K y )
+). An instantiation satisfies f if all its literals are negative, or if the sign of its literals from X 1 , . . . , X n/3 (in order) equals those from X 2n/3+1 , . . . , X n , and are not all negative. The all-negative case is included so that f mentions all n variables, as otherwise f would already be smooth. We can build a circuit g with size O(2 n/3 ) that respects v and computes f using an Ordered Binary Decision Diagram representation [Bryant, 1986]. Yet, any smooth circuit G that respects v and computes f has size Ω(n · 2 n/3 ), as we see next.
+
+First, we use a standard notion on circuits which we refer to as a certificate, following the terminology by Bova et al. [2014]. A certificate is formed by keeping exactly one child of each ⊕-gate, and keeping all children of each ⊗-gate. Since G is smooth and decomposable, every certificate of G must have exactly n literals, and corresponds to an instantiation of the n variables. Let C y be a certificate of G whose corresponding instantiation satisfies J y ⊗ K y , and let C z be a certificate of h whose corresponding instantiation satisfies J z ⊗ K z , with y = z and y, z ∈ [1, 2 n/3 ).
+
+Next, let p i denote the parent of the vtree node corresponding to variable X i . We will show that C y and C z cannot share a gate w which maps to vtree node p k for k ∈ [n/3 + 1, 2n/3]. Suppose that such a gate w exists. Then we can form a new certificate by swapping out the subtree of certificate C y rooted at w with the subtree of certificate C z rooted at w. This new certificate now satisfies J y ⊗ K z and is a valid certificate of the circuit G, which contradicts the fact that G computes f .
+
+To finish, we consider 2 n/3 − 1 different certificates satisfying J y ⊗ K y for y ∈ [1, 2 n/3 ). None of these certificates can share any gates that map to vtree nodes p k for k ∈ [n/3 + 1, 2n/3]. It follows that the output circuit G has size Ω(n · 2 n/3 ). Since the input circuit g is deterministic (because it is an OBDD) and the output circuit G need not be deterministic, the lower bound applies to both smoothing tasks (with and without determinism).
+
+
+Experiments
+
+We experiment on our smoothing algorithm in Section 4 and our All-Marginals algorithm in Section 6. 2 Experiments were run on a single Intel(R) Core(TM) i7-3770 CPU with 16GB of RAM.
+
+Smoothing Circuits. We first study the smoothing task on structured decomposable circuits using our new smoothing algorithm (Section 4), which we compare to the naive quadratic smoothing algorithm. We construct hand-crafted circuits for which many smoothing gates are required, each of which covers a large interval. In particular, we pick m large intervals I 1 , ..., I m and for each interval we construct the structured gate G i = j / ∈Ii x j for a balanced vtree. Then we take each G i and feed them into one top-level ⊕-gate. This triggers the worst-case quadratic behavior of the naive smoothing algorithm, while our new algorithm has near-linear behavior. The speedup of our smoothing algorithm is captured in Table 2a. The Size column reports the size of the circuit. The Naive column reports the time taken by the quadratic smoothing algorithm, the Ours column reports the same value using our near-linear algorithm, and the Speedup column reports the relative decrease in time. The values are averaged over 4 runs.
+
+Collapsed Sampling. We next benchmark our method for computing All-Marginals in Section 6 on the task of collapsed sampling, which is a technique for probabilistic inference on factor graphs. The collapsed sampling algorithm performs approximate inference on factor graphs by alternating between knowledge compilation phases and sampling phases [Friedman and Van den Broeck, 2018].
+
+In the sampling phase, the algorithm computes All-Marginals as a subroutine.
+
+We replace the original quadratic All-Marginals subroutine by our linear time algorithm (Algorithm 1). The requirements for Algorithm 1 are satisfied since the weight function w is defined over the reals and is always positive in the experiments by Friedman and Van den Broeck [2018]. In Table 2b we report the results on the Segmentation-11 network, which is a network from the 2006-2014 UAI Probabilistic Inference competitions. This particular network is a factor graph that was used to do image segmentation/classification (figure out what type of object each pixel corresponds to) [Forouzan, 2015]. Experiments were also performed on other networks from the inference competition, such as DBN-11 and CSP-13 (Table 2c & 2d). For all three networks we see a decrease in the number of ⊕, , ⊗, operations needed for each All-Marginal computation. The Size column reports the size threshold during the knowledge compilation phase. The Naive column reports the number of ⊕, , ⊗, operations using the original All-Marginals subroutine, the Ours column reports the same value using Algorithm 1, and the Impr column reports the relative decrease in operations. The values are averaged over 4 runs.
+
+
+Conclusion
+
+In this paper we considered the task of smoothing a circuit. Circuits are widely used for inference algorithms for discrete probabilistic graphical models, and for discrete density estimation. The input circuits are required to be smooth for many of these probabilistic inference tasks, such as Algebraic Model Counting and All-Marginals. We provided a near-linear time smoothing algorithm for structured decomposable circuits and proved a matching lower bound within the class of smoothinggate algorithms for decomposable circuits. We introduced a technique to compute All-Marginals in linear time without smoothing the circuit, when the weight function supports division and subtraction and is always positive. We additionally showed that smoothing a circuit while maintaining the same vtree structure cannot be sub-quadratic, unless the vtree has low height. Finally, we empirically evaluated our algorithms and showed a speedup over both the existing smoothing algorithm and the existing All-Marginals algorithm. A Proof of Theorem 4.7
+
+We analyze the semigroup range-sum scheme in Section 3 of Chazelle and Rosenberg [1989], and show that it can be implemented in O(m · α(m, n)) time.
+
+The scheme, as shown in Algorithm 2, goes as follows. Let R(t, k) denote the largest value of n such that for any m ≥ n, there exists an algorithm that solves the range-sum problem on n variables and m intervals, using kn preprocessing additions and t additions per interval. This gives a total of kn + tm additions. We will show that R(t, k) is an Ackermann function by showing the following: if a = R(t, k − 3), b = R(t − 2, a), and n = ab, then R(t, k) ≥ n.
+
+It is worth mentioning that which constants we use (2 and 3 in this case) do not matter. Any fixed constant will prove our claim. When we modify the algorithm later, it is enough to see that the algorithm works for some fixed constants.
+
+For the base case we have R(t, 1) ≥ 2 and R(1, k) ≥ 2. To show the inductive step we first describe the preprocessing procedure (see preprocess in Algorithm 2). We split the n variables into b contiguous blocks, each of size a. For each single block (lines 4 & 5), we compute its prefix and suffix sums and store the results in d (lines 6-12). Next, we perform an inner recursion where we preprocess each inner block of size a. Then, we treat the sum of each inner block as new variables, and perform an outer recursion where we preprocess the single outer block of size b. We store the preprocessed results from the recursive calls in d.
+
+By the induction hypothesis, we know that during the preprocessing procedure, each inner block of size a takes at most a · (k − 3) additions, and the outer block of size b takes at most b · a additions. Furthermore, computing the prefix/suffix sums for each inner block takes at most 2n additions. Thus, the total number of additions for preprocessing is at most ba(k − 3) + ba + 2n = (k − 3)n + 3n = kn.
+
+Now we describe how to compute the sum of an interval using our preprocessed results. We start at the topmost level of recursion. If the interval completely falls within an inner block, then we do an inner recursion without performing any additions ( Figure 3a). Otherwise, the interval straddles multiple inner blocks. Since we have computed the prefix/suffix sums for each inner block, we can shave off the edges of our interval using two additions. The remaining interval can be represented as a sum of inner blocks, which we compute by performing an outer recursion (Figure 3b).
+
+In the case of an inner recursion, we require t additions to fill the interval by induction. In the case of an outer recursion, we require 2 additions to shave off the edges of the interval, and the remaining sum can be computed using t − 2 additions by induction.
+
+We have shown that if n ≤ R(t, k − 3)R(t − 2, R(t, k − 3)), then we can solve the semigroup range-sum problem on n variables and m ≥ n intervals using kn preprocessing additions and t additions per interval. Therefore R(t, k) grows as fast as an Ackermann function, so the total number of required additions is O(m · α(m, n)).
+
+In the rest of Algorithm 2, we spell out the algorithm in more detail. The subroutines inverse-ack and ack compute the necessary parameters, and preprocess performs the recursive preprocessing of the intervals. The subroutine solve-interval computes the sum of an interval using the recursive scheme described above and shown in Figure 3. The details of these subroutines are not provided.
+
+It remains to show that we can implement this scheme without any extra time overhead. That is, can we find the sequence of additions to perform using O(m · α(m, n)) operations? The general strategy is to precompute a mapping from interval sizes to inner recursion depth, so that given an interval we can perform multiple consecutive inner recursions in one step.
+
+it is less than the original cost of precomputing the prefix and suffix sums at all the inner recursion levels for this outer recursion level (i.e., all choices of the value k for this value of t).
+
+Given an interval of size s at outer recursion level t, we can immediately find the value p t s and p t s − 1. We claim that it suffices to look at inner recursion levels p t s and p t s − 1. Let e 0 = R(t, k − p t s c) and e 1 = R(t, k − (p t s − 1)c). By definition, we have that e 0 ≤ s ≤ e 1 .
+
+• In the case that the interval falls completely within one block of size e 1 , we will perform an outer recursion over level p t s . We can visualize this scenario with Figure 3b, where A corresponds to e 0 and AB corresponds to e 1 .
+
+• Otherwise, the interval straddles exactly two blocks of size e 1 at the previous inner recursion level (no more than two since e 1 ≥ s). We can express the interval as a summation of a suffix sum over the first block and a prefix sum over the second block.
+
+In both of the above scenarios, we skip the work of performing many inner recursive calls, and jump directly to either an outer recursive call or to a base case. So for each addition, we only do a constant amount of work, and the time complexity of solving the range-sum problem on n variables and m intervals is O(m · α(m, n)).
+
+
+A.2 Padding
+
+There remains one complication: the last block in a call to the preprocess function may have a different size from the rest of the blocks. For example, in Figure 3, if n is not a multiple of A, then the last block will have size less than A. To fix this without complicating the preprocessing algorithm, we simply pad the last block so that it is the same size as all other blocks. We also make sure that when we do an outer recursion, we only pad the original blocks as opposed to padding the padded blocks from the previous recursion level. This detail ensures that the cost of padding does not compound over multiple outer recursions. Altogether, the padding technique at most doubles the memory cost of the entire algorithm.
+
+
+B Proof of Theorem 5.2
+
+Take any set of m intervals, with m = n. For simplicity we will let the m intervals be on n − 2 variables (in the range [2, n − 1] instead of [1, n], by increasing n by 2 and shifting all intervals one step to the right) so that the intervals do not touch the endpoints.
+
+First we construct prefix gates p 1 = x 1 and p k = p k−1 ⊗ x k , ∀k > 1 in a chain-like fashion, and suffix gates s n = x n , s k = s k+1 ⊗ x k , ∀k < n in a chain-like fashion. Then for each interval [a i , b i ], construct the gate G i = p ai−1 ⊗ s bi+1 . Next, let g be the circuit G 1 ⊕ . . . ⊕ G m ⊕ p n ⊕ s 1 (see Figure 4). We are attaching the p n and s 1 gate to ensure that g mentions all n variables, and that the smoothing-gate algorithm retains all prefix/suffix gates.
+
+Since g mentions all n variables, each gate G i also needs to mention all n variables to satisfy the smoothness property. By the construction of G i , it is missing exactly the variables X i = [X ai , . . . , X bi ]. We will show that running a smoothing-gate algorithm on g implicitly solves the semigroup range-sum problem on those intervals, by mapping the summation operation in the semigroup range-sum problem to the ⊗-gates in our circuits. Note that the circuit g is indeed decomposable and edge-contracted.
+
+Consider a smooth and decomposable circuit h that is the output of running a smoothing-gate algorithm on g. By Definition 4.3, there exists a bijection B from g to a subcircuit of h after edgecontraction. Let S denote the graph of this subcircuit before edge-contraction: we call S the skeleton graph (see Figure 5). We make the two following observations.
+
+First, we consider the gates B(G i ) for all i. In the skeleton graph S, there exists a path from B(g) to B(G i ), a path from B(G i ) to B(p ai−1 ) and a path from B(G i ) to B(s bi+1 ). We denote the set of gates on these paths (excluding the endpoints) over all i as T . We observe that a gate in T must have exactly one child in S, otherwise S cannot be edge-contracted into a circuit that is isomorphic to g.
+
+Since each ⊕-gate in T has exactly one child that is in the skeleton graph S, we can modify h by disconnecting all other children (which do not belong to S) from these ⊕-gates, and edge-contracting x n
+
+x 3
+
+x 2
+
+x 1 s 1 s 2 s 3 s n
+
+x 1
+
+x 2
+
+x 3 these ⊕-gates. We note that this operation preserves smoothness and decomposability of h, so each child of B(g) still mentions all n variables.
+x n G 1 G 2 G m
+Second, we observe that the gate B(p k ) for any k cannot mention a variable outside of the range [1, k]. Otherwise, the circuit rooted at B(p n ) would implicitly contain a ⊗-gate that multiplies that variable with itself, thus violating the decomposability property. A similar argument applies to the gates B(s k ): they cannot mention a variable outside of the range [k, n].
+
+Let G i denote the (unique) child of B(g) that is an ancestor of B(G i ). Recall that for any i, G i has the gates B(p ai−1 ) and B(s bi+1 ) as descendants. Furthermore, G i does not have any other gate in {B(p j ) : ∀j} ∪ {B(s j ) : ∀j} as a descendant, otherwise it would either multiply two copies of variable 1 or multiply two copies of variable n, and violate the decomposability property. We now remove the set of edges in h that goes from some gate in T ∪ {B(G j ) : ∀j} to some gate in {B(p j ) : ∀j} ∪ {B(s j ) : ∀j}. By the above observations, the gate G i must now mention exactly the variables [a i , b i ]. See the transition from Figure 5 to Figure 6 as an example.
+
+We now show how to extract the variables in each interval [a, b] using the following relabelling scheme to remove all remaining ⊕-gates. First we remove all edges leading into G 1 , . . . , G m . Each of these m gates is still decomposable and smooth for the set of variables in its respective interval. Then for every ⊕-gate p in the circuit, take one of its input wires and reroute a copy of it to each gate that p feeds into. Each remaining ⊗-gate is now the product of one literal for each variable that was mentioned by its corresponding gate in the original circuit. These variables may be positive or negative literals, but we do not care about the polarity. We only need, for example, that if a ⊗-gate mentioned variables X 1 , X 3 , X 5 , then it is now a product of a literal of X 1 , a literal of X 3 , and a literal of X 5 .
+
+After this operation, G i is now exactly the product of all the variables in [a i , b i ]. By setting the inputs to the circuits to be the value of the weights in the range-sum problem, and evaluating the circuits treating ⊗ as addition, the value to which each gate G i evaluates is the requested sum for the i-th interval. So, the circuit describes a sequence of additions to compute the sum of each interval. We then apply Theorem 5.1, which implies that the bound of Ω(m · α(m, n)) applies to the size of the output circuit h. Figure 5: A smooth and decomposable circuit h that is the output of a smoothing-gate algorithm on g. The skeleton graph S is shown in red, and the set of gates T are circled in blue. We proceed by taking each ⊕-gate in T and removing their edges to children that are not in S. This removes the edge (t 3 , o 3 ). Next, we remove the set of edges that goes from some gate in T ∪ {B(G j ) : ∀j} to some gate in {B(p j ) : ∀j} ∪ {B(s j ) : ∀j}. This removes the edges (t 1 , B(p 1 )), (t 2 , B(s n )), (t 3 , B(p 2 )), (B(G m ), B(s 3 )). The gates t 1 and t 3 have no more children, so we prune them away. After this process, we get the circuit shown in Figure 6. C Proof of Theorem 6.1
+
+Recall from Lemma 4.5 that the set of missing variables of each parent-child pair forms at most two intervals with respect to the in-order traversal of the vtree. The idea now is that propagating the partial derivative to each interval amounts to a range increment, i.e., increasing each variable in the interval by a constant. The naive algorithm takes quadratic time to do this for all intervals, but we can perform all range increments in linear time [Garg].
+
+Consider an integer n, a set of m intervals [a 1 , b 1 ], . . . , [a m , b m ] (1 ≤ a i ≤ b i ≤ n), and m numeric constants c 1 , . . . , c m . For each integer 1 ≤ j ≤ n, we wish to compute the sum s j = i:j∈ [ai,bi] c i . That is, if j belongs to some interval [a i , b i ], then we increase s j by c i . The trick is to keep track of delta variables δ 1 , . . . , δ n . For each interval [a i , b i ], we increase δ ai by c i and decrease δ bi+1 by c i . Finally, we output s 1 = δ 1 and s j = s j−1 ⊕ δ j , j > 1. This process, which corresponds to Lines 11-14 and 16-17 in the top-down subroutine of Algorithm 1, can be done in time O(m).
+
+Definition 3. 3 .
+3A circuit is smooth if for every pair of children c 1 and c 2 of a ⊕-gate, vars c1 = vars c2 .
+
+
+main(g, w): 1: s ← bottom-up(g, w) // requires ⊕, ⊗, 2: return top-down(g, w, s) top-down(g, w, s): 1: D ← {root of g : s[root of g]} // cache 2: for gates p in g, parents before children do 3: if p is a leaf then d p ← D[p] 4: if p is a ⊗-gate with children C then 5: m ← ( k∈C s[k]) ⊗ D[
+
+Figure 3 :
+3Recursive scheme for semigroup range-sum.
+
+Figure 4 :
+4A decomposable circuit g constructed based on input intervals. Edges are solid if the parent is a ⊗-gate, and edges are dashed if the parent is a ⊕-gate. In this example the input intervals are {[3, 3], [2, 3], [2, 2]}.
+
+Figure 6 :
+6The output circuit h implicitly contains a scheme for obtaining the sum of every input interval, thereby solving the semigroup range-sum problem using O(|h|) additions.
+
+Table 2 :
+2Experiments on smoothing hand-crafted circuits and experiments on computing All-Marginals as part of the collapsed sampling algorithm. Sizes are reported in thousands (k).(a) Time (in seconds) taken to smooth circuits. Number of ⊕, , ⊗, operations to compute All-Marginals when sampling the Segmentation-11 network.Size 
+Naive 
+Ours 
+Speedup × 
+
+40k 0.82 ± 0.01 0.04 ± 0.01 
+21 ± 1 
+416k 
+50 ± 0.3 0.31 ± 0.01 
+161 ± 6 
+1,620k 293 ± 2 
+0.74 ± 0.04 
+390 ± 30 
+8,500k 6050 ± 20 4.13 ± 0.09 1470 ± 40 
+
+(b) Size 
+Naive 
+Ours 
+Impr % 
+
+100k 28,494 ± 598 20,207 ± 411 29 ± 3 
+200k 55,875 ± 1,198 36,101 ± 1,522 35 ± 5 
+400k 86,886 ± 6,330 56,094 ± 817 35 ± 6 
+
+(c) Number of ⊕, , ⊗, operations to compute All-
+Marginals when sampling the DBN-11 network. 
+
+Size 
+Naive 
+Ours 
+Impr % 
+
+100k 172,610 ± 1,821 26,807 ± 644 84 ± 1 
+200k 344,748 ± 3,881 51,864 ± 851 85 ± 1 
+400k 626,235 ± 9,985 99,567 ± 697 84 ± 1 
+
+(d) Number of ⊕, , ⊗, operations to compute All-
+Marginals when sampling the CSP-13 network. 
+
+Size 
+Naive 
+Ours 
+Impr % 
+
+100k 36,531 ± 1,484 20,814 ± 619 43 ± 4 
+200k 90,352 ± 3,593 38,670 ± 1,438 57 ± 3 
+400k 122,208 ± 9,971 55,269 ± 1,819 54 ± 6 
+
+
+The inverse Ackermann function α is defined inTarjan [1972]. As the Ackermann function grows faster than any primitive recursive function, the function α grows slower than the inverse of any primitive recursive function, e.g., slower than any number of iterated logarithms of n.
+The code for our experiments can be found at https://github.com/AndyShih12/SSDC. There are some differences in our implementation, which we explain in the repository.
+Acknowledgments This work is partially supported by NSF grants #IIS-1657613, #IIS-1633857, #CCF-1837129, DARPA XAI grant #N66001-17-2-4032, NEC Research, and gifts from Intel and Facebook Research. We thank Louis Jachiet for the helpful discussion of Theorem 4.7.Algorithm 2 semigroup-range-sum(I, w)input: A sequence of intervals I = [a 1 , b 1 ], . . . , [a m , b m ] on n variables with weights w = [w 0 , . . . , w n−1 ] on the variables. output: The sum of weights of variables for each interval. preprocess(W, t, k):s, e ← a · i , a · (i + 1) // start, end of one inner block 5:A ← [w s , ..., w e−1 ] // inner block 6: p s , q e−1 ← w s , w e−1 7:for j from s + 1 to e − 1 do // prefix gates: walk forward 8:for j from e − 2 down to s do // suffix gates: walk backward 11:The preprocessing step requires no additional overhead for finding the sequence of additions, as shown in Algorithm 2; determining which addition to perform next only takes a constant amount of time (assuming we optimize with tail recursion so we do not spend a non-constant amount of time unwinding the stack). Similarly, when we need to perform an outer recursion during the processing of one interval, we only require a constant amount of time to find the two additions (prefix and suffix pieces inFigure 3b) and call the recursion. The problem arises when we need to perform an inner recursion. Since an inner recursion does not actually performs additions, we are not allowed any time at all to find and perform the proper recursive call. So if we perform multiple consecutive inner recursions, we will end up doing a non-constant amount of work for a single addition.As such, we will present a technique that performs multiple consecutive inner recursions, which we will call a jump, in a constant amount of time. After a single jump, we will either perform an outer recursion or hit a base case. In both cases, the scheme will immediately perform at least one addition, so we can absorb the (constant) cost of the jump into the addition.A.1 Jump TechniqueSuppose we are at some level of outer recursions given by some value t. When we perform one inner recursion, we go from level R(t, k) to level R(t, k − c) for some constant c. When we do a jump, we need to go from level R(t, k) to level R(t, k − cj) for some j ≥ 1. The details of the jumping technique are then as follows. During preprocessing, for each value of t we record the sequence of block sizes a t 1 = R(t, k − c) ≥ a t 2 = R(t, k − 2c) ≥ . . . ≥ a t k/c = R(t, k − k/c c). Then, for each value s ∈ [1, R(t, k)], we compute the smallest index i such that the block size a t i is ≤ s. We denote this computed index i by p t s . This step can be done in time O(R(t, k) + k): by considering the values s ∈ [1, R(t, k)] in decreasing order, the indices p t s must be increasing in that order. So, we can compute all the indices with a two-pointer walk with cost O(R(t, k) + k), which is negligible since
+Adnan Darwiche, and Guy Van den Broeck. Tractable learning for complex probability queries. Jessa Bekker, Jesse Davis, Arthur Choi, NIPS. Jessa Bekker, Jesse Davis, Arthur Choi, Adnan Darwiche, and Guy Van den Broeck. Tractable learning for complex probability queries. In NIPS, 2015.
+
+Expectation maximization over binary decision diagrams for probabilistic logic programs. Elena Bellodi, Fabrizio Riguzzi, Intell. Data Anal. 17Elena Bellodi and Fabrizio Riguzzi. Expectation maximization over binary decision diagrams for probabilistic logic programs. Intell. Data Anal., 17:343-363, 2013.
+
+Expander CNFs have exponential DNNF size. CoRR, abs/1411. Simone Bova, Florent Capelli, Stefan Mengel, Friedrich Slivovsky, Simone Bova, Florent Capelli, Stefan Mengel, and Friedrich Slivovsky. Expander CNFs have exponential DNNF size. CoRR, abs/1411.1995, 2014.
+
+Graph-based algorithms for boolean function manipulation. Randal E Bryant, IEEE Transactions on Computers, C. 35Randal E. Bryant. Graph-based algorithms for boolean function manipulation. IEEE Transactions on Computers, C-35:677-691, 1986.
+
+On probabilistic inference by weighted model counting. Mark Chavira, Adnan Darwiche, Artif. Intell. 172Mark Chavira and Adnan Darwiche. On probabilistic inference by weighted model counting. Artif. Intell., 172:772-799, 2008.
+
+Computing partial sums in multidimensional arrays. Bernard Chazelle, Burton Rosenberg, Symposium on Computational Geometry. Bernard Chazelle and Burton Rosenberg. Computing partial sums in multidimensional arrays. In Symposium on Computational Geometry, 1989.
+
+On relaxing determinism in arithmetic circuits. Arthur Choi, Adnan Darwiche, ICML. Arthur Choi and Adnan Darwiche. On relaxing determinism in arithmetic circuits. In ICML, 2017.
+
+. Adnan Darwiche, Pierre Marquis, Dan Suciu, Stefan Szeider, Dagstuhl Reports. 7Recent trends in knowledge compilation (Dagstuhl Seminar 17381Adnan Darwiche, Pierre Marquis, Dan Suciu, and Stefan Szeider. Recent trends in knowledge compilation (Dagstuhl Seminar 17381). Dagstuhl Reports, 7:62-85, 2017.
+
+On the tractable counting of theory models and its application to truth maintenance and belief revision. Adnan Darwiche, Journal of Applied Non-Classical Logics. 11Adnan Darwiche. On the tractable counting of theory models and its application to truth maintenance and belief revision. Journal of Applied Non-Classical Logics, 11:11-34, 2001.
+
+SDD: A new canonical representation of propositional knowledge bases. Adnan Darwiche, IJCAI. Adnan Darwiche. SDD: A new canonical representation of propositional knowledge bases. In IJCAI, 2011.
+
+Inference and learning in probabilistic logic programs using weighted boolean formulas. Daan Fierens, Guy Van Den, Joris Broeck, Dimitar Renkens, Sht, Bernd Shterionov, Ingo Gutmann, Gerda Thon, Luc De Janssens, Raedt, TPLP. 15Daan Fierens, Guy Van den Broeck, Joris Renkens, Dimitar Sht. Shterionov, Bernd Gutmann, Ingo Thon, Gerda Janssens, and Luc De Raedt. Inference and learning in probabilistic logic programs using weighted boolean formulas. TPLP, 15:358-401, 2015.
+
+Approximate inference in graphical models. Sholeh Forouzan, UC IrvineSholeh Forouzan. Approximate inference in graphical models. UC Irvine, 2015.
+
+Approximate knowledge compilation by online collapsed importance sampling. Tal Friedman, Guy Van Den Broeck, NeurIPS. Tal Friedman and Guy Van den Broeck. Approximate knowledge compilation by online collapsed importance sampling. In NeurIPS, December 2018.
+
+The sum-product theorem: A foundation for learning tractable models. Abram L Friesen, Pedro M Domingos, ICML. Abram L. Friesen and Pedro M. Domingos. The sum-product theorem: A foundation for learning tractable models. In ICML, 2016.
+
+. Akshat Garg, Akshat Garg. Difference array. https://www.geeksforgeeks.org/difference-array- range-update-query-o1/. Online; accessed 2019-08-30.
+
+Learning the structure of sum-product networks. Robert Gens, Pedro M Domingos, ICML. Robert Gens and Pedro M. Domingos. Learning the structure of sum-product networks. In ICML, 2013.
+
+Algebraic model counting. Angelika Kimmig, Guy Van Den, Luc De Broeck, Raedt, International Journal of Applied Logic. Angelika Kimmig, Guy Van den Broeck, and Luc De Raedt. Algebraic model counting. International Journal of Applied Logic, November 2016.
+
+Probabilistic sentential decision diagrams. Doga Kisa, Guy Van Den, Arthur Broeck, Adnan Choi, Darwiche, KRDoga Kisa, Guy Van den Broeck, Arthur Choi, and Adnan Darwiche. Probabilistic sentential decision diagrams. In KR, 2014.
+
+Towards compact interpretable models: Shrinking of learned probabilistic sentential decision diagrams. Yitao Liang, Guy Van Den Broeck, IJCAI 2017 Workshop on Explainable Artificial Intelligence (XAI). Yitao Liang and Guy Van den Broeck. Towards compact interpretable models: Shrinking of learned probabilistic sentential decision diagrams. In IJCAI 2017 Workshop on Explainable Artificial Intelligence (XAI), August 2017.
+
+Learning the structure of probabilistic sentential decision diagrams. Yitao Liang, Jessa Bekker, Guy Van Den Broeck, UAI. Yitao Liang, Jessa Bekker, and Guy Van den Broeck. Learning the structure of probabilistic sentential decision diagrams. In UAI, 2017.
+
+Maximum a posteriori inference in sum-product networks. Jun Mei, Yong Jiang, Kewei Tu, AAAI. Jun Mei, Yong Jiang, and Kewei Tu. Maximum a posteriori inference in sum-product networks. In AAAI, 2018.
+
+A top-down compiler for sentential decision diagrams. Umut Oztok, Adnan Darwiche, IJCAI. Umut Oztok and Adnan Darwiche. A top-down compiler for sentential decision diagrams. In IJCAI, 2015.
+
+On the latent variable interpretation in sum-product networks. Robert Peharz, Robert Gens, Franz Pernkopf, Pedro M Domingos, IEEE Transactions on Pattern Analysis and Machine Intelligence. 39Robert Peharz, Robert Gens, Franz Pernkopf, and Pedro M. Domingos. On the latent variable interpretation in sum-product networks. IEEE Transactions on Pattern Analysis and Machine Intelligence, 39:2030-2044, 2017.
+
+New compilation languages based on structured decomposability. Knot Pipatsrisawat, Adnan Darwiche, AAAI. Knot Pipatsrisawat and Adnan Darwiche. New compilation languages based on structured decompos- ability. In AAAI, 2008.
+
+Sum-product networks: A new deep architecture. Hoifung Poon, Pedro M Domingos, IEEE International Conference on Computer Vision Workshops. Hoifung Poon and Pedro M. Domingos. Sum-product networks: A new deep architecture. 2011 IEEE International Conference on Computer Vision Workshops, pages 689-690, 2011.
+
+Learning sum-product networks with direct and indirect variable interactions. Amirmohammad Rooshenas, Daniel Lowd, ICML. Amirmohammad Rooshenas and Daniel Lowd. Learning sum-product networks with direct and indirect variable interactions. In ICML, 2014.
+
+Performing bayesian inference by weighted model counting. Tian Sang, Paul Beame, Henry A Kautz, AAAI. Tian Sang, Paul Beame, and Henry A. Kautz. Performing bayesian inference by weighted model counting. In AAAI, 2005.
+
+Tractable operations for arithmetic circuits of probabilistic models. Yujia Shen, Arthur Choi, Adnan Darwiche, NIPS. Yujia Shen, Arthur Choi, and Adnan Darwiche. Tractable operations for arithmetic circuits of probabilistic models. In NIPS, 2016.
+
+Efficiency of a good but not linear set union algorithm. Robert E Tarjan, J. ACM. 22Robert E. Tarjan. Efficiency of a good but not linear set union algorithm. J. ACM, 22:215-225, 1972.
+
+Skolemization for weighted first-order model counting. Guy Van Den Broeck, Wannes Meert, Adnan Darwiche, KRGuy Van den Broeck, Wannes Meert, and Adnan Darwiche. Skolemization for weighted first-order model counting. In KR, 2014.
+
+Simplifying, regularizing and strengthening sum-product network structure learning. Antonio Vergari, Nicola Di Mauro, Floriana Esposito, ECML/PKDD. Antonio Vergari, Nicola Di Mauro, and Floriana Esposito. Simplifying, regularizing and strengthening sum-product network structure learning. In ECML/PKDD, 2015.
+
+Yitao Liang, and Guy Van den Broeck. A semantic loss function for deep learning with symbolic knowledge. Jingyi Xu, Zilu Zhang, Tal Friedman, ICML. Jingyi Xu, Zilu Zhang, Tal Friedman, Yitao Liang, and Guy Van den Broeck. A semantic loss function for deep learning with symbolic knowledge. In ICML, 2018.
+
+Space-time tradeoff for answering range queries (extended abstract). Andrew Chi-Chih Yao, STOC. Andrew Chi-Chih Yao. Space-time tradeoff for answering range queries (extended abstract). In STOC, 1982.

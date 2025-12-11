@@ -1,0 +1,492 @@
+On Tensor Train Rank Minimization: Statistical Efficiency and Scalable Algorithm
+
+
+Masaaki Imaizumi 
+Institute of Statistical Mathematics
+
+
+Takanori Maehara 
+RIKEN Center for Advanced Intelligence Project
+
+
+Kohei Hayashi 
+RIKEN Center for Advanced Intelligence Project
+
+
+National Institute of Advanced Industrial Science and Technology
+
+
+On Tensor Train Rank Minimization: Statistical Efficiency and Scalable Algorithm
+
+Tensor train (TT) decomposition provides a space-efficient representation for higher-order tensors. Despite its advantage, we face two crucial limitations when we apply the TT decomposition to machine learning problems: the lack of statistical theory and of scalable algorithms. In this paper, we address the limitations. First, we introduce a convex relaxation of the TT decomposition problem and derive its error bound for the tensor completion task. Next, we develop an alternating optimization method with a randomization technique, in which the time complexity is as efficient as the space complexity is. In experiments, we numerically confirm the derived bounds and empirically demonstrate the performance of our method with a real higher-order tensor.
+
+Introduction
+
+Tensor decomposition is an essential tool for dealing with data represented as multidimensional arrays, or simply, tensors. Through tensor decomposition, we can determine latent factors of an input tensor in a low-dimensional multilinear space, which saves the storage cost and enables predicting missing elements. Note that, a different multilinear interaction among latent factors defines a different tensor decomposition model, which yields a ton of variations of tensor decomposition. For general purposes, however, either Tucker decomposition [29] or CANDECOMP/PARAFAC (CP) decomposition [8] model is commonly used.
+
+In the past three years, an alternative tensor decomposition model, called tensor train (TT) decomposition [21] has actively been studied in machine learning communities for such as approximating the inference on a Markov random field [18], modeling supervised learning [19,24], analyzing restricted Boltzmann machine [4], and compressing deep neural networks [17]. A key property is that, for higher-order tensors, TT decomposition provides more space-saving representation called TT format while preserving the representation power. Given an order-K tensor (i.e., a K-dimensional tensor), the space complexity of Tucker decomposition is exponential in K, whereas that of TT decomposition is linear in K. Further, on TT format, several mathematical operations including the basic linear algebra operations can be performed efficiently [21].
+
+Despite its potential importance, we face two crucial limitations when applying this decomposition to a much wider class of machine learning problems. First, its statistical performance is unknown. In Tucker decomposition and its variants, many authors addressed the generalization error and derived statistical bounds (e.g. [28,27]). For example, Tomioka et al. [28] clarify the way in which using the convex relaxation of Tucker decomposition, the generalization error is affected by the rank (i.e., the dimensionalities of latent factors), dimension of an input, and number of observed elements. In contrast, such a relationship has not been studied for TT decomposition yet. Second, standard TT decomposition algorithms, such as alternating least squares (ALS) [6,30] , require a huge computational cost. The main bottleneck arises from the singular value decomposition (SVD) operation to an "unfolding" matrix, which is reshaped from the input tensor. The size of the unfolding matrix is huge and the computational cost grows exponentially in K.
+
+In this paper, we tackle the above issues and present a scalable yet statistically-guaranteed TT decomposition method. We first introduce a convex relaxation of the TT decomposition problem and its optimization algorithm via the alternating direction method of multipliers (ADMM). Based on this, a statistical error bound for tensor completion is derived, which achieves the same statistical efficiency as the convex version of Tucker decomposition does. Next, because the ADMM algorithm is not sufficiently scalable, we develop an alternative method by using a randomization technique. At the expense of losing the global convergence property, the dependency of K on the time complexity is reduced from exponential to quadratic. In addition, we show that a similar error bound is still guaranteed. In experiments, we numerically confirm the derived bounds and empirically demonstrate the performance of our method using a real higher-order tensor.
+
+
+Preliminaries
+
+
+Notation
+
+Let X ⊂ R I 1 ×···×I K be the space of order-K tensors, where I k denotes the dimensionality of the k-th mode for k = 1, . . . , K. For brevity, we define I <k := k <k I k ; similarly, I ≤k , I k< and
+I k≤ are defined. For a vector Y ∈ R d , [Y ] i denotes the i-th element of Y . Similarly, [X] i 1 ,...,i K denotes the (i 1 , . . . , i K ) elements of a tensor X ∈ X . Let [X] i 1 ,...,i k−1 ,:,i k+1 ,...,i K denote an I k -dimensional vector (X i 1 ,...,i k−1 ,j,i k+1 ,...,i K ) I k j=1
+called the mode-k fiber. For a vector Y ∈ R d , Y = (Y T Y ) 1/2 denotes the 2 -norm and Y ∞ = max i |[Y ] i | denotes the max norm. For tensors X, X ∈ X , an inner product is defined as X, X := I 1 ...I K i 1 ,...,i K =1 X(i 1 , . . . , i K )X (i 1 , . . . , i K ) and X F = X, X 1/2 denotes the Frobenius norm. For a matrix Z, Z s := j σ j (Z) denotes the Schatten-1 norm, where σ j (·) is a j-th singular value of Z.
+
+
+Tensor Train Decomposition
+
+Let us define a tuple of positive integers (R 1 , . . . , R K−1 ) and an order-3 tensor G k ∈ R I k ×R k−1 ×R k for each k = 1, . . . , K. Here, we set R 0 = R K = 1. Then, TT decomposition represents each element of X as follows:
+X i 1 ,...,i K = [G 1 ] i 1 ,:,: [G 2 ] i 2 ,:,: · · · [G K ] i K ,:,: .
+(1)
+Note that [G k ] i k ,:,: is an R k−1 × R k matrix. We define G := {G k } K k=1
+as a set of the tensors, and let X(G) be a tensor whose elements are represented by G as (1). The tuple (R 1 , . . . , R K−1 ) controls the complexity of TT decomposition, and it is called a Tensor Train (TT) rank. Note that TT decomposition is universal, i.e., any tensor can be represented by TT decomposition with sufficiently large TT rank [20].
+
+When we evaluate the computational complexity, we assume the shape of G is roughly symmetric. That is, we assume there exist I, R ∈ N such that I k = O(I) for k = 1, . . . , K and R k = O(R) for k = 1, . . . , K − 1.
+
+
+Tensor Completion Problem
+
+Suppose there exists a true tensor X * ∈ X that is unknown, and a part of the elements of X * is observed with some noise. Let S ⊂ {(j 1 , j 2 , . . . , j K )} I 1 ,...,I K j 1 ,...,j K =1 be a set of indexes of the observed elements and n := |S| ≤ K k=1 I k be the number of observations. Let j(i) be an i-th element of S for i = 1, . . . , n, and y i denote i-th observation from X * with noise. We consider the following observation model:
+y i = [X * ] j(i) + i ,(2)
+where i is i.i.d. noise with zero mean and variance σ 2 . For simplicity, we introduce observation vector Y := (y 1 , . . . , y n ), noise vector E := ( 1 , . . . , n ), and rearranging operator X : X → R n that randomly picks the elements of X. Then, the model (2) is rewritten as follows:
+Y = X(X * ) + E.
+The goal of tensor completion is to estimate the true tensor X * from the observation vector Y . Because the estimation problem is ill-posed, we need to restrict the degree of freedom of X * , such as rank. Because the direct optimization of rank is difficult, its convex surrogation is alternatively used [2,3,11,31,22]. For tensor completion, the convex surrogation yields the following optimization problem [5,14,23,26]:
+min X∈Θ 1 2n Y − X(X) 2 + λ n X s * ,(3)
+where Θ ⊂ X is a convex subset of X , λ n ≥ 0 is a regularization coefficient, and · s * is the overlapped Schatten norm defined as X s * :
+= 1 K K k=1 X (k) s .
+Here, X (k) is the k-unfolding matrix defined by concatenating the mode-k fibers of X. The overlapped Schatten norm regularizes the rank of X in terms of Tucker decomposition [16,28]. Although the Tucker rank of X * is unknown in general, the convex optimization adjusts the rank depending on λ n .
+
+To solve the convex problem (3), the ADMM algorithm is often employed [1,26,28]. Since the overlapped Schatten norm is not differentiable, the ADMM algorithm avoids the differentiation of the regularization term by alternatively minimizing the augmented Lagrangian function iteratively.
+
+
+Convex Formulation of TT Rank Minimization
+
+To adopt TT decomposition to the convex optimization problem as (3), we need the convex surrogation of TT rank. For that purpose, we introduce the Schatten TT norm [22] as follows:
+X s,T := 1 K − 1 K−1 k=1 Q k (X) s := 1 K − 1 K−1 k=1 j σ j (Q k (X)),(4)
+where Q k : X → R I ≤k ×I k< is a reshaping operator that converts a tensor to a large matrix where the first k modes are combined into the rows and the rest K − k modes are combined into the columns. Oseledets et al. [21] shows that the matrix rank of Q k (X) can bound the k-th TT rank of X, implying that the Schatten TT norm surrogates the sum of the TT rank. Putting the Schatten TT norm into (3), we obtain the following optimization problem:
+min X∈X 1 2n Y − X(X) 2 + λ n X s,T .(5)
+
+ADMM Algorithm
+
+To solve (5), we consider the augmented Lagrangian function L(x,
+{Z k } K−1 k=1 , {α k } K−1 k=1 )
+, where x ∈ R k I k is the vectorization of X, Z k is a reshaped matrices with size I ≤k × I k< , and α k ∈ R k I k is a coefficient for constraints. Given initial points (
+x (0) , {Z (0) k } k , {α (0) k } k )
+, the -th step of ADMM is written as follows:
+x ( +1) = Ω T Y + nη 1 K − 1 K−1 k=1 (V k (Z ( ) k ) − α ( ) k ) /(1 + nηK), Z ( +1) k = prox λn/η (V −1 k (x ( +1) + α ( ) k )), k = 1, . . . , K, α ( +1) k = α ( ) k + (x ( +1) − V k (Z ( +1) k )), k = 1, . . . , K.
+Here, Ω is an n × I k k=1 matrix that works as the inversion mapping of X; V k is a vectorizing operator of an I ≤k × I k< matrix; prox(·) is the shrinkage operation of the singular values as prox b (W ) = U max{S − bI, 0}V T , where U SV T is the singular value decomposition of W ; η > 0 is a hyperparameter for a step size. We stop the iteration when the convergence criterion is satisfied (e.g. as suggested by Tomioka et al. [28]). Since the Schatten TT norm (4) is convex, the sequence of the variables of ADMM is guaranteed to converge to the optimal solution (Theorem 5.1, [5]). We refer to this algorithm as TT-ADMM.
+
+TT-ADMM requires huge resources in terms of both time and space. For the time complexity, the proximal operation of the Schatten TT norm, namely the SVD thresholding of V −1 k , yields the dominant, which is O(I 3K/2 ) time. For the space complexity, we have O(K) variables of size O(I K ), which requires O(KI K ) space.
+
+
+Alternating Minimization with Randomization
+
+We first consider reducing the space complexity of the ADMM approach. The idea is simple: we only maintain the TT format of the input tensor rather than the input tensor itself. This leads the following optimization problem:
+min G 1 2n Y − X(X(G)) 2 + λ n X(G) s,T .(6)
+Remember that G = {G k } k is the set of TT components and X(G) is the tensor given by the TT format with G. Now we only need to store the TT components G, which drastically improves the space efficiency.
+
+
+Randomized TT Schatten norm
+
+Next, we approximate the optimization of the Schatten TT norm. To avoid the computation of exponentially large-scale SVDs in the Schatten TT norm, we employ a technique called the "very sparse random projection" [12]. The main idea is that, if the size of a matrix is sufficiently larger than its rank, then its singular values (and vectors) are well preserved even after the projection by a sparse random matrix. This motivates us to use the Schatten TT norm over the random projection. Preliminary, we introduce tensors for the random projection. Let D 1 , D 2 ∈ N be the size of the matrix after projection. For each k = 1, . . . , K − 1 and parameters, let Π k,1 ∈ R D 1 ×I 1 ×···×I k be a tensor whose elements are independently and identically distributed as follows:
+[Π k,1 ] d 1 ,i 1 ,...,i k =      + s/d 1 with probability 1/2s, 0 with probability 1 − 1/s, − s/d 1 with probability 1/2s,(7)
+for i 1 , . . . , i k and d 1 = 1, . . . , D 1 . Here, s > 0 is a hyperparameter controlling sparsity. Similarly, we introduce a tensor Π k,2 ∈ R D 2 ×I k+1 ×···×I K−1 that is defined in the same way as Π k,1 . With Π k,1 and Π k,2 , let P k : X → R D 1 ×D 2 be a random projection operator whose element is defined as follows:
+[P k (X)] d 1 ,d 2 = I 1 j 1 =1 · · · I K j K =1 [Π k,1 ] d 1 ,j 1 ,...,j k [X] j 1 ,...,j K [Π k,2 ] d 2 ,j k+1 ,...,j K .(8)
+Note that we can compute the above projection by using the facts that X has the TT format and the projection matrices are sparse. Let π (k) j be a set of indexes of non-zero elements of Π k,j . Then, using the TT representation of X, (8) is rewritten as
+[P k (X(G))] d 1 ,d 2 = (j 1 ,...,j k )∈π (k) 1 [Π k,1 ] d 1 ,j 1 ,...,j k [G 1 ] j 1 · · · [G k ] j k (j k+1 ,...,j K )∈π (k) 2 [G k ] j k+1 · · · [G K ] j K [Π k,2 ] d 2 ,j k+1 ,...,j K ,
+If the projection matrices have only S nonzero elements (i.e., S = |π
+(1) j | = |π (2) j |), the computational cost of the above equation is O(D 1 D 2 SKR 3 ).
+The next theorem guarantees that the Schatten-1 norm of P k (X) approximates the original one.
+
+Theorem 1. Suppose X ∈ X has TT rank (R 1 , . . . , R k ). Consider the reshaping operator Q k in (4), and the random operator P k as (8) with tensors Π k,1 and Π k,2 defined as (7). If D 1 , D 2 ≥ max{R k , 4(log(6R k ) + log(1/ ))/ 2 }, and all the singular vectors u of Q(X) k are well-spread as j |u j | 3 ≤ /(1.6k √ s), we have
+1 − R k Q k (X) s ≤ P k (X) s ≤ (1 + ) Q k (X) s ,
+with probability at least 1 − .
+
+Note that the well-spread condition can be seen as a stronger version of the incoherence assumption which will be discussed later.
+
+
+Alternating Minimization
+
+Note that the new problem (6) is non-convex because X(G) does not form a convex set on X . However, if we fix G except for G k , it becomes convex with respect to G k . Combining with the random projection, we obtain the following minimization problem:
+min G k 1 2n Y − X(X(G)) 2 + λ n K − 1 K−1 k =1 P k (X(G)) s .(9)
+We solve this by the ADMM method for each k = 1, . . . , K. Let g k ∈ R I k R k−1 R k be the vectorization of G k , and W k ∈ R D 1 ×D 2 be a matrix for the randomly projected matrix. The augmented Lagrangian function is then given by
+L k (g k , {W k } K−1 k =1 , {β k } K−1 k =1 ), where {β k ∈ R D 1 D 2 } K−1 k =1 are the Lagrange multipliers. Starting from initial points (g (0) k , {W (0) k } K−1 k =1 , {β (0) k } K−1 k =1 )
+, the -th ADMM step is written as follows:
+g ( +1) k = Ω T Ω/n + η K−1 k =1 Γ T k Γ k −1 Ω T Y /n + 1 K − 1 K−1 k =1 Γ T k (η V k (W ( ) k ) − β ( ) k ) , W ( +1) k = prox λn/η V −1 k (Γ k g ( +1) k + β ( ) k ) , k = 1, . . . , K − 1, β ( +1) k = β ( ) k + (Γ k g ( +1) k − V k (W ( +1) k )), k = 1, . . . , K − 1.
+Here,
+Γ (k) ∈ R D 1 D 2 ×I k R k−1 R k is the matrix imitating the mapping G k → P k (X(G k ; G\{G k })), V k is a vectorizing operator of D 1 × D 2 matrix, and Ω is an n × I k R k−1 R k matrix of the operator X • X(·; G\{G k }) with respect to g k .
+Similarly to the convex approach, we iterate the ADMM steps until convergence. We refer to this algorithm as TT-RALS, where RALS stands for randomized ALS.
+
+
+The time complexity of TT-RALS at the -th iteration is
+O((n + KD 2 )KI 2 R 4 ); the details are deferred to Supplementary material. The space complexity is O(n + KI 2 R 4 ), where O(n) is for Y and O(KI 2 R 4 ) is for the parameters.
+
+Theoretical Analysis
+
+In this section, we investigate how the TT rank and the number of observations affect to the estimation error. Note that all the proofs of this section are deferred to Supplementary material.
+
+
+Convex Solution
+
+To analyze the statistical error of the convex problem (5), we assume the incoherence of the reshaped version of X * .
+Assumption 2. (Incoherence Assumption) There exists k ∈ {1, . . . , K} such that a matrix Q k (X * ) has orthogonal singular vectors {u r ∈ R I ≤k , v r ∈ R I k< } R k r=1 satisfying max 1≤i≤I <k P U e i ≤ (µR k /I ≤k ) 1 2 and max 1≤i≤I <k P V e i ≤ (µR k /I k< ) 1 2
+with some 0 ≤ µ < 1. Here, P U and P V are linear projections onto spaces spanned by {u r } r and {v r } r ; {e i } i is the natural basis.
+
+Intuitively, the incoherence assumption requires that the singular vectors for the matrix Q k (X * ) are well separated. This type of assumption is commonly used in the matrix and tensor completion studies [2,3,31]. Under the incoherence assumption, the error rate of the solution of (5) is derived.
+
+Theorem 3. Let X * ∈ X be a true tensor with TT rank (R 1 , . . . , R K−1 ), and let X ∈ X be the minimizer of (3). Suppose that λ n ≥ X * (E) ∞ /n and that Assumption 2 for some k ∈ {1, 2, . . . , K} is satisfied. If
+n ≥ C m µ 2 k max{I ≤k , I k < }R k log 3 max{I ≤k , I k < }
+with a constant C m , then with probability at least 1 − (max{I ≤k , I k < }) −3 and with a constant C X ,
+X − X * F ≤ C X λ n K K−1 k=1 R k .
+Theorem 3 states that the bound for the statistical error gets larger as the TT rank increases. In other words, completing a tensor is relatively easy as long as the tensor has small TT rank. Also, when we set λ n → 0 as n increases, we can state the consistency of the minimizer.
+
+The result of Theorem 3 is similar to that obtained from the studies on matrix completion [3,16] and tensor completion with the Tucker decomposition or SVD [28,31]. Note that, although Theorem 3 is for tensor completion, the result can easily be generalized to other settings such as the tensor recovery or the compressed sensing problems.
+
+
+TT-RALS Solution
+
+Prior to the analysis, let G * be the true TT components such that X * = X(G * ). For simplification, we assume that the elements of G * are normalized, i.e., G k = 1, ∀k, and an R k × I k−1 I k matrix reshaped from G * k has a R k row rank.
+
+In addition to the incoherence property (Assumption 2), we introduce an additional assumption on the initial point of the ALS iteration.
+Assumption 4. (Initial Point Assumption) Let G init := {G init k } K k=1
+be the initial point of the ALS iteration procedure. Then, there exists a finite constant C γ that satisfies max k∈{1,...,K}
+G init k − G * k F ≤ C γ .
+Assumption 4 requires that the initial point is sufficiently close to the true solutions G * . Although the ALS method is not guaranteed to converge to the global optimum in general, Assumption 4 guarantees the convergence to the true solutions [25]. Now we can evaluate the error rate of the solution obtained by TT-RALS.
+
+Theorem 5. Let X(G * ) be the true tensor generated by G * with TT rank (R 1 , . . . , R K−1 ), and G = G t be the solution of TT-RALS at the t-th iteration. Further, suppose that Assumption 2 for some k ∈ {1, 2, . . . , K} and Assumption 4 are satisfied, and suppose that Theorem (1) holds with > 0 for k = 1, . . . , K. Let
+C m , C A , C B > 0 be 0 < χ < 1 be some constants. If n ≥ C m µ 2 k R k max{I ≤k , I k < } log 3 max{I ≤k , I k < }, and the number of iterations t satisfies t ≥ (log χ) −1 {log(C B λ n K −1 (1 + ) k √ R k ) − log C γ },
+then with probability at least 1 − (max{I ≤k , I k < }) −3 and for λ n ≥ X * (E) ∞ /n,
+X( G) − X(G * ) F ≤ C A (1 + )λ n K−1 k=1 R k .(10)
+Again, we can obtain the consistency of TT-RALS by setting λ n → 0 as n increases. Since the setting of λ n corresponds to that of Theorem 3, the speed of convergence of TT-RALS in terms of n is equivalent to the speed of TT-ADMM.
+
+By comparing with the convex approach (Theorem 3), the error rate becomes slightly worse. Here, the term λ n K−1 k=1 √ R k in (10) comes from the estimation by the alternating minimization, which linearly increases by K. This is because there are K optimization problems and their errors are accumulated to the final solution. The term (1 + ) in (10) comes from the random projection. The size of the error can be arbitrary small by controlling the parameters of the random projection D 1 , D 2 and s.
+
+
+Related Work
+
+To solve the tensor completion problem with TT decomposition, Wang et al. [30] and Grasedyck et al. [6] developed algorithms that iteratively solve minimization problems with respect to G k for each k = 1, . . . , K. Unfortunately, the adaptivity of the TT rank is not well discussed. [30] assumed that the TT rank is given. Grasedyck et al. [6] proposed a grid search method. However, the TT rank is determined by a single parameter (i.e., R 1 = · · · = R K−1 ) and the search method lacks its generality. Furthermore, the scalability problem remains in both methods-they require more than O(I K ) space.
+
+Phien et al.(2016) [22] proposed a convex optimization method using the Schatten TT norm. However, because they employed an alternating-type optimization method, the global convergence of their method is not guaranteed. Moreover, since they maintain X directly and perform the reshape of X several times, their method requires O(I K ) time. Table 1 highlights the difference between the existing and our methods. We emphasize that our study is the first attempt to analyze the statistical performance of TT decomposition. In addition, TT-RALS is only the method that both time and space complexities do not grow exponentially in K.
+
+
+Method
+
+
+Global Convergence
+
+
+Rank Adaptivity
+
+Time Complexity
+
+
+Space Complexity
+
+Statistical Bounds TCAM-TT [30] O(nIKR 4 ) O(I K ) ADF for TT [6] (search) Table 1: Comparison of TT completion algorithms, with R is a parameter for the TT rank such that R = R 1 = · · · = R K−1 , I = I 1 = · · · = I K is dimension, K is the number of modes, n is the number of observed elements, and D is the dimension of random projection.
+O(KIR 3 + nKR 2 ) O(I K ) SiLRTC-TT[22] O(I 3K/2 ) O(KI K ) TT-ADMM O(KI 3K/2 ) O(I K ) TT-RALS O((n + KD 2 )KI 2 R 4 ) O(n + KI 2 R 4 )
+
+Experiments
+
+
+Validation of Statistical Efficiency
+
+Using synthetic data, we verify the theoretical bounds derived in Theorems 3 and 5. We first generate TT components G * ; each component G * k is generated as G * k = G † k / G † k F where each element of G † k is sampled from the i.i.d. standard normal distribution. Then we generate Y by following the generative model (2) with the observation ratio n/ k I k = 0.5 and the noise variance 0.01. We prepare two tensors of different size: an order-4 tensor of size 8 × 8 × 10 × 10 and an order-5 tensor of size 5 × 5 × 7 × 7 × 7. At the order-4 tensor, the TT rank is set as (R 1 , R 2 , R 3 ) where R 1 , R 2 , R 3 ∈ {3, 5, 7}. At the order-5 tensor, the TT rank is set as (R 1 , R 2 , R 3 , R 4 ) where R 1 , R 2 , R 3 , R 4 ∈ {2, 4}. For estimation, we set the size of G k and Π k as R k with the order-4 tensor (K = 4) and the order-5 tensor (K = 5). For each rank and λ n , we measure the error by 10 trials with different random seeds, which affect both the missing pattern and the initial points. 10, which is larger than the true TT rank. The regularization coefficient λ n is selected from {1, 3, 5}. The parameters for random projection are set as s = 20 and D 1 = D 2 = 10. Figure 1 shows the relation between the estimation error and the sum of root rank (SRR) k √ R k . The result of TT-ADMM shows that the empirical errors are linearly related to SSR which is shown by the theoretical result. The result of TT-RALS roughly replicates the theoretical relationship.
+
+
+Higher-Order Markov Chain for Electricity Data
+
+We apply the proposed tensor completion methods for analyzing the electricity consumption data [13]. The dataset contains time series measurements of household electric power consumption for every minutes from December 2006 to November 2010 and it contains over 200, 000 observations. The higher-order Markov chain is a suitable method to represent long-term dependency, and it is a common tool of time-series analysis [7] and natural language processing [9]. Let {W t } t be discrete-time random variables take values in a finite set B, and the order-K Markov chain describes the conditional distribution of W t with given {W τ } τ <t as P (W t |{W τ } τ <t ) = P (W t |W t−1 , . . . , W t−K ). As K increases, the conditional distribution of W t can include more information from the past observations.
+
+We complete the missing values of K-th Markov transition of the electricity dataset. We discretize the value of the dataset into 10 values and set K ∈ {6, 7, 8, 10}. Next, we empirically estimate the conditional distribution of size 10 K using 200, 000 observations. Then, we create X by randomly selecting n = 10, 000 elements from the the conditional distribution and regarding the other elements as missing. After completion by the TT methods, the prediction error is measured. We select hyperparameters using a grid search with cross-validation. Figure 2 compares the prediction error and the runtime. When K = 5, the rank adaptive methods achieve low estimation errors. As K increases, however, all the methods except for TT-RALS suffers from the scalability issue. Indeed, at K = 10, only TT-RALS works and the others does not due to exhausting memory.
+
+
+Conclusion
+
+In this paper, we investigated TT decomposition from the statistical and computational viewpoints. To analyze its statistical performance, we formulated the convex tensor completion problem via the low-rank TT decomposition using the TT Schatten norm. In addition, because the optimization of the convex problem is infeasible, we developed an alternative algorithm called TT-RALS by combining with the ideas of random projection and alternating minimization. Based on this, we derived the error bounds of estimation for both the convex minimizer and the solution obtained by TT-RALS. The experiments supported our theoretical results and demonstrated the scalability of TT-RALS.
+
+
+A Proof of Theorem 1
+
+The theorem is obtained immediately by combining Li et al. [12] and Mu et al. [15].
+
+Let Π : R n → R k be a sparse random projection defined by
+Π ij =      + s/k probability 1/2s, 0 probability 1 − 1/s, − s/k probability 1/2s.(11)
+Then the following theorem holds.
+
+Lemma 6 (Lemma 4 in [12]). Let u be a unit vector. Then √ k(Πu) i → N (0, 1) and k Πu 2 2 → χ 2 k in law with the convergence rate
+|P ( √ k(Πu) i < t) − P (N (0, 1) < t)| ≤ 0.8 √ s j |u j | 3 .(12)Suppose that j |u j | 3 ≤ e −k 2 /4 /(1.6k √ s). Then |P ( Πu 2 2 ∈ [1 − , 1 + ]) − P (χ 2 k ∈ [k(1 − ), k(1 + )])| ≤ e −k 2 /4 .(13)
+By using
+P (χ 2 k ∈ [k(1 − ), k(1 + )]) ≤ 2e −k( 2 − 3 )/4 ,(14)
+we have
+P ( Πu 2 2 ∈ [1 − , 1 + ]) ≤ 3e −k( 2 − 3 )/4 .(15)
+The preservation of L 2 norm implies the preservation of the Schatten-1 norm as follows.
+
+Lemma 7 (Restatement of Theorem 1 in [15]). Let Z be an m × n matrix with rank r. If k ≥ r and Πu 2 2 ∈ [1 − , 1 + ] for all singular vectors u of Z, we have
+(1 − )/r Z s ≤ ΠZ s ≤ √ 1 + Z s .(16)
+Now we prove Theorem 1. Let Z = Q k (X) be a k k =1 I k × K k =k+1 I k matrix obtained by reshaping tensor X. Since X is a TT of rank (R 1 , . . . , R K ), the rank of matrix Z is at most R k . By applying Lemma 7 twice, we obtain
+1 − R k Z s ≤ ΠZ s ≤ (1 + ) Z s(17)
+with some probability. If j |u j | 3 ≤ e −k 2 /4 /(1.6k √ s) for all singular vectors of Z, the probability is at least 1 − 6R k e −k 2 /4 since there are 2R k singular vectors.
+
+
+B Proof of Theorem 3
+
+Proof. Since X is the minimizer of the optimization problem, we have the following basic inequality
+1 2n Y − X( X) 2 + λ n K−1 k=1 Q k ( X) s ≤ 1 2n Y − X( X * ) 2 + λ n K−1 k=1 Q k (X * ) s .
+Using the relation that
+Y − X( X) 2 = (Y − X(X * )) − (X( X) − X(X * )) 2 = Y − X(X * ) 2 + X( X) − X(X * ) 2 − 2 Y − X(X * ), X( X) − X(X * ) ,
+we rewrite the basic inequality as
+1 2n X( X) − X(X * ) 2 ≤ 1 n X( X) − X(X * ), E + λ n K−1 k=1 Q k (X * ) s − Q k ( X) s .
+Define the error ∆ := X − X * . Applying the Hölder's inequality, we have
+1 n X(∆), E = 1 n ∆, X * (E) = 1 n 1 K − 1 K−1 k=1 Q k (∆), X * (E) ≤ 1 n 1 K − 1 K−1 k=1 E ∞ Q k (∆) s ≤ λ n K − 1 K−1 k=1 Q k (∆) s ,
+where X * is an adjoint operator of X and the last inequality holds by the setting of λ n . Also, the triangle inequality and the linearity of Q k (·) yield
+Q k (X * ) s − Q k ( X) s ≤ Q k (∆) s .
+Then, we bound the inequality as
+1 2n X(∆) 2 ≤ λ n K − 1 K−1 k=1 Q k (∆) s + λ n K − 1 K−1 k=1 Q k (∆) s = 2λ n K − 1 K−1 k=1 Q k (∆) s .
+To bound Q k (∆) s , we apply the result of Lemma 1 in [16] and Lemma 2 in [28]. Along with proof of the lemmas, we obtain the property that a rank of Q k (∆) is bounded by 2R k , thus the Cauchy-Schwartz inequality implies
+Q k (∆) s ≤ 2R k Q k (∆) F .
+Then we obtain
+X(∆) 2 F ≤ 2λ n K − 1 K−1 k=1 2R k Q k (∆) F .
+We apply the completion theory by [3,2] to bound X(∆) 2 F below. Let k ∈ {1, . . . , K} be the index which satisfies Assumption 2, and we have X(∆) 2 = X(Q k (∆)) 2 where X is a rearranging operator for the reshaped tensor. Then, Theorem 7 in [3] yields that
+Q k (∆) F ≤ 48 min{I ≤k , I k < } n + 1 X(Q k (∆)) ,
+with probability at least 1 − (max{I ≤k , I k < }) −3 and n ≥ C m µ 2 k max{I ≤k , I k < }R k log 3 max{I ≤k , I k < },
+
+with a constant C m > 0. Then we obtain that
+1 n X(Q k (∆)) 2 ≥ C κ Q k (∆) 2 F = C κ ∆ 2 F , where C κ = (144 min{I ≤k , I k < } + 3n) −1 > 0. Finally, we have ∆ 2 F ≤ C −1 κ 2λ n K − 1 K−1 k=1 2R k Q k (∆) F = C −1 κ ∆ F 2λ n K − 1 K−1 k=1 2R k = 3C −1 κ ∆ F λ n K K−1 k=1 2R k .
+Dividing both hands side by ∆ F provides the result.
+
+
+C Proof of Theorem 5
+
+Preliminarily, we introduce an alternative formation of the optimization problem. For each k ∈ {1, 2, . . . , K}, we rewrite the term X k (G) as
+G k × 2 G <k × 3 G k< ,
+where × j denotes the j-mode product (for detail, see [10]). Here, G <k is a tensor with size R k ×I 1 ×· · ·×I K−1 and its element is given as
+[G <k ] r,j 1 ,...,j k−1 = [G 1 ] j 1 ,:,: [G 2 ] j 2 ,:,: · · · [G k−1 ] j k−1 ,:,r ,
+for j k = 1, . . . , I k and r = 1, . . . , R k . Namely, G <k is the left side of tensor train decomposition of X than G k . Similarly, G k< is a tensor with size R k+1 × I k+1 × · · · × I K and its element is given as
+[G k< ] r,j k+1 ,...,j K = [G k+1
+] j k+1 ,r,: · · · [G K ] j K ,:,: , for j k = 1, . . . , I k and r = 1, . . . , R k+1 . Using the result, the ALS optimization problem (9) is rewritten as
+min G k 1 2n Y − X(G k × 2 G <k × 3 G k< ) 2 + λ n K − 1 K−1 k =1 P k (G k × 2 G <k × 3 G k< ) s .(18)
+When k = 1, we set G <k = 1. Similarly, when k = K, G k< = 1 holds.
+
+Using the formula, we investigate the convergence of G k by fixing other elements as G <k = G <k and G k< = G k< . Let {G * k } K k * =1 be a set of tensor which formulates the true tensor X * . Also, G * <k and G * k< are defined similarly. To evaluate the convergence, we introduce that
+Ξ( G) := max k∈{1,...,K} G k − G * k F .
+We obtain the following lemma which evaluates the optimization of (18) with given G <k and G k< .
+
+Lemma 8. For each k ∈ {1, . . . , K}, consider the optimization (18) with respect to G k with given G. Then, with probability at least 1 − (max{I ≤k , I k < }) −3 and n ≥ C m µ 2 k max{I ≤k , I k < }R k log n max{I ≤k , I k < }, we obtain
+G k − G * k ≤ 6(C κ C K ) −1 2(K − 1)C K (1 + n −1 )Ξ( G) + 2λ n (2 + ) K − 1 K−1 k =1 2R k .
+Proof. Our proof takes following four steps: 1) derive a basic inequality from the optimality condition, 2) bound terms of the RHS of the basis inequality, 3) bound below the LHS of the basis inequality, and 4) combine the result.
+
+Step 1. Derive a basic inequality. By the optimality condition of (18) with given G <k and G k< , we have
+1 2n Y − X( G k × 2 G <k × 3 G k< ) 2 + λ n K − 1 K−1 k =1 P k ( G k × 2 G <k × 3 G k< ) s ≤ 1 2n Y − X(G * k × 2 G <k × 3 G k< ) 2 + λ n K − 1 K−1 k =1 P k (G * k × 2 G <k × 3 G k< ) s .(19)
+Using the triangle inequality and the linearity of X and the mode product × j , we obtain
+Y − X( G k × 2 G <k × 3 G k< ) 2 = {Y − X(G * k × 2 G <k × 3 G k< )} − {X( G k × 2 G <k × 3 G k< ) − X(G * k × 2 G <k × 3 G k< )} 2 = {Y − X(G * k × 2 G <k × 3 G k< )} − X(( G k − G * k ) × 2 G <k × 3 G k< ) 2 = Y − X(G * k × 2 G <k × 3 G k< ) 2 + X(( G k − G * k ) × 2 G <k × 3 G k< ) 2 − 2 Y − X(G * k × 2 G <k × 3 G k< ), X(( G k − G * k ) × 2 G <k × 3 G k< ) .
+Substituting the result into (19), we obtain that
+1 2n X(( G k − G * k ) × 2 G <k × 3 G k< ) 2 + λ n K − 1 K−1 k =1 P k ( G k × 2 G <k × 3 G k< ) s ≤ 1 n Y − X(G * k × 2 G <k × 3 G k< ), X(( G k − G * k ) × 2 G <k × 3 G k< ) + λ n K − 1 K−1 k =1 P k (G * k × 2 G <k × 3 G k< ) s .(20)
+About the regularization term, we apply the following inequality
+λ n K − 1 K−1 k =1 P k (G * k × 2 G <k × 3 G k< ) s − λ n K − 1 K−1 k =1 P k ( G k × 2 G <k × 3 G k< ) s ≤ λ n K − 1 K−1 k =1 P k ((G * k − G k ) × 2 G <k × 3 G k< ) s = λ n K − 1 K−1 k =1 Q k ((G * k − G k ) × 2 G <k × 3 G k< ) s − P k ((G * k − G k ) × 2 G <k × 3 G k< ) s − Q k ((G * k − G k ) × 2 G <k × 3 G k< ) s ,(21)
+by using the triangle inequality and the linearity of the random projection operator P k . Here, we apply Theorem 1 with and obtain
+1 − 2R k − 1 Q k ((G * k − G k ) × 2 G <k × 3 G k< ) s ≤ P k ((G * k − G k ) × 2 G <k × 3 G k< ) s − Q k ((G * k − G k ) × 2 G <k × 3 G k< ) s ≤ Q k ((G * k − G k ) × 2 G <k × 3 G k< ) s .
+Here, the denominator in the left hand side follows Lemma 1 in [16]. Then we have
+P k ((G * k − G k ) × 2 G <k × 3 G k< ) s − Q k ((G * k − G k ) × 2 G <k × 3 G k< ) s ≤ max{ , |(1 − )/(2R k ) − 1|} Q k ((G * k − G k ) × 2 G <k × 3 G k< ) s ≤ (1 + ) Q k ((G * k − G k ) × 2 G <k × 3 G k< ) s .
+Using this result and continue (21) then we have
+(21) ≤ λ n K − 1 K−1 k =1 (2 + ) Q k ((G * k − G k ) × 2 G <k × 3 G k< ) s .(22)
+About the first term of the RHS of (20), we decompose it as
+1 n Y − X(G * k × 2 G <k × 3 G k< ), X(( G k − G * k ) × 2 G <k × 3 G k< ) = 1 n Y − X(G * k × 2 G * <k × 3 G * k< ), X(( G k − G * k ) × 2 G <k × 3 G k< ) + 1 n X(G * k × 2 ( G <k − G * <k ) × 3 G * k< ), X(( G k − G * k ) × 2 G <k × 3 G k< ) + 1 n X(G * k × 2 G * <k × 3 ( G k< − G * k< )), X(( G k − G * k ) × 2 G <k × 3 G k< ) + 1 n X(G * k × 2 ( G <k − G * <k ) × 3 ( G k< − G * k< )), X(( G k − G * k ) × 2 G <k × 3 G k< ) =: T 0 + T 1 + T 2 + T 3 .
+About the term T 0 , we use the observation model (2) and the adjoint operator X * then obtain
+T 0 = 1 n E, X(( G k − G * k ) × 2 G <k × 3 G k< ) = 1 n X * (E), ( G k − G * k ) × 2 G <k × 3 G k< .
+Since the reshaping does not affect the value of the inner product, we continue to evaluate T 0 as
+T 0 = 1 n X * (E), ( G k − G * k ) × 2 G <k × 3 G k< = 1 n(K − 1) K−1 k =1 Q k (X * (E)), Q k (( G k − G * k ) × 2 G <k × 3 G k< ) ≤ 1 n(K − 1) K−1 k =1 Q k (X * (E)) ∞ Q k (( G k − G * k ) × 2 G <k × 3 G k< ) s = 1 n(K − 1) X * (E) ∞ K−1 k =1 Q k (( G k − G * k ) × 2 G <k × 3 G k< ) s ≤ λ n (K − 1) K−1 k =1 Q k (( G k − G * k ) × 2 G <k × 3 G k< ) s .
+The first inequality follows the Hölder's inequality, and the second inequality is derived by the setting of λ n . Substituting (22) and the bounds with T 1 , T 2 , T 3 and T 0 into (20), finally we obtain
+1 2n X(( G k − G * k ) × 2 G <k × 3 G k< ) 2 ≤ T 1 + T 2 + T 3 + λ n K − 1 K−1 k =1 (2 + ) Q k ((G * k − G k ) × 2 G <k × 3 G k< ) s =:T 4 .(23)
+Here, we obtain the basic inequality.
+
+Step 2. Bound the RHS of the basic inequality. For brevity, we introduce notation
+∆ k := ( G k − G * k ) × 2 G <k × 3 G k< .
+We bound T 1 by using the Cauchy-Schwartz inequality as
+T 1 = 1 n X(G * k × 2 ( G <k − G * <k ) × 3 G * k< ), X(( G k − G * k ) × 2 G <k × 3 G k< ) ≤ 1 n X(G * k × 2 ( G <k − G * <k ) × 3 G * k< ) X(( G k − G * k ) × 2 G <k × 3 G k< ) ≤ 1 n G * k × 2 ( G <k − G * <k ) × 3 G * k< F ( G k − G * k ) × 2 G <k × 3 G k< F ≤ 1 n G * k × 2 ( G <k − G * <k ) × 3 G * k< F ∆ k F ,
+here we use the relation X(X) 2 ≤ X 2 F for all X ∈ Θ. We introduce a constant c k for k = 1, . . . , K which satisfying c k ≥ A × k G * k F / A F where A is a tensor with proper size. Since we suppose that the reshaped matrix from G * k has R k row rank, we can guarantee that c k is positive and finite. Using c k , we have
+G * k × 2 ( G <k − G * <k ) × 3 G * k< ≤ c k k >k c k G <k − G * <k F ≤ c k k >k c k k <k G k − G * k F <k, =k c ≤ k ≥k c k (k − 1) <k c Ξ( G) = (k − 1) K k =1 c k Ξ( G).
+Here, we define C K := K k =1 c k , we obtain
+T 1 ≤ 1 n (k − 1)C K Ξ( G).(24)
+Similarly, we obtain
+T 2 ≤ 1 n (K − k)C K Ξ( G).(25)
+About T 3 , we have
+T 3 = 1 n X(G * k × 2 ( G <k − G * <k ) × 3 ( G k< − G * k< )), X(( G k − G * k ) × 2 G <k × 3 G k< ) ≤ 1 n G * k × 2 ( G <k − G * <k ) × 3 ( G k< − G * k< ) F ∆ k F .
+We evaluate the first norm as
+G * k × 2 ( G <k − G * <k ) × 3 ( G k< − G * k< ) F ≤ c k G <k × 3 ( G k< − G * k< ) F + G * <k × 3 ( G k< − G * k< ) F ≤ 2 n (K − 1)C K Ξ( G).
+Then, we have
+T 3 ≤ 2 n (K − 1)C K Ξ( G).(26)
+To bound T 4 , we apply the same line of the proof of Theorem 3. Along with Lemma 1 in [16], we bound the Schatten norm of Q k ( ∆ k ) and apply the Cauchy-Schwartz inequality, then obtain
+T 4 ≤ 2λ n (2 + ) K − 1 K−1 k =1 2R k Q k ( ∆ k ) = 2λ n (2 + ) K − 1 K−1 k =1 2R k ∆ k .
+Combining the bound with (24), (25) and (26), we update the bound (23) as
+1 2n X( ∆ k ) 2 ≤ 3(K − 1)C K n Ξ( G) X( ∆ k ) + 2λ n (2 + ) K − 1 K−1 k =1 2R k ∆ k ≤ 3(K − 1)C K n Ξ( G) ∆ k F + 2λ n (2 + ) K − 1 K−1 k =1 2R k ∆ k .(27)
+Step 3. Bound below the LHS of the basic inequality. We apply the matrix completion theory developed by [3] and [2]. Let k ∈ {1, . . . , K} be the index satisfying Assumption 2. Since the value of the L 2 -norm and the Frobenius norm is invariant to the shape of tensors, we compare the value of Q k (∆ k ) F and X(Q k (∆ k )) F with k instead of ∆ k F and X(∆ k ) F .
+
+For the matrix Q k (X * ), we apply Assumption 2 and obtain that Q k (X * ) has the µ k -incoherence property. Then, we apply Theorem 2 and Theorem 7 in [3], we obtain the following inequality as
+Q k ( ∆ k ) F ≤ 48 min{I ≤k , I k < } n + 1 X(Q k ( ∆ k )) ,
+with probability at least 1 − (max{I ≤k , I k < }) −3 and n ≥ C m µ 2 k max{I ≤k , I k < }R k log 3 max{I ≤k , I k < },
+
+with a constant C m > 0. Then we obtain that
+1 n X( ∆ k ) 2 = 1 n X(Q k ( ∆ k )) 2 ≥ (144 min{I ≤k , I k < } + 3n) −1 Q k ( ∆ k ) 2 F =: C κ Q k ( ∆ k ) 2 F = C κ ∆ k 2 F ,
+where C κ > 0 since n ≤ k I k . Using this result into (27), we have
+C κ 6 ∆ k 2 F ≤ 3(K − 1)C K n Ξ( G) ∆ k F + 2λ n (2 + ) K − 1 K−1 k =1 2R k ∆ k F .
+Then we obtain the inequality
+C κ 6 ∆ k 2 F ≤ 3(K − 1)C K n Ξ( G) ∆ k F + 2λ n (2 + ) K − 1 K−1 k =1 2R k ∆ k F .
+We divide the both hands side by ∆ k F about the first term, and consider the root about the second term, then we have
+C κ 6 ∆ k F ≤ 3(K − 1)C K n Ξ( G) + 2λ n (2 + ) K − 1 K−1 k =1 2R k ,(28)
+by using the property X(X) ≤ X for all X ∈ X . Finally, we define
+∆ k := ( G k − G * k ) × 2 G * <k × 3 G * k< ,
+and compare ∆ k and ∆ k as
+∆ k ≤ ∆ k + ∆ k − ∆ k .
+We evaluate the last term by the same way of the step 2 as
+∆ k − ∆ k F ≤ ( G k − G * k ) × 2 (G * <k × 3 G * k< − G <k × 3 G k< ) F ≤ 2c k (G * <k − G <k ) × 3 G * k< F + G <k × 3 (G * k< − G k< ) F ≤ 2(K − 1)C K Ξ( G).
+Then, we have
+∆ k F − 2(K − 1)C k Ξ( G) ≤ ∆ k F .
+Substituting the result into (28), we obtain C κ 6 ∆ k F ≤ 2(K − 1)C K (1 + n −1 )Ξ( G) + 2λ n (2 + )
+K − 1 K−1 k =1 2R k .(29)
+Step 4. Combining the results. Substituting the result of the step 3 into (29), we finally obtain G k − G * k ≤ 6(C κ C K ) −1 2(K − 1)C K (1 + n −1 )Ξ( G) + 2λ n (2 + )
+K − 1 K−1 k =1 2R k .
+We back to the proof of Theorem 5. Based on the result of Lemma 8, we will take two steps: (a) evaluate the distance between X( G) and X(G * ), and (b) show the convergence as the ALS iteration proceeds.
+
+Step (a). Evaluate the distance between X( G) and X(G * ).
+
+For brevity, we introduce new notation for X(G). Using the tensor product, we denote
+X(G) = G 1 × 2 G 2 × 3 · · · × K−1 G K−1 × K G K .
+Then, we evaluate the distance between X(G) and X(G * ) as
+X( G) − X(G * ) = G 1 × 2 · · · × K G K − G * 1 × 2 · · · × K G * K = ( G 1 × 2 · · · × K−1 G K−1 × K G K − G 1 × 2 · · · × K−1 G K−1 × K G * K ) + ( G 1 × 2 · · · × K−1 G K−1 × K G * K − G 1 × 2 · · · × K−1 G * K−1 × K G * K ) · · · + ( G 1 × 2 G * 2 × 3 · · · × K−1 G * K−1 × K G * K − G * 1 × 2 · · · × K G * K ) = K k=1 G <k × k ( G k − G * k ) × k+1 G * k< .
+Then, we consider the Frobenius norm as
+X( G) − X(G * ) 2 F = K k=1 G <k × k ( G k − G * k ) × k+1 G * k< 2 F = K k=1 K k =1 G <k × k ( G k − G * k ) × k+1 G * k< , G <k × k ( G k − G * k ) × k +1 G * k < = K k=1 G <k × k ( G k − G * k ) × k+1 G * k< 2 F + K k=1 k =k G <k × k ( G k − G * k ) × k+1 G * k< , G <k × k ( G k − G * k ) × k +1 G * k < .
+As same as the proof of Lemma 8, we bound the first term as
+G <k × k ( G k − G * k ) × k+1 G k< 2 F ≤ C 2 K Ξ 2 ( G).
+For the second term, we obtain
+G <k × k ( G k − G * k ) × k+1 G k< , G <k × k ( G k − G * k ) × k +1 G k < ≤ G <k × k ( G k − G * k ) × k+1 G k< F G <k × k ( G k − G * k ) × k +1 G k < F ≤ C 2 K Ξ 2 ( G).
+Combining the results, we obtain X( G) − X(G * ) 2 F ≤ (K + K 2 )C 2 k Ξ 2 ( G).
+
+Step (b). Show convergence with the ALS iteration. Let G t be a set G obtained by t-th ALS iteration. By the result of the step (a), we have
+X(G t ) − X(G * ) 2 F ≤ (K + K 2 )C 2 K Ξ(G t ).
+Applying the result of Lemma 8, let G t k be the minimizer of optimization of (18) with the t-th ALS iteration, we obtain for each t = 1, 2, . . .,
+Ξ(G t ) = max k G t k − G * k F ≤ 6(C κ C K ) −1 2(K − 1)C K (1 + n −1 )Ξ( G) + 2λ n (2 + ) K − 1 K−1 k =1 2R k .
+The inequality holds since G t−1 is the fixed G for the t-th ALS iteration. We define the contraction coefficient χ := 12C −1 κ (K − 1)C K (1.5 + n −1 ), and using the assumption that χ < 1, we have Ξ(G t ) ≤ max χ t Ξ(G 0 ), 6(C κ C K ) −1 2λ n (2 + ) K
+K−1 k =1 2R k ,(30)
+where G 0 is an initial value of G. With Assumption 4, we set t sufficiently large as t ≥ (log χ) −1 log 6(C κ C K ) −1 2λ n (2 + ) K
+K−1 k =1 2R k − log Ξ(G 0 ) ,
+we obtain
+X(G t ) − X(G * ) 2 F ≤ 12C −1 κ K 2 C K 2λ n (2 + ) K K−1 k =1 2R k 2 .
+As we set X := X(G t ), we obtain the result.
+
+
+D Time Complexity of TT-RALS
+
+To update g ( +1) k , we need to compute
+
+• A = Ω T Ω, which requires O(nI 2 R 4 ),
+• B = K−1 k =1 Γ T k Γ k , which requires O(KD 2 I 2 R 4 ),
+• the inversion of an IR 2 × IR 2 matrix (A + B), which requires O(I 3 R 6 ),
+
+• c = Ω T Y , which requires O(nIR 2 ),
+
+• d = V k (W To update W
+
+Figure 1 :
+1Synthetic data: the estimation error X − X * F against SRR k √
+
+k• e = 1 K− 1 K− 1 k
+111), which requires O(D 2 ), =1 Γ T k (ηd − β ( ) k , which requires O(KD 2 IR 2 ),
+
+Table 2 :
+2Electricity data: the prediction error and the runtime (in seconds).K = 5 
+K = 7 
+K = 8 
+K = 10 
+Method 
+Error Time Error 
+Time 
+Error 
+Time 
+Error Time 
+TCAM-TT 0.219 2.174 0.928 27.497 0.928 146.651 N/A 
+N/A 
+ADF for TT 0.998 1.221 1.160 23.211 1.180 278.712 N/A 
+N/A 
+SiLRTC-TT 0.339 1.478 0.928 206.708 N/A 
+N/A 
+N/A 
+N/A 
+TT-ADMM 0.221 0.289 1.019 154.991 1.061 2418.00 N/A 
+N/A 
+TT-RALS 
+0.219 4.644 0.928 
+4.726 
+0.928 
+7.654 
+1.173 7.968 
+
+( +1) k , we need to compute • a = Γ k g ( +1) k , which requires O(D 2 IR 2 ),• the proximal operation, which requires O(D 3 ).To update β ( +1) k , we need to computefor k, k = 1, . . . , K, and β ( +1) k for k, k = 1, . . . , K, the total time complexity isIn the third line and the last line, we assumed D = O(IR 2 ) and IR 2 = O(n), respectively.
+Distributed optimization and statistical learning via the alternating direction method of multipliers. S Boyd, N Parikh, E Chu, B Peleato, J Eckstein, Machine Learning. 3S. Boyd, N. Parikh, E. Chu, B. Peleato, and J. Eckstein. Distributed optimization and statistical learning via the alternating direction method of multipliers. Foundations and Trends R in Machine Learning, 3(1):1-122, 2011.
+
+Exact matrix completion via convex optimization. E Candes, B Recht, Communications of the ACM. 556E. Candes and B. Recht. Exact matrix completion via convex optimization. Communications of the ACM, 55(6):111-119, 2012.
+
+Matrix completion with noise. E J Candes, Y Plan, Proceedings of the IEEE. the IEEE98E. J. Candes and Y. Plan. Matrix completion with noise. Proceedings of the IEEE, 98(6):925-936, 2010.
+
+On the equivalence of restricted boltzmann machines and tensor network states. J Chen, S Cheng, H Xie, L Wang, T Xiang, arXiv:1701.04831arXiv preprintJ. Chen, S. Cheng, H. Xie, L. Wang, and T. Xiang. On the equivalence of restricted boltzmann machines and tensor network states. arXiv preprint arXiv:1701.04831, 2017.
+
+Tensor completion and low-n-rank tensor recovery via convex optimization. S Gandy, B Recht, I Yamada, Inverse Problems. 27225010S. Gandy, B. Recht, and I. Yamada. Tensor completion and low-n-rank tensor recovery via convex optimization. Inverse Problems, 27(2):025010, 2011.
+
+Alternating least squares tensor completion in the TT-format. L Grasedyck, M Kluge, S Krämer, arXiv:1509.00311arXiv preprintL. Grasedyck, M. Kluge, and S. Krämer. Alternating least squares tensor completion in the TT-format. arXiv preprint arXiv:1509.00311, 2015.
+
+Time series analysis. J D Hamilton, Princeton University Press2PrincetonJ. D. Hamilton. Time series analysis, volume 2. Princeton University Press, Princeton, 1994.
+
+Foundations of the parafac procedure: Models and conditions for an "explanatory" multi-modal factor analysis. UCLA Working Papers in Phonetics. R A Harshman, 16R. A. Harshman. Foundations of the parafac procedure: Models and conditions for an "explanatory" multi-modal factor analysis. UCLA Working Papers in Phonetics, 16:1-84, 1970.
+
+Speech and language processing. D Jurafsky, J H Martin, Pearson3D. Jurafsky and J. H. Martin. Speech and language processing, volume 3. Pearson, 2014.
+
+Tensor decompositions and applications. T G Kolda, B W Bader, SIAM review. 513T. G. Kolda and B. W. Bader. Tensor decompositions and applications. SIAM review, 51(3):455-500, 2009.
+
+Low-rank matrix and tensor completion via adaptive sampling. A Krishnamurthy, A Singh, Advances in Neural Information Processing Systems. A. Krishnamurthy and A. Singh. Low-rank matrix and tensor completion via adaptive sampling. In Advances in Neural Information Processing Systems, pages 836-844, 2013.
+
+Very sparse random projections. P Li, T J Hastie, K W Church, Proceedings of the 12th International Conference on Knowledge Discovery and Data Mining. the 12th International Conference on Knowledge Discovery and Data MiningACMP. Li, T. J. Hastie, and K. W. Church. Very sparse random projections. In Proceedings of the 12th International Conference on Knowledge Discovery and Data Mining, pages 287-296. ACM, 2006.
+
+UCI machine learning repository. M Lichman, M. Lichman. UCI machine learning repository, 2013.
+
+Tensor completion for estimating missing values in visual data. J Liu, P Musialski, P Wonka, J Ye, Transactions on Pattern Analysis and Machine Intelligence. 351J. Liu, P. Musialski, P. Wonka, and J. Ye. Tensor completion for estimating missing values in visual data. Transactions on Pattern Analysis and Machine Intelligence, 35(1):208-220, 2013.
+
+Accelerated low-rank visual recovery by random projection. Y Mu, J Dong, X Yuan, S Yan, IEEE Conference on Computer Vision and Pattern Recognition. Y. Mu, J. Dong, X. Yuan, and S. Yan. Accelerated low-rank visual recovery by random projection. In IEEE Conference on Computer Vision and Pattern Recognition, pages 2609-2616, 2011.
+
+Estimation of (near) low-rank matrices with noise and highdimensional scaling. S Negahban, M J Wainwright, The Annals of Statistics. 392S. Negahban, M. J. Wainwright, et al. Estimation of (near) low-rank matrices with noise and high- dimensional scaling. The Annals of Statistics, 39(2):1069-1097, 2011.
+
+Tensorizing neural networks. A Novikov, D Podoprikhin, A Osokin, D P Vetrov, Advances in Neural Information Processing Systems. A. Novikov, D. Podoprikhin, A. Osokin, and D. P. Vetrov. Tensorizing neural networks. In Advances in Neural Information Processing Systems, pages 442-450, 2015.
+
+Putting mrfs on a tensor train. A Novikov, A Rodomanov, A Osokin, D Vetrov, International Conference on Machine Learning. A. Novikov, A. Rodomanov, A. Osokin, and D. Vetrov. Putting mrfs on a tensor train. In International Conference on Machine Learning, pages 811-819. JMLR W&CP, 2014.
+
+. A Novikov, M Trofimov, I Oseledets, arXiv:1605.03795Exponential machines. arXiv preprintA. Novikov, M. Trofimov, and I. Oseledets. Exponential machines. arXiv preprint arXiv:1605.03795, 2016.
+
+TT-cross approximation for multidimensional arrays. I Oseledets, E Tyrtyshnikov, Linear Algebra and its Applications. 4321I. Oseledets and E. Tyrtyshnikov. TT-cross approximation for multidimensional arrays. Linear Algebra and its Applications, 432(1):70-88, 2010.
+
+Tensor-train decomposition. I V Oseledets, SIAM Journal on Scientific Computing. 335I. V. Oseledets. Tensor-train decomposition. SIAM Journal on Scientific Computing, 33(5):2295-2317, 2011.
+
+H N Phien, H D Tuan, J A Bengua, M N Do, arXiv:1601.01083Efficient tensor completion: Low-rank tensor train. arXiv preprintH. N. Phien, H. D. Tuan, J. A. Bengua, and M. N. Do. Efficient tensor completion: Low-rank tensor train. arXiv preprint arXiv:1601.01083, 2016.
+
+Tensor versus matrix completion: a comparison with application to spectral data. M Signoretto, R Van De Plas, B De Moor, J A Suykens, Signal Processing Letters. 187M. Signoretto, R. Van de Plas, B. De Moor, and J. A. Suykens. Tensor versus matrix completion: a comparison with application to spectral data. Signal Processing Letters, 18(7):403-406, 2011.
+
+Supervised learning with tensor networks. E Stoudenmire, D J Schwab, Advances in Neural Information Processing Systems. E. Stoudenmire and D. J. Schwab. Supervised learning with tensor networks. In Advances in Neural Information Processing Systems, pages 4799-4807, 2016.
+
+Minimax optimal alternating minimization for kernel nonparametric tensor learning. T Suzuki, H Kanagawa, H Kobayashi, N Shimizu, Y Tagami, Advances in Neural Information Processing Systems. T. Suzuki, H. Kanagawa, H. Kobayashi, N. Shimizu, and Y. Tagami. Minimax optimal alternating minimization for kernel nonparametric tensor learning. In Advances in Neural Information Processing Systems, pages 3783-3791, 2016.
+
+Estimation of low-rank tensors via convex optimization. R Tomioka, K Hayashi, H Kashima, arXiv:1010.0789arXiv preprintR. Tomioka, K. Hayashi, and H. Kashima. Estimation of low-rank tensors via convex optimization. arXiv preprint arXiv:1010.0789, 2010.
+
+Convex tensor decomposition via structured schatten norm regularization. R Tomioka, T Suzuki, Advances in Neural Information Processing Systems. R. Tomioka and T. Suzuki. Convex tensor decomposition via structured schatten norm regularization. In Advances in Neural Information Processing Systems, pages 1331-1339, 2013.
+
+Statistical performance of convex tensor decomposition. R Tomioka, T Suzuki, K Hayashi, H Kashima, Advances in Neural Information Processing Systems (NIPS. Citeseer. R. Tomioka, T. Suzuki, K. Hayashi, and H. Kashima. Statistical performance of convex tensor decompo- sition. In Advances in Neural Information Processing Systems (NIPS. Citeseer, 2011.
+
+Some mathematical notes on three-mode factor analysis. L R Tucker, Psychometrika. 313L. R. Tucker. Some mathematical notes on three-mode factor analysis. Psychometrika, 31(3):279-311, 1966.
+
+Tensor completion by alternating minimization under the tensor train (TT) model. W Wang, V Aggarwal, S Aeron, arXiv:1609.05587arXiv preprintW. Wang, V. Aggarwal, and S. Aeron. Tensor completion by alternating minimization under the tensor train (TT) model. arXiv preprint arXiv:1609.05587, 2016.
+
+Exact tensor completion using t-svd. Z Zhang, S Aeron, Transactions on Signal Processing. Z. Zhang and S. Aeron. Exact tensor completion using t-svd. Transactions on Signal Processing, 2016.

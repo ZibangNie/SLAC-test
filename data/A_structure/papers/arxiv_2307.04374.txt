@@ -1,0 +1,265 @@
+Learning to Identify Graphs from Node Trajectories in Multi-Robot Networks
+21 Oct 2023
+
+Eduardo Sebastián esebastian@unizar.es 
+Thai Duong tduong@ucsd.edu 
+Nikolay Atanasov natanasov@ucsd.edu 
+Eduardo Montijano 
+Carlos Sagüés 
+
+DIIS -I3A
+Universidad de Zaragoza
+Spain
+
+
+Department of Electrical and Computer Engineering
+University of California San Diego
+La JollaCA
+
+Learning to Identify Graphs from Node Trajectories in Multi-Robot Networks
+21 Oct 202394E75AB102DD166B5DD2EBC8BDC229F310.13039/501100011033arXiv:2307.04374v2[eess.SY]©This paper has been accepted for publication
+The graph identification problem consists of discovering the interactions among nodes in a network given their state/feature trajectories.This problem is challenging because the behavior of a node is coupled to all the other nodes by the unknown interaction model.Besides, high-dimensional and nonlinear state trajectories make it difficult to identify if two nodes are connected.Current solutions rely on prior knowledge of the graph topology and the dynamic behavior of the nodes, and hence, have poor generalization to other network configurations.To address these issues, we propose a novel learning-based approach that combines (i) a strongly convex program that efficiently uncovers graph topologies with global convergence guarantees and (ii) a self-attention encoder that learns to embed the original state trajectories into a feature space and predicts appropriate regularizers for the optimization program.In contrast to other works, our approach can identify the graph topology of unseen networks with new configurations in terms of number of nodes, connectivity or state trajectories.We demonstrate the effectiveness of our approach in identifying graphs in multi-robot formation and flocking tasks.
+
+I. INTRODUCTION
+
+The study of networked systems is essential in many disciplines like brain network imaging [1]- [3], genetics [4], [5], power networks [6], social networks [6]- [9], environmental monitoring [7], [10], [11], or general large-scale physically interconnected systems [12], [13].The interactions among entities play a central role in understanding networked systems and motivates an extensive effort to identify the interactions (i.e., the graph topology) from data [14]- [16].For example, graph topology identification is crucial for modeling multi-robot interactions [17] in learning collaborative behaviors from observations or demonstrations [18]- [20].In this paper, we aim to develop an algorithm to identify the underlying graph topology that best describes the behavior of a networked system given its node trajectories.
+
+A widely used approach for graph topology identification is graph signal processing [21].Diffusion-based methods [6], [11] assume that the node signals diffuse through the edges following heat kernels.The proposed approaches are posed as minimization problems over the heat kernels' parameters and the Laplacian matrix.However, the constraints on Laplacian matrix are non-convex, and an a priori dictionary of functions is required to find the kernels' parameters.Another line of research focuses on the reconstruction of a graph shift operator by means of its eigenvalue and eigenvector pairs, under perfect observations and known eigenvectors [10], [22] or linear time-invariant single-input single-output nodes [23].A common issue is how to encode the constraints of adjacency and Laplacian matrices [24], which lead to NPhard problems.Learning a Laplacian can be recast to a L1 norm minimization by exploiting a smoothness assumption [25], [26].This perspective has been extended to develop fast online algorithms [27], [28] which benefit from the fact that the L1-norm and the Laplacian constraints can be rewritten as a vectorized multiplication and an indicator function, leading to unconstrained convex problems [29].Nevertheless, these algorithms assume scalar node signals, which is not the usual case in general networked systems.
+
+A promising alternative to graph signal processing is machine learning algorithms that use attention [30] and self-attention [31] mechanisms.Self-attention discovers the relationships among elements of a sequence by computing an attention map, and its structure can be combined with linear layers and activation functions to encode nonlinear behaviors.Furthermore, attention layers allow for a time-varying size of one of the input dimensions, e.g., the number of robots in a robotic team.Regarding multi-robot systems, self-attention layers can be found in recent path planning [32], [33] or task scheduling [34] applications.It is worth mentioning that there are learning techniques related to graphs which cannot be applied to our problem because they assume a known graph: relation prediction, graph regression, clustering [35], and graph neural network solutions [36], [37].
+
+We formulate the problem of identifying the graph topology of a networked system from state trajectories of its nodes (Section II).Our main contribution is a graph topology identification approach (Section III) that captures highdimensional node features in a strongly convex optimization problem for weighted adjacency matrix optimization.In contrast with learning-based techniques, our approach exploits principled strongly convex optimization to generate weighted adjacency matrices with guarantees of convergence.Compared to graph signal processing techniques, our approach relies on a self-attention-based neural networks to represent high-dimensional node features for the adjacency matrix optimization problem.The neural networks are trained to balance between the loss function and the regularizers in the objective function so that it best captures the sparsity of the graph.The approach is validated through multi-robot formation and flocking experiments in Section IV, and the the benefits of our proposal are discussed in Section V.
+
+
+II. PROBLEM FORMULATION
+
+Consider a networked system characterized by an undirected weighted graph G = (V, E, W).The set of nodes is V = {1, . . ., n}, with n > 1 the number of nodes.The interactions among nodes are represented by the set of edges E ⊆ V × V.The weighted adjacency matrix W ∈ R n×n represents the intensity of the interactions among nodes, and it is such that
+[W] ij = w ij ∈ R >0 if (i, j) ∈ E and
+[W] ij = 0 otherwise.We assume that there are no selfloops, i.e., w ii = 0.The set of neighbors of node i is
+N i = {j ∈ V|(i, j) ∈ E}. Since G is undirected, (i, j) ∈ E implies that (j, i) ∈ E and w ij = w ji .
+We define the edge density as ρ(G) = |E|/n 2 , with |E| the number of edges.The (weighted) Laplacian is L = diag(W1 n ) − W, where 1 n is the column vector of ones of size n.
+
+Node i is characterized by a state x i (t) ∈ X i ⊆ R s at a discrete time t ∈ N, where X i is the space of admissible states of dimension s ∈ N.Each node obeys unknown discrete-time dynamics,
+x i (t + 1) = f i (x i (t), x Ni (t)),(1)
+where x Ni (t) = {x j (t)} j∈Ni is the state of the neighbors of node i at time t.Let
+x d i (t) = [x i (t − d), . . . , x i (t)
+] be the trajectory formed by the last d states of node i at instant t.We define the tensor X(t) = [x d 1 (t), . . ., x d n (t)] as the n × s × d collection of trajectories at instant t.We assume that these trajectories are available at each instant, and the associated W is time-invariant.The aim of this work is to develop an approach to identify W given X(t).
+
+We assume that the evolution of the node states is such that the graph state is smooth.Roughly speaking, the smoothness assumption implies that the neighbors of node i have more similar values of x i (t) compared to non-neighboring nodes.Formally, the total variation of the graph state is
+φ(x(t)) = x ⊤ (t)(L ⊗ I s )x(t),(2)
+where
+x(t) = [x ⊤ 1 (t), . . . , x ⊤ n (t)
+] ⊤ , ⊗ is the Kronecker product, and I s is the identity matrix of dimension s.Then, we define graph state smoothness as follows.
+
+Definition 1.The state trajectories of graph G are smooth if φ(x(t)) satisfies φ(x(t)) < σ, with 0 < σ ≪ ϱ and ϱ ∈ R >0 an upper bound on the total variation of the graph state.
+
+We assume that the evolution of the node trajectories given by Eq. ( 1) is such that graph state smoothness holds, which is the case for many multi-agent and multi-robot problems such as flocking, cooperative exploration, opinion dynamics, and consensus [38]- [41].The particular values for σ and ϱ depend on the application.Under these assumptions, the goal of the paper is formulated as follows.
+
+Problem 1.Given smooth node state trajectories X(t) obtained from a graph G with unknown dynamics f i (•) ∀i and edges E, find the weighted adjacency matrix W of G.
+
+
+III. LEARNING TO IDENTIFY GRAPHS
+
+In this section, we propose an approach to solve Problem 1 that combines (i) a fast strongly convex optimization algorithm with global convergence guarantees and (ii) a self-attention encoder that transforms high-dimensional node states to one-dimensional features and learns the regularization parameters that match the graph sparsity pattern.We describe the optimization algorithm in Section III-A and develop the self-attention encoder in Section III-B.In Section III-C, we describe our overall approach for graph topology learning from node trajectories.
+
+
+A. Accelerated graph learning from smooth signals
+
+In a networked system, the behavior of one node is influenced by the entire network by means of local interactions with neighboring nodes via Eq.( 1).Hence, to identify the existence of interactions among two nodes we need to consider, at least initially, the state information from all the nodes.In this section, we describe an optimization method [28] for scalar states (s = 1) that finds the underlying graph that best describes the state trajectories of the nodes.When state x i is scalar, the trajectory X(t) is an n × d matrix.
+
+First, we define Y(t) ∈ R n×n as the Euclidean distance matrix among the node states such that
+[Y(t)] ij = ||x d i (t) − x d j (t))|| 2 2 ∀i, j ∈ V(t). Then, φ(x(t)) = trace(X ⊤ (t)LX(t)) = 1 2 ||W • Y(t)|| 1 ,(3)
+where • denotes element-wise product and ∥ • ∥ 1 is the L1 norm.We omit the time dependence going forward to simplify the notation because all operations refer to the same instant t.Based on Eq. ( 3), finding W translates into solving a convex inverse problem [25]:
+min W ||W • Y|| 1 − α1 ⊤ n log(W1 n ) + β||W|| 2 F (4a) s.t. w ii = 0, w ij ≥ 0, ∀i, j ∈ V,(4b)
+where α, β > 0 are tuning parameters such that α penalizes the possibility of isolated nodes and β encourages graph sparsity.To solve (4) efficiently and with global convergence guarantees, Saboksayr and Mateos [28] proposed a dual reformulation of (4).Since the graph is undirected, we define w = vech(W) as the half-vectorization of W. Let y = vec(Y) be the vectorization of Y and I be the indicator function such that I{w ≥ 0} = 0 and ∞ otherwise, where the operation ≥ is applied element-wise.Finally, S ∈ {0, 1} n× n(n−1)
+
+
+2
+
+is the operator that satisfies W1 n = Sw.This leads to the unconstrained optimization problem
+min w I{w ≥ 0} + 2w ⊤ y + β||w|| 2 2 − α1 ⊤ n log(Sw).(5)
+Eq. ( 5) can be solved by accelerated dual proximal gradient methods with guarantees of global convergence, proved by Beck and Teboulle [29] in the general case, and by Saboksayr and Mateos [28] in the specific case of Eq. ( 5).In particular, we exploit the analytical expressions derived in [28], summarized in Algorithm 1.
+
+Algorithm 1 Accelerated dual proximal gradient method for graph identification 1: Inputs: y, S 2: Initialization:
+ω 0 = λ 0 = λ −1 ∼ U( n(n−1) 2 ), τ 0 = 1 3: Parameters: K > 0, α > 0, β > 0, L = n−1 β , ϵ > 0 4: for k ∈ {0, . . . , K − 1} do 5: w k = max 0, S ⊤ ω k − 2y2β
+6:
+u k = 1 2 Sw k − Lω k + (Sw k − Lω k ) 2 + 4αL1 n 7: λ k = ω k − L −1 (Sw k − u k ) 8: τ k+1 = 1+ √ 1+4τ 2 k 29
+:
+ω k = λ k + τ k −1 τ k+1 (λ k − λ k−1 ) 10: if ||λ k − λ k−1 ||/||λ k−1 || < ϵ then break 11: end for 12: Output: w k
+The algorithm iterates until convergence or a certain number of iterations K ∈ N is reached.The current iteration is denoted by k and λ k denotes the Lagrange multipliers of the dual optimization problem of Eq. ( 5).Algorithm 1 alternates between weighted adjacency matrix and Lagrange multipliers' updates.Once the algorithm terminates, the graph adjacency matrix is recovered from w k .Interestingly, the stability of the training process is not affected by the max operator in line 5 of Algorithm 1.At the boundary
+S ⊤ ω k −2y 2β
+= 0, the gradient can be smooth by, e.g., using an approximated value like in Pytorch [42].
+
+Besides the global convergence [28], which implies robustness against initializations, Algorithm 1 is efficient to compute so, at each instant, sufficient iterations can be run to ensure convergence to the weighted adjacency matrix that best describes the node state trajectories defined over the Euclidean space.
+
+
+B. Self-attention encoder
+
+To use Algorithm 1 for graph identification, the node state trajectories must be encoded to a feature space of dimension s = 1.On the other hand, the cost function in Eq. ( 5) is taken with respect to the distance between state trajectories in Euclidean space, so the solution might not reflect the best topology given X(t) because the interactions may be determined by state proximity in a different space.Therefore, the encoding must be such that the Euclidean distance is the one that best reflects the distances among node trajectories.In addition, the encoding must handle a time-varying number of nodes and adjust to changes in the graph connectivity.To address all these points, in this section we develop a neural network encoder using self-attention [30] to extract suitable features from the node state trajectories.
+
+The encoder architecture is illustrated in Fig. 1.First, a fully connected network projects a node state to a feature state of dimension s = 1.The input is x d i (t), so the network is applied to every node state and trajectory.The result is a matrix X ′ (t) that is n × d as required by the optimization problem in Eq. ( 5).After that, a self-attention layer processes X ′ (t) according to the relationships found in the attention map X ′ (t)(X ′ ) T (t)/ √ d, using the operation softmax(X ′ (t)(X ′ ) T (t)/ √ d)X ′ (t) with X ′ (t) the query, key and value matrices.Finally, another fully connected network processes every (x d i ) ′ (t) to obtain a new matrix X ′′ (t) that is n × d, composed by the individual trajectories (x d i ) ′′ (t).These feature trajectories are then used to compute the distance matrix Y(t).The encoder has an additional module that uses the mean of Y(t),
+Ȳ(t) = 1 n 2 n i=1 n j=1 [Y(t)] ij ,
+to compute the parameters α(t) and β(t) of Algorithm 1.The logarithm is considered because sparsity is determined by the difference in the order of magnitude between α(t) and β(t).
+
+The encoder network, thanks to the self-attention structure, handles graphs of different configurations in the number of nodes and the intensity of interactions.Furthermore, it not only projects the state trajectories to a convenient feature space, but also provides the parameters for Algorithm 1.Thus, the encoder can be trained to adjust the connectivity depending on the state trajectories.For instance, in a multirobot flocking task like the one used for evaluation in Section IV, the robots can depart from a spread initial condition and gather in a more compact formation.We remark that the design of the self-attention encoder is not limited to the proposed architecture.Depending on the complexity of the task, the encoder can be increased in depth and number of parameters to ensure that the dimensionality reduction captures all the behaviors of the multi-robot team.Fig. 2: A time-varying graph with unknown connectivity and node dynamics generates a dataset of trajectories (left).A self-attention encoder generates node trajectories in a feature space and computes the regularization parameters.These outputs are the input for an adjacency matrix optimization problem (middle).A fast strongly convex optimization algorithm identifies the weighted adjacency matrix that best describes the observed node trajectories (right).
+
+
+C. Learning to identify graphs
+
+The combination of the fast convex optimization algorithm described in Section III-A and the encoder detailed in Section III-B leads to a learning architecture for graph topology identification from node state trajectories, presented in Fig. 2. The self-attention encoder receives the state trajectories of the multi-robot team.The outputs of the encoder are the onedimensional feature trajectories of the multi-robot team and the α and β regularizers of Algorithm 1. Algorithm 1 is then executed using the feature trajectories as input, providing the discovered topology.To train the model, we use the following loss function:
+L(t) = |w k (t)− ŵ|1 n(n−1)/2 +|w * k (t)− ŵ * |1 n(n−1)/2 . (6)
+In the loss function, ŵ refers to the vectorized form of the ground-truth weighted adjacency matrix W.Moreover, (•) * denotes the adjoint of a graph.More precisely, W * is the weighted adjacency matrix such that
+[W * ] ij = 0 if [W] ij ̸ = 0, [W * ] ij > 0 if [W] ij = 0, and W * 1 n = W1 n . We compute each [W * ] ij > 0 as [W1 n ] i /n * i ,
+where n * i is the number of non-zero elements of the i−th row of W * .Thus, w * k and ŵ * refer to the adjoints of the identified and ground-truth weighted adjacency matrices.The use of the difference of adjoint graphs is to avoid degenerate solutions.For instance, if the ground-truth graph is very sparse, the training might tend to overfit to a graph with no edges unless the adjoint difference is part of the loss.We consider that each iteration of Algorithm 1 is a training step.
+
+Finally, one consideration is in order.Algorithm 1 and optimizations (4)-( 5) all provide the optimal graph topology in the state smoothness sense.However, there is one reason for using Algorithm 1 instead of ( 4) and ( 5) beyond the fast convergence.The training of the proposed neural network requires to backpropagate the gradients of the loss function with respect to the output through the complete neural network.In our case, the gradients are propagated backward through the steps of Algorithm 1 and the self-attention encoder.Our proposed approach benefits from the fact that these steps are analytical equations rather than an optimization problem as ( 4) and (5).They are solved by gradient based methods, so, to backpropagate through them, we would need to the gradients of the optimization gradients, which are computationally intractable and numerically unstable.
+
+Besides, (4) has constraints and ( 5) as a non-differentiable indicator function, leading to additional difficulties for the training of the neural network.
+
+
+IV. EVALUATION
+
+We conduct two types of experiments 1 .The first experiment (Section IV-A) considers a multi-robot formation task to verify the ability to extrapolate to other formations and number of robots.The second experiment (Section IV-B) considers a flocking task to study how the learned neural network extrapolates to other flocking initializations, graphdensities and emergent topologies.
+
+
+A. Graph identification in multi-robot formation tasks
+
+Following the setup proposed in many graph identification works [6], [7], [22], [24], [26]- [28], [43]- [45], we consider a multi-robot formation problem where the position of the robots is given by an Erdős-Rényi random graph [46].For the training of the neural network, a single graph is instantiated with edge probability p = 0.2 and a number of robots n = 50, to study the performance of the proposed approach in a sparse and large multi-robot network.We note that the edge density of the graph ρ(G) = p.Different from other works, instead of considering scalars, the robot state is determined by their 2D position, i.e., s = 2.The states are generated using the following Gaussian random process: (7) where L † is the pseudoinverse of the ground-truth Laplacian, σ = 0.1 is the noise level that simulates potential uncertainty in the position of the robots, and x x (t) and x y (t) refer to the x-position and y-position of the robots at instant t.The covariance is chosen in this way to force that the position of the robots at each instant is correlated to their neighbors, following the state-of-the-art [7], [28] (see [7] for further details).We generate d = 10000 samples for training.The other training hyperparameters are detailed in Appendix I. To assess the performance of our approach, we randomly generate 18 test sets composed by 20 Erdős-Rényi random graphs each, generated from the combination of the following hyperparameters: n = {10, 20, 30, 40, 50, 60} To assess performance, we use the Mean Absolute Error (MAE) between the ground-truth and the identified weights
+x x (t) ∼ N (0, L † + σI n ) and x y (t) ∼ N (0, L † + σI n ),1 n 2 n i n j |[ Ŵ] ij − [W] ij |.
+We compare our proposal with the state-of-the-art algorithm in [28], which is the closest to our problem assumptions, tuning the parameters according to the procedures detailed in [25]- [27].Since this algorithm only allows scalar trajectories, we apply their algorithm once per state dimension, computing the average graph.
+
+Fig. 3 shows the MAE for the different number of robots and edge probabilities.Our proposed approach surpasses the state-of-the-art in one order of magnitude for all the configurations.It is seen how the learned neural network generalizes to different number of robots, achieving a similar performance in terms of MAE.Therefore, the training has been able to learn a good encoding of the state trajectories and identifies a good α and β.We emphasize that the training is conducted with just one graph.The learned neural network does not generalize to ρ(G) = p = 0.4 since only a single graph with ρ(G) = p = 0.2 has been used for training.
+
+Figs. 4, 5 and 6 show some qualitative results.The weights of the existing edges are accurately identified in graphs with a similar number of robots than in training (Fig. 4), different numbers of robots (Fig. 5) and edge densities (Fig. 6).The intensity of the colors in the discovered graphs is lower than in the ground-truth graphs because there are a few outlier weights with a greater value compared to the ground-truth, so the color scales of W and Ŵ are different.Since the Ŵ from the Erdős-Rényi graphs are such that [ Ŵ] ij = {0, 1} and to verify that our approach is successful at capturing the existence or absence of edges, the right panels of Figs. 4, 5 and 6 show the difference between identified and groundtruth weighted adjacency matrices, but thresholding to zero
+Ŵ W Ŵ − W threshold
+
+B. Graph identification in multi-robot flocking tasks
+
+The next experiment evaluates our approach when it is trained with a variety of graph edge densities.We study our proposed approach in a multi-robot flocking problem, where the state is defined by the 2D position the robots, so s = 2. Robot trajectories are generated using the controller proposed in [38], parameterized as detailed in Appendix I.The training set is generated with a sparsity pattern determined by the desired inter robot distance ρ = 0.7m and communication The results in Fig. 7 show how the MAE evolves as a function of the edge density and flocking configuration.For all the cases, our approach outperforms the state-of-the-art by more than one order of magnitude.Compared to the formation problem, the difference now is greater because the dynamics of the robots under the flocking controller are nonlinear.Moreover, in the state-of-the-art algorithms, α and β are static, so the output is not able to adjust to changes in edge density.In contrast, our approach adjusts the optimization regularizers and provides the latent feature trajectories that best fit the flocking task, concluding that our approach has learned to adapt the parameters of the optimization method to the observed edge probability/density.Compared to the formation task, the learned neural network achieves a good performance for the different edge densities because the training set is diverse in this aspect.The MAE in Fig. 7 is specially good in very sparse networks (ρ(G) < 0.25).As observed in Fig. 8, the relative value among the discovered weights is correctly identified, whereas the value of these weights with respect to the ground-truth Ŵ vary depending on the edge density of the graph.Looking at Fig. 8, for sparse, medium and dense graphs the identified weights tend to be lower, similar and greater than in the groundtruth graph.This also explains why the MAE in Fig. 7 grows with the edge density.Besides, the neural network predicts a greater number of cliques, as in the middle row of Fig. 8.These behaviors require further investigation.As future work, We also plan to conduct ablation studies to analyze the impact of the dataset edge density variety in the generalization capabilities of our approach.
+
+V. CONCLUSION This work proposed a novel approach for graph topology identification combining a self-attention encoder with a fast analytical convex optimization algorithm.Our method provides a neural network model that learns to identify general graph topologies using only state trajectories of the nodes.Our approach is accurate and flexible, surpassing the stateof-the-art in multi-robot graph identification with different node configurations, node number, and edge densities.The applications to multi-robot systems problems are diverse.For instance, it can be used to identify the topology in multiagent demonstrations to constrain the learning of multi-robot control policies or to detect failures in the communications among warehouse robots.In addition, by considering agents instead of robots, the proposed approach can be directly applied to general networked systems like brain imaging, genetics or social interactions.
+
+
+APPENDIX I HYPERPARAMETERS
+
+The training of the neural networks evaluated in Section IV is parameterized by a learning rate µ = 0.001 and uses Adam [47].Algorithm 1 is parameterized by ϵ = 10 −5 .The encoder of the neural network in Section IV-A is given by a first fully-connected network of layer dimensions [2,5,10,5,1] with tanh activation functions and a second fully connected network of layer dimensions [1, 2, 1] with tanh activation functions except the last one, which is linear.The layers for α and β are of dimensions [1, 2, 1] with tanh activation functions except the last layer, which is a sigmoid.The encoder of the neural network in Section IV-B is given by a first fully-connected network of layer dimensions [2,4,4,1] with tanh activation functions.The layers for α and β are of dimensions [1, 2, 1] with tanh activation functions except the last layer, and the output is multiplied by a scalar b = 3.The flocking follows the dynamics proposed in [38], with parameters: ϵ = 0.1, a = 5.0, b = 5.0, h = 0.2, c 1 = 0.4, c 2 = 0.8.
+
+Fig. 1 :
+1
+Fig.1:The state trajectory encoder consists of four blocks: (i) a fully connected layer that encodes each individual state to a feature state of dimension s = 1; (ii) a self-attention layer that finds the relationships among features; (iii) a fully connected series of layers that find Y(t); and (iv) two separate fully connected layers to find the regularization parameters α(t) and β(t) for the subsequent graph identification optimization.
+
+
+Fig. 3 :Fig. 4 :
+34
+Fig. 3: MAE as a function of the number of robots and edge probability.Each configuration is run 20 times, computing the mean and standard deviation.Diamond dashed lines are the state-of-the-art [28] (α = 0.2 and β = 0.0001), whereas the circle solid lines are ours.Ŵ W Ŵ − W threshold
+
+
+Fig. 5 :Fig. 6 :
+56
+Fig. 5: Qualitative results obtained by our approach for different number of robots.Our approach is accurate in the identification of the weights irrespective of the number of robots.Ŵ W Ŵ − W threshold
+
+
+Fig. 7 :Fig. 8 :
+78
+Fig. 7: MAE as a function of the edge density and flocking configurations.Each configuration is run 10 times, computing the mean and standard deviation.Diamond dashed lines are the state-of-the-art [28] (α = 0.1 and β = 10 −5 ), whereas the circle solid lines are ours.Ŵ W Ŵ − W
+
+
+
+
+
+
+https://eduardosebastianrodriguez.github.io/LIGMRS/
+This work has been supported by NSF CCF-2112665 (TILOS) and via Spanish projects PID2021-125514NB-I00, PID2021-124137OBI00 and TED2021-130224B-I00 funded by MCIN/AEI/10.13039/501100011033,by ERDF A way of making Europe and by the European Union NextGen-erationEU/PRTR, DGA T45-23R, and Spanish grant FPU19-05700 and EST22/00253.
+Estimating time-varying brain connectivity networks from functional MRI time series. R P Monti, P Hellyer, D Sharp, R Leech, C Anagnostopoulos, G Montana, NeuroImage. 1032014
+
+A graph signal processing perspective on functional brain imaging. W Huang, T A Bolton, J D Medaglia, D S Bassett, A Ribeiro, D Van De, Ville, Proceedings of the IEEE. 10652018
+
+Structural characterization of oscillations in brain networks with rate dynamics. E Nozari, R Planas, J Cortés, Automatica. 1461106532022
+
+Genetic network identification using convex programming. A Julius, M Zavlanos, S Boyd, G J Pappas, IET Systems Biology. 332009
+
+Network identification via node knockout. M Nabi-Abdolyousefi, M Mesbahi, IEEE Transactions on Automatic Control. 57122012
+
+Topology identification and learning over graphs: Accounting for nonlinearities and dynamics. G B Giannakis, Y Shen, G V Karanikolas, Proceedings of the IEEE. 10652018
+
+Learning Laplacian matrix in smooth graph signal representations. X Dong, D Thanou, P Frossard, P Vandergheynst, IEEE Transactions on Signal Processing. 64232016
+
+Network topology inference from non-stationary graph signals. R Shafipour, S Segarra, A G Marques, G Mateos, IEEE International Conference on Acoustics, Speech and Signal Processing. 2017
+
+Distributed estimation and control of node centrality in undirected asymmetric networks. E Montijano, G Oliva, A Gasparri, IEEE Trans. on Automatic Control. 6652020
+
+Characterization and inference of graph diffusion processes from observations of stationary signals. B Pasdeloup, V Gripon, G Mercier, D Pastor, M G Rabbat, IEEE Transactions on Signal and Information Processing over Networks. 432017
+
+Learning heat diffusion graphs. D Thanou, X Dong, D Kressner, P Frossard, IEEE Transactions on Signal and Information Processing over Networks. 332017
+
+Revealing network connectivity from response dynamics. M Timme, Physical Review Letters. 98222241012007
+
+Reconstructing the topology of sparsely connected dynamical networks. D Napoletani, T D Sauer, Physical Review E. 772261032008
+
+Learning graphs from data: A signal representation perspective. X Dong, D Thanou, M Rabbat, P Frossard, IEEE Signal Processing Magazine. 3632019
+
+Connecting the dots: Identifying network structure via graph signal processing. G Mateos, S Segarra, A G Marques, A Ribeiro, IEEE Signal Processing Magazine. 3632019
+
+Graph learning: A survey. F Xia, K Sun, S Yu, A Aziz, L Wan, S Pan, H Liu, IEEE Transactions on Artificial Intelligence. 222021
+
+Multiagent algorithms for collective behavior: A structural and applicationfocused atlas. F Rossi, S Bandyopadhyay, M T Wolf, M Pavone, arXiv:2103.110672021arXiv preprint
+
+Neural-swarm: Decentralized close-proximity multirotor control using learned interactions. G Shi, W Hönig, Y Yue, S.-J Chung, 2020IEEE
+
+Learning to swarm with knowledge-based neural ordinary differential equations. T Z Jiahao, L Pan, M A Hsieh, International Conference on Robotics and Automation. IEEE2022
+
+LEMURS: Learning distributed multi-robot interactions. E Sebastián, T Duong, N Atanasov, E Montijano, C Sagüés, IEEE Int. Conf. on Robotics and Automation. 2023
+
+Graph signal processing: Overview, challenges, and applications. A Ortega, P Frossard, J Kovačević, J M Moura, P Vandergheynst, Proceedings of the IEEE. 10652018
+
+Network topology inference from spectral templates. S Segarra, A G Marques, G Mateos, A Ribeiro, IEEE Transactions on Signal and Information Processing over Networks. 20173
+
+Topology identification of directed dynamical networks via power spectral analysis. S Shahrampour, V M Preciado, IEEE Transactions on Automatic Control. 6082014
+
+Blind identification of graph filters. S Segarra, G Mateos, A G Marques, A Ribeiro, IEEE Transactions on Signal Processing. 6552016
+
+How to learn a graph from smooth signals. V Kalofolias, Artificial Intelligence and Statistics. 2016
+
+Learning time varying graphs. V Kalofolias, A Loukas, D Thanou, P Frossard, IEEE International Conference on Acoustics, Speech and Signal Processing. 2017
+
+Online graph learning under smoothness priors. S S Saboksayr, G Mateos, M Cetin, IEEE European Signal Processing Conference. 2021
+
+Accelerated graph learning from smooth signals. S S Saboksayr, G Mateos, IEEE Signal Processing Letters. 282021
+
+A fast dual proximal gradient algorithm for convex minimization and applications. A Beck, M Teboulle, Operations Research Letters. 4212014
+
+Attention is all you need. A Vaswani, N Shazeer, N Parmar, J Uszkoreit, L Jones, A N Gomez, Ł Kaiser, I Polosukhin, Advances in Neural Information Processing Systems. 201730
+
+Self-attention with relative position representations. P Shaw, J Uszkoreit, A Vaswani, arXiv:1803.021552018arXiv preprint
+
+Multi-agent trajectory prediction with fuzzy query attention. N Kamra, H Zhu, D K Trivedi, M Zhang, Y Liu, Advances in Neural Information Processing Systems. 202033
+
+Message-aware graph attention networks for large-scale multi-robot path planning. Q Li, W Lin, Z Liu, A Prorok, IEEE Robotics and Automation Letters. 632021
+
+Learning scheduling policies for multirobot coordination with graph attention networks. Z Wang, M Gombolay, IEEE Robotics and Automation Letters. 532020
+
+Graph representation learning. W L Hamilton, Synthesis Lectures on Artifical Intelligence and Machine Learning. 202014
+
+Dynamic graph CNN for learning on point clouds. Y Wang, Y Sun, Z Liu, S E Sarma, M M Bronstein, J M Solomon, ACM Transactions on Graphics. 3852019
+
+dyngraph2vec: Capturing network dynamics using dynamic graph representation learning. P Goyal, S R Chhetri, A Canedo, Knowledge-Based Systems. 1871048162020
+
+Flocking for multi-agent dynamic systems: Algorithms and theory. R Olfati-Saber, IEEE Transactions on Automatic Control. 5132006
+
+Decentralized active information acquisition: Theory and application to multi-robot SLAM. N Atanasov, J Le Ny, K Daniilidis, G J Pappas, IEEE International Conference on Robotics and Automation. IEEE2015
+
+Opinion dynamics and learning in social networks. D Acemoglu, A Ozdaglar, Dynamic Games and Applications. 12011
+
+Tutorial on dynamic average consensus: The problem, its applications, and the algorithms. S S Kia, B Van Scoy, J Cortes, R A Freeman, K M Lynch, S Martinez, IEEE Control Systems Magazine. 3932019
+
+Pytorch: An imperative style, high-performance deep learning library. A Paszke, S Gross, F Massa, A Lerer, J Bradbury, G Chanan, T Killeen, Z Lin, N Gimelshein, L Antiga, Advances in neural information processing systems. 201932
+
+Graph learning from data under Laplacian and structural constraints. H E Egilmez, E Pavez, A Ortega, IEEE Journal of Selected Topics in Signal Processing. 1162017
+
+Signal processing on graphs: Causal modeling of unstructured data. J Mei, J M Moura, IEEE Transactions on Signal Processing. 6582016
+
+Learning graphs with monotone topology properties and multiple connected components. E Pavez, H E Egilmez, A Ortega, IEEE Transactions on Signal Processing. 6692018
+
+On the evolution of random graphs. P Erdos, A Rényi, Publications of the Mathematical Institute of the Hungarian Academy of Sciences. 19605
+
+Adam: A method for stochastic optimization. D P Kingma, J Ba, International Conference on Learning Representations. 2015

@@ -1,0 +1,1493 @@
+{
+  "doc_id": "corpus_279120059",
+  "units": [
+    {
+      "unit_id": 0,
+      "text": "What Makes LLMs Effective Sequential Recommenders? A Study on Preference Intensity and Temporal Context",
+      "type": "heading",
+      "level": 0,
+      "parent_id": null,
+      "subtype": "doc_title"
+    },
+    {
+      "unit_id": 1,
+      "text": "Introduction",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 2,
+      "text": "Large language models (LLMs) are increasingly being adapted for sequential recommendation (Harte et al., 2023;Li et al., 2023;Yang et al., 2024;Bao et al., 2023;Zhang et al., 2023), where the task is to predict the next item a user will interact with based on their historical behaviors.Unlike traditional recommenders (Hidasi, 2016;Kang and McAuley, 2018;Tang and Wang, 2018) ---------------------------- pabilities to model user preferences from textual interaction histories.Current approaches predominantly rely on preference alignment techniques such as DPO (Rafailov et al., 2024) and its variants (Chen et al., 2024;Meng et al., 2024;Amini et al., 2024), which treat all preferences uniformly through binary pairwise comparisons.This binary abstraction, while effective for general language tasks, misaligns with human decision-making: humans exhibit graded preferences (strongly love vs. mildly like) and temporal sensitivity (immediate vs. delayed satisfaction), as illustrated in Figure 1.Such graded and temporally-aware patterns are pervasive in human behavior (Astington and Jenkins, 1995), yet remain largely unmodeled in current LLM-based recommenders.This raises a critical question: what specific factors in preference data enable LLMs to capture these nuanced human behaviors for recommendation?",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 3,
+      "text": "We investigate this question through systematic empirical study: Our proof-of-concept experiment ( § 3) reveals that incorporating comprehensive feedback (including negative interactions) and structured preference signals (e.g., ratings) substantially improves performance, suggesting binary modeling discards critical information.Through controlled ablations, we identify two key factors: (1) preference intensity-the graded strength of user affinity or aversion, and (2) temporal context-the immediacy of satisfaction.These factors, though wellestablished in behavioral economics and cognitive science, have been largely overlooked in LLM preference alignment for recommendation.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 4,
+      "text": "Building on these insights, we introduce RecPO, a preference optimization framework that operationalizes both preference intensity and temporal context through adaptive reward margins.Unlike prior work that only uses uniform margins across all preference pairs, RecPO discovers more finegrained preference signal to model human preference: (i) the graded preference scores of items (e.g., 5-star vs. 3-star ratings), and (ii) their temporal distance from the current decision point.This enables the LLM to mirror key characteristics exhibit in human preference behaviors.Our contributions are threefold:",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 5,
+      "text": "• We systematically demonstrate that preference intensity and temporal context are fine-grained factors for LLM-based preference modeling in recommendation, challenging the prevailing binary preference paradigm ( § 3).",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 6,
+      "text": "• By incorporating these factors through adaptive reward margins derived from preference intensity and temporal context into LLM, we provide RecPO for sequential recommendation ( § 4).",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 7,
+      "text": "• Through experiments on five datasets with both explicit and implicit feedback, we show that RecPO improves accuracy with behavioral characteristics aligned with human preference: prioritizing timely satisfaction and maintaining preference coherence under shifting contexts ( § 5).",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 8,
+      "text": "Preliminaries",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 9,
+      "text": "Existing LMs are adapted to sequential recommendation tasks through a two-stage training paradigm, namely supervised fine-tuning (SFT) (Ouyang et al., 2022;Liao et al., 2024;Bao et al., 2023), which adapts general-purpose LLMs into task-specific models, and preference alignment (Ouyang et al., 2022;Schulman et al., 2017), which further aligns model output to human preference 1 .",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 10,
+      "text": "1 More detailed preliminaries in Appendix A.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 11,
+      "text": "In SFT, models are trained to predict the target item given users' historical interacted items along with their related contextual information.Specifically, let x t u be the task prompt that encompasses user u's interaction history up to time t, information of items to be inquired, and other task-related descriptions.Also let y t p be the text mapping of the target item that best aligns with x t u 's description.The objective of SFT that optimizes π θ is:",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 12,
+      "text": "min θ −E (x t u ,y t+ p )∼D SFT log π θ (y t p |x t u ) . (1)",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 8,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 13,
+      "text": "The LM fine-tuned with this objective on D SFT is denoted as π SFT .For brevity, we omit the timestamp signs in all subsequent equations unless its inclusion is essential for clarity.While optimizing the SFT objective effectively adapts LMs to the downstream task, recent studies indicate that models still struggle to align outputs with human judgments of quality (Ziegler et al., 2019;Stiennon et al., 2020;Rafailov et al., 2024).To address this, models undergone SFT require further processing through the preference alignment process.One of the most prominent techniques is named DPO (Rafailov et al., 2024), which employs the Bradley-Terry (BT) model (Bradley and Terry, 1952) to model the probability of human preference data.Specifically, let (y p , y d ) be the relatively preferred and dispreferred textual output in a pairwise preference data, respectively.The objective is:",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 14,
+      "text": "min θ − E (x,yp,y d )∼D log σ β log π θ (y p |x) π ref (y p |x) − β log π θ (y d |x) π ref (y d |x) ,(2)",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 8,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 15,
+      "text": "where π ref is commonly set to π SFT , π θ is the aligned model, and β is a hyperparameter.Building upon DPO, a recent effort named S-DPO (Chen et al., 2024) has been proposed specifically for LLM-based recommenders.They pair each positive item with multiple negative items generated by random sampling as preference data, and revise the alignment objective as:",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 16,
+      "text": "min θ − E (x,yw,T d )∼D log σ − log y d ∈T d exp β log π θ (y d |x) π ref (y d |x) − β log π θ (y p |x) π ref (y p |x) ,(3)",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 8,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 17,
+      "text": "where T d contains the item titles of multiple dispreferred items2 .To investigate, we design a proof-of-concept experiment that varies two dimensions of user feedback: comprehensiveness (whether negative interactions are retained) and structure (whether graded preference signals are provided).We devise fourtier input configurations that progressively integrate preference signals: (i) Filtered Items: Excluding negative feedback items and no explicit ratings are provided, mimicking S-DPO's setup; (ii) Full Items: Retaining all historical items, yet no explicit ratings are provided; (ii) Filtered Items + Rating: Providing explicit ratings yet excluding negativefeedback items; (iv) Full Items + Rating: Retaining all items and their corresponding explicit ratings.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 18,
+      "text": "We fine-tune LLaMA3-8B on MovieLens and Amazon-Books ( described § 5.1) using the four input configurations.The experimental results are reported using Hit Ratio@1 (see § 5.1, where higher values indicate better performance) and are shown in Figure 2.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 19,
+      "text": "Key Findings.Three striking patterns emerge:",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 20,
+      "text": "(1) Comprehensive feedback matters: Comparing Filtered Items + Rating vs. Full Items + Rating, retaining negative interactions consistently improves performance.While counterintuitive-why include disliked items when predicting the next favorable item?-this suggests that aversion modeling is crucial for accurate preference profiling.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 21,
+      "text": "(2) Structured signals matter: Comparing Full Items vs. Full Items + Rating, adding structured preference signals (ratings) substantially boosts performance.Without ratings, Full Items even underperforms Filtered Items, as negative items become noise without explicit annotations.(3) Both factors are complementary: The best performance comes from combining both-comprehensive feedback with structured signals.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 22,
+      "text": "These results reveal that current methods overlook two critical aspects: the graded strength of preferences (intensity) and the distinction between positive and negative feedback.However, what specific factors enable LLMs to leverage this richer information?This motivates our investigation into preference intensity and temporal context as the underlying mechanisms.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 23,
+      "text": "Methodology",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 24,
+      "text": "We first lay out the prompt design that establishes the foundation for preference modeling in LLM-based recommendations.We then introduce RecPO, a novel preference optimization framework for sequential recommendation that dynamically calibrates reward margins between pairwise preference data based on contextualized and structured preference feedback, shown in Figure 3.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 23,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 25,
+      "text": "Operationalizing Comprehensive and Structured Feedback",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 23,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 26,
+      "text": "Unlike existing approaches (Liao et al., 2024;Chen et al., 2024) which remove items with negative feedback from interaction histories to construct homogeneous sequences (i.e., items with only positive feedback), building on the observations from § 3, We preserve the complete interaction sequence for each user, explicitly retaining all historical items along with their associated preference feedback.We use explicit ratings or ratings converted from implicit feedback to construct a hierarchical preference profile.Following prior work (Chen et al., 2024), the input prompts are composed of the following parts:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 25,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 27,
+      "text": "User historical interaction H u Each item in the user history is formatted as \"[ItemTitle] | Rating: [ItemRating]\".For example, \"Toy Story | Rating: 4\".All historical items are concatenated with \"\\n\" being the separator.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 25,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 28,
+      "text": "Binary Preference",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 25,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 29,
+      "text": "LLM",
+      "type": "heading",
+      "level": 4,
+      "parent_id": 28,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 30,
+      "text": "Binary Preference",
+      "type": "heading",
+      "level": 5,
+      "parent_id": 29,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 31,
+      "text": "\"I prefer i ! to i \" \"",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 30,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 32,
+      "text": "𝑖 ! 𝑖 \" 𝑖 # 𝑖 $ … 𝑡 \"𝑖 ! is much better!\"",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 30,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 33,
+      "text": "\" \" is slightly better\" \"Maybe  ! this time…\" \"I feeling  \" now!\" Candidate item set C We format all candidate items in a similar format as the historical items, except that no rating attributes are provided.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 30,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 34,
+      "text": "Temporal Context Preference Intensity 𝑖 ! ≻ 𝛿 𝑖 \" 𝑖 ! ≻ 𝛿 𝑖 # … 𝑡 𝑖 ! 𝑖 \" 𝑖 # 𝑖 $ 𝑖 % 𝑖 & 𝑖 $ ≻ 𝛿 𝑖 # 𝑖 ! ≻𝑖 $ LLM 𝑖 $ ≻ 𝛿 𝑖 % Enriched Preference",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 30,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 35,
+      "text": "Task Description We prepend the historyspecific prefixes (e.g., \"Given the user's recent viewing and rating history\") and candidate-specific prefixes (e.g., \"recommend a movie they'll likely watch next and rate generously from following candidates\") to their respective sequences.The three prompt components are concatenated as the final textual input x u to the LMs.Concrete examples are demonstrated in Appendix C.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 30,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 36,
+      "text": "Modeling Preference Intensity and Temporal Context",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 23,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 37,
+      "text": "Current preference learning methods simplify preference modeling to maximizing the reward difference between pairwise preferred and dispreferred responses/items, exposing them to two key limitations: (i) Neglecting preference intensity, where in reality, users may strongly prefer certain items while only slightly prefer others, compared to either the same or different negative items; (ii) Neglecting temporal context,where users typically prioritize immediate satisfaction over delayed rewards.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 36,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 38,
+      "text": "To incorporate both factors into preference modeling, We define an adaptive target reward margin γ r , dynamically determined by the structured preference between the two compared items and their relative recency with respect to the current timestamp.Specifically, a utility function ϕ(•) is utilized to evaluate the reward of an item wrt two perspectives-the stronger the preference of more recent interaction, the larger the utility.The margin of a pairwise data (y p , y d ) is defined as:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 36,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 39,
+      "text": "γ r = λ ϕ s p , ∆ tp ϕ (s d , ∆ t d )(4)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 36,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 40,
+      "text": "where y p is preferred over y d , s p and s d are their structured preference score respectively, λ controls the margin's magnitude, and ∆ tp = t + p − t indicates the time latency of the interaction.In this work, we set ϕ (s, ∆ t ) = s/ (∆ t ) 0.5 .Note that the choice of score function is customizable as long as it reflects the above preference rules.That is, ϕ (s, ∆ t ) ∝ s/ (∆ t ) α , where α > 0 indicates the temporal decay factor.For dispreferred items from either negative sampling or historical interactions where no user-assigned feedback is available, we set a default preference score and time latency to facilitate the training.More details about the default value can be found in § 5.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 36,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 41,
+      "text": "Deriving the Preference Alignment Objective",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 23,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 42,
+      "text": "We plug Equation 4 into the BT model to derive the distribution for pairwise preference data:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 41,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 43,
+      "text": "P * (y p ≻y d | x u ) = σ (r (x u , y p ) − r (x u , y d ) − γ r ) ,(5)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 41,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 44,
+      "text": "where r(•) is the reward function.We pair each preferred item with multiple dispreferred items, and leverage the Plackett-Luce (PL) model (Plackett, 1975;Luce, 1959) to generalize pairwise comparisons to a list-wise ranking framework.Formally, given the prompt x t u encompassing all the historical interactions of user u, a candidate set C containing K items (one preferred item and K − 1 dispreferred items), and a permutation σ representing the predicted ranking of these candidates based on user preference for the next item (denote σ(j) as the item ranked at position j), the probability",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 41,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 45,
+      "text": "L (π θ ; π ref ) = −E (xu,yp,T d )∼D log σ − log y d ∈T d exp β log π θ (y d | x u ) π ref (y d | x u ) − β log π θ (y p | x u ) π ref (y p | x u ) − λ ϕ(s p , ∆ tp ) ϕ(s d , ∆ t d ) .(7)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 41,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 46,
+      "text": "of observing the candidates' preference ranked as [y σ(1) , y σ(2) , . . ., y σ(K) ] is:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 41,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 47,
+      "text": "P (σ |x u , T c ) = K j=1 exp r x u , y σ(j) K m=j exp r x u , y σ(m) ,(6)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 41,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 48,
+      "text": "where T c contains K item descriptions.Building upon Equation 6, we derive the final objective shown in Equation 7. Note that our method is reduced to S-DPO when λ = 0.For brevity, the detailed derivation process is provided in Appendix B.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 41,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 49,
+      "text": "Optimizing the derived objective effectively integrates structured preference feedback with temporal decay factors to refine implicit preference modeling, adapting LLM recommenders to better fit preference patterns in real-world scenarios.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 41,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 50,
+      "text": "Experiment",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 51,
+      "text": "Setup",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 50,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 52,
+      "text": "Datasets.We select five publicly available representative recommendation benchmark datasets for our experiments: We use five widely used real-world sequential recommendation datasets for evaluation, including MovieLens-1M (Harper and Konstan, 2015), Amazon-books (Ni et al., 2019), Steam (Kang and McAuley, 2018), Beer-Advocate (Leskovec and Mcauley, 2012), and LastFM (Celma, 2010) 3 .For each dataset, we apply k-core filtering (He and McAuley, 2016) to remove users and items with less than k = 5 interactions.We construct a candidate set of 20 items from which the model selects.During training, this set is composed of 10 subsequent interactions (ensuring that the correct item is always included) and 10 randomly sampled non-interacted items.For validation and testing, the candidate set consists of the correct item plus 19 randomly sampled noninteracted items.For ML-1M, Amazon-books, and BeerAdvocate, we utilize ratings as the structured preferences to adjust the preference margins, and for Steam and LastFM, where explicit ratings are 3 More dataset details in Appendix E.1 unavailable, we rely on play-hours and play-count as proxies for user structured preferences.For each user, we order the interactions chronologically, using the second-last target interaction for validation, the last one for testing, and the rest for training.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 51,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 53,
+      "text": "Baselines.We compare RecPO with two types of baseline models: (i) Traditional methods leverage sequential patterns in user behaviors to predict the next interacted item, using various modeling architectures such as recurrent neural networks (GRU4Rec (Hidasi, 2016)), convolutional neural networks (Caser (Tang and Wang, 2018)), or multihead self-attention frameworks (SASRec (Kang and McAuley, 2018)).(ii) LM-based methods utilize LMs to process historical interactions and predict the next interacted item.We select two LM backbones, LLaMA3 (Dubey et al., 2024) and Qwen (Bai et al., 2023), and compare between the standard preference optimization baseline DPO (Rafailov et al., 2024), SimPO (Meng et al., 2024), a reference-free method that enhances DPO with length regularization and a fixed margin term, and S-DPO (Chen et al., 2024), which adapts DPO specifically for sequential recommendation4 .Note that we exclude proprietary LLMs due to their lack of training access in integrating the two factors-preference intensity and temporal context-identified in our investigation.As this work is hypothesis-driven rather than solely method-focused, our objective is to validate how these factors enable effective preference modeling, which requires full control over LLMs unavailable in closed-source systems.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 51,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 54,
+      "text": "Implementation.All experiments are performed on 8 NVIDIA RTX A100 with 80GiB of VRAM.For all the preference learning approaches, we first conduct SFT for task adaptation, and then posttrain models initialized from SFT checkpoints by optimizing the alignment loss in Equation 75 .",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 51,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 55,
+      "text": "Evaluation Metrics.We follow S-DPO and evaluate models using two metrics: Hit Ratio@1,",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 51,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 56,
+      "text": "Do Models Learn Human-Aligned",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 50,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 57,
+      "text": "Preference Patterns?",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 56,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 58,
+      "text": "Beyond quantitative performance, we investigate whether incorporating preference intensity and temporal context enables models to exhibit human-like decision patterns.We probe the learned preferences from multiple perspectives:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 56,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 59,
+      "text": "• Temporal context sensitivity: When the candidate set includes other future highly-rated items, does the model still prioritize the correct next item, reflecting sensitivity to temporal context?",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 56,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 60,
+      "text": "• Preference intensity awareness: When the candidate set includes future low-rated items that may appear contextually tempting, can the model avoid recommending them?",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 56,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 61,
+      "text": "• Implicit aversion modeling: When directly prompted, can the model correctly identify the item least aligned with the user's preferences?",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 56,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 62,
+      "text": "• Robustness across contexts: Does the model maintain stable performance across users with varying lengths of interaction history?",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 56,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 63,
+      "text": "Temporal context enables immediate satisfaction prioritization.c), RecPO consistently outperforms SFT and S-DPO with higher aversion accuracy across both datasets.This suggests that RecPO internalizes a more complete structure of user preferences, capable of both attraction and avoidance.Notably, this behavior emerges without explicit aversion labels: through alignment with structured and contextualized feedback alone, RecPO learns to infer which items users are likely to reject.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 56,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 64,
+      "text": "Learned patterns generalize across varying interaction contexts.In Figure 4(d), we investigate RecPO 's robustness to variations in historical interaction lengths using the BeerAdvocate dataset.We partition the test set into subsets based on the number of past interactions and evaluate performance within each group.RecPO exhibits sustained efficacy, consistently outperforming SFT and S-DPO with larger margins.While all models follow similar performance trends as history length increases, RecPO exhibits the greatest stability, with the lowest variance in Hit Ratio@1 (8.7% vs. 17.8% for S-DPO).These results highlight RecPO 's adaptability to diverse context-a critical trait for realworld systems where user histories vary widely.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 56,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 65,
+      "text": "Related Work",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 66,
+      "text": "Sequential recommendation models temporal user preferences in interaction sequences.Early methods adopt structures such as recurrent neural networks (GRU4Rec (Hidasi, 2016)) and self-attention mechanisms (SASRec (Kang and McAuley, 2018)).Recent advances integrate LLMs for their rich semantic understanding and contextual reasoning capabilities (Liao et al., 2024;Bao et al., 2023;Geng et al., 2022;Yuan et al., 2023).",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 67,
+      "text": "LLM preference alignment techniques aim to align language models' outputs with human preferences.Reinforcement Learning from Human Feedback (RLHF) (Ouyang et al., 2022) and DPO (Rafailov et al., 2024) fine-tune models using pairwise preference data.Building on DPO, methods like IPO (Azar et al., 2024), CPO (Xu et al., 2024), KTO (Ethayarajh et al., 2024), SimPO (Meng et al., 2024), and ODPO (Amini et al., 2024) further refine alignment.Most recently, S-DPO (Chen et al., 2024) adapts alignment for sequential recommendation using list-wise negative items.However, these methods treat all preferences uniformly through binary comparisons, overlooking graded preference intensity and temporal context.More details are in Appendix D.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 68,
+      "text": "Our work differs by investigating what factors enable effective preference modeling in LLMbased recommendation, revealing that preference intensity and temporal context are critical yet overlooked dimensions.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 69,
+      "text": "Conclusion",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 70,
+      "text": "We investigate what makes LLMs effective at modeling user preferences in sequential recommendation.Through systematic empirical study, we identify two critical factors overlooked by current binary preference modeling: preference intensitythe graded strength of user affinity or aversionand temporal context-the immediacy of satisfaction.In contrast, prior methods that rely on binary modeling discard essential information.Motivated by these findings, we propose RecPO, which operationalizes these factors through adaptive reward margins.Our SoTA results demonstrate that preference intensity and temporal context are fundamental to effective LLM-based recommendation, with implications for human preference modeling.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 71,
+      "text": "Limitations",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 69,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 72,
+      "text": "While our results demonstrate that incorporating comprehensive and structured interaction feedback improves user preference profiling, this work adopts a simplified, sequential preference structure and considers only satisfaction delay as the contextual factor.In reality, human decision-making reflects more complex hierarchies and richer contextual influences.Future research should explore how to model cognitively plausible preferences across broader preference-based tasks, extending beyond recommendations.Even within the recommendation domain, evaluations should move beyond single metrics, aiming to capture more holistic and behaviorally grounded patterns of user preference.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 71,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 73,
+      "text": "A Preliminaries",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 71,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 74,
+      "text": "We begin by formalizing the sequential recommendation task within the LM framework.Next, we outline a two-stage training paradigm that adapts existing LMs to the recommendation task, including supervised fine-tuning (SFT) and preference alignment.Centering around the alignment stage, we briefly introduce direct preference optimization (DPO) (Rafailov et al., 2024), a technique that aligns LMs using pairwise preference data; We then present S-DPO (Chen et al., 2024), a recent adaptation of DPO designed specifically for sequential recommendation.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 73,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 75,
+      "text": "Sequential Recommendation with LMs.Let H u = [i 1 , i 2 , ..., i Nu ] represent the chronologically ordered sequence of historical interactions for user u, where each element i k encapsulates contextual details of the k-th interaction (e.g., item title, style, rating), and N u denotes the total number of interactions.We define H t u = H u [ : t] as the subset of interactions up to time t, and let i t+ p denote the next recent favorable (highly-rated) item following the interaction history at t. Let π θ be the LM performing the task, parameterized by θ.The sequential recommendation task within the LM framework is formulated as follows: given user u's interaction history H t u up to time t and a candidate item set C = {i (j) } K j=1 , where H t u ∩ C = ∅ and i t+ p ∈ C, the model π θ is required to predict the item that most likely be favorable to user, i.e., i t+ p .Supervised Fine-tuning LMs for Sequential Recommendation.Supervised fine-tuning (Ouyang et al., 2022) (SFT) is widely adopted to adapt general-purpose LMs to recommendation tasks (Liao et al., 2024;Bao et al., 2023).Let x t u be the task prompt that encompasses user u's interaction history H t u up to time t, the candidate item set C, and other task-related descriptions.We define y t p as the text mapping of item i t+ p ∈ C that best aligns with x t u 's description.We construct the SFT training dataset D SFT using pairwise data (x t u , y t+ p ), ∀u, ∀t < N u , and frame the sequential recommendation as a sentence completion task.The objective that optimizes π θ is:",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 73,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 76,
+      "text": "max θ E (x t u ,y t+ p )∼D SFT log π θ (y t + p |x t u ) .(7)",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 73,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 77,
+      "text": "The LM fine-tuned with this objective on D SFT is denoted as π SFT .For brevity, we omit the timestamp signs in all subsequent equations unless their inclusion is essential for clarity.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 73,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 78,
+      "text": "Aligning LLM with Human Preference Feedback.While optimizing the SFT objective effectively adapts LMs to the downstream task, recent studies indicate that models still struggle to align outputs with human judgments of quality (Ziegler et al., 2019;Stiennon et al., 2020;Rafailov et al., 2024).To address this, a reward model r(x, y) is introduced to estimate output quality assessed by humans, aiming to maximize the expected reward.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 73,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 79,
+      "text": "To train the reward model, a dataset of comparisons D = {x (i) , y",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 73,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 80,
+      "text": "(i) w , y (i) l } N i=1 is constructed, where y (i)",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 73,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 81,
+      "text": "w and y (i) l denotes the preferred and dispreferred output generated based on x (i) , respectively.The alignment objective with the learned reward function is then defined as:",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 73,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 82,
+      "text": "max θ E x∼D,y∼π θ (•|x) [r(x, y)] −βD KL [π θ (y|x)∥π ref (y|x)] , (8)",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 73,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 83,
+      "text": "where β is the parameter controlling the deviation from the reference model π ref , and π SFT is commonly used as the reference model.Based on Equation 8, a recent work DPO (Rafailov et al., 2024), employs the Bradley-Terry (Bradley and Terry, 1952) (BT), P (y w ≻ y l | x) = σ (r (x, y w ) − r (x, y l )), to express the probability of human preference data in terms of the optimal policy rather than the reward model, they derive the objective based on pairwise preference data as:",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 73,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 84,
+      "text": "min θ − E (x,yw,y l )∼D log σ β log π θ (y w |x) π ref (y w |x) − β log π θ (y l |x) π ref (y l |x) .(9)",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 73,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 85,
+      "text": "The above preference modeling paradigm aligns naturally with recommendation tasks, with both being preference-based decision-making.Building upon DPO, a recent effort named S-DPO (Chen et al., 2024) has been proposed to further align LLM-based recommenders to user preference.They propose to pair each positive item with multiple negative items generated by random sampling as preference data, and revise the alignment objective as:",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 73,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 86,
+      "text": "min θ − E (x,yw,T d )∼D log σ − log y d ∈T d exp β log π θ (y d |x) π ref (y d |x) − β log π θ (y p |x) π ref (y p |x) ,(10)",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 73,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 87,
+      "text": "where T d contains the item titles of multiple dispreferred items6 .",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 73,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 88,
+      "text": "B Derivation of Preference Distribution",
+      "type": "heading",
+      "level": 4,
+      "parent_id": 73,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 89,
+      "text": "In the standard Bradley-Terry model, the probability that candidate i beats candidate j is",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 90,
+      "text": "P (y i ≻ y j ) = σ (r (x, y w ) − r (x, y l )) = exp (r (x u , y i )) exp (r (x u , y i )) + exp (r (x u , y i )) ,(11)",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 91,
+      "text": "where r(•) is the reward model.We will only use w i to represent the candidate-specific probability exp (r (x u , y i )) in subsequent equations for brevity.Now, suppose we wish to include a margin term γ ij , then the pairwise probability is defined as",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 92,
+      "text": "P (y i ≻ y j ) = w i exp (−γ ij ) w i exp (−γ ij ) + w j(12)",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 93,
+      "text": "where we assume γ ij = −γ ji .Specifically, we can use the Plackett-Luce model to decompose a ranking",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 94,
+      "text": "i 1 ≻ i 2 ≻ i k ≻ • • • ≻ i K into sequential choices competition",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 95,
+      "text": ". Therefore, at each step t, the wining (got selected) probability i k is proportional to its weight, i.e., w k = exp (r (x u , y k )).Now the added margin term γ ij modifies the competition by giving each candidate an extra boost (or penalty) when facing an opponent.In other words, when candidate i competes against candidate j (within the remaining set) its effective strength is boosted by the factor exp(−γ ij ).Then, by an extension of Luce's choice axiom, we can get the probability of choosing candidate i from the set C is proportional to its effective weight:",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 96,
+      "text": "P (i chosen from C) = w i exp − j∈C\\{i} γ ij k∈C w k exp − j∈C\\{k} γ kj .(13)",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 97,
+      "text": "Let σ = (σ(1), σ(2), . . ., σ(K)) be a full ranking of K candidates.We construct the ranking sequentially.At step r, let",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 98,
+      "text": "C r = C\\{σ(1), σ(2), . . . , σ(r − 1)}(14)",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 99,
+      "text": "be the remaining set.Then the probability that candidate σ(r) is selected at step r will be,",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 100,
+      "text": "P (σ(r) | σ(1), . . . , σ(r − 1)) = w σ (r) exp − j∈Cr\\{σ(r)} γ σ(r)j k∈Cr w σ (k) exp − j∈Cr\\{k} γ kj . (15",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 101,
+      "text": ")",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 102,
+      "text": "We can thereby get the likelihood of the full ranking by the chain rule,",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 103,
+      "text": "P (σ | C) = K−1 r=1 w σ (r) exp − j∈Cr\\{σ(r)} γ σ(r)j k∈Cr w σ (k) exp − j∈Cr\\{k} γ kj(16)",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 104,
+      "text": "In the recommendation setting, we are especially interested in penalizing the positive item's \"win\" relative to each negative, which means one might only apply a margin from the positive item to each negative.Therefore, we can derive the preference distribution of the recommendation case given interactions x u of user u, multiple negative items y d ∈ T d , and the positive item y p :",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 105,
+      "text": "P (y p ≻ y d , ∀y d ∈ T d | x u , y p , T d ) = w p exp − K−1 j=1 γ p,d j w p exp − K−1 j=1 γ p,d j + K−1 j=1 w d j . (17",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 106,
+      "text": ")",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 107,
+      "text": "Notably, the ranking likelihood would reduce to the standard Plackett-Luce model if the margin term γ = 0 for all pairs.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 108,
+      "text": "C Prompt Examples",
+      "type": "heading",
+      "level": 5,
+      "parent_id": 88,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 109,
+      "text": "We refer to the prompts used in previous works (Chen et al., 2024;Liao et al., 2024) to construct prompts utilized in our work.Examples in Figure 5 demonstrate the prompts for sequential recommendation.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 108,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 110,
+      "text": "D Related Work",
+      "type": "heading",
+      "level": 6,
+      "parent_id": 108,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 111,
+      "text": "Sequential Recommendation.Sequential recommendation aims to model user preferences by capturing temporal patterns in interaction sequences.Early approaches, such as GRU4Rec (Hidasi, 2016), leveraged recurrent neural networks (RNNs) to encode sequential dependencies, while SASRec (Kang and McAuley, 2018) introduced self-attention mechanisms to better capture longrange dependencies.Convolution-based methods like Caser (Chang et al., 2021) explored local patterns in sequences using convolutional filters.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 110,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 112,
+      "text": "Recent state-of-the-art methods have further advanced the field by incorporating graph-based structures (Yu et al., 2020), contrastive learning (Xie et al., 2022;Chen et al., 2022), and hybrid architectures (Li et al., 2020;Zhou et al., 2020;Fan et al., 2021) for improved accuracy and robustness.LLMs for Recommendation.The integration of LLMs into sequential recommendation has gained momentum due to their ability to leverage rich semantic knowledge and contextual understanding.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 110,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 113,
+      "text": "LLMs are typically integrated by encoding item descriptions, user reviews, or interaction histories as textual inputs, enabling the model to capture nuanced item characteristics and user preferences.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 110,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 114,
+      "text": "For instance, LLaRA (Liao et al., 2024) employs classical sequential recommender systems to generate item embeddings, which are then fused with sequential interaction data to improve recommendation accuracy.TALLRec (Bao et al., 2023) finetunes LLMs on user-item interaction sequences, treating recommendations as a text generation task to predict the next item.Other approaches tackles the task from prompting (Geng et al., 2022;Gao et al., 2023;Lyu et al., 2023) or multi-modal data exploitation (Yuan et al., 2023).These methods demonstrate the potential of LLMs to bridge the  (Celma, 2010).We demonstrate the dataset statistics in Table 3.The MovieLens-1M dataset is sourced from the MovieLens platform and contains 1 million ratings from 6,000 users on 4,000 movies.The Amazon-Books dataset is a subset of the Amazon Review dataset and comprises 22 million user interactions, reviews, and ratings for 2 million books from 8 million users.The Steam dataset includes user interactions with games, such as purchases, playtime, and reviews, from the Steam platform.The Beer-Advocate dataset collects beer reviews that cover multiple sensory aspects along with overall ratings.The LastFM dataset comprises detailed music listening records for nearly 1,000 users, including user profiles with demographic information, artist and track identifiers, and precise timestamps for each listening event.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 110,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 115,
+      "text": "For each dataset, we filter out items and users with fewer than 20 interactions.To prevent information leakage during training and evaluation, we adopt the leave-last-two splitting method to divide the datasets into training, validation, and test sets.We build a candidate set of 20 items for each user sequence, from which the model selects the next item.During training, this set comprises 10 subsequent interactions (ensuring that the correct item is always included) and 10 randomly sampled noninteracted items.For validation and testing, the candidate set consists of the correct item plus 19 randomly sampled non-interacted items.To align with the task objective of recommending the most likely favorable item as the next interaction, we follow classical sequential recommendation settings by considering only highly rated items (ratings 4 to 5 on a scale of 1 to 5) from subsequent interactions as the positive item (i.e., the correct answer) (Li et al., 2024).The same process is applied to the validation and test sets; we only retain user sequences whose next item is highly rated.Meanwhile, we preserve all historical interactions and their corresponding ratings in the user history sequence for comprehensive user preference profiling.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 110,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 116,
+      "text": "For Steam and LastFM, since they lack explicit rating signals, we convert play-hours and playcount, respectively, to a 1-to-5 scale structured rating based on their percentile ranking.For example, (a) Impact of  on Hit Ratio@1 (b) Impact of  on Valid Ratio Figure 6: Sensitivity analysis of the margin parameter λ on recommendation performance: (a) Hit Ratio@1 and (b) Valid Ratio across MovieLens and Amazon-Books datasets.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 110,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 117,
+      "text": "E.3 Implementation Details",
+      "type": "heading",
+      "level": 7,
+      "parent_id": 110,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 118,
+      "text": "All experiments were conducted on a maximum of 8 NVIDIA RTX A6000 GPUs, each with 48GB of VRAM.Our framework is implemented using Python 3.10.6,PyTorch 2.2.2, and Huggingface Transformers 4.43.3.For all LLM-based recommenders, we employ LLaMA 3.1 8B (Dubey et al., 2024) and Qwen2.5-7B(Bai et al., 2023) as the base models for both SFT and alignment.During training, we set the learning rate to 1e-5 for all LLM-based recommenders and use the AdamW optimizer.Additionally, we apply a 5% warm-up strategy and adjust the learning rate using a cosine scheduler.A global batch size of 128 is used to balance training efficiency and memory consumption.The maximum sequence length is tailored to each dataset based on the features involved and the average title lengths.We set β = 1 for all preference optimization approaches.For multi-negative preference learning, including S-DPO and our proposed RecPO, we adopt the S-DPO settings and fix the number of negatives at 3. In particular, we set the margin term in SimPO as 2 and set the parameter λ in our method as 2. Finally, following the prompt format provided in Appendix C, we create several additional prompt templates and randomly sample one for each user sequence during training and evaluation to ensure model flexibility and generality.For all traditional recommenders, we follow the settings from previous work (Chen et al., 2024) by setting the learning rate to 0.001, the batch size to 256, and using the Adam optimizer for model optimization.",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 117,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 119,
+      "text": "E.4 Evaluation Metrics",
+      "type": "heading",
+      "level": 8,
+      "parent_id": 117,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 120,
+      "text": "As mentioned in Section 5.1, we primarily employ two metrics to evaluate model effectiveness: Hit Ratio@1, which measures how accurately the model recommends the correct item, and Valid Ratio, which assesses whether the model follows instructions to generate outputs in the required format.In Section 5.3, we introduce two additional metrics-Adherence Rate and Avoidance Rate-both derived from Hit Ratio@1.These metrics evaluate the model's ability to adhere to contextualized user preferences and avoid recommending unfavorable (unsatisfactory) items for the next interaction, with higher values indicating better performance.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 119,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 121,
+      "text": "In our main experiment, the candidate sets during testing include the last item from the user's full sequence, typically a highly rated item (rating 4 to 5 on a scale of 1 to 5), with the remaining candidates randomly sampled from the non-interacted set.Note that we use rating to denote the preference hierarchy, yet it can be derived from either implicit or explicit feedback.In the contextualized preference adherence experiment, the candidate set for testing includes at least two highly-rated items from the subsequent sequence.We follow the rule described in Section 2 to designate the positive item as the one with the smallest time latency ∆ t relative to the prediction timestamp t.A high Adherence Rate indicates that the model consistently recommends the positive item among all highly-rated candidates.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 119,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 122,
+      "text": "For the unfavorable item avoidance experiment, we construct the test set by selecting user sequences where the last interaction is low-rated (rating 1 to 2).Instead of measuring whether the model recommends this low-rated item, we assess whether it favors the randomly sampled candidates over the unfavorable item.Thus, a high Avoidance Rate signifies that the model successfully avoids recommending unfavorable items to users.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 119,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 123,
+      "text": "F Analysis on Margin Magnitude",
+      "type": "heading",
+      "level": 9,
+      "parent_id": 119,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 124,
+      "text": "As detailed in Section 4, the parameter λ controls the extent of the margin term γ r on preference learning.We adopt λ = 2 as the default value to balance Hit Ratio@1 (recommendation accuracy) and Valid Ratio (instruction-following capability).To further study the impact of λ on model effectiveness, we conduct sensitivity analyses on Movie-Lens and Amazon-Books, with results visualized in Figure 6.Increasing λ consistently elevates Hit Ratio@1, though the rate of improvement diminishes at higher values (e.g., λ = 3).However, excessively large λ values degrade the Valid Ratio, which quantifies the model's adherence to user instructions.While Hit Ratio@1 reflects recommendation accuracy, maintaining a robust Valid Ratio ensures alignment with user intent.We recommend λ ≈ 2 to harmonize both metrics.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 123,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 125,
+      "text": ", LLM-based systems leverage semantic understanding and reasoning ca-* Equal contribution † Co-corresponding author What to eat?",
+      "type": "figure",
+      "level": 10,
+      "parent_id": 123,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 126,
+      "text": ", LLM-based systems leverage semantic understanding and reasoning ca-* Equal contribution † Co-corresponding author What to eat?",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 123,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 127,
+      "text": "Figure 1: Human behaviors involve trade-offs among preference intensity, satisfaction delay, effort, and riskfactors largely overlooked in current LLM-based preference modeling.",
+      "type": "figure",
+      "level": 10,
+      "parent_id": 123,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 128,
+      "text": "Figure 1: Human behaviors involve trade-offs among preference intensity, satisfaction delay, effort, and riskfactors largely overlooked in current LLM-based preference modeling.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 123,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 129,
+      "text": "Figure 3: Illustrations for preference learning frameworks with binary and enriched preference: the prior assumes binary distinction in preference, while the latter enriches preference distinction with preference intensity and temporal context (δ indicates the enrichment).",
+      "type": "figure",
+      "level": 10,
+      "parent_id": 123,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 130,
+      "text": "Figure 3: Illustrations for preference learning frameworks with binary and enriched preference: the prior assumes binary distinction in preference, while the latter enriches preference distinction with preference intensity and temporal context (δ indicates the enrichment).",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 123,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 131,
+      "text": "Figure 4: Comparing between SFT, S-DPO, and RecPO from the perspectives of adhering to contextual preference (a), avoiding unfavorable items under temptation (b), identifying dis-preferred items (c), and consistently performing across varying user history lengths (d).The adherence rate and avoidance rate are defined in § 5.3.",
+      "type": "figure",
+      "level": 10,
+      "parent_id": 123,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 132,
+      "text": "Figure 4: Comparing between SFT, S-DPO, and RecPO from the perspectives of adhering to contextual preference (a), avoiding unfavorable items under temptation (b), identifying dis-preferred items (c), and consistently performing across varying user history lengths (d).The adherence rate and avoidance rate are defined in § 5.3.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 123,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 133,
+      "text": "Overall model performance comparison on five real-world recommendation datasets.The best performance is bolded, and runner-ups are underlined.Datasets are grouped by explicit and implicit feedback.We denote ϕ p and ϕ d as the scores for the preferred and dispreferred items respectively, for brevity.By default, RecPO defines the margin term γ",
+      "type": "figure",
+      "level": 10,
+      "parent_id": 123,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 134,
+      "text": "Overall model performance comparison on five real-world recommendation datasets.The best performance is bolded, and runner-ups are underlined.Datasets are grouped by explicit and implicit feedback.We denote ϕ p and ϕ d as the scores for the preferred and dispreferred items respectively, for brevity.By default, RecPO defines the margin term γ",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 123,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 135,
+      "text": "which measures the proportion of test cases where the top-ranked item matches the ground-truth target, and Valid Ratio, which captures instruction compliance by quantifying the fraction of outputs that follow formatting rules and remain within the candidate set.The latter ensures outputs are valid and in-distribution.Together, they assess both recommendation accuracy and practical deployability.t as the ratio of preference scores ϕ between positive and negative item pairs, as formalized in Equation 4. To investigate how these factors should be mathematically combined, we introduce two alternative margin functions: (i)",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 123,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 136,
+      "text": "Ablation study on the margin function, Hit Ratio@1 is reported for comparison.Log Diff, γ r = λ log (ϕ p − ϕ d ); (ii) Log Ratio, γ r = λ (log ϕ p − log ϕ d ).As shown in Table2, both variants outperform the strongest LLM-based recommender baseline, confirming that incorporating these factors through any margin formulation improves performance.RecPO 's default ratiobased margin achieves the best overall performance by amplifying training gradients, especially when historical user ratings show low volatility.By directly contrasting ϕ p and ϕ d via division, it provides stronger learning signals that help the model prioritize subtle but critical preference patterns.",
+      "type": "figure",
+      "level": 10,
+      "parent_id": 123,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 137,
+      "text": "Ablation study on the margin function, Hit Ratio@1 is reported for comparison.Log Diff, γ r = λ log (ϕ p − ϕ d ); (ii) Log Ratio, γ r = λ (log ϕ p − log ϕ d ).As shown in Table2, both variants outperform the strongest LLM-based recommender baseline, confirming that incorporating these factors through any margin formulation improves performance.RecPO 's default ratiobased margin achieves the best overall performance by amplifying training gradients, especially when historical user ratings show low volatility.By directly contrasting ϕ p and ϕ d via division, it provides stronger learning signals that help the model prioritize subtle but critical preference patterns.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 123,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 138,
+      "text": "This setup tests whether the model can prioritize the correct next item when competing items, though eventually preferred, are not immediately relevant.We quantify this behavior using the Adherence Rate (detailed in Appendix E.4),",
+      "type": "figure",
+      "level": 10,
+      "parent_id": 123,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 139,
+      "text": "This setup tests whether the model can prioritize the correct next item when competing items, though eventually preferred, are not immediately relevant.We quantify this behavior using the Adherence Rate (detailed in Appendix E.4),",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 123,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 140,
+      "text": "To assess RecPO 's ability to model contextualized preferences, we construct more challenging test sets for MovieLens and Amazon-Books by augmenting the candidate pool with other highly-rated items from users' future interactions.to deliberately avoid dispreferred options.To evaluate this capacity, we construct a test set querying the model directly at inference time to identify the item least aligned with a user's preferences, without providing any explicit supervision for aversion.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 123,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 141,
+      "text": "BeerAdvocate 10 (Leskovec and Mcauley, 2012), and LastFM 11",
+      "type": "figure",
+      "level": 10,
+      "parent_id": 123,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 142,
+      "text": "BeerAdvocate 10 (Leskovec and Mcauley, 2012), and LastFM 11",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 123,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 143,
+      "text": "References",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "references"
+    },
+    {
+      "unit_id": 144,
+      "text": "Direct preference optimization with an offset. Afra Amini, Tim Vieira, Ryan Cotterell, Findings of the ACL. 2024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 145,
+      "text": "Theory of mind development and social understanding. Janet Wilde, Astington , Jennifer M Jenkins, Cognition & Emotion. 1995",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 146,
+      "text": "A general theoretical paradigm to understand learning from human preferences. Mohammad Gheshlaghi Azar, Zhaohan Daniel Guo, Bilal Piot, Remi Munos, Mark Rowland, Michal Valko, Daniele Calandriello, International Conference on Artificial Intelligence and Statistics. 2024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 147,
+      "text": ". Jinze Bai, Shuai Bai, Yunfei Chu, Zeyu Cui, Kai Dang, arXiv:2309.166092023Qwen technical report. Preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 148,
+      "text": "Tallrec: An effective and efficient tuning framework to align large language model with recommendation. Keqin Bao, Jizhi Zhang, Yang Zhang, Wenjie Wang, Fuli Feng, Xiangnan He, 2023In RecSys",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 149,
+      "text": "Rank analysis of incomplete block designs: I. the method of paired comparisons. Ralph Allan, Bradley , Milton E Terry, Biometrika. 1952",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 150,
+      "text": "Music recommendation and discovery in the long tail. Oscar Celma, 2010Universitat Pompeu FabraTechnical report",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 151,
+      "text": "Sequential recommendation with graph neural networks. Jianxin Chang, Chen Gao, Yu Zheng, Yiqun Hui, Yanan Niu, Yang Song, Depeng Jin, Yong Li, SIGIR. 2021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 152,
+      "text": "On softmax direct preference optimization for recommendation. Yongjun Chen, Zhiwei Liu, Jia Li, Julian Mcauley, Caiming Xiong, NeurIPS. Junfei Www. Yuxin Chen, An Tan, Zhengyi Zhang, Leheng Yang, Enzhi Sheng, Xiang Zhang, Tat-Seng Wang, Chua, 2022. 2024Intent contrastive learning for sequential recommendation",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 153,
+      "text": "Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, Amy Yang, Angela Fan, arXiv:2407.21783The llama 3 herd of models. 2024arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 154,
+      "text": "Kawin Ethayarajh, Winnie Xu, Niklas Muennighoff, Dan Jurafsky, Douwe Kiela, arXiv:2402.01306Kto: Model alignment as prospect theoretic optimization. 2024arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 155,
+      "text": "Lighter and better: low-rank decomposed self-attention networks for next-item recommendation. Xinyan Fan, Zheng Liu, Jianxun Lian, Wayne Xin Zhao, Xing Xie, Ji-Rong Wen, SIGIR. 2021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 156,
+      "text": "Chatrec: Towards interactive and explainable llmsaugmented recommender system. Yunfan Gao, Tao Sheng, Youlin Xiang, Yun Xiong, Haofen Wang, Jiawei Zhang, arXiv:2303.145242023arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 157,
+      "text": "Recommendation as language processing (rlp): A unified pretrain, personalized prompt & predict paradigm (p5). Shijie Geng, Shuchang Liu, Zuohui Fu, Yingqiang Ge, Yongfeng Zhang, 2022In RecSys",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 158,
+      "text": "Maxwell Harper, Joseph A Konstan, The movielens datasets: History and context. Acm transactions on interactive intelligent systems (tiis). 2015",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 159,
+      "text": "Leveraging large language models for sequential recommendation. Jesse Harte, Wouter Zorgdrager, Panos Louridas, Asterios Katsifodimos, Dietmar Jannach, and Marios Fragkoulis. 2023In RecSys",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 160,
+      "text": "Vbpr: visual bayesian personalized ranking from implicit feedback. Ruining He, Julian Mcauley, AAAI. 2016",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 161,
+      "text": "Session-based recommendations with recurrent neural networks. Hidasi, 2016In ICLR",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 162,
+      "text": "Selfattentive sequential recommendation. Wang-Cheng Kang, Julian Mcauley, ICDM. 2018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 163,
+      "text": "Learning to discover social circles in ego networks. Jure Leskovec, Julian Mcauley, 2012In NeurIPS",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 164,
+      "text": "Text is all you need: Learning language representations for sequential recommendation. Jiacheng Li, Ming Wang, Jin Li, Jinmiao Fu, Xin Shen, Jingbo Shang, Julian Mcauley, SIGKDD. 2023",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 165,
+      "text": "Time interval aware self-attention for sequential recommendation. Jiacheng Li, Yujie Wang, Julian Mcauley, WSDM. 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 166,
+      "text": "Calrec: Contrastive alignment of generative llms for sequential recommendation. Yaoyiran Li, Xiang Zhai, Moustafa Alzantot, Keyi Yu, Ivan Vulić, Anna Korhonen, Mohamed Hammad, Proceedings of the 18th ACM Conference on Recommender Systems. the 18th ACM Conference on Recommender Systems2024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 167,
+      "text": "Llara: Large language-recommendation assistant. Jiayi Liao, Sihang Li, Zhengyi Yang, Jiancan Wu, Yancheng Yuan, Xiang Wang, Xiangnan He, SIGIR. 2024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 168,
+      "text": ". Luce Duncan, Individual choice behavior. 1959Wiley",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 169,
+      "text": "Llm-rec: Personalized recommendation via prompting large language models. Hanjia Lyu, Song Jiang, Hanqing Zeng, Yinglong Xia, Qifan Wang, Si Zhang, Ren Chen, Christopher Leung, Jiajie Tang, Jiebo Luo, arXiv:2307.157802023arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 170,
+      "text": "SimPO: Simple preference optimization with a reference-free reward. Yu Meng, Mengzhou Xia, Danqi Chen, 2024In NeurIPS",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 171,
+      "text": "Justifying recommendations using distantly-labeled reviews and fine-grained aspects. Jianmo Ni, Jiacheng Li, Julian Mcauley, EMNLP-IJCNLP. 2019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 172,
+      "text": "Training language models to follow instructions with human feedback. Long Ouyang, Jeffrey Wu, Xu Jiang, 2022NeurIPS",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 173,
+      "text": "The analysis of permutations. Robin L Plackett, Journal of the Royal Statistical Society Series C: Applied Statistics. 2421975",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 174,
+      "text": "Direct preference optimization: Your language model is secretly a reward model. Rafael Rafailov, Archit Sharma, Eric Mitchell, Christopher D Manning, Stefano Ermon, Chelsea Finn, NeurIPS. 2024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 175,
+      "text": "John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, Oleg Klimov, arXiv:1707.06347Proximal policy optimization algorithms. 2017arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 176,
+      "text": "Learning to summarize with human feedback. Nisan Stiennon, Long Ouyang, Jeffrey Wu, Daniel Ziegler, Ryan Lowe, Chelsea Voss, Alec Radford, Dario Amodei, Paul F Christiano, 2020In NeurIPS",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 177,
+      "text": "Personalized top-n sequential recommendation via convolutional sequence embedding. Jiaxi Tang, Ke Wang, WSDM. 2018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 178,
+      "text": "Bolin Ding, and Bin Cui. 2022. Contrastive learning for sequential recommendation. Xu Xie, Fei Sun, Zhaoyang Liu, Shiwen Wu, Jinyang Gao, Jiandong Zhang, ICDE.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 179,
+      "text": "Contrastive preference optimization: Pushing the boundaries of llm performance in machine translation. Haoran Xu, Amr Sharaf, Yunmo Chen, Weiting Tan, Lingfeng Shen, Benjamin Van Durme, Kenton Murray, Young Jin Kim, arXiv:2401.084172024arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 180,
+      "text": "Sequential recommendation with latent relations based on large language model. Shenghao Yang, Weizhi Ma, Peijie Sun, Qingyao Ai, Yiqun Liu, Mingchen Cai, Min Zhang, SIGIR. 2024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 181,
+      "text": "Tagnn: Target attentive graph neural networks for session-based recommendation. Feng Yu, Yanqiao Zhu, Qiang Liu, Shu Wu, Liang Wang, Tieniu Tan, SIGIR. 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 182,
+      "text": "Where to go next for recommender systems? id-vs. modality-based recommender models revisited. Zheng Yuan, Fajie Yuan, Yu Song, Youhua Li, Junchen Fu, Fei Yang, Yunzhu Pan, Yongxin Ni, SIGIR. 2023",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 183,
+      "text": "Recommendation as instruction following: A large language model empowered recommendation approach. Junjie Zhang, Ruobing Xie, Yupeng Hou, Xin Zhao, Leyu Lin, Ji-Rong Wen, ACM Transactions on Information Systems. 2023",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 184,
+      "text": "S3-rec: Self-supervised learning for sequential recommendation with mutual information maximization. Kun Zhou, Hui Wang, Wayne Xin Zhao, Yutao Zhu, Sirui Wang, Fuzheng Zhang, Zhongyuan Wang, Ji-Rong Wen, CIKM. 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 185,
+      "text": "Nisan Daniel M Ziegler, Jeffrey Stiennon, Tom B Wu, Alec Brown, Dario Radford, Paul Amodei, Geoffrey Christiano, Irving, arXiv:1909.08593Fine-tuning language models from human preferences. 2019arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "bibentry"
+    }
+  ]
+}

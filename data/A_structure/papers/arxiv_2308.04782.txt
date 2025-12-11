@@ -1,0 +1,494 @@
+PointMBF: A Multi-scale Bidirectional Fusion Network for Unsupervised RGB-D Point Cloud Registration
+9 Aug 2023
+
+Mingzhi Yuan mzyuan20@fudan.edu 
+Digital Medical Research Center
+School of Basic Medical Sciences
+Fudan University
+China
+
+Shanghai Key Laboratory of Medical Image Computing and Computer Assisted Intervention
+China
+
+Kexue Fu fukexue@fudan.edu 
+Shandong Computer Science Center (National Supercomputer Center in Jinan
+
+
+Zhihao Li lizhihao21@m.fudan.edu.cn 
+Digital Medical Research Center
+School of Basic Medical Sciences
+Fudan University
+China
+
+Shanghai Key Laboratory of Medical Image Computing and Computer Assisted Intervention
+China
+
+Yucong Meng ycmeng21@m.fudan.edu.cn 
+Digital Medical Research Center
+School of Basic Medical Sciences
+Fudan University
+China
+
+Shanghai Key Laboratory of Medical Image Computing and Computer Assisted Intervention
+China
+
+Manning Wang mnwang@fudan.edu 
+Digital Medical Research Center
+School of Basic Medical Sciences
+Fudan University
+China
+
+Shanghai Key Laboratory of Medical Image Computing and Computer Assisted Intervention
+China
+
+
+KPConv
+1,64 Resbetb_B, 64,128 ConvBlock 3, 64 BasicBlock, 64,64 BasicBlock, 64,64 Resbetb_A, 128,128 Resbetb_B, 128,256 Resbetb_A, 64,128 BasicBlock, 128,128 Resbetb_A, 128,256 BasicBlock256, 256, 256, 256 Resbetb_B, 256, 512 Resbetb_A, 512, 512, 256, 256BasicBlock, BasicBlock
+
+
+Upsample Concatenation Conv1D
+768, 256
+
+
+Upsample Concatenation ConvBlock
+384, 128
+
+
+Upsample Concatenation Conv1D
+384
+
+
+Upsample Concatenation ConvBlock
+192, 32 ConvBlock
+
+PointMBF: A Multi-scale Bidirectional Fusion Network for Unsupervised RGB-D Point Cloud Registration
+9 Aug 2023507B2255C0F96F8311D73F233E0B4B07arXiv:2308.04782v1[cs.CV]Conv2Dn1n2 BatchNorm2D Relu Concatenation Linear6432
+Point cloud registration is a task to estimate the rigid transformation between two unaligned scans, which plays an important role in many computer vision applications.Previous learning-based works commonly focus on supervised registration, which have limitations in practice.Recently, with the advance of inexpensive RGB-D sensors, several learning-based works utilize RGB-D data to achieve unsupervised registration.However, most of existing unsupervised methods follow a cascaded design or fuse RGB-D data in a unidirectional manner, which do not fully exploit the complementary information in the RGB-D data.To leverage the complementary information more effectively, we propose a network implementing multi-scale bidirectional fusion between RGB images and point clouds generated from depth images.By bidirectionally fusing visual and geometric features in multi-scales, more distinctive deep features for correspondence estimation can be obtained, making our registration more accurate.Extensive experiments on ScanNet and 3DMatch demonstrate that our method achieves new state-of-the-art performance.Code will be released at https://github.com/phdymz/PointMBF.
+
+Introduction
+
+Point cloud registration [28] aims at aligning partial views of the same scene, which is a critical component of many computer vision tasks.Commonly, point cloud registration starts from feature extraction [55,10] and correspondence estimation [46,43], followed by robust geometric fitting [16,37,3,72].Among them, feature extraction plays a vital role in point cloud registration, as distinctive fea-tures can reduce the occurrence of outlier correspondences, thereby saving time on robust geometric fitting.
+
+Many traditional methods rely on hand-crafted features [55,34], but they commonly show limited performance.Benefiting from the rapid progress of deep learning, many learning-based features [10,64,25] have been proposed in recent years.Compared to hand-crafted features, they are distinctive enough to achieve robust performance in many challenging conditions such as low overlap.However, most deep learning-based features need supervision on poses or correspondences, which limits their practical applications.For unannotated datasets with different distributions from the training set, they tend to suffer from performance degradation.
+
+With the recent advance of inexpensive RGB-D sensors, it has become easier to simultaneously acquire both depth information and RGB images, which inspires unsupervised point cloud registration using additional color information.UR&R [14] proposed a framework for unsupervised RGB-D point cloud registration.It utilizes a differentiable renderer to generate the projections of the transformed point clouds and calculates geometric and photometric losses between the projections and the registration targets.Based on these losses, UR&R can train its deep descriptor without annotations and achieve robust registration on RGB-D video.Similar to UR&R, BYOC [15] proposed a teacher-student framework for unsupervised point cloud registration for RGB-D data, which also shows competitive performance.However, all these RGB-D-based methods use RGB images and depth information separately and do not further exploit the complementary information within RGB-D data.Recently, LLT [67] first utilized a linear transformer [35,59] to fuse these complementary information and achieved new state-of-the-art performance.However, LLT focuses on using depth information to guide RGB information and neglects the interaction between the two modalities, which hinders better performance.
+
+To fully leverage these complementary modalities, we propose a multi-scale bidirectional fusion network named PointMBF for unsupervised RGB-D point cloud registration, which fuses visual and geometric information bidirectionally at both low and high levels.In this work, we process depth images in the form of point clouds and utilize two network branches for RGB images and point clouds, respectively.Both branches follow the U-Shape [54] structure to extract features for information fusion in multiple scales.Unlike the fusion strategy in LLT [67], we perform crossmodalities fusion in all stages rather than only in the last few layers, making fused features more distinctive.Moreover, different from the unidirectional fusion strategy in LLT, we adopt a bidirectional design for more effective fusion.Specifically, in each scale, we first find the regional corresponding points/pixels for each query pixel/point.Then we sample the KNN points/pixels among them and gather their features to a set.The feature set is fed to a PointNetstyle module to achieve permutation-invariant aggregation.Finally, the information communication between different modalities can be achieved by fusing the aggregated features with the query feature using a shallow neural network with residue design.
+
+To evaluate our method, we conduct experiments on two popular indoor RGB-D datasets, ScanNet [11] and 3DMatch [73].Our PointMBF not only achieves new stateof-the-art performance but also shows competitive generalization across different datasets.When tested on an unseen dataset ScanNet, our PointMBF trained on 3DMatch still shows comparable performance to recent advanced methods directly trained on ScanNet.We also conduct comprehensive ablation studies to further demonstrate the effectiveness of each component of our multi-scale bidirectional design.
+
+To summarize, our contributions are as follows:
+
+• We propose a multi-scale bidirectional fusion network for RGB-D point cloud registration, which fully leverages the information in the two complementary modalities.Compared to unidirectional fusion or fusion in the final stage, our fusion strategy can achieve the information communication more effectively, so that it can generate more distinctive features for registration.
+
+• We introduce a simple but effective module for bidirectional fusion, which adapts to density-variant point clouds generated by view-variant depth images.
+
+• We provide a comprehensive comparison between different fusion strategies to analyze their effect empirically.
+
+• Our method achieves new state-of-the-art results on RGB-D point cloud registration on ScanNet [11] using weights trained either on ScanNet or 3DMatch [73].
+
+
+Related Work
+
+
+Point Cloud Registration
+
+Point cloud registration aims at aligning partial scan fragments, which is widely used in many tasks such as autonomous driving [44], robotics [49], and SLAM [74].Except for some ICP-based methods [5,47], metric-based methods [27,2,39], and so on, most methods follow the process of feature extraction [55,10,71], correspondence estimation [46,43], and robust geometric fitting [16,37,3].In the past, many traditional methods were often limited by hand-crafted features [55,34].Recently, many learning-based 3D descriptors [10,8,1,4,70,52] were proposed.They have achieved impressive performance and some methods [70,52] are even free of RANSAC.However, most of them rely on pose or correspondence supervision, which limits their practical application.For unannotated datasets, they can only infer using weights trained on other datasets, which tends to degrade their performance.Benefiting from inexpensive RGB-D sensors, many RGB-D video datasets [11,73] were proposed.The extra color information contains richer semantics and many works achieve unsupervised learning based on it.To the best of our knowledge, UR&R [14] is the first learning-based work using RGB-D data for unsupervised registration.It also follows the above mentioned registration process but it utilizes a differentiable renderer-based loss to optimize its learnable descriptor.Inspired by self-supervised learning [6], BYOC [15] proposed a teacher-student framework for 3D descriptor unsupervised learning.It teaches a 3D descriptor by a 2D descriptor, making the 3D descriptor achieve comparable performance to supervised methods.However, neither of the above two methods fully leveraged the complementary information inside RGB-D data.For UR&R, point clouds are only used for localization but do not participate in feature extraction.For BYOC, their 3D descriptors are limited by their single-modality teacher.To address above the problem, LLT [67] introduced a linear transformer-based attention [35,59] to embed geometric features into visual features in the last two stages.This fusion improves extracted features and helps LLT achieve the state-of-the-art performance.Whereas we believe unidirectional fusion in late stages does not fully exploit the complementary information in RGB-D data.Therefore, we design a multi-scale bidirectional fusion network, which implements bidirectional fusion in all stages.Benefiting from our fusion strategy, our network can achieve better performance with easily accessible backbones than unidirectional fusion with sophisticated backbones in LLT.geometric description.Therefore, fusing these two modalities is a promising direction as they provide complementary information.With the advance of inexpensive RGB-D sensors, many works have studied how to fully leverage this complementary information in many tasks such as detection [40,61,62,68,42,26,41], segmentation [24,18,51,32,65,12,23,31,19,7] and pose estimation [21,22,63].
+
+As shown in Figure 1, the common fusion strategies can be roughly divided into three categories according to their information flow direction.The first category is undirected fusion [62,18,22,63,69].This category is the most intuitive one and is commonly implemented by directly concatenating or adding the separately extracted features.For example, DenseFusion [63] fuses geometric information and texture information by concatenating the embeddings from CNN and PointNet [50] and adding extra channels for global information.The second category is unidirectional fusion [40,68,42,26,67,51,32,65,12,30,29,19].This kind of methods usually use one modality to guide the other modality.For instance, DeepFusion [40] sets Lidar features as queries and utilizes a cross-attention-based module called LearnableAlign to embed RGB image features into them.Similar to DeepFusion, LLT [67] adopts a fusion module which is based on linear transformer [35] and fuses high-level features in the last two layers.However, all above methods do not fully exploit the interconnection between different modalities.Therefore, the third category i.e. bidirectional fusion [38,24,21,7] was proposed recently.BPNet [24] reveals that joint optimization on different modalities in a bidirectional manner is beneficial to 2D/3D semantic segmentation.It designs a bidirectional projection module to generate a link matrix i.e. the pointpixel-wise map, so that information can interact between two heterogeneous network branches in the decoding stage.FFB6D [21] proposes a network fusing in full stages and outperforms previous methods [22,63] a lot in pose estimation.Motivated by these success, we believe bidirectional fusion can better leverage the complementary information inside two different domains and propose a bidirectional fusion-based network for RGB-D point cloud registration for the first time.
+
+
+Method
+
+Figure 2 (a) shows the pipeline of our PointMBF, which takes two RGB-D images as inputs and outputs their relative rigid transformation represented by a rotation R * and a translation t * .Our PointMBF also follows the standard process of feature extraction, correspondence estimation and geometric fitting.PointMBF first extracts deep features using two heterogeneous network branches for each of the two input RGB-D images, where the visual and geometric features are extracted using different networks and they are fully fused in a bidirectional manner in all stages by fusion modules.Then the fused features are used to generate correspondences based on their Lowe's ratio [43].Finally, our PointMBF outputs the estimated rigid transformation using these correspondences by a few RANSAC iterations.The correspondence estimation and geometric fitting are free of learnable parameters, and our feature extractor and the fusion modules are trained unsupervisedly by a rendererbased loss.The details of each component of our PointMBF are explained in the following sections.
+
+
+Heterogeneous Network Branches
+
+Since there exists a big domain gap between RGB images and depth images, our PointMBF uses two different network branches to process these two modalities separately.As shown in Figure 2 (a), one branch i.e the visual branch takes RGB images as input, while the other i.e. the geometric branch takes point clouds generated from depth images as input.Both branches follows a U-Shape [54] structure to extract multi-scale information, and they are all based on easily accessible backbones including ResNet18 [20] and KPFCN [4,57].Since our competitor LLT [67] also has two branches for visual and geometric processing, we introduce the details of our two branches in the following paragraphs and compare them with similar structures in LLT.Visual branch.LLT designs a dilated convolution-based network as its visual backbone.Although this kind of backbone is competitive, its performance is highly dependent on the hyperparameter setting.To better illustrate the effectiveness of our multi-scale bidirectional fusion strategy and save cost on tuning the network architecture, we simply modify a widely used ResNet18 [20] as our visual branch.As shown in Figure 2 (a), our visual branch follows an U-Shape encoder-decoder architecture with skip connections.Both encoder and decoder extracts features at three different scales.The encoder consists of convolution blocks from ResNet18, while the decoder only contains simple shallow convolution blocks.More details of our visual branch settings are provided in the supplementary materials.Geometric branch.Different from LLT [67], we process depth images in the form of point clouds rather than the original depth images.There exist many feature extractors for point cloud such as sparse convolution networks [10,9], point-based networks [50,66] and so on.However, as shown in Figure 3, there exists severe density variation in the generated point clouds because the sampling density of 3D surfaces is dependent on their distance to the sensor.To extract density-invariant features, we select a shallower KPFCN in D3Feat [4] as the building block of our geometric branch because it introduces a density normalization process to overcome the inherent density variation.
+
+As shown in Figure 2 (a), our geometric branch has a symmetric architecture to the visual branch, so that features from the two branches at the same resolution can be fused and this kind of fusion occurs at every scales.More details of our geometric branch settings are also provided in the supplementary materials.
+
+
+Multi-scale Bidirectional Fusion
+
+In this section, we introduce our proposed multi-scale bidirectional fusion in detail.Note that semantics or local geometry are dependent on a certain region rather than a single pixel or point.Therefore, it is intuitive to fuse complementary information by embedding features of a certain region into features of the other modality.
+
+However, embedding regional features faces two challenges.First, as shown in Figure 3, density variation makes the length of regional feature set uncertain.Second, the feature set is not structural data.Inspired by the process for variable length sequence [60] and unstructured data [50], we pad the regional features to a fixed number and design a PointNet-style [50] fusion module for bidirectional fusion.As shown in Figure 2 (b)(c), for a query pixel or a query 3D point at a certain scale, we first find its corresponding region in point cloud/image using the intrinsic matrix of the sensor.Afterward, we sample the KNN corresponding points/pixels in the corresponding region and gather their features to a set.The set is then padded to a certain length and aggregated by a simple PointNet.Since there exists a max-pooling operator in PointNet and grid sampling in the geometric branch, the aggregated feature can achieve density-invariance.Finally, the aggregated feature is further fused with the feature of the query point/pixel by a shallow neural network with residue design.In this way, visual and geometric features can be fully fused in all scales.Besides, as shown in Figure 2 (a), in addition to the above fusion using bidirectional fusion module, we also conduct an undirected fusion in the final stage to further boost the features for correspondence estimation.Details of the visual-to-geometric, the geometric-to-visual, and the final undirected fusion will be introduced in the following subsections.Visual-to-geometric fusion.Commonly, many ambiguous and repetitive structures exist in point clouds, which makes generated putative correspondences based on only point clouds contain a large proportion of outliers.Incorporating semantic information extracted by the visual branch can make geometric features more distinctive.Here, we utilize visual-to-geometric fusion to embed regional visual features into geometric features.
+
+Specifically, given a geometric feature F l gi extracted by the geometric branch in the l-th stage for the i-th point, we first find its corresponding region in the image by projecting its neighbor with radius R l v2g to the image.Then we sample the K v2g nearest neighbor pixels within the corresponding region and gather their visual features F l v k Kv2g k=1 .If there are less than K v2g pixels in the corresponding region, we will pad the null feature F pad = [0, 0, . . ., 0] ∈ R d l in the gathered features.After that, we use a PointNetstyle fusion module to aggregate the regional visual features
+F l v k Kv2g k=1 : F l v2gi = Kv2g max k=1 MLP F l v k(1)
+We then concatenate the aggregated feature F l v2gi with the geometric feature F l gi and use a linear layer to map them to a fused feature, which has the same dimension as F l gi .Finally, this fused feature is treated as a residue and added to the original geometric feature F l gi :
+F l fusedgi = F l gi + W l v2g F l v2gi ⊕ F l gi (2)
+where ⊕ denotes the concatenate operation, W l v2g denotes a linear map, and F l fusedgi denotes the final fused feature, which replaces the original geometric feature F l gi to be sent to the next stage.In our bidirectional fusion modules, we adopt a residual design, since our full-stage fusion may cause redundancy.Our following ablation study also verifies it experimentally.
+
+
+Geometric-to-visual fusion.
+
+Similar to visual-togeometric fusion, our geometric-to-visual fusion also makes visual features more distinctive.
+
+We achieve geometric-to-visual fusion by embedding geometric features into visual features.
+
+Given a visual feature F l vi extracted by visual branch in lth stage for the i-th pixel, we first find its corresponding region in the 3D point clouds by the inverse projection.Then we sample K g2v nearest neighbor points in the corresponding region and gather their geometric features F l g k Kg2v k=1 .We also use the null feature F pad = [0, 0, . . ., 0] ∈ R d l to pad the gathered features when there are not enough points in the corresponding region and aggregate them into F l g2vi :
+F l g2vi = Kg2v max k=1 MLP F l g k(3)
+The aggregated feature F l g2vi is concatenated with the visual feature F l vi and then mapped to a feature, which has the same dimension as F l vi .Finally, this fused feature is treated as a a residue and added to the original visual feature F l vi :
+F l fusedvi = F l vi + W l g2v F l g2vi ⊕ F l vi (4)
+where ⊕ denotes the concatenate operation, W l g2v denotes a linear map, and F l fusedvi denotes the final fused feature, which replace the original visual feature F l vi to be sent to the next stage.Undirected fusion.After fully bidirectional fusion in both encoding and decoding stages, we have obtained distinctive features extracted by the visual and geometric branches.To obtain more distinctive features for generating reliable correspondences, we use a simple undirected fusion in the final stage.We concatenate the outputs of both the visual and the geometric branches and fuse them by a linear map:
+F fusedi = W final F final gi ⊕ F final vi (5)
+where W final denotes a linear map, F final gi denotes the geometric feature output by the last layer of geometric branch, F final vi denotes the visual feature output by the last layer of visual branch, and F fusedi denotes the final fused features for the following correspondence estimation.
+
+
+Correspondence Estimation, Geometric Fitting and Loss Function
+
+Correspondence estimation and geometric fitting.After obtaining the fused features for the source and the target point clouds, we build correspondences using the same method as in UR&R [14] and LLT [67].Specifically, the correspondences are generated based on the the lowe's ratio [43].For a point p S i in the source point cloud, the lowe's ratio r S i is formulated as:
+r S i = D p S i , p T 1nn D p S i , p T 2nn(6)
+where D(•) denotes the Euclidean distance in the feature space and p T knn is the k-th similar point in the target point cloud.Then we calculate the weight w = 1 − r for each correspondence and select the correspondences with top k weights for source point cloud and target point cloud respectively.The selected correspondences C = p S , p T , w i : 0 ≤ i < 2k with their weights are fed into a RANSAC [16] module.The RANSAC module achieves differentiable alignment and outputs an estimated rigid transformation T * with the minimum error E(C, T * ), where E(C, T ) is formulated as:
+E(C, T ) = (p S ,p T ,w)∈C w p S − T p T 2 /2k(7)
+Loss function.In this work, we use the same loss function as [14,67] to train the model without the need for annotation.The loss function consists three components:
+L = l geo + l vis + λE (C, T * )(8)
+where l geo and l vis denote the geometric and photometric losses based on a differentiable renderer, λ represents a coefficient and we set λ = 0.1.More details about the loss function can be found in UR&R [14].
+
+
+Experiment
+
+We follow the setting in UR&R [14] and use two indoor RGB-D datasets 3DMatch [73] and ScanNet [11] to conduct our experiments.The following sections are organized as follows.First, we illustrate the details of our experimental settings including datasets, implementation, evaluation metrics, and competitors in section 4.1.Next, we evaluate our method on ScanNet in section 4.2.In this section, we conduct two experiments.The former tests the performance of our method trained on ScanNet [11] and the latter tests our method trained on 3DMatch [73] to verify its generalization.To further understand the effect of our multiscale bidirectional fusion, we conduct comprehensive ablation studies in section 4.3.We also provide more visualizations and extra experiments in the supplementary material.
+
+
+Experimental Settings
+
+Datasets.We use two widely-used RGB-D datasets Scan-Net [11] and 3DMatch [73], which contain RGB-D images, camera intrinsics, and ground-truth poses of the camera.For both datasets, we follow settings in [14,15,67] to generate view pairs by sampling image pairs which are 20 frames apart.This results in 1594k/12.6k/26kRGB-D pairs for ScanNet and 122k/1.5k/1.5kRGB-D pairs for 3DMatch for train/val/test, respectively.Implementation.To achieve a fair comparison, we use the same settings as LLT [67] including batch size, learning rate, image size, and so on.We set K v2g = 16 for training and K v2g = 32 for test.Since pixels are more dense than valid points, we set K g2v = 1 to save memory.Before generating point clouds from depth images, we apply the hole completion algorithm [36] to the depth images.Our network is implemented in Pytorch [48] and Pytorch3d [53].
+
+All the experiments are conducted on a single A40 graphic card.For more details of implementation, please see the supplementary material.Evaluation metrics.Following prior work [14,15,67], we evaluate the RGB-D point cloud registration by three evaluation metrics: rotation error, translation error, and chamfer error [45].For the above metrics, we not only report their mean and median values but also their accuracy under different thresholds.Competitors.Our competitors can be divided into three categories based on the modalities they use.The first category is only based on point cloud.In addition to previous baselines including ICP [5], FPFH [55], FCGF [10], DGR [8], 3D MV Reg [17] and BYOC [15], we also compare our method to the state-of-the-art point cloud registration method REGTR [70].We use its officially provided weights, which are obtained by training on 3DMatch, for inference on ScanNet to compare the generalization.The second category is only based on RGB image.It includes many classic baselines such as SIFT [43], SuperPoint [13],  [14] with different feature extractors.CAT denotes fusion using direct concatenation.DF denotes fusion using DenseFusion [63].Trans denotes fusion using transformer [59,40] in high-level feature space like DeepFusion [40].Ours wo res denotes removing the residue design in our fusion modules.and the recently proposed UR&R [14].To further verify the effectiveness of our method, we also incorporate a supervised version of UR&R as our competitor.The last category is based on RGB-D images.We compare our method to the state-of-the-art method LLT [67] and an RGB-D version of UR&R, which treats depth information as an additional input channel.
+
+
+Evaluation on ScanNet
+
+To fully evaluate the proposed method, we train our PointMBF on ScanNet [11] and 3DMatch [73], respectively, and test them on ScanNet.The former experiment closely resembles the cases of processing unannotated datasets, while the latter evaluates the generalization.Trained on ScanNet.As shown in Table 1, when the training set and test set come from the same domain, our proposed method achieves new state-of-the-art performances on almost all metrics, especially in terms of accuracy under small thresholds.Compared to previous state-of-the-art method LLT [67], our method gains large improvement in translation, which is the bottleneck of the registration on ScanNet.Moreover, by comparing our method with the RGB-D version of UR&R and LLT, we find that the fusion strategy plays an important role in RGB-D point cloud registration.Unidirectional fusion in LLT leverages the complementary information of RGB-D data, but still does not fully exploit them.Our multi-scale bidirectional fusion is a better choice for RGB-D fusion, which can achieve better performance even without sophisticated branches as other methods [67].This will be further demonstrated in our ablation studies.Trained on 3DMatch.The generalization results of learning-based methods are also shown in Table 1, where the models are trained on 3DMatch and tested on Scan-Net.It can be observed that our method not only achieves the state-of-the-art performance on almost all metrics but also outperforms several recent supervised methods such as REGTR [70] and the supervised UR&R by a large mar- gin.Overall, our method shows competitive generalization.What is noticeable is that when the proposed method is trained on 3DMatch and tested on unseen ScanNet, its performance is comparable or even superior to LLT trained directly on ScanNet on some metrics.
+
+
+Ablation Studies
+
+To further verify the effectiveness of our multi-scale bidirectional fusion, we conduct comprehensive ablation studies.All the models in our ablation studies are trained on 3DMatch [73] and tested on ScanNet [11].
+
+Comparison with other fusion strategies.As discussed in the related work section, there exist many other fusion strategies including undirected and unidirectional fusion.To fully show the effectiveness of our fusion strategy, we compare our multi-scale bidirectional fusion with many other fusion strategies.
+
+The results are shown in Table 2.It can be seen that our fusion strategy outperforms other strategies including undirected fusion (direct concatenation, DenseFusion [63]) and unidirectional fusion (transformer-based fusion like Deep-Fusion [40]), indicating the effectiveness of multi-scale bidirectional fusion.Besides, Table 2 also shows the performance of the two single branches of PointMBF and the visual branch of LLT, and according to Table 1 and Table 2, we find our visual branch performs worse than the visual branch of LLT [67] in rotation and our geometric branch has poor performance, but our PointMBF still outperforms LLT.These results strongly suggest that our multi-scale fusion can exploit the complementary information between different modalities more effectively.We also find that the residue design in our fusion module plays an essential role.This is because we use fusion in all stages, which tends to cause redundancy in the network.Moreover, most fusion strategies successfully boost the performances, but fusion by treating depth information as an additional channel input causes performance degradation.We speculate that the shared network can not deal with the big domain gap between RGB and depth.It is more appropriate to use two different networks to handle different modalities.This also reveals that the design of fusion strategy plays a vital role in RGB-D point cloud registration.Effect of multi-scale fusion.In this work, we fuse information in all stages rather than in the last layers as LLT [67].We believe that fusion in all stages can promote the exchange of complementary information in multiple scales, making features more distinctive.To verify this, we conduct an ablation on fusion stages.
+
+The results are shown in Table 3.We find fusion in each stage all contributes to the feature extraction.By gradually stacking fusion at different stages, our method finally achieves the best performance.It also can be seen that our bidirectional fusion is powerful as only bidirectional fusion in the encoding or decoding stage shows competitive performance.Effect of bidirectional fusion.There are three types of information fusion in our proposed framework, namely the multi-scale visual-to-geometric (V2G) fusion, multi-scale geometric-to-visual fusion (G2V) fusion, and the fusion using direct concatenation (CAT) at the end of the two branches.To further confirm the effectiveness of each fusion, we conduct another ablation on fusion directions.Specifically, we reserve one or two of the three fusion types and compare their performance to our whole model.The results are shown in Table 4.When only using one type of fusion, the performance of CAT is similar to that of G2V and they are superior to V2G.On base of CAT, adding either of V2G or G2V can help improve the performance and the highest performance is achieved by adding bidirectional fusion to CAT, as shown in the last row of Table 4.
+
+
+Conclusion
+
+In this work, we propose a multi-scale bidirectional fusion network for unsupervised RGB-D point cloud registration.Different from other networks for RGB-D point cloud registration, our method implements bidirectional fusion in all stages rather than unidirectional fusion only at some stages, which can leverage the complementary information in RGB-D data more effectively.The extensive experiments also show that our multi-scale bidirectional fusion not only helps network achieve new state-of-the-art performance but also outperforms a series of fusion strategies using the same network branches for feature extraction.Furthermore, we believe our multi-scale bidirectional network is a general framework, which can be transferred to more applications such as reconstruction, tracking, etc in the future.
+
+In this supplementary material, we first list the details of our implementation in section A. Second we conduct additional experiments including an analysis on our hyperparameter, runtime analysis, and an evaluation on a more challenging dataset, in section B. Third, we provide the details of the network architecture in section C. Finally, we provide qualitative visualization of our PointMBF in section D.
+
+
+A. Implementation Details of PointMBF
+
+Table 5 shows the implementation details of our PointMBF.The first nine lines are the same as those in LLT [67] and UR&R [14], while the last three lines colored in grey are our own settings.
+
+
+B. Additional Experiments
+
+In this section, we conduct two experiments including analysis on hyperparameter K v2g and runtime analysis.All the models in the experiments is trained on 3DMatch [73] and tested on ScanNet [11].
+
+
+B.1. Effect of hyperparameter K v2g
+
+Hyperparameter K v2g denotes the number of visual features embedded into each geometric feature.Here, we test its influence on registration.Limited by memory, we set it from 1 to 32.
+
+The result is shown in Table 6.It can be seen that the performance of our method improves as K v2g increases, but the trend of improvement gradually slows down.This is because that, as K v2g increases, K v2g gradually reaches the number of points or pixels in a corresponding region.We also find that even if we set K v2g to 1, our method still outperforms the state-of-the-art method, LLT [67] in almost all metrics, which illustrates the effectiveness of our method.
+
+
+B.2. Runtime Analysis
+
+We conduct runtime analysis by comparing time overhead on each step of unsupervised RGB-D registration.
+
+Both our PointMBF and the competitor, UR&R are tested on an A40 graphic card with an Intel Xeon Platinum 8358P CPU.We report the mean and standard deviation of running time of each step.
+
+The result is shown in Table 8.It can be seen that our multi-scale bidirectional fusion greatly improves performance by a large margin without adding much time overhead (< 10ms).Furthermore, the extra overhead on feature extraction is negligible compared to the overhead of correspondence estimation (main overhead).
+
+
+B.3. Evaluation on ScanNet-SuperGlue
+
+Our experiments in the main paper follow the settings of UR&R [14], in which view pairs are 20 frames apart.We find 20 frames apart is less challenging, making the effectiveness of our method less obvious.Specifically, over 99.8% of the ground truth rotation is under 45°, which makes ICP performs best under 45°threshold in Table 1.Moreover, too many easy cases also cause similar medians in Table 1, especially for chamfer errors.Therefore, we conduct a more challenging evaluation on ScanNet-SuperGlue.
+
+ScanNet-SuperGlue is a dataset based on ScanNet [11], which is provided by SuperGlue [56].It includes 1500 view pairs with average 480.8 frames apart.Our competitors include UR&R and a fusion-based method named CAT.CAT utilizes the same visual and geometric branches as our method and fuses visual features and geometric features using a concatenation operator at the final stage.All the above methods including our PointMBF are trained on 3DMatch [73] and tested on ScanNet-SuperGlue.
+
+As shown in Table 7, our method outperforms the others by a large margin.Moreover, the median chamfer errors vary considerably because this experiment includes more hard cases.
+
+
+C. Details of the Network Architecture
+
+In this section, we provide details of the network architecture including feature extractor, point/pixel gathering for fusion, geometric fitting, keypoint, and differentiable rendering.
+
+
+C.1. Feature extractor
+
+Figure 6 shows the detailed architecture of the feature extractor in our PointMBF.As mentioned in section 3.1, we modify a ResNet18 [20] into our visual branch.The encoder consists of conv2 x, conv3 x, and conv4 x in ResNet18, and we remove the max pooling in original conv2 x.The decoder mainly consists of upsampling module, concatenation operator, and convblock i.e. shallow perception module.Our geometric branch has a symmetric architecture to the visual branch.
+
+
+C.2. Point/pixel gathering for fusion
+
+During our feature extraction, we embed regional visual features into geometric features and regional geometric features into visual features.In this procedure, it's important to gather corresponding points/pixels for fusion.Here, we provide the details of the point/pixel gathering process, which is shown in Figure 4.
+
+For visual-to-geometric fusion in the l-th layer, given a query point, we first determine its neighbor ball with radius R l v2g .Then we project this neighbor ball to the camera and the pixels falling in the projection region are selected as candidate pixels for fusion.After that, we filter the improper pixels in candidate pixels.There are two categories of inproper pixels.The first category is the invalid pixel, whose corresponding depth z is zero.These pixels may represent noise or holes in depth images.Embedding features from invalid pixels may deliver improper information.The second category is the pixel, whose inverse project point is out of the neighbor ball of the query point.Points outside of the query point's neighbor ball may also be projected to pixels that are close to the projection of the query point, but these points are less related to the query point in 3D semantics, so they are also filter out.Finally, we gather the pixels within remaining pixels for fusion, whose inverse project points are in the K nearest neighbors of the query point.
+
+For geometric-to-visual fusion in the l-th layer, given a query pixel, we first determine its inverse project point.
+
+Then the points which fall in the neighbor of the inverse project point with radius R l g2v are selected as candidate points.Finally, we gather the KNN points of the inverse project point within the candidate points.
+
+
+C.3. Keypoint
+
+In this work, we utilize dense descriptions for correspondence estimation.In other words, all the points in the point clouds are considered as keypoints except invalid points with depth z=0.
+
+
+C.4. Geometric fitting
+
+Our geometric fitting is the same as that in UR&R [14], which is a modified RANSAC [16].We provide its detail for convenience in this section.
+
+Given 400 input correspondences C = p S , p T , w i : 0 ≤ i < 2k with their corresponding weights, we randomly sample t subsets of C and estimate t candidate transformations.Each subset contains l randomly sampled correspondences, and each candidate transformation is estimated by solving a weighted Procrustes problem [37] on a subset.Then we choose the candidate transformation T * with minimal error E(C, T * ) in equation 7 as our final estimation.During training, we set t to 10 and l to 80.At test time, we set t to 100 and l to 20.
+
+
+C.5. Differentiable rendering
+
+The differentiable renderer is a rendering technique that leverages differentiable programming to optimize and compute gradients of the rendering process.Its basic principle is shown in Figure 5.It softens the process of projection, whereby each pixel is the accumulation of multiple splatted points.This allows each point to receive gradients  from multiple pixels, avoiding the local gradient [33] issues caused by hard rasterization.Furthermore, the accumulation strategy employed in the soft projection approximates the occlusion observed in the natural world.We implement our differentiable renderer using Pytorch3d [53].It takes transformed point clouds as input and outputs rendered images for photometric loss calculation.
+
+
+Splatted points
+
+Rendered pixel 3D points
+
+
+D. Qualitative Visualization
+
+We provide detailed visualization in this section.We visualize the inputs, extracted features, generated correspondences, and final registration results in two challenging scenes, including cluttered and ambiguous scenes.
+
+The results of the cluttered scene are shown in Figure 7.The first two rows show the registration of two single branches, and the last row shows ours.It can be seen that in a cluttered scene, there exist complex semantics, partial overlap, and blur caused by camera jitter, which make registration challenging.Visual and geometric branches can not deal with it perfectly and tend to generate more outlier correspondences, leading to registration failure.But our method considers both semantics and local geometry, tends to avoid wrong correspondences.
+
+The results of the ambiguous scene are shown in Figure 8.The first two rows show the registration of two single branches, and the last row shows ours.It can be seen that in an ambiguous scene, there exist many ambiguous and repetitive structures such as floors, walls, and symmetrical objects without textures, making correspondences based on a single modality contain a large proportion of outliers.Our fusion considers both semantics from RGB information and local geometric distributions from point clouds, which greatly improves the performance.For example, as shown in Figure 9, the visual features can not distinguish the hook from the armrest due to similar local texture and the geometric features produce more wrong correspondences because of too many repetitive surfaces in this scene.However, our fused features successfully distinguish them and produce correspondences from a more reliable area.
+
+Figure 1 .
+1
+Figure 1.Comparison on fusion strategies.
+
+
+Figure 2 .
+2
+Photometric and Geometric Consistency Losses
+
+
+
+
+Figure 3. Input RGB image (a) and the point cloud (slightly rotated) generated from the corresponding depth image (b).Severe density variation exists in the generated point cloud, which makes local geometric feature extraction and fusion more challenging.
+
+
+Figure 4 .
+4
+Figure 4. Point/pixel gathering for fusion.
+
+
+Figure 5 .
+5
+Figure 5.The basic principle of differentiable rendering.Differentiable rendering softens the process of projection.Each 3D point affects a certain region of pixels by splatting itself to a region, and the rendered pixels are the accumulation of all the splatted points.
+
+
+Figure 6 .Figure 7 .Figure 8 .
+678
+Figure 6.The detailed architecture of our feature extractor.
+
+
+Figure 9 .
+9
+Figure 9. Zoom-in visualization for correspondences in Figure8.The red lines denote the outlier correspondences, while the green lines denote the inlier correspondences.The visual features can not distinguish the hook from the armrest and the geometric features confuse the floor with the wall.But our fused features can generate reliable correspondences for registration as they consider the complementary information from RGB-D data.
+
+
+Table 1 .
+1
+[11]wise registration on ScanNet[11].Pose Sup indicates the pose or correspondence supervision.
+Rotation (deg)Translation (cm)Chamfer (mm)Train Set Pose SupAccuracy↑Error↓Accuracy↑Error↓Accuracy↑Error↓51045Mean Med.51025Mean Med.1510Mean Med.ICP [5]-31.7 55.6 99.6 10.48.87.5 19.4 74.6 22.420.08.4 24.7 40.5 32.914.1FPFH [55]-34.1 64.0 90.3 20.67.28.8 26.7 66.8 42.618.6 27.0 60.8 73.3 23.32.9SIFT [43]-55.2 75.7 89.2 18.64.317.7 44.5 79.8 26.511.2 38.1 70.6 78.3 42.61.7SuperPoint [13]-65.5 86.9 96.68.93.621.2 51.7 88.0 16.19.745.7 81.1 88.2 19.21.2FCGF [10]-✓70.2 87.7 96.29.53.327.5 58.3 82.9 23.68.352.0 78.0 83.7 24.40.9DGR [8]3DMatch✓81.1 89.3 94.89.41.854.5 76.2 88.7 18.44.570.5 85.5 89.0 13.70.43D MV Reg [17]3DMatch✓87.7 93.2 97.06.01.269.0 83.1 91.8 11.72.978.9 89.2 91.8 10.20.2REGTR [70]3DMatch✓86.0 93,9 98.64.41.661.4 80.3 91.4 14.43.880.9 90.9 93.6 13.50.2UR&R [14]3DMatch87.6 93.1 98.34.31.069.2 84.0 93.89.52.879.7 91.3 94.07.20.2UR&R (RGB-D)3DMatch87.6 93.7 98.83.81.167.5 83.8 94.68.53.078.6 91.7 94.66.50.2UR&R (Supervised) 3DMatch✓92.3 95.3 98.23.80.877.6 89.4 95.57.82.386.1 94.0 95.66.70.1BYOC [15]3DMatch66.5 85.2 97.87.43.330.7 57.6 88.9 16.08.254.1 82.8 89.59.50.9LLT [67]3DMatch93.4 96.5 98.82.50.876.9 90.2 96.75.52.286.4 95.1 96.84.60.1Ours3DMatch94.6 97.0 98.73.00.881.0 92.0 97.16.22.191.3 96.6 97.44.90.1UR&R [14]ScanNet92.7 95.8 98.53.40.877.2 89.6 96.17.32.386.0 94.6 96.15.90.1UR&R (RGB-D)ScanNet94.1 97.0 99.12.60.878.4 91.1 97.35.92.387.3 95.6 97.25.00.1BYOC [15]ScanNet86.5 95.2 99.13.81.756.4 80.6 96.38.74.378.1 93.9 96.45.60.3LLT [67]ScanNet95.5 97.6 99.12.50.880.4 92.2 97.65.52.288.9 96.4 97.64.60.1OursScanNet96.0 97.6 98.92.50.783.9 93.8 97.75.61.992.8 97.3 97.94.70.1
+
+Table 2 .
+2
+[67]le branch performance of our method and LLT[67](upper rows) and comparison with other fusion strategies (lower rows).Visual (Ours) and Geo (Ours) denote the visual and geometric branches of our PointMBF, respectively.Visual (LLT) denotes the visual branch in LLT, which is based on the dilated convolution.Visual (RGB-D) denotes our visual branch with an additional channel for depth images.All these networks can resemble augmented version of UR&R
+
+
+Table 3 .
+3
+Ablation on fusion stages.Encode denotes bidirectional fusion during encoding stage.Decode denotes bidirectional fusion during decoding stage.Concat denotes the concatenation and linear map in the final stage.
+Encode Decode ConcatRotation (deg)Translation (cm)Chamfer (mm)Accuracy↑Error↓Accuracy↑Error↓Accuracy↑Error↓51045Mean Med.51025Mean Med.1510Mean Med.✓94.1 96.7 98.73.10.880.1 91.5 96.86.42.190.7 96.3 97.35.50.1✓93.9 96.6 98.53.20.879.8 91.5 96.86.72.290.6 96.2 97.25.40.1✓93.1 96.1 98.73.20.878.5 90.5 96.46.72.289.7 95.7 96.95.60.1✓✓94.3 96.8 98.73.00.880.5 92.0 97.06.12.191.0 96.4 97.45.10.1✓✓94.1 96.5 98.63.20.880.6 91.6 96.76.52.191.0 96.2 97.25.50.1✓✓94.2 96.7 98.73.10.880.3 91.7 96.96.32.290.8 96.3 97.35.40.1✓✓✓94.6 97.0 98.73.00.881.0 92.0 97.16.22.191.3 96.6 97.44.90.1
+
+Table 4 .
+4
+Ablation on fusion direction.V2G denotes reserving fusion from the visual branch to the geometric branch.G2V denotes reserving fusion from the geometric branch to the visual branch.CAT denotes reserving final undirected fusion i.e. concatenation.
+V2GG2VCATRotation (deg)Translation (cm)Chamfer (mm)Accuracy↑Error↓Accuracy↑Error↓Accuracy↑Error↓51045MeanMed.51025MeanMed.1510MeanMed.✓91.495.898.43.81.172.688.396.07.82.887.195.296.55.90.1✓93.196.198.53.40.878.190.496.47.02.389.595.996.85.50.1✓93.196.198.73.20.878.590.596.46.72.289.795.796.95.60.1✓✓94.196.798.73.10.880.391.796.96.32.191.096.497.35.20.1✓✓93.496.498.73.10.879.290.996.76.42.189.996.197.15.10.1✓✓✓94.697.098.73.00.881.092.097.16.22.191.396.697.44.90.1
+
+Table 5 .
+5
+Implementation details of our PointMBF.
+Batch size8Image size128*128Feature dimension32Number of correspondence k200Training epochs12OptimizerAdamLearning rate1e-4Momentum0.9Weight decay1e-6K v2g , K g2v for trainingK v2g = 16, K g2v = 1K v2g , K g2v for testK v2g = 32, K g2v = 1Use pre-trained weight for ResNet18 False
+
+Table 6 .
+6
+Registration results under different hyperparameter Kv2g.
+Rotation (deg)Translation (cm)Chamfer (mm)Accuracy↑Error↓Accuracy↑Error↓Accuracy↑Error↓51045Mean Med.51025Mean Med.1510Mean Med.LLT [67] 93.4 96.5 98.82.50.876.9 90.2 96.75.52.286.4 95.1 96.84.60.1K v2g =193.7 96.6 98.63.20.879.5 91.1 96.76.62.290.2 96.1 97.25.40.1K v2g =293.7 96.4 98.73.20.879.7 91.2 96.66.52.290.3 96.1 97.15.30.1K v2g =494.0 96.6 98.63.20.880.1 91.6 96.86.62.190.6 96.3 97.25.40.1K v2g =894.3 96.7 98.73.10.880.4 91.6 96.96.52.190.9 96.4 97.35.20.1K v2g =16 94.5 96.9 98.73.10.880.8 91.7 97.06.32.191.1 96.4 97.35.10.1K v2g =32 94.6 97.0 98.73.00.881.0 92.0 97.16.22.191.3 96.6 97.44.90.1
+
+Table 7 .
+7
+Performance on ScanNet (Splitted by SuperGlue).CAT denotes fusion using direct concatenation.
+Rotation (deg)Translation (cm)Chamfer (mm)Accuracy↑Error↓Accuracy↑Error↓Accuracy↑Error↓51045Med.51025Med.1510Med.UR&R [14]36.049.082.310.518.529.748.326.924.641.348.811.1CAT47.156.881.16.227.741.255.517.740.554.159.73.2Ours51.160.882.94.731.544.259.313.844.857.563.31.7
+
+Table 8 .
+8
+Runtime analysis.
+Time (ms)UR&R [14]OursFeature Extraction21.94±20.9231.92±8.97Correspondence Estimation247.88±23.22 255.94±22.95Geometric Fitting9.11±5.258.91±5.44Rendering (Just for training)8.32±6.738.10±6.28
+AcknowledgementsThis work was supported by the National Natural Science Foundation of China [grant number 62076070], and the Science and Technology Innovation Plan of Shanghai Science and Technology Commission [grant number 23S41900400].
+Spinnet: Learning a general surface descriptor for 3d point cloud registration. Sheng Ao, Qingyong Hu, Bo Yang, Andrew Markham, Yulan Guo, Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. the IEEE/CVF Conference on Computer Vision and Pattern Recognition2021
+
+Pointnetlk: Robust & efficient point cloud registration using pointnet. Yasuhiro Aoki, Hunter Goforth, Rangaprasad Arun Srivatsan, Simon Lucey, Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. the IEEE/CVF conference on computer vision and pattern recognition2019
+
+Pointdsc: Robust point cloud registration using deep spatial consistency. Xuyang Bai, Zixin Luo, Lei Zhou, Hongkai Chen, Lei Li, Zeyu Hu, Hongbo Fu, Chiew-Lan Tai, Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. the IEEE/CVF Conference on Computer Vision and Pattern Recognition2021
+
+D3feat: Joint learning of dense detection and description of 3d local features. Xuyang Bai, Zixin Luo, Lei Zhou, Hongbo Fu, Long Quan, Chiew-Lan Tai, Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. the IEEE/CVF conference on computer vision and pattern recognition2020
+
+Method for registration of 3-d shapes. J Paul, Neil D Besl, Mckay, Sensor fusion IV: control paradigms and data structures. Spie19921611
+
+Exploring simple siamese representation learning. Xinlei Chen, Kaiming He, Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. the IEEE/CVF Conference on Computer Vision and Pattern Recognition2021
+
+Bi-directional cross-modality feature propagation with separation-andaggregation gate for rgb-d semantic segmentation. Xiaokang Chen, Kwan-Yee Lin, Jingbo Wang, Wayne Wu, Chen Qian, Hongsheng Li, Gang Zeng, Computer Vision-ECCV 2020: 16th European Conference. UKSpringerAugust 23-28, 2020. 2020Proceedings, Part XI
+
+Deep global registration. Christopher Choy, Wei Dong, Vladlen Koltun, Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. the IEEE/CVF conference on computer vision and pattern recognition2020
+
+4d spatio-temporal convnets: Minkowski convolutional neural networks. Christopher Choy, Junyoung Gwak, Silvio Savarese, Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. the IEEE/CVF Conference on Computer Vision and Pattern Recognition2019
+
+Fully convolutional geometric features. Christopher Choy, Jaesik Park, Vladlen Koltun, Proceedings of the IEEE/CVF International Conference on Computer Vision. the IEEE/CVF International Conference on Computer Vision2019
+
+Scannet: Richly-annotated 3d reconstructions of indoor scenes. Angela Dai, Angel X Chang, Manolis Savva, Maciej Halber, Thomas Funkhouser, Matthias Nießner, Proceedings of the IEEE conference on computer vision and pattern recognition. the IEEE conference on computer vision and pattern recognition2017
+
+3dmv: Joint 3d-multiview prediction for 3d semantic scene segmentation. Angela Dai, Matthias Nießner, Proceedings of the European Conference on Computer Vision (ECCV). the European Conference on Computer Vision (ECCV)2018
+
+Superpoint: Self-supervised interest point detection and description. Daniel Detone, Tomasz Malisiewicz, Andrew Rabinovich, Proceedings of the IEEE conference on computer vision and pattern recognition workshops. the IEEE conference on computer vision and pattern recognition workshops2018
+
+Unsu-pervisedr&r: Unsupervised point cloud registration via differentiable rendering. Mohamed El Banani, Luya Gao, Justin Johnson, Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. the IEEE/CVF Conference on Computer Vision and Pattern Recognition2021
+
+Bootstrap your own correspondences. Mohamed El Banani, Justin Johnson, Proceedings of the IEEE/CVF International Conference on Computer Vision. the IEEE/CVF International Conference on Computer Vision2021
+
+Random sample consensus: a paradigm for model fitting with applications to image analysis and automated cartography. A Martin, Robert C Fischler, Bolles, Communications of the ACM. 2461981
+
+Learning multiview 3d point cloud registration. Zan Gojcic, Caifa Zhou, Jan D Wegner, Leonidas J Guibas, Tolga Birdal, Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. the IEEE/CVF conference on computer vision and pattern recognition2020
+
+Learning rich features from rgb-d images for object detection and segmentation. Saurabh Gupta, Ross Girshick, Pablo Arbeláez, Jitendra Malik, European conference on computer vision. Springer2014
+
+Fusenet: Incorporating depth into semantic segmentation via fusion-based cnn architecture. Caner Hazirbas, Lingni Ma, Csaba Domokos, Daniel Cremers, Computer Vision-ACCV 2016: 13th Asian Conference on Computer Vision. Taipei, TaiwanSpringerNovember 20-24, 2016. 2017Revised Selected Papers, Part I 13
+
+Deep residual learning for image recognition. Kaiming He, Xiangyu Zhang, Shaoqing Ren, Jian Sun, Proceedings of the IEEE conference on computer vision and pattern recognition. the IEEE conference on computer vision and pattern recognition2016
+
+Ffb6d: A full flow bidirectional fusion network for 6d pose estimation. Yisheng He, Haibin Huang, Haoqiang Fan, Qifeng Chen, Jian Sun, Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. the IEEE/CVF Conference on Computer Vision and Pattern Recognition2021
+
+Pvn3d: A deep point-wise 3d keypoints voting network for 6dof pose estimation. Yisheng He, Wei Sun, Haibin Huang, Jianran Liu, Haoqiang Fan, Jian Sun, Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. the IEEE/CVF conference on computer vision and pattern recognition2020
+
+Pri3d: Can 3d priors help 2d representation learning?. Ji Hou, Saining Xie, Benjamin Graham, Angela Dai, Matthias Nießner, Proceedings of the IEEE/CVF International Conference on Computer Vision. the IEEE/CVF International Conference on Computer Vision2021
+
+Bidirectional projection network for cross dimension scene understanding. Wenbo Hu, Hengshuang Zhao, Li Jiang, Jiaya Jia, Tien-Tsin Wong, Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. the IEEE/CVF Conference on Computer Vision and Pattern Recognition2021
+
+Predator: Registration of 3d point clouds with low overlap. Shengyu Huang, Zan Gojcic, Mikhail Usvyatsov, Andreas Wieser, Konrad Schindler, Proceedings of the IEEE/CVF Conference on computer vision and pattern recognition. the IEEE/CVF Conference on computer vision and pattern recognition2021
+
+Epnet: Enhancing point features with image semantics for 3d object detection. Tengteng Huang, Zhe Liu, Xiwu Chen, Xiang Bai, European Conference on Computer Vision. Springer2020
+
+Featuremetric registration: A fast semi-supervised approach for robust point cloud registration without correspondences. Xiaoshui Huang, Guofeng Mei, Jian Zhang, Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. the IEEE/CVF conference on computer vision and pattern recognition2020
+
+Xiaoshui Huang, Guofeng Mei, arXiv:2103.02690Jian Zhang, and Rana Abbas. A comprehensive survey on point cloud registration. 2021arXiv preprint
+
+Gmf: General multimodal fusion framework for correspondence outlier rejection. Xiaoshui Huang, Wentao Qu, Yifan Zuo, Yuming Fang, Xiaowei Zhao, IEEE Robotics and Automation Letters. 742022
+
+Imfnet: Interpretable multimodal fusion for point cloud registration. Xiaoshui Huang, Wentao Qu, Yifan Zuo, Yuming Fang, Xiaowei Zhao, IEEE Robotics and Automation Letters. 742022
+
+Self-supervised pre-training of 3d point cloud networks with image data. Andrej Janda, Brandon Wagstaff, Edwin G Ng, Jonathan Kelly, arXiv:2211.118012022arXiv preprint
+
+Multi-view pointnet for 3d scene understanding. Maximilian Jaritz, Jiayuan Gu, Hao Su, Proceedings of the IEEE/CVF International Conference on Computer Vision Workshops. the IEEE/CVF International Conference on Computer Vision Workshops2019
+
+Linearized multi-sampling for differentiable image transformation. Wei Jiang, Weiwei Sun, Andrea Tagliasacchi, Eduard Trulls, Kwang Moo, Yi , Proceedings of the IEEE/CVF International Conference on Computer Vision. the IEEE/CVF International Conference on Computer Vision2019
+
+Using spin images for efficient object recognition in cluttered 3d scenes. Andrew E , Johnson , Martial Hebert, IEEE Transactions on pattern analysis and machine intelligence. 199921
+
+Nikolaos Pappas, and Franc ¸ois Fleuret. Transformers are rnns: Fast autoregressive transformers with linear attention. Angelos Katharopoulos, Apoorv Vyas, International Conference on Machine Learning. PMLR2020
+
+In defense of classical image processing: Fast depth completion on the cpu. Jason Ku, Ali Harakeh, Steven L Waslander, 2018 15th Conference on Computer and Robot Vision (CRV). IEEE2018
+
+Deep hough voting for robust global registration. Junha Lee, Seungwook Kim, Minsu Cho, Jaesik Park, Proceedings of the IEEE/CVF International Conference on Computer Vision. the IEEE/CVF International Conference on Computer Vision2021
+
+Bifnet: Bidirectional fusion network for road segmentation. Haoran Li, Yaran Chen, Qichao Zhang, Dongbin Zhao, IEEE transactions on cybernetics. 2021
+
+Pointnetlk revisited. Xueqian Li, Jhony Kaesemodel Pontes, Simon Lucey, Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. the IEEE/CVF Conference on Computer Vision and Pattern Recognition2021
+
+Deepfusion: Lidar-camera deep fusion for multi-modal 3d object detection. Yingwei Li, Adams Wei Yu, Tianjian Meng, Ben Caine, Jiquan Ngiam, Daiyi Peng, Junyang Shen, Yifeng Lu, Denny Zhou, Quoc V Le, Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. the IEEE/CVF Conference on Computer Vision and Pattern Recognition2022
+
+Simipu: Simple 2d image and 3d point cloud unsupervised pre-training for spatial-aware visual representations. Zhenyu Li, Zehui Chen, Ang Li, Liangji Fang, Qinhong Jiang, Xianming Liu, Junjun Jiang, Bolei Zhou, Hang Zhao, Proceedings of the AAAI Conference on Artificial Intelligence. the AAAI Conference on Artificial Intelligence202236
+
+Deep continuous fusion for multi-sensor 3d object detection. Ming Liang, Bin Yang, Shenlong Wang, Raquel Urtasun, Proceedings of the European conference on computer vision (ECCV). the European conference on computer vision (ECCV)2018
+
+Distinctive image features from scaleinvariant keypoints. David G Lowe, International journal of computer vision. 6022004
+
+Deepvcp: An end-to-end deep neural network for point cloud registration. Weixin Lu, Guowei Wan, Yao Zhou, Xiangyu Fu, Pengfei Yuan, Shiyu Song, Proceedings of the IEEE/CVF International Conference on Computer Vision. the IEEE/CVF International Conference on Computer Vision2019
+
+Diffusion probabilistic models for 3d point cloud generation. Shitong Luo, Wei Hu, Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. the IEEE/CVF Conference on Computer Vision and Pattern Recognition2021
+
+Cotreg: Coupled optimal transport based point cloud registration. Guofeng Mei, Xiaoshui Huang, Litao Yu, Jian Zhang, Mohammed Bennamoun, arXiv:2112.143812021arXiv preprint
+
+Color point cloud registration with 4d icp algorithm. Biruk Hao Men, Kishore Gebre, Pochiraju, 2011 IEEE International Conference on Robotics and Automation. IEEE2011
+
+Pytorch: An imperative style, high-performance deep learning library. Advances in neural information processing systems. Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory Chanan, Trevor Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga, 201932
+
+A review of point cloud registration algorithms for mobile robotics. Francis Franc ¸ois Pomerleau, Roland Colas, Siegwart, Foundations and Trends® in Robotics. 412015
+
+Pointnet: Deep learning on point sets for 3d classification and segmentation. Hao Charles R Qi, Kaichun Su, Leonidas J Mo, Guibas, Proceedings of the IEEE conference on computer vision and pattern recognition. the IEEE conference on computer vision and pattern recognition2017
+
+Sanja Fidler, and Raquel Urtasun. 3d graph neural networks for rgbd semantic segmentation. Xiaojuan Qi, Renjie Liao, Jiaya Jia, Proceedings of the IEEE International Conference on Computer Vision. the IEEE International Conference on Computer Vision2017
+
+Geometric transformer for fast and robust point cloud registration. Zheng Qin, Hao Yu, Changjian Wang, Yulan Guo, Yuxing Peng, Kai Xu, Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. the IEEE/CVF Conference on Computer Vision and Pattern Recognition2022
+
+Nikhila Ravi, Jeremy Reizenstein, David Novotny, Taylor Gordon, Wan-Yen Lo, Justin Johnson, Georgia Gkioxari, arXiv:2007.08501Accelerating 3d deep learning with pytorch3d. 2020arXiv preprint
+
+Unet: Convolutional networks for biomedical image segmentation. Olaf Ronneberger, Philipp Fischer, Thomas Brox, International Conference on Medical image computing and computer-assisted intervention. Springer2015
+
+Fast point feature histograms (fpfh) for 3d registration. Bogdan Radu, Nico Rusu, Michael Blodow, Beetz, IEEE international conference on robotics and automation. 2009. 2009IEEE
+
+Superglue: Learning feature matching with graph neural networks. Paul-Edouard Sarlin, Daniel Detone, Tomasz Malisiewicz, Andrew Rabinovich, Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. the IEEE/CVF conference on computer vision and pattern recognition2020
+
+Kpconv: Flexible and deformable convolution for point clouds. Hugues Thomas, Charles R Qi, Jean-Emmanuel Deschaud, Beatriz Marcotegui, Leonidas J Franc ¸ois Goulette, Guibas, Proceedings of the IEEE/CVF international conference on computer vision. the IEEE/CVF international conference on computer vision2019
+
+Visualizing data using t-sne. Laurens Van Der Maaten, Geoffrey Hinton, Journal of machine learning research. 9112008
+
+Attention is all you need. Advances in neural information processing systems. Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, Illia Polosukhin, 201730
+
+Sequence to sequence-video to text. Subhashini Venugopalan, Marcus Rohrbach, Jeffrey Donahue, Raymond Mooney, Trevor Darrell, Kate Saenko, Proceedings of the IEEE international conference on computer vision. the IEEE international conference on computer vision2015
+
+Pointpainting: Sequential fusion for 3d object detection. Sourabh Vora, Alex H Lang, Bassam Helou, Oscar Beijbom, Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. the IEEE/CVF conference on computer vision and pattern recognition2020
+
+Pointaugmenting: Cross-modal augmentation for 3d object detection. Chunwei Wang, Chao Ma, Ming Zhu, Xiaokang Yang, Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. the IEEE/CVF Conference on Computer Vision and Pattern Recognition2021
+
+Densefusion: 6d object pose estimation by iterative dense fusion. Chen Wang, Danfei Xu, Yuke Zhu, Roberto Martín-Martín, Cewu Lu, Li Fei-Fei, Silvio Savarese, Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. the IEEE/CVF conference on computer vision and pattern recognition2019
+
+You only hypothesize once: Point cloud registration with rotation-equivariant descriptors. Haiping Wang, Yuan Liu, Zhen Dong, Wenping Wang, Proceedings of the 30th ACM International Conference on Multimedia. the 30th ACM International Conference on Multimedia2022
+
+Depth-aware cnn for rgb-d segmentation. Weiyue Wang, Ulrich Neumann, Proceedings of the European Conference on Computer Vision (ECCV). the European Conference on Computer Vision (ECCV)2018
+
+Dynamic graph cnn for learning on point clouds. Yue Wang, Yongbin Sun, Ziwei Liu, Sanjay E Sarma, Michael M Bronstein, Justin M Solomon, Acm Transactions On Graphics (tog). 3852019
+
+Improving rgb-d point cloud registration by learning multi-scale local linear transformation. Ziming Wang, Xiaoliang Huo, Zhenghao Chen, Jing Zhang, Lu Sheng, Dong Xu, Computer Vision-ECCV 2022: 17th European Conference. Tel Aviv, IsraelSpringerOctober 23-27, 2022. 2022Proceedings, Part XXXII
+
+Frustum convnet: Sliding frustums to aggregate local point-wise features for amodal 3d object detection. Zhixin Wang, Kui Jia, 2019 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEE2019
+
+Danda Pani Paudel, and Cédric Demonceaux. Robust rgb-d fusion for saliency detection. Zongwei Wu, Shriarulmozhivarman Gobichettipalayam, Brahim Tamadazte, Guillaume Allibert, arXiv:2208.017622022arXiv preprint
+
+Regtr: End-to-end point cloud correspondences with transformers. Jian Zi, Gim Yew, Lee Hee, Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. the IEEE/CVF Conference on Computer Vision and Pattern Recognition2022
+
+Mingzhi Yuan, Xiaoshui Huang, Kexue Fu, Zhihao Li, Manning Wang, arXiv:2302.05210Boosting 3d point cloud registration by transferring multi-modality knowledge. 2023arXiv preprint
+
+Pointclm: A contrastive learning-based framework for multi-instance point cloud registration. Mingzhi Yuan, Zhihao Li, Qiuye Jin, Xinrong Chen, Manning Wang, European Conference on Computer Vision. Springer2022
+
+Learning local geometric descriptors from rgb-d reconstructions. Andy Zeng, Shuran Song, Matthias Nießner, Matthew Fisher, Jianxiong Xiao, Thomas Funkhouser, Proceedings of the IEEE conference on computer vision and pattern recognition. the IEEE conference on computer vision and pattern recognition20173
+
+Visual-lidar odometry and mapping: Low-drift, robust, and fast. Ji Zhang, Sanjiv Singh, 2015 IEEE International Conference on Robotics and Automation (ICRA). IEEE2015

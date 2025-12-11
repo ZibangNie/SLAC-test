@@ -1,0 +1,622 @@
+Bayesian MRI Reconstruction with Joint Uncertainty Estimation using Diffusion Models *
+
+
+Guanxiong Luo guanxiong.luo@med.uni-goettingen.de 
+Institute for Diagnostic and Interventional Radiology
+University Medical Center Göttingen
+Germany
+
+| Moritz Blumenthal 
+Institute of Biomedical Imaging
+Graz University of Technology
+GrazAustria
+
+Institute for Diagnostic and Interventional Radiology
+University Medical Center Göttingen
+Germany
+
+Martin Heide 
+Institute for Diagnostic and Interventional Radiology
+University Medical Center Göttingen
+Germany
+
+| Martin Uecker 
+Institute of Biomedical Imaging
+Graz University of Technology
+GrazAustria
+
+Institute for Diagnostic and Interventional Radiology
+University Medical Center Göttingen
+Germany
+
+German Centre for Cardiovascular Research (DZHK)
+Partner SiteGöttingenGermany
+
+Cluster of Excellence "Multiscale Bioimaging: from Molecular Machines to Networks of Excitable Cells" (MBExC)
+University of Göttingen
+Germany
+
+Institute for Diagnostic and Interventional Radiology
+Present Address Guanxiong Luo, University Medical Center Göttingen, Institute for Diagnostic and Interventional Radiology
+Correspondence Guanxiong Luo
+University Medical Center Göttingen
+Robert-Koch-Str. 40, Robert-Koch-Str. 4037075, 37075Göttingen, GöttingenGermany., Germany
+
+Bayesian MRI Reconstruction with Joint Uncertainty Estimation using Diffusion Models *
+Received 28 Jul 2022; Revised 19 Dec 2022; Accepted 8 Feb 2023FULL PAPERImage reconstructionInverse problemsBayesian inferenceMarkov chain Monte CarloGenerative modelingPosterior sampling
+Purpose:We introduce a framework that enables efficient sampling from learned probability distributions for MRI reconstruction.Method: Samples are drawn from the posterior distribution given the measured k-space using the Markov chain Monte Carlo (MCMC) method, different from conventional deep learning-based MRI reconstruction techniques. In addition to the maximum a posteriori (MAP) estimate for the image, which can be obtained by maximizing the log-likelihood indirectly or directly, the minimum mean square error (MMSE) estimate and uncertainty maps can also be computed from those drawn samples. The data-driven Markov chains are constructed with the score-based generative model learned from a given image database and are independent of the forward operator that is used to model the k-space measurement.Results:We numerically investigate the framework from these perspectives: 1) the interpretation of the uncertainty of the image reconstructed from undersampled k-space; 2) the effect of the number of noise scales used to train the generative models; 3) using a burn-in phase in MCMC sampling to reduce computation; 4) the comparison to conventional 1 -wavelet regularized reconstruction; 5) the transferability of learned information; and 6) the comparison to fastMRI challenge.Conclusion: A framework is described that connects the diffusion process and advanced generative models with Markov chains. We demonstrate its flexibility in terms of contrasts and sampling patterns using advanced generative priors and the benefits of also quantifying the uncertainty for every pixel.
+
+INTRODUCTION
+
+Modern Magnetic Resonance Imaging (MRI) formulates reconstruction from raw data in Fourier space (k-space) as an * Parts of this work were presented at the ISMRM 2022.
+
+inverse problem. Undersampling to reduce acquisition time then leads to an ill-posed reconstruction problem. To solve this problem, parallel imaging can exploit spatial information from multiple receive coils in an extended forward model 1 . Compressed sensing uses the sparsity of images in a transform domain (i.e. wavelet domain, finite differences) as prior knowledge. Combined with incoherent sampling this allows recovery of sparse images from highly undersampled data 2,3 . Learning-based techniques for compressed sensing include methods using dictionary learning 4 or a patch-based nonlocal operator 5 .
+
+In recent years, the application of deep learning pushed these ideas forward by integrating learned prior knowledge 6 . Most of these methods can be classified into two categories: First, methods that unroll the existing iterative reconstruction algorithms into a neural network and train their parameters by maximizing the similarity to a ground truth. In Ref. [7], the authors replaced the handcrafted regularization term with convolution layers, and derived a neural network from the iterative procedure of the Alternating Direction Method of Multipliers (ADMM) algorithm. Ref. [8,9] investigated similar approaches. The downside of this kind of method is the need for supervised training, which requires raw k-space data with fixed known sampling patterns and corresponding ground truth images. The second category consists of methods that learn a prior from high-quality images, then plug it into existing iterative algorithms as a regularization term. In Ref. [10,11,12], the image prior was constructed with a variational auto-encoder 13 , a denoising auto-encoder 14 and an autoregressive generative model 15 , respectively. These methods then compute a maximum a posterior (MAP) as the estimator of the image. These types of methods separate the learned information from the encoding matrix (sampling pattern in k-space and coil sensitivities), which permits more flexibility in practice because they allow the acquisition patterns and receive coils to change without retraining. Generative adversarial networks were also used for image reconstruction in Ref. [16]. There, the discriminator is used to confine the space of the output of a generator that is designed to generate images with conformity to k-space data.
+
+Although deep learning based approaches provide promising results, worries about the uncertainty caused by undersampling strategies and algorithms have limited their usage in clinical practice until now. Therefore, the uncertainty assessment constitutes an important step for deep learning based approaches. The uncertainty is two-fold: 1) the uncertainty of weights inside the neural network 17,18 ; and 2) the uncertainty introduced by the missing k-space data points. The uncertainty from missing k-space data points can be addressed in a Bayesian imaging framework. We refer the readers to Ref. [19,20]. In Ref. [11], the MAP estimator is used, but it provides only the mode of the posterior density ( | ) and practical optimization may also even only provide a local maximum. In the setting of Bayesian inference, it is possible to investigate the full shape of posterior distribution ( | ). In particular, it is possible to draw sample from the posterior distribution for priors based on diffusion models using the Markov chain Monte Carlo (MCMC) method as described previously by Jalal et al. 21 and others 22,23,24 , which are closely related to the present work. Jalel et al. use Langevin sampling to sample the posterior using score-based generative model and this is extendend in Ref. [24] to also include a motion model. The method in Ref. [23] uses the predictor-and-corrector framework proposed in Ref. [25]. These publications point out the relationship to Bayesian reconstruction and show some results related to uncertainty estimation, but a complete Bayesian formulation of this framework applied to MRI multi-channel reconstruction is not provided. A general problem with this approch is the large number of iterations required during sampling, e.g. Ref. [23] reports the use of several thousands of iterations.
+
+Following these ideas, a generic framework for MRI reconstruction emerges, which is based on a series of publications related to generative models 25,26,27,28,29 , in which the essential idea is to: 1) systematically and slowly destroy the underlying prior knowledge in a data distribution through an iterative forward diffusion process; 2) learn a reverse diffusion process that restores the patterns by a so-called score-based neural network and 3) incorporate the forward model of the measurement into the learned reverse process. The general picture of the proposed method is illustrated in Figure 1 .
+
+In the present work, we recapitulate the framework of Bayesian reconstruction and score-based diffusion models and numerically investigate this framework from the following different perspectives: 1) the interpretation of the uncertainty of the image reconstructed from undersampled k-space; 2) the effect of the number of noise scales used the generative models on image quality on computation time; 3) using a burn-in phase in MCMC sampling to reduce computation; 4) the comparison to conventional 1 -wavelet regularized reconstruction; 5) the transferability of learned information; and 6) the comparison to fastMRI challenge 30,31 .
+
+
+THEORY
+
+
+Magnetic Resonance Image Reconstruction as Bayesian Inference
+
+We consider image reconstruction as a Bayesian problem where the posterior of image ( | ) given with the measured data and a prior ( ) learned from a database of images 11,19,20 . Here, the image is denoted as ∈ C × , where × is the size of image, and ∈ C × is the vector of complex-valued k-space samples from receive coils. Assuming the noise circularly-symmetric normal with zero mean and covariance matrix 2 , the likelihood ( | ) for observing the determined by =  + and given the image is given by a complex normal distributions
+( | ) =  ( ;  , 2 ) = ( 2 ) − -‖ −1 ⋅( − )‖ 2 2 ,(1)(a) x 0 x i−1 x i x N Data Gaussian · · · q(x i |x i−1 ) p θ (x i−1 | x i ) · · · x 0 x i−1 x i x N · · · p θ (x i−1 | x i ) · · · N (y; Ax i , σ 2 i I) (b) 1 2 3 q(x0) pθ(x0) ← · · · ← q(x0) pθ(xN 2 ) ← · · · ← q(x0) pθ(xN) 1 2 3 q(x0) pθ(x0|y) ← · · · ← q(x0) pθ(xN 2 |y) ← · · · ← q(x0) pθ(xN|y) FIGURE 1
+Overview of the proposed method. (a) The unknown data distribution ( 0 ) of the training images goes through repeated Gaussian diffusion and finally reaches a known Gaussian distribution ( ), and this process is reversed by learned transition kernels −1 | . To compute the posterior of the image ( | ), a new Markov chaiñ −1 | is constructed by incorporating the measurement model into the reverse process (red chain). (b) Training samples (red dots) from a mixture of bivariate Gaussian distribution are shown. The upper and bottom rows illustrate how samples (green dots) gradually gather around training samples in the reverse process, without and with the observation, respectively. In this example, the likelihood for the observation was a bivariate Gaussian mixture, so that cluster 2 has a lower and cluster 3 has a higher probability.
+
+where is the identity matrix, the standard deviation of the noise,  is the mean and is the length of the k-space data vector.  ∶ C × → C × is the forward operator and given by  =  , where  are the coil sensitivity maps,  the two-dimensional Fourier transform, and  the k-space sampling operator. According to Bayes' theorem the posterior density function ( | ) is then
+( | ) = ( | ) ⋅ ( ) ( ) .(2)
+In this work, the reconstruction is based on the sampling of this posterior distribution. We utilize an efficient technique based on the Markov Chain Monte Carlo method with the application of a diffusion probabilistic generative model. This consists of two processes: 1) a forward diffusion process which converts a complicated distribution used as prior for the image into a simple Gaussian distribution; and 2) a learned finite-time reversal of this diffusion process with which a Gaussian distribution is gradually transformed back to the posterior (cf. Figure 1 ).
+
+
+The Forward Diffusion Process
+
+In probabilistic diffusion models, the data distribution characterized by density ( 0 ) is gradually converted into an analytically tractable distribution (Gaussian noise) 28 . The image 0 is perturbed with a sequence of noise scales 0 = 0 < 1 < ⋯ < . When the number of steps used for discretization → ∞, the diffusion process becomes a continuous process. Here, we consider the discrete Markov chain
+= −1 + −1 , = 1, ⋯ , ,(3)
+where −1 ∼  ( , ( 2 − 2 −1 ) ), i.e. the -th transition kernel is then given by
+( | −1 ) =  ( ; −1 , ( 2 − 2 −1 ) ) .(4)
+Instead of doing transitions step by step 25,32 a single perturbation kernel
+( | 0 ) =  ; 0 , 2(5)
+can be computed as a convolution of Gaussians. With Bayes' theorem we can write:
+−1 | , 0 = | −1 −1 | 0 | 0 .(6)
+Given the initial image 0 , the posterior of a single step of the forward process is then given by (see Appendix A)
+( −1 | , 0 ) =  −1 ; 2 −1 2 + 1 − 2 −1 2 0 , 2 (7)
+with variance 2 ∶= 2 − 2 −1 2 −1 ∕ 2 .
+
+
+Learning the Reverse Process
+
+The joint distribution of the reversal diffusion process is characterized by the probability density
+( , −1 , ⋯ , 0 ) = ( ) ∏ =1 ( −1 | ) ,(8)
+where ( ) is the initial Gaussian distribution. The reverse is given by Kolmogorov's backward equation which has the same form as the forward process 28,32 . Thus, the transitions ( −1 | ) of the reverse process can be parameterized with the Gaussian transition kernel
+−1 | =  −1 ; , , 2 ,(9)
+where , and 2 are the mean and variance of the reverse transitions, respectively. Here, we learn the mean of the reverse transitions using a neural network parameterized by training parameters . Since the learned reverse transitions ( −1 | ) lead to a new density ( 0 ), which should match ( 0 ), they can be learned by minimizing the cross entropy
+( , ) = −E ( 0 ) log ( 0 ) .(10)
+Following Ref. [28] a lower bound can be written in terms of KL divergence between the transition kernel Equation (9) and the posterior of forward process Equation (7)
+= ∑ =2 E ( 0 ) E ( | 0 ) KL ( ( −1 | , 0 )‖ ( −1 | )) = ∑ =2 E ( 0 ) E ( | 0 ) 1 2 ‖ ‖ ‖ 2 −1 2 + 1 − 2 −1 2 0 − ( , ) ‖ ‖ ‖ 2 2 + ,(11)
+where is a constant. The derivation of KL divergence between two Gaussian distributions is detailed in Appendix B. Using Equation (5) we can express = 0 + with ∼  , 2 , and obtain
+= ∑ =2 E 0 , 1 2 ‖ ‖ ‖ ‖ ‖ 2 −1 2 + 0 − , ‖ ‖ ‖ ‖ ‖ 2 2 + . (12)
+Thus, we can learn the mean of the reverse transitions by learning to denoise the training data disturbed by noise. In Ref. [26,27], the generative model is estimated by minimizing the expected squared distance between the gradient of the log-probability given by the score network and the gradient of the log-probability of the observed data. This technique was extended and generalized in Ref. [29,25]. In the following, we quickly point out the connection to score matching networks. Let:
+, − 0 = 2 −1 , ,(13)
+where ( , ) denotes the denoising score matching network that is conditional on the index of noise scales . Then, we have
+= ∑ =2 E 0 , 2 −1 2 ‖ ‖ ‖ ‖ ‖ 2 − , ‖ ‖ ‖ ‖ ‖ 2 2 + .(14)
+Expressing the noise again as = − 0 , we can rewrite
+E 0 , ‖ ‖ ‖ ‖ ‖ − 0 2 − ( , ) ‖ ‖ ‖ ‖ ‖ 2 2 = E ( 0 ) E ( | 0 ) ‖ ‖ ‖ ∇ log ( | 0 ) − ( , ) ‖ ‖ ‖ 2 2(15)
+which shows that Equation (14) is equivalent to score matching. For the later use of the transition kernel, Equation (13) is equivalent to
+, − = 2 − 2 −1 , .(16)
+In summary, the score network is trained via Equation (15) to output the gradient fields that are used to construct the Markov transitions (Equation (9)) which nudges coarse samples toward finer ones −1 , namely the reverse process. In later sections, we will discuss how we construct and train the score networks.
+
+
+Computing the Posterior for MRI Reconstruction
+
+In order to compute the posterior probability ( | ) for the image given the data , we need to modify the learned reverse process. We achieve this by multiplying each of the intermediate distributions ( ) with the likelihood term ( | ) according to Bayes' theorem. We usẽ = ( | ) to denote the resulting sequence of intermediate distributions
+∝ ( | )(17)
+up to the unknown normalization constant. Following Ref. [28], the transition from +1 to of the modified reverse process is̃
+| +1 ∝ | +1 ( | ) .(18)
+The sampling at each intermediate distribution of Markov transitions Equation (18) is performed with the unadjusted Langevin algorithm 33
++1 ← + 2 ∇ log̃ ( | +1 ) + √ ,(19)
+where is standard complex Gaussian noise  (0, ). We now go over to the modified learned process̃ ( | +1 ) parameterized by and obtain the log-derivative with respect to using the learned reverse transitions | +1 as ∇ log̃ ( | +1 ) = ∇ log | +1 + ∇ log ( | ). (20) From Equation (9) and Equation (16), we have
+∇ log | +1 = 1 2 +1 2 +1 − 2 +1 , ,(21)
+and from Equation (1) we have
+∇ log ( | ) = − 1 2 (  −  ) .(22)
+After inserting these expressions into Equation (19) we obtain
++1 ← + 2 2 +1 ( 2 +1 − 2 ) ( , ) − 2 2 (  −  ) + √ .(23)
+The starting point for each chain 0 = K +1 is the last sample from the previous distributioñ ( +1 | +2 ) after K Langevin steps. We found it advantageous to modify the likelihood term in each step according 2 = +1 ∕ , which should approach the variance of the data noise in the last step. Since the noise variance was unknown for the data set we used, we empirically selected a that determines how strong the k-space data consistency is relative to the prior. We set to 2 2 +1 . At last, the algorithm used to sampling the posterior is presented in Algorithm 1.
+
+
+Algorithm 1
+
+Sampling the posterior with a Markov chain Monte Carlo method 1: Give the acquired k-space . 2: Construct the forward operator  with sampling pattern  and coil sensitivities . 3: Set the Langevin steps K, the factor , the start noise level index N, and . 4: Generate 0 N from a suitable Gaussian distribution (e.g.,  ∼ (0, )) . 5: for in {N − 1, ⋯ , 1} do 6: Draw samples from̃ ( | +1 ) by running K Langevin steps with Equation (23). 7: end for To characterize the shape of a posterior, we run multiple chains to draw samples in parallel. To reduce the amount of computation, the burn-in phase is introduced as shown in Figure 2 . That means only one chain proceeds through the several beginning noise levels, and after that we split it up into multiple Markov chains using the sample from the burnin phase as initial point indicated by the blue dot. To further reduce computation, we introduce the continuously decreasing noise scales, which reduces the number of iterations when performing Langevin dynamics at each intermediate distribution.
+
+
+The Analysis of Samples
+
+Given a posterior probability distribution ( | ) the minimum mean square error (MMSE) estimator minimizes the mean square error:
+MMSE = arg miñ ∫ ‖̃ − ‖ 2 ( | ) = E[ | ] . (24)
+The MMSE estimator cannot be computed in a closed form, and numerical approximations are typically required. Since we demonstrated how to generate samples from the posterior in previous sections, let us consider the samples K 0 at the last stage, and a consistent estimate of MMSE can be computed by averaging those samples, i.e. the empirical mean of samples converges in probability to MMSE due to weak law of large numbers. The variance of those samples is a solution to the error assessment for the reconstruction if we trust the model parameterized by Equation (9) that is learned from a image database. The 95% confidence interval is computed for each pixel with its mean and variance. Since a wider confidence interval (CI) means a larger margin of error, the mean is overlaid with it to indicate the variability of each pixel, and up to a certain point, the variability can cause a visual change on the image (cf. 3.3).
+
+
+METHODS
+
+
+Score Networks' Architecture
+
+The denoising score network is designed to predict the noise given an image degraded by Gaussian noise of a particular scale . To improve the quality of the predictions for different noise scales, we consider networks conditional on discrete and pseudo-continuous noise scales. The discrete one has a much larger gap between and −1 than the pseudo-continuous one and usually has a smaller number of noise scales , while the pseudo-continuous network is adaptive to a certain trained range of noise scales. The sequence of noise scales { } N =1 is geometrically generated following the scheme in Ref. [25], i.e. = ( ) = min ( max
+min ) −1 −1 .
+For a discrete model, we add modified instance normalization layers that are conditional on the index of the noise scales following each convolution layer. The conditional instance normalization 34 
+iŝ = Φ[ , ] − + Ω[ , ],(25)
+where Φ ∈ R × and Ω ∈ R × are learnable parameters, denotes the index of a feature map , and are the means and standard deviation over its spatial locations of the . For a continuous model, we let networks be conditional on the index of noise scales by inserting random Fourier features 35 . Three steps used to encode a noise index into random features are as follows:
+
+• Draw a random vector which has i.i.d. Gaussian entries with the specified standard deviation,
+
+• Scale the random vector with the index , then multiply it with 2 ,
+
+• Apply sines and cosines to the scaled random vector, then concatenate them into × 2 matrix,
+
+where is embedding size. The encoded index is added to all the blocks listed in Supporting Table S1. With either one of the two modifications above, a network ( , ) has two inputs, i.e. noise corrupted image and noise index . Real and imaginary parts of the images are interpreted as seperate channels when input into the neural network. RefineNet 36 is the backbone of all the score networks used in this work (cf. Supporting Figure S2). Three variants from that are trained for different reconstruction experiments. The architectures of three networks are presented in detail in Supporting Table S1. We refer the readers to the codes available online for more information about them. We labeled the three networks with 1 , 2 , and 3 , respectively, for ease of reference in the following.
+
+1 is conditional on discrete noise scales, 2 and 3 are conditional on continuous noise scales. We introduce self-attention modules into 3 to capture long-range dependencies by adding non-local blocks as described previously 37 so that the network has the capability to model the dataset of high-resolution images.
+
+
+Dataset, Training and Inference
+
+We trained 1 and 2 on a dataset acquired by us already used and described in Ref. [11].
+
+3 was trained on a subset of the fastMRI dataset 30 . Our dataset has 1300 images containing T1-weighted, T2-weighted, T2-weighted fluidattenuated inversion recovery (FLAIR), and T2 * -weighted brain images from 13 healthy volunteers examined with clinical standard-of-care protocols. The brain images from fastMRI dataset 30 were used for benchmark that contains T1-weighted (some with post contrast), T2-weighted and FLAIR images. For the detailed information of both dataset, we refer readers to corresponding publication. Regarding the data partitioning, we first separated all multi-slice volumes into training and testing groups. Then we split the volume into two-dimensional slices (i.e., images). Reference images -denoted 0 in the theory -were reconstructed from fullysampled multi-channel k-space. Then, these complex image datasets after coil combination were normalized to a maximum magnitude of 1. The coil sensitivity maps were computed with BART toolbox using ESPIRiT 38,39 . 1300 images of size 256×256 from the dataset used in Ref. [11] were used to train 1 and 2 . 1000 images were used for training, and 300 images were used for testing. All networks are trained for 1000 epochs, i.e. iterations over all training images. For the training of 3 , we used the T2-weighted FLAIR contrast images of size 320×320 that are reconstructed from fastMRI raw k-space data. 2937 images are for training, 326 images are for testing.
+
+Three score networks are implemented with Tensorflow 40 . The hyperparameters used to train the three score networks are listed in Supporting Table S2. With the trained networks, we implemented MCMC sampling Algorithm 1 with Tensorflow and Numpy 41 , and then explored the posterior ( | ) in different experimental settings. We trained three score networks once separately for all the experiments we did in this work. These three models can support all experiments performed in this study with variable undersampling patterns, coil sensitivity maps, channel numbers. It took around 43 and 67 seconds, respectively, to train 1 and 2 for one epoch on one NVIDIA A100 GPU with 80GB. For 3 , it took around 500 seconds per epoch on two NVIDIA A100 GPUs using the multi-GPU support from Tensorflow. In the spirit of reproducible research, codes and data to reproduce all experiments are made available * .
+
+
+Experiments
+
+Single Coil Unfolding: To investigate how the Markov chain explores the solution space of the inverse problem =  + , we designed the single coil unfolding experiment. The single channel k-space is simulated out of multi-channel kspace data. The odd lines in k-space are retained. 10 samples were drawn from the posterior ( | ).
+
+1 was used to construct transition kernels and the parameters in Algorithm 1 are K = 50, N = 10, = 6. We redo the experiment with the object shifted to bottom. This experiment has an inherent ambiguity which can not be resolved using the data alone and where the reconstruction is strongly determined by the prior. Thus, it mimics in a synthetic setting a situation with high undersampling where hallucinations were observed in the reconstruction of some deep-learning methods 42 .
+
+Multi-Coil Reconstruction: Multi-channel data points from Cartesian k-space are randomly picked with variabledensity poisson-disc sampling and the central 20×20 region is fully acquired. The acquisition mask covers 11.8% k-space and the corresponding zero-filled reconstruction is shown Figure 4 b. We initialized 10 chains and the MMSE was computed using different numbers of samples.
+
+1 was used to construct transition kernels and the parameters in Algorithm 1 are K = 30, N = 15, = 13. To visualize the process of sampling, we use peak-signal-noise-ratio (PSNR in dB) and similarity index (SSIM) as metrics to track intermediate samples. The comparisons are made between the magnitude of MMSE and the ground truth̃ after normalized with 2 -norm.
+
+More Noise Scales: To investigate how the number of noise scales influences the proposed method, we reconstructed the image from the undersampled k-space that was used in the multi-coil experiment.
+
+2 was used to construct transition kernels and the parameters in Algorithm 1 are K = 5, N = 70, = 25.
+
+Investigation of the Burn-in Phase: To investigate the burn-in phase illustrated in Figure 2 , we split up into multiple chains at a certain noise scale when drawing samples from the posterior ( | ). For instance, we denote by ( MMSE , 60) the * https://github.com/mrirecon/spreco MMSE that is computed with 10 samples drawn from ( | ) by splitting up into 10 chains at the 60 th noise scale. By changing the splitting point, we got different sets of samples that are from chains of different length and computed the final MMSE respectively. We have two sets of MMSE that are reconstructed from the undersampled k-space using two sampling patterns separately. The central 20x20 region is obtained and the k-space, outside the center, is randomly picked up retrospectively (10%, 20%).
+
+2 was used to construct Markov transition kernels and the parameters in Algorithm 1 are K = 5, N = 70, = 25.
+
+Investigation into MAP: To verify the samples are located around the local modality of the posterior, we disabled the disturbance with noise after stochastic inference with the last distributioñ ( 0 | 1 ) and ran 200 iterations more to get extended samples. What's more, we repeated this procedure with determinate inference, in which the disturbance was disabled during sampling iterations to get one deterministic sample, i.e., MAP estimation. A Poisson-disc sampling pattern is generated without variable density and with 2-fold undersampling along phase and frequency encoding directions.
+
+2 was used to construct transition kernels and the parameters in Algorithm 1 are K = 5, N = 70, = 25.
+
+Comparison to 1 -regularized Reconstruction: A comparison using the fastMRI dataset was used to evaluate the performance of the proposed method. We noticed that the raw k-space data is padded with zeros to make them have the same dimension. The effect caused by zero paddings is investigated in Ref. [43]. Since we only used the images that were reconstructed from the zero padded k-space for training, the issue caused by the synthesized k-space does not exist in our work. The undersampling pattern for each slice is randomly generated in all retrospective experiments.
+
+3 was used to construct transition kernels. The parameters in Algorithm 1 are K = 3, N = 90, = 20 and 10 samples were drawn to compute MMSE . The data range for computing PSNR and SSIM is determined by the maximum over each slice.
+
+Transferability: To investigate the transferability of learned prior information from T2 FLAIR images to other contrasts, we acquired T1-weighted (TR=2000ms, TI=900ms, TE=9ms) and T2-weighted (TR=9000ms, TI=2500ms, TE=81ms) FLAIR k-space data using a 2D multi-slice turbo spin-echo sequence with a 16-channel head coil at 3T (Siemens, 3T Skyra). 3 (trained with T2 FLAIR images) was used to construct transition kernels. The parameters in Algorithm 1 are K = 5, N = 70, = 20.
+
+Comparison to fastMRI challenge: As a comparison to the unrolled neural network, the XPDNet 31 is selected as the reference which ranked 2nd in the fastMRI challenge. Two networks were trained for acceleration factors 4 and 8, using retrospectively undersampled data from the fastMRI dataset [10] using equidistant Cartesian masks and the trained models that are publicly available † . For the proposed method, 3 was used to construct transition kernels. The parameters in Algorithm 1 are K = 4, N = 90, = 20. The confidence interval after thresholding is used as the color map to indicate that a region has high uncertainty. Be consistent with the evaluation the XPDNet provided, 30 FLAIR volumes are used for validation to compute metrics.
+
+
+RESULTS
+
+
+Single Coil Unfolding
+
+As expected, the lack of spatial information from coil sensitivities without parallel imaging leads to huge errors and folding artifacts still exist in MMSE as shown in Figure 3 . Since only odd lines are acquired, all images in which the superposition of points P and P +2∕ equals to the points P in ground truth are solutions to =  + with the same error (the residual norm ‖ −  ‖ 2 ). Selected solutions are presented in Figure 3 c. The variance map indicates the uncertainty of the solutions, which in this experiment is similar to the hallucinations observed in for some deep-learning methods for high undersampling 42 . The errors of the estimation MMSE are largely reduced compared to the zero-filled reconstruction because of prior knowledge from the learned reverse process (cf. Figure 3 a). The shift of the object increases the symmetry and then leads to even bigger errors as learned reverse process know less about images that were shifted (cf.  Figure 4 shows the results for the multi-coil experiment. Figure 4 a shows the evolution of the samples' PSNR and SSIM over the transitions of the data-driven Markov chain. Intermediate samples are presented in Supporting Figure S1. The convergence of samples at each noise level was reached as indicated by the PSNR and SSIM curves. When there are more samples, the MMSE converges to higher PSNR and SSIM. In Figure 4 b, 10 converged samples were used to compute MMSE and the variance map. Comparing with the ground truth, the variance map mainly reflects the edge information, which can be interpreted by the uncertainty that is introduced by the undersampling pattern used in k-space where many high frequency data points are missing but the low frequency data points are fully acquired. In contrast to the single coil unfolding, the local spatial information from coil sensitivities reduces the uncertainties of missing k-space data. Moreover, error maps qualitatively correspond to the variance map, with larger errors in higher variance regions as shown † https://huggingface.co/zaccharieramzi in Figure 4 c. Lastly, the average over more samples leads to smaller error.
+
+
+Multi-Coil Reconstruction
+
+
+More Noise Scales
+
+We also plotted the curve of PSNRs and SSIMs over iterations in Figure 5 a for 2 which uses continuous noise scales. The PSNR and SSIM of MMSE , which is computed with 10 samples, are 37.21dB and 0.9360, respectively. Two MMSE reconstructed separately with the application of 1 and 2 are presented in Figure 5 b and variance maps are presented as well. The variance of the samples that are drawn with 2 is less than those drawn with 1 , which means that we are more confident about the reconstuction using 2 . When we zoom into the region that has more complicated structures, the boundaries between white matter and gray matter are more distinct in the image recovered with 2 and the details are more obvious, as shown in Figure 5 c. Hence, increasing the number of noise scales in 2 relative to 1 reduces the number of iterations and improves the quality of reconstruction using score networks of comparable size. More noise scales make chains constructed with 2 exploit the prior knowledge from training image dataset more effectively than chains constructed with 1 which has fewer noise scales.
+
+
+Investigation of the Burn-in Phase
+
+The two sets of MMSE are presented in Figure 6 . In Figure 6 a, the earlier we split chains, the closer the MMSE gets to the truth. Especially, when we zoom into the region that has complicated structures (indicated by the red rectangle), the longer chains make fewer mistakes. The slightly distorted structure is seen in ( MMSE , 60) highlighted with blue circles. The distortion has disappeared in ( MMSE , 0) but some details are still missing. However, given more k-space data points, the longer chains do not cause a huge visual difference in the MMSE as shown in Figure 6 b, even though there is a slight increase in PSNR and SSIM. Although fewer data points mean more uncertainties, longer chains permit better exploration of the solution space, as shown by this experiment. Here, the image ( MMSE , 60) took about one fourth of the time (4 minutes and 30 seconds) to compute than the image ( MMSE , 0). For moderate undersampling rates, a burn-in phase is recommended for reducing computation time.
+
+
+Investigation of the MAP
+
+In Figure 7 , we plotted the curves of PSNR and SSIM over extended iterations for 2 and presented reconstructions that are from the MMSE and MAP estimator. As indicated by zoom-in images and curves in Figure 7a and 7c, the extended samples converge to a consistent estimate of the MAP. Measured by PSNR and SSIM, the MAP has better quality than individual samples. As expected, the MMSE obtained from averaging ten (non-extended) samples has better PSNR and SSIM than the MAP.
+
+
+Comparison to 1 -regularized Reconstruction
+
+The reconstructions with different methods are presented in Figure 8 . 1 -ESPIRiT denotes the reconstruction with the command of BART toolbox using 1 -wavelet regularization (0.01), which mostly recovers general structures while smoothing out some details. In MMSE , the majority of details are recovered, and the texture is almost identical to the ground truth, although some microscopic structures are still missing. Each subject has 16 slices and the metrics of 3 subjects presented in Supporting Table S3 are the average over slices of each subject. It's worth mentioning that PSNR and SSIM are influenced by the value-range of a slice in the evaluation of MR images. Figure 9 shows a 3 trained with T2 FLAIR contrast used to reconstruct a T1 FLAIR image (red box) in comparison to a T2 FLAIR image. No loss of quality can be observed.
+
+
+Transferability
+
+
+Comparison to fastMRI challenge
+
+As discussed in Ref. [44], the ground truth matters when computing comparison metrics. We plotted the metrics of 30 volumes against a root sum of squares (RSS) and a coil combined image (CoilComb) in Supporting Figure S3, which shows XPDNet favors RSS that was used as labels for training it while MMSE favors the other. Besides, the data range can be determined slice by slice or volume by volume, and the influences of that are not ignorable.
+
+Both methods provide nearly aliasing-free reconstruction at 4 or 8-fold acceleration. However, the hallucinations appear when using 8-fold acceleration, highlighted with the green color (cf. Figure 10 ).
+
+All in all, a deep learning-based method has enough capability to generate a realistic-looking image even when the problem is highly underdetermined as a result of undersampling, but the uncertainties inside it cannot be ignored.
+
+
+DISCUSSION
+
+Generally, the Bayesian statistical approach provides a foundation for sampling the posterior ( | ) and a natural mechanism for incorporating the prior knowledge that is learned from images. The generative model is used to construct Markov chains to sample the posterior. The utilization of probabilistic generative models allows: 1) flexibility for changing the forward model of measurement; 2) exact sampling from the posterior term ( | ); and 3) the estimation of uncertainty due to limited k-space data points.
+
+Uncertainties of Reconstruction: One advantage of the proposed approach over classical deterministic regularization methods is that it allows the quantification of uncertainties of the reconstruction with the variance map. That requires MCMC sampling technique. The loss of spatial information of coils leads to the failure of unfolding, as demonstrated in Section 4.1. High undersampling implies a high uncertainty about the solution, which may lead to hallucinations as observed in Ref. [42] and Figure 10 . The regions with aliasing correspond to the high variance areas of the uncertainty map. With multiple coils, the reduction of high frequency data points in k-space leads to the loss of fine details, as demonstrated in Section 4.2. The MMSE represents the reconstruction with minimum mean square error and the variance map evaluates the confidence interval of MMSE . Furthermore, it is possible to derive error bounds from the variance of the posterior as reported Ref. [45].
+
+Overfitting and Distortion: The proposed algorithm is an iterative refining procedure that starts from generating coarse samples with rich variations under large noise, before converging to fine samples with less variations under small noise. For early iterations of the algorithm, each parameter update mimics stochastic gradient descent; however, as the algorithm approaches a local minimum, the gradient shrinks and the chain produces the samples from the posterior. Lastly, we noticed that the balance between the learned transition and the data consistency plays an important role generally in the generation of realistic samples; here we refer readers to Supporting Figure S4. The larger , the stronger the consistency of data. Besides, we found that a large value of K is required for using the discrete noise conditional score network in Algorithm 1 while a smaller value is sufficient for the continuous noise scales. While the N in Algorithm 1 is larger for the continuous case, the total number of iterations in both cases is comparable.
+
+Computational Burden: The promising performance of this method comes at the price of demanding computation. It takes around 10 minutes to reproduce the results in Figure 5   (a)    
+NET 1 , x MMSE NET 1 , variance NET 2 , x MMSE NET 2 , variance truth,x (c)
+
+FIGURE 8
+
+Comparison of the MMSE computed with 3 to the 1 -wavelet regularized and zero-filled reconstruction. The high resolution image (320×320) was reconstructed from k-space data using 10-fold undersampling. The regularization parameter was set to 0.01. 
+
+
+FIGURE 9
+
+Transferability: Reconstruction of T2 and T1 FLAIR images (red box) using a Poisson-disc pattern with 8x undersampling in k-space using 3 trained on T2 FLAIR images. experiment in Section 4.4 is a direct way to overcome this shortcoming when the undersampling factor is moderate. Relationship to Generative Models: To our knowledge, the construction of image models to exploit prior knowledge was first introduced in Ref. [46] in which the handcrafted model which extracts edge information was used for image restoration. Following that framework, the learned generic image priors from generative perspective are investigated in Ref. [25,47,48], which permits more expressive modeling. In the medical imaging field, image priors learned with variational autoencoder 10,13 and PixelCNN 11,15 were applied to MRI image reconstruction. As a comparison to the method in Ref. [11], the result is presented in Supporting Figure S5.
+Full View (4x) 1 -ESPIRiT XPDNet x MMSE , CI x MMSE CoilComb Zoomed View Full View (8x)
+Zoomed View Compared with some unrolled network based deep learning image reconstruction methods, the application of image priors is independent of k-space data and coil sensitivities, which permits a more versatile use of the method using different k-space acquisition strategies. Limitations: PSNR and SSIM only give a partial and distorted view of image quality. The influence of the ground truth and noise properties of the background have a severe influence, as does the selected data range used for computing the metrics. Thus, rating of image quality by human readers would be an important next step in the evaluation of the technique. Also the clinical usefulness of the uncertainty maps requires further investigations. To facilitate the use in clinical studies, we implemented the sampling in the BART toolbox. 49,50
+
+
+CONCLUSION
+
+The proposed reconstruction method combines concepts from machine learning, Bayesian inference and image reconstruction. In the setting of Bayesian inference, the image reconstruction is realized by drawing samples from the posterior term ( | ) using data-driven Markov chains, providing a minimum mean square reconstruction and uncertainty estimation. The prior information can be learned from an existing image database,where the generic generative priors based on the diffusion process allow for flexibility regarding contrast, coil sensitivities, and sampling pattern.
+
+
+ACKNOWLEDGEMENT
+
+We acknowledge funding by the "Niedersächsisches Vorab" funding line of the Volkswagen Foundation. We would like to thank Xiaoqing Wang for his help in preparing this manuscript as well as Christian Holme for help with our computer systems.
+
+
+SUPPORTING INFORMATION
+
+The following supporting information is available as part of the online article: Figure S1. Samples and MMSE from intermediate distributions. Figure S2. Overview of RefineNet and refine blocks. Figure S3. PSNR and SSIM Metrics for different ground truths and data ranges. Figure S4. The impact on the reconstruction when changing . Figure S5. The comparison to the deep Bayesian reconstruction method in Ref. [11]. Table S1. The architectures of networks used in this work. 
+
+
+Implementation Details of Networks
+
+The architecture of RefineNet 36 is U-Net based as shown below. The ref, res, rcu, msf and crp are abbreviations of refine block, residual block, residual convolution unit, multi-resolution fusion and chained residual pooling. All the blocks used in the neural networks are conditional on noise scales. For a discrete score network, the conditioning is achieved by instance normalization layers, while in a continuous score network, the conditioning is achieved by adding sinusoidal position embeddings. Details are listed in below Table S1. 
+
+
+PSNR and SSIM Metrics for Different Ground Truths and Data Ranges
+
+PSNR is defined via the mean squared error (MSE) and the maximum possible pixel value of the image (MAX) PSNR = 20 · log 10 (MAX) − 10 · log 10 (MSE). As shown in the following figure, the PSNR metric is influenced by the ground truth, i.e., RSS or CoilComb, and whether the maximum is computed over the slice or volume. The RSS of the volumes are the labels used to train XPDNet and the samples used to compute x MMSE are generated slice by slice. 
+
+
+Distortion
+
+To investigate how λ affects the sampling process, we repeated the more noise scales reconstruction experiment five times with different λ = {1, 2, 3, 5, 25}. NET 2 was used to construct transition kernels and the other parameters in Algorithm 1 are K = 2, N = 80. Figure S4 shows the samples that explore the distribution space with different strength of the data consistency by changing λ. Comparing samples that are reconstructed with small λ, we observed large variations between two selected samples in Figure S4a and Figure S4b and the distorted samples are far away from the truth. As λ increases, the variations decreases shown in the variance map Figure S4c.  Figure S5 shows that prior-based methods for reconstruction have comparable performance even for 10x undersampling pattern as quantified with the nrmse metric. The image reconstructed with the combined diffusion prior and autoregressive (AR) prior preserves more of the small details than the other methods.  
+
+
+Comparison of Prior-based Methods
+
+
+Hyperparameters for Training
+
+The hyperparameters used for training networks are listed in Table S2. The indexed noise scale is  
+σ i = σ( i N ) = σ min ( σmax σ min ) i−1 N −1 .
+FIGURE 2
+2Illustration for the sampling of the posterior ( | ). (a) The four possible sampling trajectories are indicated the solid lines, sharing the same burn-in phase (dashed line). The MAP approach via gradient descent reaches a locally optimal solution. (b) Possible reconstructions are showed over the energy curve and the uncertainty map is the pixelwise variance over samples. -th feature map computed in each pass through the network, and denotes the index of in { } N =1
+
+Figure 3
+3
+
+FIGURE 3
+3Single-coil unfolding with 1 . The k-space is undersampled by skipping every second line. Aliased images, MMSE , variance maps and ground truth are shown. (a) The object is centered. (b) The object is shifted. (c) Selected solutions are presented. The left four are centered and the right four are shifted.
+
+FIGURE 4
+4Multi-coil reconstruction with 1 . Results : (a) The curves of PSNR and SSIM over iterations for MMSE s estimated by averaging a different number of samples (b) Zero-filled, MMSE , variance maps, truth and mask are presented. The final PSNR and the SSIM of MMSE are 34.05dB and 0.9050, respectively (c) The error maps between different MMSE s and the ground truth are presented.
+
+while 1 -
+1ESPIRiT takes about 5 seconds with BART for a single slice. The possible solutions to the computation burden are to: 1) accelerate the inferencing of neural networks; 2) parallelize the sampling process when multiple chains are used; and 3) reduce the number of iterations using more efficient MCMC sampling techniques. Furthermore, reducing the scale of networks is also viable. The introduction of burn-in
+
+FIGURE 5
+5Effect of using continuous noise scales in . (a) The convergence curves of PSNR and SSIM over iterations for 2 . (b) Reconstructed MMSE and variance maps for 2 and 2 . (c) Zoomed view of selected structures (yellow circle, red arrow).
+
+FIGURE 6
+6To investigate the burn-in phase the effect of splitting chains at different time points is shown for 2 for reconstruction with (a) 10% k-space data points and (b) 20% k-space data points.
+
+FIGURE 7
+7Investigation of the MAP reconstruced with 2 . 200 extended iterations after random exploration versa a deterministic estimate of MAP that are indicated by solid and dashed lines respectively. (a) The curves of PSNR and SSIM over iterations. (b) The sub-figure variance 1 and variance 2 were computed from unextended samples and extended samples respectively. MAP is an extended sample. (c) The zoom-in region of 9 extended samples and the ground truth.
+
+FIGURE 10
+10Comparison to fastMRI challenge. From the leftmost to rightmost column, reconstructions are 1 -ESPIRiT, XPDNet, MMSE highlighted with confidence interval, MMSE and a fully-sampled coil-combined image (CoilComb). Hallucinations appear when using 8-fold acceleration along the phase-encoding direction (horizontal) and are highlighted with the confidence interval after thresholding. Selected regions of interests are presented in a zoomed view.
+
+FIGURE S2 :
+S2Overview of RefineNet and refine blocks.
+
+FIGURE
+S3 : PSNR and SSIM metrics for different ground truths and data ranges.
+
+FIGURE S4 :
+S4Samples reconstructed with different λ. Two selected samples with a particular λ are presented in (a) and (b). The variance maps over 10 samples reconstructed with each λ are shown in (c).
+
+Table S2 .
+S2The hyperparameters used for training networks.Table S3. The metrics from the comparison between 1 -ESPIRiT and MMSE .
+
+
+FIGURE S5 : Reconstruction using different prior-based methods with Poisson-disc sampling with 10x undersampling in k-space. The arrows indicate small details lost in some reconstructions. The nrmse metrics are AR: 0.0582, x MMSE : 0.0577, x MMSE +AR: 0.0559. The PSNRs are AR: 36.21, x MMSE : 36.27, x MMSE +AR: 36.55 in dB. The SSIMs are AR: 0.8731, x MMSE : 0.8516, x MMSE +AR: 0.8354.Full View 
+
+AR Prior 
+xMMSE 
+xMMSE + AR 
+truth,x 
+
+Zoomed View 
+
+
+
+TABLE S1 :
+S1Architectures of the score networks.NET 1/2 
+3x3 Conv2D, filters=64 
+
+CondResBlock 1 , filters=64 
+
+CondResBlock 1 , filters=64 
+
+CondResBlock 2 , downsampling 
+filters=128 
+
+CondResBlock 2 , filters=128 
+
+CondResBlock 3 , downsampling, 
+filters=128, dilation=2 
+
+CondResBlock 3 , filters=128 
+dilation=2 
+
+CondResBlock 4 , downsampling, 
+filters=128, dilation=4 
+
+CondResBlock 4 , filters=128 
+dilation=4 
+
+CondRefineBlock 1 , filters=128 
+
+CondRefineBlock 2 , filters=128 
+
+CondRefineBlock 3 , filters=64 
+
+CondRefineBlock 4 , filters=64 
+
+3x3 Conv2D, filters=2 
+( 7M trainable parameters) 
+
+NET 3 
+3x3 Conv2D, filters=100 
+
+CondResBlock 1 , filters=100 
+
+CondResBlock 1 , filters=100 
+
+CondResBlock 2 , downsampling 
+filters=200 
+
+CondResBlock 2 , filters=200 
+
+CondResBlock 3 , downsampling, 
+filters=200, dilation=2 
+
+CondResBlock 3 , filters=200 
+
+SelfAttention, filters=200 
+
+CondResBlock 4 , downsampling, 
+filters=200, dilation=4 
+
+CondResBlock 4 , filters=200 
+
+SelfAttention, filters=200 
+
+CondResBlock 5 , downsampling, 
+filters=200, dilation=4 
+
+CondResBlock 5 , filters=200 
+
+SelfAttention, filters=200 
+
+CondRefineBlock 1 , filters=200 
+
+CondRefineBlock 2 , filters=200 
+
+CondRefineBlock 3 , filters=200 
+
+CondRefineBlock 4 , filters=100 
+
+CondRefineBlock 5 , filters=100 
+
+3x3 Conv2D, filters=2 
+( 27M trainable parameters) 
+
+4 
+
+
+
+TABLE S2 :
+S2Hyperparameters for trainingPerformance on Open DatasetNET 1 
+NET 2 
+NET 3 
+
+σ max / 
+√ 
+2 
+0.3 
+0.5 
+0.5 
+
+σ min / 
+√ 
+2 
+0.01 
+0.01 
+0.01 
+
+N 
+15 
+100 
+100 
+
+batch size 
+10 
+5 
+5 
+
+embedding size 
+-
+128 
+200 
+
+Fourier scale 
+-
+16 
+16 
+
+learning rate 
+0.0001 0.0001 0.0001 
+
+activation 
+elu 
+elu 
+elu 
+
+optimizer 
+adam 
+adam 
+adam 
+
+
+
+TABLE S3 :
+S3Average PSNR (dB) and SSIM(%) for test subjects 10% 32.27 ± 1.03 34.67 ± 1.77 34.03 ± 2.98 34.07 ± 0.91 36.12 ± 1.85 35.65 ± 3.37 20% 33.69 ± 0.86 35.60 ± 2.18 35.17 ± 3.41 35.04 ± 0.89 37.15 ± 2.08 36.58 ± 3.84 10% 79.69 ± 3.28 82.74 ± 8.57 79.98 ± 12.40 84.21 ± 3.24 86.06 ± 6.99 83.24±12.07 20% 83.68 ± 3.38 84.60 ± 9.20 82.70 ± 12.93 86.38 ± 3.04 88.26 ± 7.07 84.85±12.99Sampling rate 
+1 -ESPIRiT 
+x MMSE 
+
+PSNR 
+sub 1 
+sub 2 
+sub 3 
+sub 1 
+sub 2 
+sub 3 
+
+SSIM 
+
+
+
+Advances in sensitivity encoding with arbitrary k-space trajectories. K P Pruessmann, M Weiger, P Boernert, P Boesiger, Magn. Reson. Med. 464Pruessmann K. P., Weiger M., Boernert P., Boesiger P.. Advances in sensitivity encoding with arbitrary k-space trajectories. Magn. Reson. Med.. 2001;46(4):638-651.
+
+Sparse MRI: The application of compressed sensing for rapid MR imaging. M Lustig, D Donoho, J M Pauly, Magn. Reson. Med. 586Lustig M., Donoho D., Pauly J. M.. Sparse MRI: The application of compressed sensing for rapid MR imaging. Magn. Reson. Med.. 2007;58(6):1182-1195.
+
+Undersampled radial MRI with multiple coils. Iterative image reconstruction using a total variation constraint. K T Block, M Uecker, J Frahm, Magn. Reson. Med. 576Block K. T., Uecker M., Frahm J.. Undersampled radial MRI with multiple coils. Iterative image reconstruction using a total variation constraint. Magn. Reson. Med.. 2007;57(6):1086-1098.
+
+MR Image Reconstruction From Highly Undersampled k-Space Data by Dictionary Learning. Ravishankar Saiprasad, Bresler Yoram, IEEE Transactions on Medical Imaging. 305Ravishankar Saiprasad, Bresler Yoram. MR Image Reconstruction From Highly Undersampled k-Space Data by Dictionary Learning. IEEE Transactions on Medical Imaging. 2011;30(5):1028-1041.
+
+Magnetic resonance image reconstruction from undersampled measurements using a patch-based nonlocal operator. Qu Xiaobo, Hou Yingkun, Lam Fan, Guo Di, Zhong Jianhui, Chen Zhong, Sparse Methods for Signal Reconstruction and Medical Image Analysis. 18Qu Xiaobo, Hou Yingkun, Lam Fan, Guo Di, Zhong Jianhui, Chen Zhong. Magnetic resonance image reconstruction from undersam- pled measurements using a patch-based nonlocal operator. Medical Image Analysis. 2014;18(6):843-856. Sparse Methods for Signal Reconstruction and Medical Image Analysis.
+
+Accelerating magnetic resonance imaging via deep learning. Wang Shanshan, Su Zhenghang, Ying Leslie, 2016 IEEE 13th International Symposium on Biomedical Imaging (ISBI). Wang Shanshan, Su Zhenghang, Ying Leslie, et al. Accelerating magnetic resonance imaging via deep learning. In: 2016 IEEE 13th International Symposium on Biomedical Imaging (ISBI):514-517; 2016.
+
+Deep ADMM-Net for Compressive Sensing MRI. Yang Yan, Sun Jian, Li Huibin, Xu Zongben, Advances in Neural Information Processing SystemsCurran Associates. Yang Yan, Sun Jian, Li Huibin, Xu Zongben. Deep ADMM-Net for Compressive Sensing MRI. In: Advances in Neural Information Processing SystemsCurran Associates, Inc.; 2016.
+
+MoDL: Model-Based Deep Learning Architecture for Inverse Problems. H K Aggarwal, M P Mani, M Jacob, IEEE Transactions on Medical Imaging. 382Aggarwal H. K., Mani M. P., Jacob M.. MoDL: Model-Based Deep Learning Architecture for Inverse Problems. IEEE Transactions on Medical Imaging. 2019;38(2):394-405.
+
+Learning a variational network for reconstruction of accelerated MRI data. Hammernik Kerstin, Klatzer Teresa, Kobler Erich, Magn. Reson. Med. 796Hammernik Kerstin, Klatzer Teresa, Kobler Erich, et al. Learning a variational network for reconstruction of accelerated MRI data. Magn. Reson. Med.. 2017;79(6):3055-3071.
+
+MR image reconstruction using deep density priors. Tezcan Kerem, C Baumgartner Christian, F , Luechinger Roger, Pruessmann Klaas, P , Konukoglu Ender, IEEE transactions on medical imaging. 387Tezcan Kerem C, Baumgartner Christian F, Luechinger Roger, Pruessmann Klaas P, Konukoglu Ender. MR image reconstruction using deep density priors. IEEE transactions on medical imaging. 2019;38(7):1633-1642.
+
+MRI reconstruction using deep Bayesian estimation. Luo Guanxiong, Zhao Na, Jiang Wenhao, Hui Edward, S , Cao Peng, Magn. Reson. Med. 844Luo Guanxiong, Zhao Na, Jiang Wenhao, Hui Edward S., Cao Peng. MRI reconstruction using deep Bayesian estimation. Magn. Reson. Med.. 2020;84(4):2246-2261.
+
+Highly undersampled magnetic resonance imaging reconstruction using autoencoding priors. Magnetic Resonance in Medicine. Yang Liu Qiegen, Cheng Qingxin, Wang Huitao, Zhang Shanshan, Liang Minghui, Dong, 83Liu Qiegen, Yang Qingxin, Cheng Huitao, Wang Shanshan, Zhang Minghui, Liang Dong. Highly undersampled magnetic resonance imaging reconstruction using autoencoding priors. Magnetic Reso- nance in Medicine. 2020;83(1):322-336.
+
+Auto-Encoding Variational Bayes. Kingma Diederik, P Welling, Max , 2nd International Conference on Learning Representations. Banff, AB, CanadaConference Track ProceedingsKingma Diederik P., Welling Max. Auto-Encoding Variational Bayes. In: 2nd International Conference on Learning Representa- tions, ICLR 2014, Banff, AB, Canada, April 14-16, 2014, Confer- ence Track Proceedings; 2014.
+
+What regularized auto-encoders learn from the data-generating distribution. Alain Guillaume, Bengio Yoshua, J. Mach. Learn. Res. 151Alain Guillaume, Bengio Yoshua. What regularized auto-encoders learn from the data-generating distribution. J. Mach. Learn. Res.. 2014;15(1):3563-3593.
+
+Pix-elCNN++: Improving the PixelCNN with Discretized Logistic Mixture Likelihood and Other Modifications. Salimans Tim, Karpathy Andrej, Chen Xi, Kingma Diederik, P , 5th International Conference on Learning Representations. Toulon, FranceSalimans Tim, Karpathy Andrej, Chen Xi, Kingma Diederik P.. Pix- elCNN++: Improving the PixelCNN with Discretized Logistic Mix- ture Likelihood and Other Modifications. In: 5th International Con- ference on Learning Representations, ICLR 2017, Toulon, France, April 24-26, 2017, Conference Track ProceedingsOpenReview.net; 2017.
+
+Deep generative adversarial neural networks for compressive sensing MRI. Mardani Morteza, Gong Enhao, Cheng Joseph, Y , IEEE transactions on medical imaging. 381Mardani Morteza, Gong Enhao, Cheng Joseph Y, et al. Deep gen- erative adversarial neural networks for compressive sensing MRI. IEEE transactions on medical imaging. 2018;38(1):167-179.
+
+Weight uncertainty in neural network. Blundell Charles, Cornebise Julien, Kavukcuoglu Koray, Wierstra Daan, International conference on machine learning. Blundell Charles, Cornebise Julien, Kavukcuoglu Koray, Wierstra Daan. Weight uncertainty in neural network. In: International con- ference on machine learning:1613-1622PMLR; 2015.
+
+Bayesian Uncertainty Estimation of Learned Variational MRI Reconstruction. Narnhofer Dominik, Effland Alexander, Kobler Erich, Hammernik Kerstin, Knoll Florian, Pock Thomas, IEEE Transactions on Medical Imaging. 412Narnhofer Dominik, Effland Alexander, Kobler Erich, Hammernik Kerstin, Knoll Florian, Pock Thomas. Bayesian Uncertainty Estima- tion of Learned Variational MRI Reconstruction. IEEE Transactions on Medical Imaging. 2022;41(2):279-291.
+
+Hypermodels in the Bayesian imaging framework. Calvetti Daniela, Somersalo Erkki, Inverse Problems. 24334013Calvetti Daniela, Somersalo Erkki. Hypermodels in the Bayesian imaging framework. Inverse Problems. 2008;24(3):034013.
+
+Inverse problems: A Bayesian perspective. A M Stuart, Acta Numerica. 19Stuart A. M.. Inverse problems: A Bayesian perspective. Acta Numerica. 2010;19:451-559.
+
+Robust Compressed Sensing MRI with Deep Generative Priors. Jalal Ajil, Arvinte Marius, Daras Giannis, Price Eric, G Dimakis Alexandros, Tamir Jon, Advances in Neural Information Processing Systems:14938-14954Curran Associates. Ranzato M., Beygelzimer A., Dauphin Y., Liang P.S., Vaughan J. WortmanInc.; 2021.Jalal Ajil, Arvinte Marius, Daras Giannis, Price Eric, Dimakis Alexandros G, Tamir Jon. Robust Compressed Sensing MRI with Deep Generative Priors. In: Ranzato M., Beygelzimer A., Dauphin Y., Liang P.S., Vaughan J. Wortman, eds. Advances in Neural Infor- mation Processing Systems:14938-14954Curran Associates, Inc.; 2021.
+
+Using data-driven Markov chains for MRI reconstruction with Joint Uncertainty Estimation. Luo Guanxiong, Heide Martin, Uecker Martin, Proc. Intl. Soc. Mag. Reson. Med. 298Luo Guanxiong, Heide Martin, Uecker Martin. Using data-driven Markov chains for MRI reconstruction with Joint Uncertainty Esti- mation. In: Proc. Intl. Soc. Mag. Reson. Med.:0298; 2022;
+
+. U K London, London, UK.
+
+Score-based diffusion models for accelerated MRI. Chung Hyungjin, Ye Jong Chul, Medical Image Analysis. 80102479Chung Hyungjin, Ye Jong Chul. Score-based diffusion models for accelerated MRI. Medical Image Analysis. 2022;80:102479.
+
+Accelerated Motion Correction for MRI using Score-Based Generative Models. Levac Brett, Jalal Ajil, Tamir Jonathan, I , Levac Brett, Jalal Ajil, Tamir Jonathan I.. Accelerated Motion Cor- rection for MRI using Score-Based Generative Models. 2022;.
+
+Score-Based Generative Modeling through Stochastic Differential Equations. Song Yang, Sohl-Dickstein, Kingma Jascha, P Diederik, Kumar Abhishek, Ermon Stefano, Poole Ben, International Conference on Learning Representations. Song Yang, Sohl-Dickstein Jascha, Kingma Diederik P, Kumar Abhishek, Ermon Stefano, Poole Ben. Score-Based Generative Modeling through Stochastic Differential Equations. In: Interna- tional Conference on Learning Representations; 2021.
+
+Estimation of Non-Normalized Statistical Models by Score Matching. Hyvärinen Aapo, Journal of Machine Learning Research. 624Hyvärinen Aapo. Estimation of Non-Normalized Statistical Mod- els by Score Matching. Journal of Machine Learning Research. 2005;6(24):695-709.
+
+A Connection Between Score Matching and Denoising Autoencoders. Pascal Vincent, Neural Computation. 237Pascal Vincent. A Connection Between Score Matching and Denois- ing Autoencoders. Neural Computation. 2011;23(7):1661-1674.
+
+Deep Unsupervised Learning using Nonequilibrium Thermodynamics. Sohl-Dickstein, Weiss Jascha, Maheswaranathan Eric, Ganguli Niru, Surya, Proceedings of the 32nd International Conference on Machine Learning Proceedings of Machine Learning Research. Bach Francis, Blei Davidthe 32nd International Conference on Machine Learning Machine Learning Research37Sohl-Dickstein Jascha, Weiss Eric, Maheswaranathan Niru, Ganguli Surya. Deep Unsupervised Learning using Nonequilibrium Ther- modynamics. In: Bach Francis, Blei David, eds. Proceedings of the 32nd International Conference on Machine Learning Proceedings of Machine Learning Research, vol. 37: :2256-2265PMLR; 2015;
+
+. France Lille, Lille, France.
+
+Generative Modeling by Estimating Gradients of the Data Distribution. Song Yang, Ermon Stefano, Advances in Neural Information Processing Systems 32: Annual Conference on Neural Information Processing Systems. Wallach Hanna M., Larochelle Hugo, Beygelzimer Alina, d'Alché-Buc Florence, Fox Emily B., Garnett RomanNeurIPS; Vancouver, BC, CanadaSong Yang, Ermon Stefano. Generative Modeling by Estimat- ing Gradients of the Data Distribution. In: Wallach Hanna M., Larochelle Hugo, Beygelzimer Alina, d'Alché-Buc Florence, Fox Emily B., Garnett Roman, eds. Advances in Neural Information Processing Systems 32: Annual Conference on Neural Information Processing Systems 2019, NeurIPS 2019, December 8-14, 2019, Vancouver, BC, Canada:11895-11907; 2019.
+
+Zbontar Jure, Sriram Knoll Florian, Anuroop, An Open Dataset and Benchmarks for Accelerated MRI. arXiv. Zbontar Jure, Knoll Florian, Sriram Anuroop, et al. fastMRI: An Open Dataset and Benchmarks for Accelerated MRI. arXiv. 2019;.
+
+XPDNet for MRI Reconstruction: an application to the 2020 fastMRI challenge. Ramzi Zaccharie, Ciuciu Philippe, Starck Jean-Luc, arXiv. 2020Ramzi Zaccharie, Ciuciu Philippe, Starck Jean-Luc. XPDNet for MRI Reconstruction: an application to the 2020 fastMRI challenge. arXiv. 2020;.
+
+Applied stochastic differential equations. Särkkä Simo, Solin Arno, Cambridge University PressSärkkä Simo, Solin Arno. Applied stochastic differential equations. Cambridge University Press; 2019.
+
+. Douc Randal, Moulines Eric, Priouret Pierre, Soulier Philippe. Markov chainsch. 2SpringerDouc Randal, Moulines Eric, Priouret Pierre, Soulier Philippe. Markov chainsch. 2, :38-41. Springer 2018.
+
+Arbitrary Style Transfer in Real-Time with Adaptive Instance Normalization. Belongie Huang Xun, J Serge, IEEE International Conference on Computer Vision. Venice, ItalyHuang Xun, Belongie Serge J.. Arbitrary Style Transfer in Real- Time with Adaptive Instance Normalization. In: IEEE International Conference on Computer Vision, ICCV 2017, Venice, Italy, October 22-29, 2017:1510-1519IEEE Computer Society; 2017.
+
+Random Features for Large-Scale Kernel Machines. Rahimi Ali, Recht Benjamin, Advances in Neural Information Processing Systems NIPS'07. Platt J., Koller D., Singer Y., Roweis S.Red Hook, NY, USA20Rahimi Ali, Recht Benjamin. Random Features for Large-Scale Ker- nel Machines. In: Platt J., Koller D., Singer Y., Roweis S., eds. Advances in Neural Information Processing Systems NIPS'07, vol. 20: :1177-1184Curran Associates, Inc.; 2008; Red Hook, NY, USA.
+
+. Lin Guosheng, Milan Anton, Shen Chunhua, Reid Ian, D , Lin Guosheng, Milan Anton, Shen Chunhua, Reid Ian D..
+
+Multi-path Refinement Networks for High-Resolution Semantic Segmentation. Refinenet, 2017 IEEE Conference on Computer Vision and Pattern Recognition. Honolulu, HI, USARefineNet: Multi-path Refinement Networks for High-Resolution Semantic Segmentation. In: 2017 IEEE Conference on Computer Vision and Pattern Recognition, CVPR 2017, Honolulu, HI, USA, July 21-26, 2017:5168-5177IEEE Computer Society; 2017.
+
+He Kaiming. Nonlocal Neural Networks. Wang Xiaolong, Girshick Ross, Gupta Abhinav, IEEE Computer Society Conference on Computer Vision and Pattern Recognition. Wang Xiaolong, Girshick Ross, Gupta Abhinav, He Kaiming. Non- local Neural Networks. In: IEEE Computer Society Conference on Computer Vision and Pattern Recognition:7794-7803; 2018.
+
+ESPIRiT-an eigenvalue approach to autocalibrating parallel MRI: where SENSE meets GRAPPA. M Uecker, P Lai, M J Murphy, Magn. Reson. Med. 713Uecker M., Lai P., Murphy M. J., et al. ESPIRiT-an eigenvalue approach to autocalibrating parallel MRI: where SENSE meets GRAPPA. Magn. Reson. Med.. 2014;71(3):990-1001.
+
+. Uecker Martin, Rosenzweig Sebastian, Holme H Christian, M , mrirecon/bart: version 0.6.00. 2020Uecker Martin, Rosenzweig Sebastian, Holme H. Christian M., et al. mrirecon/bart: version 0.6.00. 2020.
+
+TensorFlow: A System for Large-Scale Machine Learning. Abadi Martín, Barham Paul, Chen Jianmin, Proceedings of the 12th USENIX Conference on Operating Systems Design and Imple-mentationOSDI. the 12th USENIX Conference on Operating Systems Design and Imple-mentationOSDIUSA16Abadi Martín, Barham Paul, Chen Jianmin, et al. TensorFlow: A System for Large-Scale Machine Learning. In: Proceedings of the 12th USENIX Conference on Operating Systems Design and Imple- mentationOSDI'16:265-283USENIX Association; 2016; USA.
+
+Array programming with NumPy. Harris Charles, R Millman, K Jarrod, Walt Stéfan, J , Nature. 5857825Harris Charles R., Millman K. Jarrod, Walt Stéfan J., et al. Array programming with NumPy. Nature. 2020;585(7825):357-362.
+
+Results of the 2020 fastMRI Challenge for Machine Learning MR Image Reconstruction. Muckley Matthew, J , Riemenschneider Bruno, Radmanesh Alireza, IEEE Trans. Med. Imag. Muckley Matthew J., Riemenschneider Bruno, Radmanesh Alireza, et al. Results of the 2020 fastMRI Challenge for Machine Learning MR Image Reconstruction. IEEE Trans. Med. Imag.. 2021;:1-1.
+
+Implicit data crimes: Machine learning bias arising from misuse of public data. Shimron Efrat, Tamir Jonathan, I Wang Ke, Lustig Michael, Proceedings of the National Academy of Sciences. 119132117203119Shimron Efrat, Tamir Jonathan I., Wang Ke, Lustig Michael. Implicit data crimes: Machine learning bias arising from misuse of public data. Proceedings of the National Academy of Sciences. 2022;119(13):e2117203119.
+
+The truth Matters: A brief discussion on MVUE vs. RSS in MRI reconstruction. Arvinte Marius, Tamir Jon, European Society for Magnetic Resonance in Medicine and Biology. Virtual ConferenceArvinte Marius, Tamir Jon. The truth Matters: A brief discussion on MVUE vs. RSS in MRI reconstruction. In: European Society for Magnetic Resonance in Medicine and Biology; 2021; Virtual Conference.
+
+Posterior-Variance-Based Error Quantification for Inverse Problems in Imaging. Narnhofer Dominik, Habring Andreas, Holler Martin, Pock Thomas, Narnhofer Dominik, Habring Andreas, Holler Martin, Pock Thomas. Posterior-Variance-Based Error Quantification for Inverse Problems in Imaging. 2022;.
+
+Stochastic Relaxation, Gibbs Distributions, and the Bayesian Restoration of Images. IEEE Transactions on Pattern Analysis and Machine Intelligence. Geman Stuart, Geman Donald, Geman Stuart, Geman Donald. Stochastic Relaxation, Gibbs Dis- tributions, and the Bayesian Restoration of Images. IEEE Transac- tions on Pattern Analysis and Machine Intelligence. 1984;PAMI- 6(6):721-741.
+
+Fields of Experts: a framework for learning image priors. Roth Stefan, Black Michael, J , IEEE Computer Society Conference on Computer Vision and Pattern Recognition. Roth Stefan, Black Michael J. Fields of Experts: a framework for learning image priors. In: IEEE Computer Society Conference on Computer Vision and Pattern Recognition:860-867; 2005.
+
+A generative perspective on MRFs in low-level vision. Gao Schmidt Uwe, Roth Qi, Stefan, IEEE Computer Society Conference on Computer Vision and Pattern Recognition. Schmidt Uwe, Gao Qi, Roth Stefan. A generative perspective on MRFs in low-level vision. In: IEEE Computer Society Conference on Computer Vision and Pattern Recognition:1751-1758; 2010.
+
+Using datadriven image priors for image reconstruction with BART. Luo Guanxiong, Blumenthal Moritz, Uecker Martin, Proc. Intl. Soc. Mag. Reson. Med. Virtual ConferenceLuo Guanxiong, Blumenthal Moritz, Uecker Martin. Using data- driven image priors for image reconstruction with BART. In: Proc. Intl. Soc. Mag. Reson. Med.:3768; 2021; Virtual Conference.
+
+Deep, deep learning with BART. Magnetic Resonance in Medicine. Blumenthal Moritz, Luo Guanxiong, Schilling Martin, Holme H Christian, M Uecker Martin, 89Blumenthal Moritz, Luo Guanxiong, Schilling Martin, Holme H. Christian M., Uecker Martin. Deep, deep learning with BART. Magnetic Resonance in Medicine. 2023;89(2):678-693.

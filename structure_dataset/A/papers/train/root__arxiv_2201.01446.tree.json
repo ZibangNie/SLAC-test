@@ -1,0 +1,1317 @@
+{
+  "doc_id": "corpus_245704452",
+  "units": [
+    {
+      "unit_id": 0,
+      "text": "Extending the limit of molecular dynamics with ab initio accuracy to 10 billion atoms",
+      "type": "heading",
+      "level": 0,
+      "parent_id": null,
+      "subtype": "doc_title"
+    },
+    {
+      "unit_id": 1,
+      "text": "Introduction",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 2,
+      "text": "Machine learning (ML) applications are playing an increasingly important role in modern high-performance computing (HPC) systems.Besides the optimization of gigantic neural network model training [3,8,17,25,29], HPC plus artificial intelligence (AI) in solving scientific problems are gaining momentum [5,20,22,23].One example is the machinelearning molecular dynamics (MLMD), which aims to bridge the gap between first-principles accuracy and Newtonian MD efficiency [9,37].In MLMD, the atomic potential energy surface (PES) is fitted to obtain ab initio accuracy via MLbased models trained from first-principles data, which can be generated from density functional theory (DFT) calculation software packages such as VASP, Quantum Espresso, PWmat, etc [13,16,18,19,30].Many machine-learning models, such as the Gaussian regression [1,32], linear regression [7,21,28,33], and neural network methods [2,38], can be applied in the MLMD.The resulting MLMD packages, such as the representative works listed in Table 1, can significantly increase the spatial and temporal limit of AIMD.One state-of-the-art MLMD code is the open-source package DeePMD-kit [35], which adopts Deep Potential [37,38], a neural network approach by combing the symmetry-preserving features and highly efficient implementations.Compared with the best reported AIMD results, the spatial and temporal scales of the accommodated physical systems can speed up by a factor of 100 and 1000, respectively [20].Recently, the size of the system that the DeePMD method can handle reaches 100-million atoms on the entire Summit supercomputer (2020 Gordon Bell prize), achieving 91/171/285 PFLOPS for double/mixedsingle/mixed-half precision arithmetic operation.This opens the door for tackling important scientific problems with unprecedented system size and time scales.For example, recent works that used DeePMD-kit focused on the interactions of molecules in water [10], nucleation of liquid silicon [4], phase transition of water [11], and phase diagram of water [39], etc.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 3,
+      "text": "Despite the success, MLMD software packages still face challenges on modern HPC platforms.First, the diversity of many-core architecture supercomputers has raised the issue of performance portability.For example, the efficient MPI+CUDA implementation of DeePMD-kit cannot be adopted to fully exploit the computing power of Fugaku, which uses many-core ARM CPU and currently ranks No. 1 on the top 500 list [34].It remains unknown whether the optimal granularity and data parallelism on GPU works on many-core CPU architecture for HPC+AI applications.Second, it is unclear whether the current DeePMD-kit implementation is the optimal choice.For example, model compression techniques, such as pruning and low-rank factorization [6,12,14,15], are introduced in the fields of natural language processing and computer vision.The compressed model, as discussed in Ref. [6], may suffer from accuracy loss by throwing away some parameters.For scientific computing applications such as the MLMD, the difficulty lies in compressing the neural network model without loss of accuracy.Third, for problems in complex chemical reactions, electrochemical cells, nanocrystalline material, radiation damage, dynamic fracture and crack propagation, etc., the required spatial and temporal scales can even go beyond 100 million atoms and several nanoseconds.Thus, extending the limit of MD with ab initio accuracy is important for many scientific applications.In this paper, we attempt to solve the above problems by algorithmic and system innovations.It is noted that a flat MPI version of DeePMD-kit [20] (current state-of-the-art) is set as the baseline throughout this paper.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 4,
+      "text": "The main contributions of this paper are:",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 5,
+      "text": "• We introduce a novel algorithm of tabulating the neural network model with fifth-order polynomials, and save 82% of floating-point operations (FLOPs) compared with the previous state-of-the-art.• We optimize the memory usage and computational time of the embedding matrix, which take more than 95% of total memory footprint, by applying system optimizations such as kernel fusion, redundancy removal, etc.The rest of this paper is organized as follows: The Deep Potential algorithm is introduced in Sec. 2, with algorithmic and system innovations provided in Sec. 3. The physical system and testing platform are presented in Sec. 4 and 5, respectively.Results are discussed and analyzed in Sec. 6. Conclusions are drawn in Sec. 7.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 6,
+      "text": "DEEP POTENTIAL MODEL",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 7,
+      "text": "The Deep Potential (DP) model is constructed with deep neural networks for representing the potential energy surface in a symmetry preserving manner.It achieves comparable accuracy as the ab initio calculations and reduces the computational complexity to linearly depending on the degrees of freedom in the system.In this section, we introduce the construction of the DP model and analyzing the most expensive part in terms of floating-point operation and memory usage.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 6,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 8,
+      "text": "Model definition",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 6,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 9,
+      "text": "A schematic illustration of the DP model is shown in Fig. 1.In a physical system of  atoms, each atom is described by using its atomic position   = (  ,   ,   ) ∈ R 3 ,  = 1, 2, . . .,  .Each MPI task holds a sub-region of the physical system.Note that the DP model assumes the potential energy   of atom  only depends on its neighbors  where   =   −   and    () denotes the index set of the neighboring atoms within the cut-off radius   as shown in Fig. 1 (a).In the execution of the DP model, first, the environment matrix R is generated from the neighboring list of a particular atom .Then  (  ), the first column of the environment matrix, is passed to a three hidden layer embedding net to obtain the embedding matrix G  .Next, the symmetrypreserving descriptor D ( R ) is constructed, followed by a three-hidden-layer fitting net to produce   , the potential energy of atom .In the end, the total energy of the system  is calculated by summing each individual potential energy, i.e.,  =    .Note that the   is evaluated in forward propagation, while the atomic force   , which is the gradient of the potential energy, is calculated in the backward propagation.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 10,
+      "text": "R 𝑖 = {𝒓 𝒊𝒋 | 𝑗 ∈ 𝐿 𝑅 𝑐 (𝑖)},",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 8,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 11,
+      "text": "A detailed mathematical view of the model is the following: The input of the DP model is the environment matrix of each atom , which is denoted as R ∈ R   ×4 , where   is the maximum of all neighbor list.R is constructed from the local environment, i.e. all relative postitions of neighboring atoms   =   −   = {   ,    ,    }, with the following equations:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 12,
+      "text": "R𝑖 = 𝑠 (𝑟 𝑖 𝑗 ) × (1, 𝑥 𝑖 𝑗 /|𝒓 𝒊𝒋 |, 𝑦 𝑖 𝑗 /|𝒓 𝒊𝒋 |, 𝑧 𝑖 𝑗 /|𝒓 𝒊𝒋 |),(1)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 8,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 13,
+      "text": "where  (",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 14,
+      "text": "D ( R𝑖 ) = (G < 𝑖 ) 𝑇 R𝑖 ( R𝑖 ) 𝑇 G 𝑖 ,(2)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 8,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 15,
+      "text": "where G  ∈ R   × is the embedding matrix as illustrated in Fig. 1(b).The matrix G  obtained by forwarding vector  (   ) through the -layer fully connected embedding net (see Fig. 1 (c)):",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 16,
+      "text": "G 𝑖 = L 𝑒 𝑚 • • • • • L 𝑒 1 • L 𝑒 0 (𝑠 (𝑟 𝑖 𝑗 )).(3)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 8,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 17,
+      "text": "The first layer is a standard fully-connected layer with activation function tanh:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 18,
+      "text": "L 𝑒 0 (𝑥) = tanh(𝑥 • 𝑊 𝑒 0 + 𝑏 𝑒 0 ), 𝑊 𝑒 0 ∈ R 𝑑 1 , 𝑏 𝑒 0 ∈ R 𝑑 1 . (4)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 8,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 19,
+      "text": "The input size is expanded by  1 times after the first layer.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 20,
+      "text": "The rest layers are fully-connected layers with shortcut connection and tanh activation function:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 21,
+      "text": "L 𝑒 𝑘 (𝑥) = (𝑥, 𝑥) + tanh(𝑥 • 𝑊 𝑒 𝑘 + 𝑏 𝑒 𝑘 ).(5)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 8,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 22,
+      "text": "The output size of each layer is doubled and final output size is  (see Fig. 1 (e), note  = 4 1 ).The matrix",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 23,
+      "text": "G < 𝑖 ∈ R 𝑁 𝑚 ×𝑀 < with 𝑀 < < 𝑀 is a sub-matrix of G 𝑖 formed by taking the first 𝑀 < columns of G 𝑖 .",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 8,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 24,
+      "text": "The symmetry-preserving descriptor D is mapped to atomic energy   via a fitting network N :   = N (D ( R )) (see Fig. 1 (d)).The fitting network N is a standard fullyconnected network with hidden layers being of the same size.A shortcut connection is established between the input and output of each hidden layer of the fitting network.The force on atom  is derived from the negative gradient of the total energy:   = −∇    = −  ∇     .",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 8,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 25,
+      "text": "Computationally intensive parts and memory",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 6,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 26,
+      "text": "footprint Both the training and inference of the DP model are implemented in an open-source package DeePMD-kit [37].DeePMD-kit is further interfaced with the LAMMPS package [27] to perform large-scale MD simulations.The model training generally takes a few hours to one week on a single GPU, depending on the complexity of the physical system [38].The model inference, on the other hand, can take hours, even days on supercomputers for simulating a large system with long time scales.Thus, in this work, we focus on the computationally intensive part, i.e., the inference of the DP model.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 25,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 27,
+      "text": "TensorFlow is selected as the framework for building the DP model.All procedures listed in Fig. 1 are implemented either with standard TensorFlow operators or with customized TensorFlow operators.For example, both embedding net and fitting net are constructed with standard TensorFlow operators, and the environment matrix R is built via hand-crafted TensorFlow operators.The most computationally intensive part of the DP model lies in attaining the embedding matrix from  (   ) via the embedding net, as illustrated in Fig. 1 (e).Profiling of the previous DeePMD-kit shows that more than 90 percent of the total time are spent on execution of the embedding net.The input vector  (   ), which is a smooth function of 1  |   | (see Sec. 2.1), is expanded from size   to   × 4 1 by matrix-matrix multiplication operations, where   is the max length of all atomic neighbor lists and  1 is the width of the first fully connected layer.Theoretically, the total FLOPs of the embedding net is   × (  ×  1 + 10 ×   ×  2 1 ), where   stands for the number of atoms residing on single MPI task.For example,   can be up to 4, 600 and   is 512 for the copper system in the previous work [20], and the corresponding width of the three fully connected layers in the embedding net are 32, 64, and 128, respectively.The computational cost of the embedding net approximately accounts for 95% of the total FLOPs.It is noted that the embedding matrix G  (dimension:   ×  ×128) is the most memory-demanding variable in the DeePMD-kit.For example, G  can take 2.4GB GPU global memory for a system of 4, 600 copper atoms mentioned above.Since several copies of G  are required during the model inference, such as in forward and backward propagation, trading time with space, etc., the G  related memory consumption accounts for more than 95% of the total.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 25,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 28,
+      "text": "INNOVATION",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 29,
+      "text": "Summary of contributions",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 28,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 30,
+      "text": "The main contribution of this paper is a performance portable DeePMD-kit code, which further extends the system size and time scale of molecular dynamics with ab initio accuracy on modern HPC platforms.The optimization strategy and implementation details are summarized on both Fugaku and Summit, providing insights to the optimization of other HPC applications.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 29,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 31,
+      "text": "Algorithmic innovation",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 28,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 32,
+      "text": "As discussed in Sec.2.2, the propagation of the embedding net accounts for 95% of the FLOPs in the baseline implementation, and takes more than 90% of the total time.The reason, as shown in Fig. 1 (e), lies in the computational expense of matrix-matrix multiplications, which rapidly increases through each layer of the embedding net.The embedding matrix G  is expanded from one vector  (   ) ∈ R   by  times in this process, and reaches   ×  after the propagation of the embedding net.Essentially, embedding net can be viewed as a mapping function  : R → R  , from each component of the vector  (   ) to one row of the embedding matrix G  .By employing Equations 4 and 5 in Sec.2.1 as activation functions, the embedding net is a high-dimensional and extraordinarily complex continuous function [26].",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 31,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 33,
+      "text": "Weierstrass Approximation Theorem 1. Suppose  is a continuous real-valued function defined on the real interval [, ].For every  > 0, there exists a polynomial  such that for all  in [, ], we have | () − ()| < , or equivalently, the supremum norm ∥ () − () ∥ < .",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 31,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 34,
+      "text": "Based on the Theorem 1, polynomials can be introduced to approximate the embedding network.The domain of the input is equally divided into  intervals with nodes denoted by  0 <  1 < • • • <   .In the  -th interval (  −1 ,   ],  = 1, 2, . . ., , we approximate the embedding net with  fifthorder polynomials With a decreasing interval size, the error introduced by the approximation would vanish.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 31,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 35,
+      "text": "𝑓 𝜂 𝜃 (𝑥) = 𝑎 𝜂 𝜃 0 + 𝑎 𝜂 𝜃 1 𝑥 + 𝑎 𝜂 𝜃 2 𝑥 2 + 𝑎 𝜂 𝜃 3 𝑥 3 + 𝑎 𝜂 𝜃 4 𝑥 4 + 𝑎 𝜂 𝜃 5 𝑥 5 .",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 31,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 36,
+      "text": "Two physical systems, water and copper, are tested to show the accuracy of the tabulated DP model against the baseline in Fig. 2. The accuracy is measured by the root mean square error (RMSE) in predicted per-atom energy (  ) and per-component force (  ), i.e.,",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 31,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 37,
+      "text": "𝑅𝑀𝑆𝐸 𝐸 = 1 𝑁 √︂ 1 𝑚 ∑︁ 𝑚 𝑖=1 (𝐸 𝑡𝑎𝑏 𝑖 − 𝐸 𝑜𝑟𝑖𝑔 𝑖 ) 2 ,",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 31,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 38,
+      "text": "and",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 31,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 39,
+      "text": "𝑅𝑀𝑆𝐸 𝐹 = √︂ 1 3𝑚𝑁 ∑︁ 𝑚 𝑖=1 ∑︁ 𝑁 𝑗=1 ∑︁ 3 𝑘=1 (𝐹 𝑡𝑎𝑏 𝑖,𝑗,𝑘 − 𝐹 𝑜𝑟𝑖𝑔 𝑖,𝑗,𝑘 ) 2",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 31,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 40,
+      "text": ", where  is the number of data to be tested (the number of atomic configurations),  is the number of atoms in each configuration and  represents three directions of Cartesian coordinates.Quantities with superscripts  and  denote the predictions of the tabulated DP model and the original DP model, respectively.As shown in Fig. 2, the RMSE of the per-atom energy drop from 2.0 × 10 −5 eV/atom to 5.0 × 10 −15 eV/atom and the corresponding per-component force drop from 6.0 × 10 −5 eV/Å to 4.0 × 10 −13 eV/Å when the interval varies from 0.1 to 0.001.Note that the double-precision limit is reached when the interval is set to 0.001.This means our tabulated model can be equally accurate as the original model.We remark that the size of the tabulated model grows as the interval decreases.For example, the size of the model can be 257 MB for water system when interval equals 0.001, but only 33 MB when the interval is 0.01.Thus in practice, an optimal interval is balanced between accuracy and model size, and we choose 0.01 as default in our optimized code.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 31,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 41,
+      "text": "A theoretical analysis of the FLOPs on embedding matrix for both the original and tabulated model is as follows.We denote the number of atoms by   , the maximal neighbor list size by   and the size of the first layer of the embedding net by  1 .For the purpose of simplicity, the FLOPs of activation function are counted.The total number of FLOPs for computing the three-layer embedding net by the original model is   × (  × 1 +10×  × 2 1 ), as discussed in Sec.2.2, while that for the tabulated model is   × 56 ×   × 1 .Thus, the theoretical speedup in terms of FLOPs is: (1+10× 1 ) /56.In the previous work [20],  1 is set to be 32 for both water and copper systems, thus the tabulated model saves 82 percent of the embedding matrix FLOPs compared to the original model.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 31,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 42,
+      "text": "Optimization strategy",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 28,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 43,
+      "text": "In this section, we will discuss the general strategies used in optimizing DeePMD-kit on modern many-core architectures.The goal is to reduce the memory footprint after the total FLOPs are brought down by 82 percent by the tabulation of embedding net as discussed in Sec.3.2.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 44,
+      "text": "The first strategy is to reduce the memory footprint by contracting variables and merging calculations.We find that the embedding matrix G  , as discussed in Sec.2.2, is the most memory-demanding variable and takes more than 95 percent of the total memory usage in the baseline implementation.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 45,
+      "text": "After the tabulation of the embedding net (See Sec.3.2), G  is no longer built through the three-layer embedding net (Fig. 1 (e)), rather, it is approximated by fifth-order interpolations.The data movement of evaluating the descriptor D  on typical modern many-core architecture is illustrated in  Removing redundancy is the second strategy used in our optimization.Related work demonstrated that up to 52 percent of performance boost can be gained in removing calculations related to redundant zeros [36].In the previous DP model, the data redundancy stems from the padding of the number of rows of the environment matrix R to   , where   is the maximally possible length of atomic neighboring list as discussed in Sec. 2. Then the padded matrix can take advantage of the high-performance matrix-matrix multiplication by calling the GEMM subroutine.However, since the tabulation of the embedding matrix and the consecutive GEMM operations are merged as discussed above, the redundancy related operations can also be bypassed.Note that data redundancy exists not only in R  , but also in  (   ) and the corresponding embedding matrix G  (Fig. 4 (a)).The size of   can be as large as several hundred, depending on the cutoff radius   .For example,   is set to be 128 and 512 for the water and copper systems, respectively [20].The copper model is trained for both ambient and high-pressure conditions, while the water model is trained only for ambient conditions.The   reserved for the copper model is larger because the neighbor lists are longer in the high-pressure conditions (higher density and thus more neighbors in the cutoff radius).When the models are used under ambient conditions, the copper model has a higher degree of redundancy, and the redundancy can not be avoided nor reduced due to the data layout and matrix operations in the baseline implementation.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 46,
+      "text": "The third optimization strategy is to improve the parallel efficiency by increasing the computational granularity of each individual MPI process.We notice that given a fixed physical problem, the ratio between computation over communication decreases as we use more MPI tasks.This is mainly because the communication volume of the ghost region increases when using more MPI tasks.For example, in a one-dimensional problem, suppose the size of the ghost region of an individual MPI is  and the total number of MPI process is , then the communication volume of the ghost region is  ×  .This means theoretically, it is optimal to launch only one MPI per node and distribute the workload into finer granularity by using OpenMP, CUDA, etc...In practice, MPI+X is the most frequently used parallelization schemes, and X can be OpenMP, CUDA, HIP, etc.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 47,
+      "text": "Implementation I: GPU",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 28,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 48,
+      "text": "In the following subsections, we will focus on optimizing the DeePMD-kit on the GPU heterogeneous architecture based on the strategies outlined in Sec.3.3 .",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 47,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 49,
+      "text": "Kernel fusion.",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 47,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 50,
+      "text": "We optimize the GPU memory footprint by merging the tabulation of the embedding net and consecutive matrix-matrix multiplication into a single CUDA customized kernel.In the optimized DeePMD-kit, each row of G  is evaluated in one thread block and stored in the register (without storing back to global memory), then one column of the environment matrix R  is loaded into the registers to perform an outer product.An illustration of the outer product is shown in Fig. 4. The result from all thread blocks is added up to from R  G  .Note that the dimension of the outer product matrix is 4 × , and can be accommodated in the shared memory on V100 GPUs for an efficient summation.We remark that G  is neither allocated nor moved between global memory and registers in the optimized code, and both the memory footprint and computational time are significantly reduced after the kernel fusion, as will be discussed in Sec. 6.  , together with one row of G  , are held by one thread block to perform an outer product.The dimension of the resulting matrix D = R  G  is 4 × , where  is typically 128.Note that if element  in  (   ) is padded, the corresponding column  of R  and row  of G  are also padded with constant numbers.Thus, the corresponding final results can be directly derived without any floating-point operations.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 49,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 51,
+      "text": "Other optimizations.",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 47,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 52,
+      "text": "The customized TensorFlow operators are also accelerated.For example, ProdEnvMatA, which evaluates the environment matrix from the neighbor list of atom , is further optimized on GPU by carefully using shared memory and removing redundancy.Testing results show that the optimized version can be 3 times faster compared to the original one.A random global memory writing policy is applied to ProdForceSeA and ProdVironSeA, which are operators for computing the forces and virial tensors, and improves the performance of atomic addition.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 51,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 53,
+      "text": "Implementation II: ARM CPU",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 28,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 54,
+      "text": "Starting from a flat MPI version of the DeePMD-kit [20], we apply the optimization strategies listed in Sec.3.3 on the Fugaku supercomputer in the following subsections.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 53,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 55,
+      "text": "Tabulation of embedding net.",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 53,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 56,
+      "text": "In our previous implementation, the fifth-order tabulated model introduced in Sec.3.2 are stored as an array of structures (AoS).The 6 coefficients of the polynomials are stored continuously as a row.However, AoS can not fully exploit the 1024 GB/s bandwidth provided by the A64FX CPU due to the discontinuous memory access.We optimize the data layout of the tabulated model by transposing every 16 structures so that the 512-bit scalable vector extension (SVE) instructions are invoked in accessing the table.Note that 16 is chosen because the loop is unrolled two times to take advantage of the two floating-point operation pipeline on A64FX(16 × 64 = 1024 bits).We remark that the data layout of the tabulated model is not transposed during the MD simulation, but during the tabulation as part of the post-processing.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 55,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 57,
+      "text": "Kernel fusion and redundancy removal.",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 53,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 58,
+      "text": "The tabulation of the embedding net and consecutive matrix-matrix multiplication are merged into a single function, and then the FLOPs with respect to redundant elements are avoided on A64FX.The outer product of the environment matrix R  and the embedding matrix G  is implemented on the ARM CPU to enhance the 64 KB L1 CACHE hit rate.We remark that the implementation of the kernel fusion and redundancy removal follows the same pattern on both A64FX and V100 GPU.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 57,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 59,
+      "text": "Other optimizations. We further optimize the customized TensorFlow operators by exploiting vectorization.",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 53,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 60,
+      "text": "One key data structure is descrpt_a_deriv which is used in multiple customized TensorFlow operators such as Pro-dEnvMatA, ProdViralSeA and ProdForceSeA.The variable descrpt_a_deriv is stored as an AoS, and is required to be converted between SoA and AoS for vectorization purposes.For AoS of the size of 2×8, 3×8, and 4×8, the conversion can be performed with single ld2, ld3, or ld4 SVE instructions, respectively.However, in the DeePMD-kit, the size of descrpt_a_deriv is 12×8 and can not be trivially converted with single SVE instruction.We implement a fast converting subroutine to switch between SoA and AoS by utilizing 512-bit SVE instructions, as illustrated in Fig. 5. Then the corresponding customized TensorFlow operators are unrolled and vectorized to exploit the computing power of A64FX.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 59,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 61,
+      "text": "The tanh function is selected as the activation function for both embedding and fitting net due to accuracy considerations [37], and it is optimized with a second-order polynomial approximation.Only the positive part of the function is tabulated because it is an odd function (tanh(−) = − tanh()).The upper bound of  is chosen to be 8, and for any  greater than 8, tanh() is set to 1.0.Our tabulation of the tanh function can be 60 times faster compared with the original one on A64FX, and the corresponding error is about 1.0 × 10 −7 .It is noted that our tabulation of the tanh does not affect the overall accuracy of the code.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 59,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 62,
+      "text": "MPI+OpenMP.",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 53,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 63,
+      "text": "Previously, the DeePMD-kit is parallelized on Fugaku in a flat MPI scheme to exploit the performance of many-core architecture, as shown in Fig. 6(a).However, due to the limited size of high bandwidth memory on A64FX (32GB), each MPI task can only allocate a maximum of 0.67GB memory (32GB/48=0.67GB).Thus the size of the sub-region resides on a single MPI task is highly restricted by the memory available.Furthermore, the Tensor-Flow graph, along with MPI buffers, are allocated and kept 48 copies on a single Fugaku node and deteriorate the situation.A hybrid parallelization scheme using MPI+OpenMP can effectively reduce the number of MPI used, increasing parallel granularity and reducing inter-MPI communication, as discussed in Sec.3.3.We find that intra-operators MPI+OpenMP parallelization (See Fig. 6(b)) is not efficient due to frequently forking and joining between different operators.And some customized TensorFlow operators, such as ProdVirialSeA, ProdForceSeA, having writing conflicts and can not be easily parallelized with OpenMP.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 62,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 64,
+      "text": "Then we implement an inter-operator parallelization scheme, as shown in Fig. 6(c).In this scheme, each OpenMP thread mimics the behavior of an MPI task by holding a fraction of the sub-region.Note that the sub-region is carefully divided to avoid load-balance problems, and thread forking and joining only occur once per MD step.In each MPI task, only one copy of the TensorFlow graph is kept and shared among OpenMP threads, and the inter-MPI communication is significantly reduced due to the increase of granularity.The optimized code can accommodate systems 1.5 time bigger compared to the flat MPI implementation.We remark that the performance of the hybrid parallelization scheme is highly related to the memory affinity of the non-uniform memory access (NUMA) node.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 62,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 65,
+      "text": "The physical systems",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 66,
+      "text": "The performance of the optimized DeePMD-kit is measured on two typical systems: water and copper, which have been extensively trained and studied in Refs.[37,38], and [40], respectively.The cutoff radius of water and copper systems are chosen to be 6 and 8 Å, and the corresponding maximal number of neighbors are 138 and 500, respectively.In the previous DP model, the sizes of the embedding net and fitting net are set to be 32 × 64 × 128 and 240 × 240 × 240, respectively.In the optimized DeePMD-kit code, these models are compressed and tested on both Summit and Fugaku supercomputers.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 67,
+      "text": "The strong scaling of the optimized DeePMD-kit is tested using the water system composed of 41, 472, 000 and 8, 294, 400 atoms on 4,560 computing nodes of Summit and Fugaku, respectively, and the weak scaling is performed using a copper system with 122,779 and 6,804 atoms per MPI task.We remark that our tests do not reach the entire Fugaku supercomputer due to the computing resource accessible to us.The configuration of the water system is made by replicating a well equilibrated liquid water system of 192 atoms, and that of the copper system are generated as perfect face-centeredcubic (FCC) lattice with the lattice constant of 3.634 Å.A total of 99 MD steps evaluated by the Velocity-Verlet algorithm is performed (the energy and forces are evaluated 100 times), and time steps for water and copper systems are chosen to be 0.5 and 1.0 fs, respectively.Temperature is set to 330 K by utilizing random numbers as the initial velocities of atoms.The neighbor list with a 2 Å buffer region is updated every 50 MD steps.The thermodynamic data including the kinetic energy, potential energy, temperature, pressure are collected and recorded in every 50 MD steps.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 65,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 68,
+      "text": "Machine configuration",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 69,
+      "text": "All numerical tests are performed on two supercomputers: Fugaku and Summit.The Fugaku supercomputer has 157,986 computing nodes and currently ranks No.1 in the top 500 list [34] with a theoretical peak performance of 537 PFLOPS.Each computing node is equipped with one A64FX, which has 4 internal groups named core memory groups (CMGs).Each CMG consists of 13 processor cores (one for OS activities), an L2 cache, and a memory controller.Each CMG has 8GB second-generation high-bandwidth memory (HBM2), so one A64FX has 32 GB HBM2 in total and the bandwidth is 1024GB/s.The A64FX supports the Scalable Vector Extension (SVE) and the vector length of SVE can be 128, 256, and 512 bits.Theoretical peak performance of A64FX is 3.07/3.38TFLOPS double-precision operation at 2.0 GHz and 2.2 GHz (auto boost), respectively.The tests on Fugaku are performed with an MPI+OpenMP hybrid parallelization scheme, all threads within an MPI task are bound to an individual NUMA node to take advantage of the CPU-memory affinity.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 68,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 70,
+      "text": "All GPU-related tests are performed on the Summit supercomputer, which ranks No. 2 in the top 500 list [34] with a theoretical peak performance of 200 PFLOPS.Summit has 4,560 computing nodes, and each node has 2 identical groups consisting of one IBM POWER 9 socket and 3 NVIDIA V100 GPUs.The two groups of hardware are interconnected via X-Bus with a bandwidth of 64 GB/s.Each IBM POWER 9 socket has 22 CPU cores and is equipped with 256 GB main memory with a bandwidth of 135 GB/s.Each V100 GPU has 16 GB of HBM with a bandwidth of 900 GB/s, and its double-precision theoretical peak performance is 7 TFLOPS.The GPUs within a single group are connected through NVLink with a bandwidth of 50 GB/s.A non-blocking fat-tree topology using dual-rail Mellanox EDR InfiniBand with a bandwidth of 25 GB/s is formed among computing nodes, with one network adapter connected to one group of hardware.We use 6 MPI tasks per computing node in all tests on Summit by binding 3 MPI tasks to each group of hardware (each MPI binds to an individual GPU) to fully exploit the CPU-GPU affinity and network adapter.Step-by-step performance improvement on a single V100 GPU machine using algorithmic and system innovations.Baseline is the results from Ref. [20].",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 68,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 71,
+      "text": "PERFORMANCE RESULTS",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 72,
+      "text": "In this section, we test the performance of the DeePMD-kit first on a single GPU and A64FX, and then the scaling behavior on Summit and Fugaku.Note that in all comparisons, the baseline code is the current state-of-the-art [20] version of DeePMD-kit.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 71,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 73,
+      "text": "Single V100 GPU",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 71,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 74,
+      "text": "The performance results on 12, 880-atom water and 6, 912atom copper systems are tested to measure the performance improvement of critical algorithmic and system innovations on a single V100 GPU.The speedup of the time-to-solution for 99 steps of MD based on a step-by-step optimization is shown in Fig. 7.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 73,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 75,
+      "text": "6.1.1Tabulation of embedding net.Compared to the baseline, we find that the optimized DeePMD-kit can be 2.3 and 3.7 times faster for water and copper system after introducing the tabulation of embedding net.Note that 82 percent of FLOPS (see Sec. 3.2) are saved by the tabulation, implying a 5.6 times speedup.The actual speedup is less than ideal because DeePMD-kit is memory-bound rather than compute-bound [20], the speedup factor is determined by the memory-access reduction in the inference.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 73,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 76,
+      "text": "Kernel fusion.",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 73,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 77,
+      "text": "As detailed in Sec.3.4.1,both memory footprint and computational time are reduced by merging the tabulation and consecutive matrix-matrix multiplication into a single customized CUDA kernel.Testing results show that the maximum number of atoms accommodated on a single V100 GPU increase by a factor of 6 and 26 for water and copper systems, respectively.The total speedup is 3.1 and 5.9 compared to the baseline for water and copper, respectively.the speedup factor increase to 3.4 and 8.4 for water and copper systems, respectively.Profiling results show that our optimized kernel achieves 94% of the 900 GB/s bandwidth provided by the V100 GPU.We remark that copper gains a higher speedup in this step due to a higher degree of redundancy, as discussed in Sec.3.4.2.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 76,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 78,
+      "text": "6.1.4Other optimizations.The customized TensorFlow operators in DeePMD-kit are also optimized, and the corresponding speedup compared to the baseline is shown in Fig. 7. Overall, the time-to-solution of the optimized DeePMD-kit is 3.7 and 9.7 times faster, and system size increase by a factor of 6 and 26 on a single V100 GPU for water and copper, respectively.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 76,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 79,
+      "text": "Single A64FX",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 71,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 80,
+      "text": "Two systems, 18, 432-atom water and 2, 592-atom copper, are tested to measure the performance of the optimized DeePMDkit on a single Fugaku node (A64FX).Note that the baseline is a flat MPI version of DeePMD-kit on A64FX.We remark that the GPU baseline is highly optimized [20], but the A64FX baseline is not optimal and requires further optimization.A step-by-step optimization is detailed at Sec. 3.5, and the corresponding speedup is shown in Fig. 8.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 79,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 81,
+      "text": "Tabulation of embedding net.",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 79,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 82,
+      "text": "The data layout of the tabulated polynomial coefficients is rearranged to take advantage of the 512-bit SVE instructions.As shown in Fig. 8, after rearranging the data layout of the tabulated polynomial coefficients discussed in Sec.3.5.1, the optimized model can be 7.2 and 10.3 times faster compared to the baseline for water and copper, respectively.6.2.2 Kernel fusion and redundancy removal.We find that the kernel fusion and redundancy removal not only brings significant performance improvement on GPU but also work efficiently on CPU architecture.As shown in Fig. 8, Table 2. Comparison between A64FX and V100: the timeto-solution (TtS) (in us/step/atom), the normalized time-tosolution with respect to FLOPS (TtS×Peak), and the normalized TtS with respect to power consumption (TtS×Power) are listed.Numbers in brackets are speedup factors as compared to the V100 results.Tanh is the activation function used in the DP model, and it takes 32% and 20% of total computational time for water and copper, respectively, on A64FX.In the optimized DeePMD-kit, Tanh is accelerated by tabulation as detailed in Sec.3.5.3.We achieve a speedup of 66.4 and 44.5 times for water and copper systems without any loss of accuracy.As shown in Fig. 8, the overall speedup factor reaches 20.5 and 42.5 for water and copper systems, respectively.6.2.4 MPI+OpenMP.MPI+OpenMP parallelization is introduced into the optimized DeePMD-kit to save memory usage and inter-MPI communication on the many-core architecture, as discussed in Sec.3.5.4.The extra copies of the Ten-sorFlow graph and system buffers are no longer needed.The system size accommodated on single A64FX node increase from 110, 592 to 165, 888 when using a 16×3 configuration for water.Note that because the TensorFlow graph for the copper system is small (13 MB), the system size of copper using MPI+OpenMP almost remains the same as the flat-MPI version.Testing results show that MPI+OpenMP implementation can also be slightly faster than the flat MPI except when using 4×12 (Each MPI task consists of 12 threads, and resides on an individual CMG), as shown in Fig. 8. Since the 16×3 configuration is the optimal choice both in system size and computational speed, we use 16×3 as the configuration in the scaling tests.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 81,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 83,
+      "text": "Comparison between A64FX and V100",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 71,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 84,
+      "text": "For the water system, we achieve 4.47 us/step/atom with one A64FX and 2.58 us/step/atom with one V100 GPU.The timeto-solution is normalized for a fair comparison, as shown in Table 2. First, we normalize the time-to-solution with respect to peak performance by multiplying time-to-solution with the theoretical peak of V100 and A64FX.We find that the normalized results on A64FX can be 1.2 and 1.03 times faster than V100 for water and copper systems, respectively.The average power consumption of a single V100 and A64FX is 369 and 165 watts [34], respectively.Then the time-tosolution is normalized with respect of power consumption, as shown in Table 2.By setting V100 as the baseline, the speedup factor of A64FX is 1.3 and 1.1 for water and copper, respectively.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 83,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 85,
+      "text": "Scaling",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 71,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 86,
+      "text": "The scalability of our optimized DeepMD-kit is evaluated on Summit and Fugaku.Note that a fraction of the Fugaku supercomputer is used due to the computational resource accessible to us.The system size can reach an unprecedented 17 billion atoms, 134 times bigger compared to the current state-of-the-art.And the corresponding time-to-solution can be 3.7 to 9.7 times faster compared to Ref. [20].Note that in all scaling tests, we use an MPI+OpenMP parallelization configuration of 16 × 3. 6.4.1 Strong Scaling.We measure the scalability of the optimized DeePMD-kit using the parallel efficiency of water (8, 294, 400 atoms for Fugaku, 41, 472, 000 atoms for Summit) and copper (2, 177, 280 atoms for Fugaku, 13, 500, 000 for Summit) systems.The scaling behavior ranging from 20 to 4, 560 computing nodes of Summit and Fugaku are nearly the same, as shown in Fig. 9 and Fig. 10.Both water and copper show nearly perfect scaling on up to 570 and 285 computing nodes, and can further scale to 4, 560 computing nodes.For the water system, the parallel efficiency is 46.99% on 4, 560 computing nodes on Summit, and that of the Fugaku is 41.20%.The corresponding time-to-solution is 6.0 and 2.1 nanoseconds per day on Summit and Fugaku, respectively.For the copper system, the parallel efficiency on 4, 560 Summit nodes is 35.96%, and the corresponding parallel efficiency is 32.76% for Fugaku.The corresponding time-to-solution can reach 11.2 and 4.7 nanoseconds per day.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 85,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 87,
+      "text": "We notice that the parallel efficiency on Summit is slightly better compared to that on Fugaku due to its higher ratio in computation over communication.Since the computational complexity of DP method is linear ( ( )), the ratio of computation over communication can be approximated with the size of the sub-region over the size of the ghost region.Note that we launch 16 MPI tasks on single A64FX node, but only 6 MPI process on one Summit node.When scaling to 4, 560 computing nodes, 72, 960 MPI tasks and 27, 360 MPI tasks are launched on Fugaku and Summit, respectively.In the strong scaling of the copper system, each MPI task on Fugaku holds a sub-region of 113 atoms, and its ghost region is 1, 735.Meanwhile the corresponding number on Summit is 1, 515 and 7, 520, respectively.The ratio of the computation over communication is 1 /15 and 1 /5 on Fugaku and Summit, respectively.6.4.2Weak Scaling.The weak scaling of the optimized DeePMD-kit is measured in terms of the system size and FLOPS of 99 MD steps for both water and copper systems (Fig. 11).As shown in Fig. 11, both systems show perfect scaling with respect to the number of nodes used on Fugaku and Summit.On Fugaku, the maximal number of atoms for water and copper can reach 1.56 and 1.08 billion atoms, respectively, on 9, 936 nodes, and a projected estimation shows that Figure 10.Strong scaling of MD simulations (99 MD steps, atomic forces and the total energy are evaluated 100 times) for the copper system: a total of 2, 177, 280 atoms on Fugaku and 13, 500, 000 atoms on Summit are adopted in these MD simulations.the DeePMD-kit can reach 24.9 and 17.3 billion atoms for water and copper, respectively.We remark that our estimation of the weak scaling is reasonable based on the communication pattern of the DeePMD-kit.For the copper system, the time-to-solution can reach 4.1 × 10 −11 seconds/step/atom, and the corresponding peak performance achieved is 119 PFLOPS (22.17% of the theoretical peak).Compared to the current state-of-the-art, the projected system size is 134 times bigger and the corresponding time-to-solution can be 20 times faster.On Summit, the maximum number of atoms can reach 3.9 and 3.4 billion atoms for water and copper, respectively.For the copper system, the time-to-solution can reach 1.1 × 10 −10 seconds/step/atom, and the corresponding peak performance achieved is 43.7 PFLOPS (22.8% of the theoretical peak).Compared to the current state-of-the-art, the projected system size is 27 times bigger and the corresponding time-to-solution can be 7 times faster.Due to the perfect linear scaling, we foresee that our optimized DeePMD-kit code can compute larger physical systems on near-term and future exascale supercomputers without essential difficulties.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 85,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 88,
+      "text": "Conclusion and Future work",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 89,
+      "text": "In this paper, we presented an optimized version of DeePMDkit by adapting a novel tabulated DP model and system optimizations on the top two supercomputers: Summit and Fugaku.The tabulated model reduces the floating-point operations in the MLMD, and the consecutive optimizations improve the data locality/movement and memory usage on both CPU and GPU.Compared to the current state-of-theart, our optimized code extends the capacity of MLMD to 10 billion atoms, with a time-to-solution of 1.1 × 10 −10 seconds/step/atom (7 times faster).This work opens the door for unprecedentedly large-scale molecular dynamics simulations based on ab initio accuracy, and can be potentially utilized in studying more realistic applications such as mechanical properties of metals, semiconductor devices, batteries, etc.The performance of the optimized version of DeePMD-kit is demonstrated on both Summit and Fugaku, and our optimization strategies can also be beneficial for other architectures, such as Intel CPUs and the AMD GPU supercomputer Frontier targeting at exascale computing.The combination of the compressed neural network model and cross-kernel dataflow optimizations provide insight in exploiting the computing power provided by the modern supercomputer, especially for HPC+AI applications.The mixed-precision versions of code still has accuracy problems and will be our future work.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 90,
+      "text": "Figure 1.A schematic illustration of the DP model.(a).One sub-region on a single MPI task (Green: local region, light cyan: ghost region).(b).The mapping from local environment R to the energy   for a single atom.(c).Embedding net with three hidden layers.(d).Fitting net with three hidden layers.(e).Execution of the embedding net of the previous DP model via matrix-matrix multiplications, the first layer expands vector  (   ) by a factor of  1 , the next two layers expand the input matrix by a factor of two.(f).Physical symmetry preserving descriptors.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 91,
+      "text": "Figure 1.A schematic illustration of the DP model.(a).One sub-region on a single MPI task (Green: local region, light cyan: ghost region).(b).The mapping from local environment R to the energy   for a single atom.(c).Embedding net with three hidden layers.(d).Fitting net with three hidden layers.(e).Execution of the embedding net of the previous DP model via matrix-matrix multiplications, the first layer expands vector  (   ) by a factor of  1 , the next two layers expand the input matrix by a factor of two.(f).Physical symmetry preserving descriptors.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 92,
+      "text": "Figure 2. Accuracy of the tabulated model compared to the baseline DP model.Root mean squared error (RMSE) of per-atom energy and per-component force are shown, with respect to 3 interval sizes (0.1, 0.01, and 0.001).100 data are tested for each system.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 93,
+      "text": "Figure 2. Accuracy of the tabulated model compared to the baseline DP model.Root mean squared error (RMSE) of per-atom energy and per-component force are shown, with respect to 3 interval sizes (0.1, 0.01, and 0.001).100 data are tested for each system.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 94,
+      "text": "Figure 3.An illustration of the data movement when evaluating the descriptor D  of the optimized (tabulated and kernel fused) DP model.Dashed line: memory allocation/access saved by the kernel fusion.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 95,
+      "text": "Figure 3.An illustration of the data movement when evaluating the descriptor D  of the optimized (tabulated and kernel fused) DP model.Dashed line: memory allocation/access saved by the kernel fusion.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 96,
+      "text": "Figure 4. Removing the redundant zeros from the DP model.(a) Redundant zeros in the environment matrix R  ,  (   ).(b) Evaluation of R  G  .Note that redundant-zero ratio of the embedding matrix G  are related to the  (   ).(c) Bypassing redundant zeros in the execution of outer product in one thread block.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 97,
+      "text": "Figure 4. Removing the redundant zeros from the DP model.(a) Redundant zeros in the environment matrix R  ,  (   ).(b) Evaluation of R  G  .Note that redundant-zero ratio of the embedding matrix G  are related to the  (   ).(c) Bypassing redundant zeros in the execution of outer product in one thread block.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 98,
+      "text": "Fig.3.For simplicity, we only demonstrate the data movement among the basic components such as arithmetic logic unit (ALU), register (REG), and high-bandwidth memory (MEM).CACHE and shared memory are not discussed.The tabulation of embedding net (  () =   0 +   1  ...  5  5 ) loads the vector  (   ) and the parameter table, and stores the embedding matrix G  .Then R  G  is carried out by calling the matrix-matrix multiplication (GEMM) subroutine.We optimize the allocation and access of G  by contracting the tabulation and matrix-matrix multiplication, and the resulting equation is R    ( (   )).Although the contracted equation saves the load and store of the embedding matrix G  , implementation detail still vary depending on the architecture, as will be discussed in Sec.3.4 and Sec.3.5.Removing redundancy is the second strategy used in our optimization.Related work demonstrated that up to 52 percent of performance boost can be gained in removing calculations related to redundant zeros[36].In the previous DP model, the data redundancy stems from the padding of the number of rows of the environment matrix R to   , where   is the maximally possible length of atomic neighboring list as discussed in Sec. 2. Then the padded matrix can take advantage of the high-performance matrix-matrix multiplication by calling the GEMM subroutine.However, since the tabulation of the embedding matrix and the consecutive GEMM operations are merged as discussed above, the redundancy related operations can also be bypassed.Note that data redundancy exists not only in R  , but also in  (   ) and the corresponding embedding matrix G  (Fig.4 (a)).The size of   can be as large as several hundred, depending on the cutoff radius   .For example,   is set to be 128 and 512 for the water and copper systems, respectively[20].The copper model is trained for both ambient and high-pressure",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 99,
+      "text": "Fig.3.For simplicity, we only demonstrate the data movement among the basic components such as arithmetic logic unit (ALU), register (REG), and high-bandwidth memory (MEM).CACHE and shared memory are not discussed.The tabulation of embedding net (  () =   0 +   1  ...  5  5 ) loads the vector  (   ) and the parameter table, and stores the embedding matrix G  .Then R  G  is carried out by calling the matrix-matrix multiplication (GEMM) subroutine.We optimize the allocation and access of G  by contracting the tabulation and matrix-matrix multiplication, and the resulting equation is R    ( (   )).Although the contracted equation saves the load and store of the embedding matrix G  , implementation detail still vary depending on the architecture, as will be discussed in Sec.3.4 and Sec.3.5.Removing redundancy is the second strategy used in our optimization.Related work demonstrated that up to 52 percent of performance boost can be gained in removing calculations related to redundant zeros[36].In the previous DP model, the data redundancy stems from the padding of the number of rows of the environment matrix R to   , where   is the maximally possible length of atomic neighboring list as discussed in Sec. 2. Then the padded matrix can take advantage of the high-performance matrix-matrix multiplication by calling the GEMM subroutine.However, since the tabulation of the embedding matrix and the consecutive GEMM operations are merged as discussed above, the redundancy related operations can also be bypassed.Note that data redundancy exists not only in R  , but also in  (   ) and the corresponding embedding matrix G  (Fig.4 (a)).The size of   can be as large as several hundred, depending on the cutoff radius   .For example,   is set to be 128 and 512 for the water and copper systems, respectively[20].The copper model is trained for both ambient and high-pressure",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 100,
+      "text": "Redundancy removal.The fused CUDA kernel introduced in Sec.3.4.1 makes it possible to bypass the redundant zeros in the DP model.As shown in Fig. 4, one column of R",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 101,
+      "text": "Redundancy removal.The fused CUDA kernel introduced in Sec.3.4.1 makes it possible to bypass the redundant zeros in the DP model.As shown in Fig. 4, one column of R",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 102,
+      "text": "Figure 5.An illustration of converting between AoS and SoA by utilizing SVE instructions.Conversion of 6x4 arrays is plotted for simplicity.Each row is a vector register or is stored continuously in memory.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 103,
+      "text": "Figure 5.An illustration of converting between AoS and SoA by utilizing SVE instructions.Conversion of 6x4 arrays is plotted for simplicity.Each row is a vector register or is stored continuously in memory.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 104,
+      "text": "Figure 6.Hybrid paralllelization scheme including (a) Flat MPI parallelization, (b) each TensorFlow operator is parallelized among multiple threads in single MPI, and (c) each OpenMP thread holds a fraction of the sub-region and executed in parallel.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 105,
+      "text": "Figure 6.Hybrid paralllelization scheme including (a) Flat MPI parallelization, (b) each TensorFlow operator is parallelized among multiple threads in single MPI, and (c) each OpenMP thread holds a fraction of the sub-region and executed in parallel.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 106,
+      "text": "Figure 7.Step-by-step performance improvement on a single V100 GPU machine using algorithmic and system innovations.Baseline is the results from Ref.[20].",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 107,
+      "text": "Figure 7.Step-by-step performance improvement on a single V100 GPU machine using algorithmic and system innovations.Baseline is the results from Ref.[20].",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 108,
+      "text": "Redundancy removal.As discussed in Sec.3.4.2, the evaluation of redundant elements is skipped to reduce the floating-point operations.Compared with the baseline,",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 109,
+      "text": "Redundancy removal.As discussed in Sec.3.4.2, the evaluation of redundant elements is skipped to reduce the floating-point operations.Compared with the baseline,",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 110,
+      "text": "Figure 8. Step-by-step performance improvement on a single A64FX node for the 18, 432-atom water and 2, 592-atom copper systems.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 111,
+      "text": "Figure 8. Step-by-step performance improvement on a single A64FX node for the 18, 432-atom water and 2, 592-atom copper systems.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 112,
+      "text": "Figure 9. Strong scaling of MD simulations (99 steps, atomic forces and the total energy are computed 100 times) for the water system: a total of 8, 294, 400 atoms on Fugaku and 41, 472, 000 atoms on Summit are used.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 113,
+      "text": "Figure 9. Strong scaling of MD simulations (99 steps, atomic forces and the total energy are computed 100 times) for the water system: a total of 8, 294, 400 atoms on Fugaku and 41, 472, 000 atoms on Summit are used.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 114,
+      "text": "Figure 11.Weak scaling of water and copper systems ranging from 1 /256 to the entire machine (Summit and Fugaku).Note that the dotted line for Fugaku is a projected result due to the limited computing resources.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 115,
+      "text": "Figure 11.Weak scaling of water and copper systems ranging from 1 /256 to the entire machine (Summit and Fugaku).Note that the dotted line for Fugaku is a projected result due to the limited computing resources.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 116,
+      "text": "Performance of MLMD applications with ab initio accuracy.The abbreviations TtS, BP, and DP stand for time-tosolution, Behler-Parrinello scheme, and Deep Potential, respectively.*The parallel efficiency does not significantly decay at the largest machine scale tested in the work, so it is highly likely that they can scale to larger machines.†Vienna Scientific Cluster (VSC), an HPC system with Intel Xeon Gold 6138 CPUs.‡An unknown cluster with Intel Xeon E5-2650v2 CPUs at the KISTI supercomputing center.**The baseline is the current state-of-the-art DeePMD-kit.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 117,
+      "text": "Performance of MLMD applications with ab initio accuracy.The abbreviations TtS, BP, and DP stand for time-tosolution, Behler-Parrinello scheme, and Deep Potential, respectively.*The parallel efficiency does not significantly decay at the largest machine scale tested in the work, so it is highly likely that they can scale to larger machines.†Vienna Scientific Cluster (VSC), an HPC system with Intel Xeon Gold 6138 CPUs.‡An unknown cluster with Intel Xeon E5-2650v2 CPUs at the KISTI supercomputing center.**The baseline is the current state-of-the-art DeePMD-kit.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 118,
+      "text": ") =  (|  |)/|  | and  (|  |) is a gating function that decays smoothly from 1 to 0 when |  | ≤   .",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 119,
+      "text": ") =  (|  |)/|  | and  (|  |) is a gating function that decays smoothly from 1 to 0 when |  | ≤   .",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 120,
+      "text": "Other Optimizations.The customized TensorFlow operators, such as ProdEnvMatA op, ProdVirialSeA op and ProdForceSeA, are vectorized in the optimized DeePMD-kit, as detailed in Sec.3.5.3.We achieve an average speedup factor of 1.2, 8.3 and 7 for ProdEnvMatA op, ProdVirialSeA op and ProdForceSeA, respectively.The corresponding proportion of the customized operators decreases from 15% and 25% to 10% and 17% for water and copper, respectively.",
+      "type": "figure",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 121,
+      "text": "Other Optimizations.The customized TensorFlow operators, such as ProdEnvMatA op, ProdVirialSeA op and ProdForceSeA, are vectorized in the optimized DeePMD-kit, as detailed in Sec.3.5.3.We achieve an average speedup factor of 1.2, 8.3 and 7 for ProdEnvMatA op, ProdVirialSeA op and ProdForceSeA, respectively.The corresponding proportion of the customized operators decreases from 15% and 25% to 10% and 17% for water and copper, respectively.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 88,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 122,
+      "text": "References",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "references"
+    },
+    {
+      "unit_id": 123,
+      "text": "Gaussian approximation potentials: The accuracy of quantum mechanics, without the electrons. Mike C Albert P Bartók, Risi Payne, Gábor Kondor, Csányi, Physical Review Letters. 1041364032010. 2010",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 124,
+      "text": "Generalized neural-network representation of high-dimensional potential-energy surfaces. Jörg Behler, Michele Parrinello, Physical review letters. 981464012007. 2007",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 125,
+      "text": "Online Evolutionary Batch Size Orchestration for Scheduling Deep Learning Workloads in GPU Clusters. Zhengda Bian, Shenggui Li, Wei Wang, Yang You, arXiv:2108.03645[cs.DC]2021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 126,
+      "text": "Silicon liquid structure and crystal nucleation from ab initio deep metadynamics. Luigi Bonati, Michele Parrinello, Physical review letters. 1212657012018. 2018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 127,
+      "text": "AIdriven multiscale simulations illuminate mechanisms of SARS-CoV-2 spike dynamics. Lorenzo Casalino, Abigail C Dommer, Zied Gaieb, Emilia P Barros, Terra Sztain, Anda Surl-Hee Ahn, Alexander Trifan, Anthony T Brace, Austin Bogetti, Heng Clyde, Hyungro Ma, Matteo Lee, Syma Turilli, Lillian T Khalid, Carlos Chong, David J Simmerling, Julio Dc Hardy, James C Maia, Thorsten Phillips, Abraham C Kurth, Lei Stern, Huang, Mahidhar John D Mccalpin, Tom Tatineni, John E Gibbs, Shantenu Stone, Arvind Jha, Rommie E Ramanathan, Amaro, 10.1177/10943420211006452The International Journal of High Performance Computing Applications. 0010943420211006452",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 128,
+      "text": "A comprehensive survey on model compression and acceleration. Tejalal Choudhary, Vipul Mishra, Anurag Goswami, Jagannathan Sarangapani, Artificial Intelligence Review. 532020. 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 129,
+      "text": "Atomic cluster expansion for accurate and transferable interatomic potentials. Ralf Drautz, 10.1103/PhysRevB.99.014104Phys. Rev. B. 99141042019. Jan 2019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 130,
+      "text": "GPT-3: Its nature, scope, limits, and consequences. Minds and Machines. Luciano Floridi, Massimo Chiriatti, 2020. 202030",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 131,
+      "text": "Jonny Proppe, and Alán Aspuru-Guzik. 2021. Machine-learned potentials for next-generation matter simulations. Pascal Friederich, Florian Häse, Nature Materials. 202021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 132,
+      "text": "Reactive uptake of N2O5 by atmospheric aerosol is dominated by interfacial processes. Mirza Galib, David T Limmer, Science. 3712021. 2021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 133,
+      "text": "Signatures of a liquid-liquid transition in an ab initio deep neural network model for water. Linfeng Thomas E Gartner, Pablo M Zhang, Roberto Piaggi, Athanassios Z Car, Pablo G Panagiotopoulos, Debenedetti, Proceedings of the National Academy of Sciences. 1172020. 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 134,
+      "text": "Accelerating sparse dnn models without hardware-support via tilewise sparsity. Cong Guo, Bo Yang Hsueh, Jingwen Leng, Yuxian Qiu, Yue Guan, Zehuan Wang, Xiaoying Jia, Xipeng Li, Minyi Guo, Yuhao Zhu, SC20: International Conference for High Performance Computing, Networking, Storage and Analysis. IEEE2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 135,
+      "text": "Accelerating VASP electronic structure calculations using graphic processing units. Mohamed Hacene, Ani Anciaux-Sedrakian, Xavier Rozanska, Diego Klahr, Thomas Guignon, Paul Fleurat-Lessard, Journal of computational chemistry. 332012. 2012",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 136,
+      "text": "Song Han, Huizi Mao, William J Dally, arXiv:1510.00149Deep compression: Compressing deep neural networks with pruning, trained quantization and huffman coding. 2015. 2015arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 137,
+      "text": "Quantized neural networks: Training neural networks with low precision weights and activations. Itay Hubara, Matthieu Courbariaux, Daniel Soudry, Ran El-Yaniv, Yoshua Bengio, The Journal of Machine Learning Research. 1812017. 2017",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 138,
+      "text": "VASP on a GPU: Application to exact-exchange calculations of the stability of elemental boron. Maxwell Hutchinson, Michael Widom, Computer Physics Communications. 1832012. 2012",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 139,
+      "text": "GEMS: GPU-Enabled Memory-Aware Model-Parallelism System for Distributed DNN Training. Arpan Jain, Ammar Ahmad Awan, Asmaa M Aljuhani, Jahanzeb Maqbool Hashmi, Quentin G Anthony, Hari Subramoni, Raghu Dhableswar K Panda, Anil Machiraju, Parwani, SC20: International Conference for High Performance Computing, Networking, Storage and Analysis. IEEE2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 140,
+      "text": "The analysis of a plane wave pseudopotential density functional theory code on a GPU machine. Weile Jia, Zongyan Cao, Long Wang, Jiyun Fu, Xuebin Chi, Weiguo Gao, Lin-Wang Wang, 10.1016/j.cpc.2012.08.002Computer Physics Communications. 1842013. 2013",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 141,
+      "text": "Fast plane wave density functional theory molecular dynamics calculations on multi-GPU machines. Weile Jia, Jiyun Fu, Zongyan Cao, Long Wang, Xuebin Chi, Weiguo Gao, Lin-Wang Wang, 10.1016/j.jcp.2013.05.005J. Comput. Phys. 2512013. 2013",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 142,
+      "text": ". W Jia, H Wang, M Chen, D Lu, J Liu, L Lin, R Car,",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 143,
+      "text": "Pushing the limit of molecular dynamics with ab initio accuracy to 100 million atoms with machine learning. E Weinan, L Zhang, 2020. 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 144,
+      "text": "On-the-fly machine learning force field generation: Application to melting points. Ryosuke Jinnouchi, Ferenc Karsai, Georg Kresse, Physical Review B. 100141052019. 2019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 145,
+      "text": "Highly accurate protein structure prediction with AlphaFold. John Jumper, Richard Evans, Alexander Pritzel, Tim Green, Michael Figurnov, Olaf Ronneberger, Kathryn Tunyasuvunakool, Russ Bates, Augustin Žídek, Anna Potapenko, Nature. 2021. 2021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 146,
+      "text": "Physics informed machine learning: Seismic wave equation. Sadegh Karimpouli, Pejman Tahmasebi, Geoscience Frontiers. 112020. 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 147,
+      "text": "SIMPLE-NN: An efficient package for training and executing neuralnetwork interatomic potentials. Kyuhyun Lee, Dongsun Yoo, Wonseok Jeong, Seungwu Han, Computer Physics Communications. 2422019. 2019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 148,
+      "text": "Shigang Li, Torsten Hoefler, arXiv:2107.06925Chimera: Efficiently Training Large-Scale Neural Networks with Bidirectional Pipelines. 2021. 2021arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 149,
+      "text": "A Mean Field Analysis Of Deep ResNet And Beyond: Towards Provably Optimization Via Overparameterization From Depth. Yiping Lu, Chao Ma, Yulong Lu, Jianfeng Lu, Lexing Ying, International Conference on Machine Learning. PMLR2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 150,
+      "text": "Fast parallel algorithms for short-range molecular dynamics. S Plimpton, J. Comput. Phys. 1171995. 1995",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 151,
+      "text": "Active learning of linearly parametrized interatomic potentials. V Evgeny, Alexander V Podryabinkin, Shapeev, Computational Materials Science. 1402017. 2017",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 152,
+      "text": "Zero: Memory optimizations toward training trillion parameter models. Samyam Rajbhandari, Jeff Rasley, SC20: International Conference for High Performance Computing, Networking, Storage and Analysis. IEEE2020Olatunji Ruwase, and Yuxiong He",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 153,
+      "text": "A Performance Study of Quantum ESPRESSO's PWscf Code on Multi-core and GPU Systems. Joshua Romero, Everett Phillips, Gregory Ruetsch, Massimiliano Fatica, Filippo Spiga, Paolo Giannozzi, High Performance Computing Systems. Performance Modeling, Benchmarking, and Simulation. Stephen Jarvis, Steven Wright, Simon Hammond, ChamSpringer International Publishing2018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 154,
+      "text": "Library-Based LAMMPS Implementation of High-Dimensional Neural Network Potentials. Andreas Singraber, Jörg Behler, Christoph Dellago, Journal of chemical theory and computation. 152019. 2019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 155,
+      "text": "Accuracy and transferability of Gaussian approximation potential models for tungsten. Wojciech J Szlachta, Albert P Bartók, Gábor Csányi, Physical Review B. 901041082014. 2014",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 156,
+      "text": "Spectral neighbor analysis method for automated generation of quantum-accurate interatomic potentials. A P Thompson, L P Swiler, C R Trott, S M Foiles, G J Tucker, 10.1016/j.jcp.2014.12.018J. Comput. Phys. 2852015. 2015",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 157,
+      "text": "Top 500 list. June 2020. 2020-08-01",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 158,
+      "text": "DeePMDkit: A deep learning package for many-body potential energy representation and molecular dynamics. Han Wang, Linfeng Zhang, Jiequn Han, Weinan E , Computer Physics Communications. 2282018. 2018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 159,
+      "text": "ZeroSpy: Exploring Software Inefficiency with Redundant Zeros. Xin You, Hailong Yang, Zhongzhi Luan, Depei Qian, Xu Liu, 10.1109/SC41405.2020.00033SC20: International Conference for High Performance Computing, Networking, Storage and Analysis. 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 160,
+      "text": "Deep Potential Molecular Dynamics: A Scalable Model with the Accuracy of Quantum Mechanics. Linfeng Zhang, Jiequn Han, Han Wang, Roberto Car, Weinan E , Physical Review Letters. 1201430012018. Apr 2018Issue 14",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 161,
+      "text": "End-to-end Symmetry Preserving Inter-atomic Potential Energy Model for Finite and Extended Systems. Linfeng Zhang, Jiequn Han, Han Wang, Wissam Saidi, Roberto Car, Weinan E , Advances in Neural Information Processing Systems. H Bengio, H Wallach, K Larochelle, N Grauman, R Cesa-Bianchi, Garnett, 201831",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 162,
+      "text": "Phase Diagram of a Deep Potential Water Model. Linfeng Zhang, Han Wang, Roberto Car, Weinan, Physical Review Letters. 1262360012021. 2021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 163,
+      "text": "DP-GEN: A concurrent learning platform for the generation of reliable deep learning based potential energy models. Yuzhi Zhang, Haidi Wang, Weijie Chen, Jinzhe Zeng, Linfeng Zhang, Han Wang, Weinan E , Computer Physics Communications. 1072062020. 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 122,
+      "subtype": "bibentry"
+    }
+  ]
+}

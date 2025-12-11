@@ -1,0 +1,162 @@
+SELF-SUPERVISED LEARNING OF AUDIO REPRESENTATIONS USING ANGULAR CONTRASTIVE LOSS
+
+
+Shanshan Wang 
+Computing Sciences
+Tampere University
+TampereFinland
+
+Soumya Tripathy 
+Computing Sciences
+Tampere University
+TampereFinland
+
+Annamaria Mesaros 
+Computing Sciences
+Tampere University
+TampereFinland
+
+SELF-SUPERVISED LEARNING OF AUDIO REPRESENTATIONS USING ANGULAR CONTRASTIVE LOSS
+Index Terms-self-supervised learningcontrastive lossangular margin lossaudio representation learning
+In Self-Supervised Learning (SSL), various pretext tasks are designed for learning feature representations through contrastive loss. However, previous studies have shown that this loss is less tolerant to semantically similar samples due to the inherent defect of instance discrimination objectives, which may harm the quality of learned feature embeddings used in downstream tasks. To improve the discriminative ability of feature embeddings in SSL, we propose a new loss function called Angular Contrastive Loss (ACL), a linear combination of angular margin and contrastive loss. ACL improves contrastive learning by explicitly adding an angular margin between positive and negative augmented pairs in SSL. Experimental results show that using ACL for both supervised and unsupervised learning significantly improves performance. We validated our new loss function using the FSDnoisy18k dataset, where we achieved 73.6% and 77.1% accuracy in sound event classification using supervised and self-supervised learning, respectively.
+
+INTRODUCTION
+
+Supervised learning methods have achieved significant performance in solving various tasks like image classification [1,2,3] and sound event detection [4,5,6]. These achievements are not possible without the considerable effort spent collecting the dataset and manually labeling the classes, making the training process costly and time-consuming. Although deep architectures with supervision achieve superior accuracy, the commonly used Cross-Entropy (CE) loss does not explicitly optimize the feature embedding space. CE loss fails to learn compact intra-class clusters with clear boundaries between them [7], affecting the interpretability and quality of features learned in the supervised setups. Many auxiliary loss functions are added to the CE loss to address the feature interpretability issues. For example in [7], angular margin contrastive loss, a geometric constraint, was added to help sepa-This work was supported in part by Academy of Finland grant 332063 "Teaching machines to listen". The authors wish to thank CSC-IT Centre of Science Ltd., Finland, for providing computational resources. rate the class features by a predefined margin. The quality of the features slightly improves from these constraints in supervised setups, giving a little improvement over CE loss.
+
+In the recent years, large amounts of audio-visual materials are uploaded in the social media every day. This leads to design of many unsupervised and self-supervised learning algorithms to learn features from large amount of data without any human supervision. Chen et al. [8] adopted the contrastive learning as a pretext task to learn robust image features in a self-supervised setup. These features can then be used in downstream tasks like image classification. The contrastive loss learns the features by maximizing the feature agreement between the positive pairs (augmentation of same image) and minimizing the agreement for the negative pairs (augmentation of different images). Due to its success in the vision community, contrastive learning has now gained a lot of attention in audio feature learning [9,10,11]. Fonseca et al. [10] applied the same idea to learn sound event representations. Another often applied approach to contrastive learning is correspondence between modalities. For example Morgado et al. [11] used audio-visual correspondence and spatial alignment between 360°video and Ambisonics audio, while Wang et al. [12] further investigated on the object-oriented video crops and Ambisonics alignment.
+
+Despite its success, contrastive learning has some underlying problems, as pointed out in a thorough analysis by Wang et al. [13]. They find that while learning features using contrastive loss, there exists a trade-off between uniformity of the features: feature embeddings should be uniformly distributed on unit hypersphere [14] and tolerance of the features: features of semantically similar items should be close to each other. The cross-entropy loss used in contrastive learning only focuses on bringing the features of the same instances together while pushing the features of different instances away, without focusing on the semantical relationships between them. Although moving semantically similar items away from each other can generate uniform feature distribution, they may lead to low tolerance and poor features for downstream tasks like classification. In [13], they find that the temperature parameter in the contrastive loss controls this trade-off, and either extreme of this parameter value leads to poor downstream task performance. This encourages us to design a better loss function that can increase the tol- The total loss is the linear combination of the contrastive loss L C and the angular margin loss L A . DA stands for data augmentation, f (·) for encoder network, and g(·) for the projection head.
+
+With the exception of the angular margin loss applied between h i and h j , the setup strictly follows [10] for the purpose of comparison.
+
+erance i.e separation between semantically dissimilar items and increase the downstream task performance, unlike the the traditional contrastive loss.
+
+In this paper, we propose a new loss, ACL, for SSL that adds angular margin loss to the instance discrimination task in contrastive learning. We perform experiments on supervised and self-supervised learning using the ACL and achieve higher performance than the cross-entropy-based loss functions. Finally, we analyze why the ACL improves the downstream classification accuracy with the help of feature tolerance and uniformity introduced in [13].
+
+
+SELF-SUPERVISED LEARNING USING ACL
+
+Our self-supervised audio feature learning framework is illustrated in Fig. 1. For the pretext task, we first represent each audio clip by its log-mel spectrogram and then randomly crop two time-frequency (TF) patches x i and x j from each clip. Mix-back operation [10] which mixes the current patch with a background patch drawn from training set is applied to get x i and x j . Then we apply data augmentation techniques such as random sized cropping [15], specAugment [16], and Gaussian blurring to getx i andx j . Our final task is to distinguish that in a batch x i corresponds x j . We employ ResNet18 [2] as the encoder network to extract the feature embeddings
+h i = f (x i ) and h j = f (x j )
+. Finally as suggested in [8], feature embeddings are projected to a lower dimension features z i = g(h i ) and z j = g(h j ) by a projection head consisting of an MLP with one hidden layer, batch normalization and a non-linear ReLU.
+
+For the correspondence learning in a contrastive way, we utilize the NT-Xent loss [8], defined as
+L C (i, j) = −log exp(sim(z i , z j )/τ ) 2N k=1 1 [k =i] exp(sim(z i , z k )/τ ) ,(1)
+where sim(·) calculates the cosine similarity between features
+z i and z j , 1 [k =i] ∈ {0,
+1} is an indicator function being 1 for k = i and 0 for k = i, and τ is the temperature scaling factor which controls how the negative samples are penalized, with smaller value penalizing more and vice versa. Essentially, this is a temperature scaled cross-entropy loss that pulls the feature representations of positive pairs closer while pushing away those from negative pairs. As suggested in [13], in the above loss function there exist a trade-off between uniformity (embeddings should be uniformly distributed on unit hypersphere) and tolerance (features of semantically similar items should be close to each other). The cross-entropy based contrastive loss inherently achieves more uniformity and fails to add clear inter-class margins [14,13], which may be more desirable for downstream tasks like classifications. Moreover, the trade-off in the contrastive loss is controlled by the temperature parameter τ . In [13] they experimentally show that increasing τ from zero to one, correlates negatively with uniformity and positively with tolerance. Although we expect that higher temperature can lead to better tolerance, therefore better downstream task performance, the loss of uniformity hinders the performance significantly. In order to avoid this trade-off, we apply angular margin loss directly on the features h i and h j as defined:
+L A (i, j) = (cos −1 h i , h j ) 2 if S ij = 1 max(0, m g − cos −1 h i , h j ) 2 if S ij = 0 ,(2)
+where m g > 0 is the angular margin, S ij evaluates to 1 for the positive pairs where the angular distance is minimized; S ij evaluates to 0 for the negative pairs, ensuring a distance margin m g [7]. It is to be noted that unlike contrastive loss, we apply the angular margin loss on h i and h j . We believe that geometric constraints are retained better without the lower dimensional projection heads. Our experimental validation also points to the same conclusion.
+
+Finally, we combine both losses to form ACL defined below as:
+ACL = α * L C + (1 − α) * L A ,(3)
+The α ∈ [0, 1] is the weighting parameter. Setting α = 1, makes ACL same as contrastive loss L C , while making α = 0 reduces it to L A . Different values of α are investigated throughout the experiments. 
+
+
+DATASET
+
+We perform the experiments on FSDnoisy18k dataset [17], containing 42.5 hours of audio belonging to 20 classes drawn from AudioSet Ontology [18]. The length of the audio clips is between 0.3 and 30 seconds. The dataset is provided with a predefined training and testing set containing 17585 and 947 clips respectively. The training set is further divided into a small clean set of 1772 clips containing correct and complete labels, and a larger noisy set of 15813 clips that received no human validation, and are categorized using only the userprovided tags.
+
+
+EXPERIMENTAL SETUP AND RESULTS
+
+We perform experiments in supervised and self-supervised learning scenarios to investigate the effect of ACL. In supervised learning, we use the sound event labels from the dataset to perform sound event classification. As a baseline, we first train the system of Fonseca et al. [17] by using a standard cross-entropy objective. To evaluate ACL in this setup, we then add the angular margin loss at the second-last layer, right before the linear classification layer, as in [7]. The final loss function is the linear combination of CE and angular margin loss with a factor α, similar to Eq. 3. For SSL, we learn the audio features from the dataset by solving the pretext task explained in Sec. 2. The feature learning step does not require any labels available in the dataset. As the baseline, we first reproduce the system in [10] using traditional contrastive loss and then train the same system with our ACL for pair comparison of performances. For both experiments we keep the temperature parameter τ = 0.2 as given in [10]. After the feature learning step, we evaluate the quality of the features by testing them on the downstream task of sound event classification. Codes are available at here 1 . 
+
+
+Supervised learning
+
+Supervised learning results are listed in Table 1 for different subsets of FSDnoisy18k used for training the models. We indicate the α value in the ACL as in Eq. 3 corresponding to the best validation performance in the last column of Table 1. It is evident that irrespective of the data subset used in training, the performance significantly improves by adding margin loss: 3.5% improvement for the whole training data, 1.9% for the Noisy subset, 6.2% for the Noisy small subset, and 4.3% for the Clean subset. The improvements in the results are tested and found statistically significant based on 95% confidence intervals. Based on all our experiments, we noticed that for clean data, α = 0.5 gives the best accuracy. When the labels are reliable, CE loss and angular margin loss should be given equal weights to achieve superior performance. As for noisy data, we notice that a smaller α, between [0.2, 0.4] gives the best performance. Giving a smaller weight to CE loss implies that we do not trust the labels enough to penalize the system based on the information provided only by the binary targets. This seems intuitive, since data points with wrong labels may result in very high loss values, influencing the training process strongly. Giving more weights to angular margin loss seems to mitigate the effect of label noise in the dataset.  
+
+
+Self-supervised learning
+
+We test the self-supervised features from baseline contrastive loss and our ACL on in-domain downstream tasks of sound event classification. For this purpose, we add an extra linear classifier on top of the feature extraction layer for both methods and obtain 74.2% average classification accuracy for baseline and 77.1% for our ACL model, with an improvement of 2.9% (statistically significant). We provide class-wise classification accuracy on the test set for both the systems in Fig.  2. It can be observed that 13 out of 20 classes benefit from ACL, particularly the ones with lowest performance in the baseline. Table 2 summarizes the performances obtained for the FSDnoisy18k test set concerning different training methods. Self-supervised learning is superior to the supervised learning method, even given the small data size, which is also pointed out in Fonseca et al. [10]. For ACL, we notice that its improvement in supervised learning also holds for selfsupervised learning. ACL brings a 3.5% improvement for supervised learning and a 2.9% increase for SSL comparison to its baselines. Moreover, similar to the supervised case, a moderate α value (0.3 for SSL) gives the optimal performance. While the best α value can be selected based on the validation set, the presented results suggest that choosing a value between [0.2, 0.4] is generally suitable.
+
+
+ACL features analysis
+
+We compare the properties of the feature embeddings learned through contrastive loss and ACL to find a suitable explanation for the improved performance using ACL. To understand the feature quality, we calculate uniformity (U ) and tolerance (T ) as defined in [13,14] and compare its trend to the downstream task's accuracies. By randomly sampling feature vectors from the test set, we calculate these two metrics as in [13]:
+U (z; t) = log E zx,zy ∼data exp −t zx − zy 2 2 , t > 0 T = E zx,zy ∼data z T x zy 1 [l(zx)=l(zy )] ,
+where l(·) represents the class labels attached to the feature vector z and 1 ∈ {0, 1} is an indicator function being 1 if both features have same class labels. We plot these two metrics along with average downstream task accuracy by varying temperature values. From Fig. 3, it can be seen that irrespective of the temperature value, our ACL scores slightly higher feature tolerance with the degradation of feature uniformity. We also notice that ACL scores higher accuracy than the baseline contrastive loss in downstream classification task for all the temperatures. This slight increase in the feature tolerance value seems to be more beneficial and the degradation in the uniformity does not necessarily harm the feature quality for our downstream tasks. As we understand from [13], the tolerance points to the existence of local clusters of semantically similar objects. So our ACL creates better interclass separation than NT-Xent loss, thereby achieving higher accuracy in downstream tasks. Moreover, from this experiment, it is safe to say that ACL leads to stable class accuracy concerning temperature parameters by relaxing the trade-off between uniformity and tolerance introduced from NT-Xent contrastive training.
+
+
+CONCLUSIONS
+
+We study the drawbacks of the NT-Xent contrastive loss and propose angular contrastive loss to improve the feature quality in the SSL training. We validate ACL audio representation learning through both supervised and SSL training. Experimental results suggest that classification type of downstream tasks benefit from adding ACL in SSL. Future work will be directed towards training with larger and possibly multimodal datasets, e.g. audio-visual correspondence or alignment pretext tasks for a more thorough analysis of its benefits to a larger variety of data and downstream tasks.
+
+Fig. 1 .
+1The main diagram of the proposed method.
+
+Fig. 2 .
+2Class-wise accuracies (%) for in-domain features evaluation. Green bar shows the baseline results trained on contrastive loss only and red bar displays our proposed ACL with α = 0.3.
+
+Fig. 3 .
+3Uniformity, tolerance and downstream classification accuracies with varying temperature for contrastive loss and ACL.
+
+
+1 https://github.com/shanwangshan/Self supervised ACLFSDnoisy18k 
+Supervised 
+CE 
+with α 
+subsets 
+baseline [17] + margin loss 
+
+All 
+70.1 
+73.6 
+0.7 
+Noisy 
+66.4 
+68.3 
+0.4 
+Noisy small 
+33.7 
+39.9 
+0.2 
+Clean 
+60.2 
+64.5 
+0.5 
+
+Table 1. Test classification accuracies (%) of supervised 
+learning approaches trained on different subsets of FSD-
+noisy18K. 
+
+
+
+Large-scale video classification with convolutional neural networks. Andrej Karpathy, George Toderici, Sanketh Shetty, Thomas Leung, Rahul Sukthankar, Li Fei-Fei, Proc. of the IEEE conference on Computer Vision and Pattern Recognition. of the IEEE conference on Computer Vision and Pattern RecognitionAndrej Karpathy, George Toderici, Sanketh Shetty, Thomas Leung, Rahul Sukthankar, and Li Fei-Fei, "Large-scale video classification with convolutional neural networks," in Proc. of the IEEE conference on Computer Vision and Pattern Recognition, 2014, pp. 1725-1732.
+
+Deep residual learning for image recognition. Kaiming He, Xiangyu Zhang, Shaoqing Ren, Jian Sun, Proc. of the IEEE conference on computer vision and pattern recognition. of the IEEE conference on computer vision and pattern recognitionKaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun, "Deep residual learning for image recognition," in Proc. of the IEEE conference on computer vision and pattern recognition, 2016, pp. 770-778.
+
+An image is worth 16x16 words: Transformers for image recognition at scale. Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, Neil Houlsby, International Conference on Learning Representations. Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby, "An image is worth 16x16 words: Trans- formers for image recognition at scale," in International Conference on Learning Representations, 2021.
+
+Context-dependent sound event detection. Toni Heittola, Annamaria Mesaros, Antti Eronen, Tuomas Virtanen, Speech, and Music Processing. 2013Toni Heittola, Annamaria Mesaros, Antti Eronen, and Tuomas Virtanen, "Context-dependent sound event de- tection," EURASIP Journal on Audio, Speech, and Mu- sic Processing, vol. 2013, no. 1, pp. 1-13, 2013.
+
+Convolutional recurrent neural networks for polyphonic sound event detection. Emre Cakır, Giambattista Parascandolo, Toni Heittola, Heikki Huttunen, Tuomas Virtanen, IEEE/ACM Transactions on Audio, Speech, and Language Processing. 256Emre Cakır, Giambattista Parascandolo, Toni Heittola, Heikki Huttunen, and Tuomas Virtanen, "Convolutional recurrent neural networks for polyphonic sound event detection," IEEE/ACM Transactions on Audio, Speech, and Language Processing, vol. 25, no. 6, pp. 1291- 1303, 2017.
+
+Sound event detection: A tutorial. Annamaria Mesaros, Toni Heittola, Tuomas Virtanen, Mark D Plumbley, IEEE Signal Processing Magazine. 385Annamaria Mesaros, Toni Heittola, Tuomas Virtanen, and Mark D. Plumbley, "Sound event detection: A tuto- rial," IEEE Signal Processing Magazine, vol. 38, no. 5, pp. 67-83, 2021.
+
+Amcloss: Angular margin contrastive loss for improved explainability in image classification. Hongjun Choi, Anirudh Som, Pavan Turaga, Proc. of the IEEE/CVF conference on computer vision and pattern recognition workshops. of the IEEE/CVF conference on computer vision and pattern recognition workshopsHongjun Choi, Anirudh Som, and Pavan Turaga, "Amc- loss: Angular margin contrastive loss for improved ex- plainability in image classification," in Proc. of the IEEE/CVF conference on computer vision and pattern recognition workshops, 2020, pp. 838-839.
+
+A simple framework for contrastive learning of visual representations. Ting Chen, Simon Kornblith, Mohammad Norouzi, Geoffrey Hinton, in International conference on machine learning. PMLR, 2020Ting Chen, Simon Kornblith, Mohammad Norouzi, and Geoffrey Hinton, "A simple framework for contrastive learning of visual representations," in International con- ference on machine learning. PMLR, 2020, pp. 1597- 1607.
+
+Contrastive learning of general-purpose audio representations. Aaqib Saeed, David Grangier, Neil Zeghidour, ICASSP 2021-2021 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP). IEEEAaqib Saeed, David Grangier, and Neil Zeghidour, "Contrastive learning of general-purpose audio repre- sentations," in ICASSP 2021-2021 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP). IEEE, 2021, pp. 3875-3879.
+
+Unsupervised contrastive learning of sound event representations. Eduardo Fonseca, Diego Ortego, Kevin Mcguinness, Noel E O&apos;connor, Xavier Serra, 2021 IEEE International Conference on Acoustics, Speech and Signal Processing. IEEEICASSPEduardo Fonseca, Diego Ortego, Kevin McGuinness, Noel E. O'Connor, and Xavier Serra, "Unsupervised contrastive learning of sound event representations," in 2021 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP). IEEE, 2021.
+
+Learning representations from audio-visual spatial alignment. Pedro Morgado, Yi Li, Nuno Nvasconcelos, Advances in Neural Information Processing Systems. 33Pedro Morgado, Yi Li, and Nuno Nvasconcelos, "Learn- ing representations from audio-visual spatial align- ment," Advances in Neural Information Processing Sys- tems, vol. 33, 2020.
+
+Self-supervised learning of audio representations from audio-visual data using spatial alignment. Shanshan Wang, Archontis Politis, Annamaria Mesaros, Tuomas Virtanen, IEEE Journal of Selected Topics in Signal Processing. Shanshan Wang, Archontis Politis, Annamaria Mesaros, and Tuomas Virtanen, "Self-supervised learning of au- dio representations from audio-visual data using spatial alignment," IEEE Journal of Selected Topics in Signal Processing, 2022.
+
+Understanding the behaviour of contrastive loss. Feng Wang, Huaping Liu, Proc. of the IEEE/CVF conference on computer vision and pattern recognition. of the IEEE/CVF conference on computer vision and pattern recognitionFeng Wang and Huaping Liu, "Understanding the be- haviour of contrastive loss," in Proc. of the IEEE/CVF conference on computer vision and pattern recognition, 2021, pp. 2495-2504.
+
+Understanding contrastive representation learning through alignment and uniformity on the hypersphere. Tongzhou Wang, Phillip Isola, International Conference on Machine Learning. PMLR, 2020. Tongzhou Wang and Phillip Isola, "Understanding con- trastive representation learning through alignment and uniformity on the hypersphere," in International Con- ference on Machine Learning. PMLR, 2020, pp. 9929- 9939.
+
+Data augmentation using random image cropping and patching for deep cnns. Ryo Takahashi, Takashi Matsubara, Kuniaki Uehara, IEEE Transactions on Circuits and Systems for Video Technology. 30Ryo Takahashi, Takashi Matsubara, and Kuniaki Ue- hara, "Data augmentation using random image cropping and patching for deep cnns," IEEE Transactions on Cir- cuits and Systems for Video Technology, vol. 30, no. 9, pp. 2917-2931, 2019.
+
+SpecAugment: A Simple Data Augmentation Method for Automatic Speech Recognition. Daniel S Park, William Chan, Yu Zhang, Chung-Cheng Chiu, Barret Zoph, Ekin D Cubuk, Quoc V Le, Proc. Interspeech. InterspeechDaniel S. Park, William Chan, Yu Zhang, Chung-Cheng Chiu, Barret Zoph, Ekin D. Cubuk, and Quoc V. Le, "SpecAugment: A Simple Data Augmentation Method for Automatic Speech Recognition," in Proc. Inter- speech 2019, 2019, pp. 2613-2617.
+
+Learning sound event classifiers from web audio with noisy labels. Eduardo Fonseca, Manoj Plakal, P W Daniel, Frederic Ellis, Xavier Font, Xavier Favory, Serra, ICASSP 2019-2019 IEEE International Conference on Acoustics, Speech and Signal Processing. IEEEICASSPEduardo Fonseca, Manoj Plakal, Daniel PW Ellis, Fred- eric Font, Xavier Favory, and Xavier Serra, "Learning sound event classifiers from web audio with noisy la- bels," in ICASSP 2019-2019 IEEE International Con- ference on Acoustics, Speech and Signal Processing (ICASSP). IEEE, 2019, pp. 21-25.
+
+Audio set: An ontology and human-labeled dataset for audio events. Jort F Gemmeke, P W Daniel, Dylan Ellis, Aren Freedman, Wade Jansen, Channing Lawrence, Manoj Moore, Marvin Plakal, Ritter, 2017 IEEE international conference on acoustics, speech and signal processing. Jort F Gemmeke, Daniel PW Ellis, Dylan Freedman, Aren Jansen, Wade Lawrence, R Channing Moore, Manoj Plakal, and Marvin Ritter, "Audio set: An ontology and human-labeled dataset for audio events," in 2017 IEEE international conference on acoustics, speech and signal processing (ICASSP), 2017, pp. 776- 780.

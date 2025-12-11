@@ -1,0 +1,797 @@
+{
+  "doc_id": "corpus_277451785",
+  "units": [
+    {
+      "unit_id": 0,
+      "text": "Reinforcement Learning-based Token Pruning in Vision Transformers: A Markov Game Approach",
+      "type": "heading",
+      "level": 0,
+      "parent_id": null,
+      "subtype": "doc_title"
+    },
+    {
+      "unit_id": 1,
+      "text": "I. INTRODUCTION",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 2,
+      "text": "Vision Transformers (ViTs) [1], [2] have achieved state-ofthe-art performance in many computer vision tasks, yet they typically have high computational costs that scale quadratically with the number of tokens.However, in practice, a ViT's final prediction often depends on a subset of the most informative tokens [3], with the other tokens being redundant.This opens up the opportunity for token pruning to reduce the computation cost while maintaining high accuracy.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 3,
+      "text": "To date, several token pruning policies have been proposed, most of which [4]- [8] draw on pre-defined, handcrafted pruning policies based on the attention values of the tokens, lacking adaptivity to varying inputs.Another existing work, DynamicViT [9], exploits Multi-Layer Perceptrons (MLPs) to automatically learn whether to prune each token.However, it still relies on manually defined pruning ratios for each layer, resulting in limited flexibility.Furthermore, existing works largely overlook the sequential nature of the tokens, where the decision to preserve or prune certain tokens in one layer can significantly impact the outcomes for the subsequent layers.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 4,
+      "text": "In view of the drawbacks of existing handcrafted features, in this work, we propose Reinforcement Learning for Efficient Vision Transformer (RL4EViT), where we draw on Reinforcement Learning (RL) to learn a token pruning policy in a data-adaptive manner.To the best of our knowledge, this is the first work applying RL to this task, which can achieve the best trade-off between accuracy and efficiency when compared Fig. 1.Comparisons between our RL4EViT and some state-of-the-art token pruning methods on the ImageNet-1k dataset [10], using DeiT-S and DeiT-B as backbones.Our RL4EViT has achieved the best trade-off between accuracy and inference speed.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 5,
+      "text": "with the state-of-the-art (Fig. 1).Concretely, we formulate token pruning as a sequential decision problem.As is shown in Fig. 2, we incorporate a token pruning layer after each Transformer block 1 , where we utilize Multi-Agent Proximal Policy Optimization (MAPPO) [11] to prune the output tokens of the Transformer block.The multi-agent setting allows for individualized treatment of each token as compared with a single-agent setting.We also propose reward functions that enable the agents to both compete and collaborate with each other, effectively balancing efficiency and accuracy.The global decision across all token pruning layers is obtained via a Markov Game [12], thus preserving important inter-layer sequential information.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 6,
+      "text": "In summary, our main contributions are as follows:",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 7,
+      "text": "• We propose RL4ViT where we exploit RL for data-adaptive token pruning in ViTs.To the best of our knowledge, this is the first time RL has been applied to this task.• We present MAPPO-based token pruning layers, where the multi-agent setting enables individualized decision-making for each token.We propose novel reward functions for an effective trade-off between efficiency and accuracy, and utilize a Markov Game to calculate the global reward to capture sequential semantics across all token pruning layers.[11] to prune the output tokens of the Transformer block.The global reward across all token decision layers is obtained via a Markov Game [12] to preserve important sequential information.Note that in practice, instead of directly removing the pruned tokens, we set their attention weights to -1000 to facilitate mini-batch-based training.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 8,
+      "text": "• We conduct extensive experiments on the well-known ImageNet-1k dataset, which show that our RL4EViT can improve the inference speed by up to 44% while incurring only a negligible accuracy drop of 0.4%.The rest of this paper is organized as follows: Section II reviews the related work.Section III details our RL4EViT method.Section IV reports the experimental results.Section V concludes the paper.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 9,
+      "text": "II. RELATED WORK",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 10,
+      "text": "Addressing their quadratic complexity against the number of tokens, researchers have proposed multiple token pruning methods for ViTs.Most existing works [4]- [8] favor preserving tokens with high attention weights over those with low ones.These methods all use pre-defined, handcrafted pruning policies that lack adaptivity to diverse inputs.DynamicViT [9], on the other hand, uses MLPs to predict whether to preserve or prune each token by balancing accuracy and efficiency.However, the number of tokens to prune in each layer remains manually defined, limiting its flexibility.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 9,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 11,
+      "text": "Alongside token pruning, many methods entail token merging [5], [7], [8].Instead of directly discarding less important tokens, these methods merge them into more compact representations using techniques such as spatial attention [7], [8] and pooling [5].Such methods are more robust against errors in token pruning, at the cost of efficiency decay.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 9,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 12,
+      "text": "III. RL4EVIT FOR TOKEN PRUNING",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 9,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 13,
+      "text": "We are now in a position to present the details of our RL4EViT method, which integrates MAPPO token pruning layers into the ViT architecture and exploits a Markov Game setup to prune redundant tokens (Fig. 2).As illustrated in Alg. 1, RL4EViT takes the following as the input:",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 12,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 14,
+      "text": "• image dataset D;",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 12,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 15,
+      "text": "• ViT components: patch embedding network M , Transformer blocks F l (l = 1, 2, . . ., L) entailing self-attention and Feed-Forward Networks (FFNs), and the image classifier C (can be replaced with other downstream task solvers); • RL components: an actor network π θ and a critic network V ϕ , as core modules of MAPPO (detailed in Section III-A1).",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 12,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 16,
+      "text": "RL4ViT is trained based on a pre-trained ViT (line 1 of Alg. 1) with no token pruning.Then, we alternate between optimizing the RL components and optionally fine-tuning the ViT components using the conventional forward-backward propagation scheme, eventually obtaining the token-pruned, fine-tuned ViT.We now separately introduce the forward (lines 5-13) and backward (lines 14-22) passes of RL4EViT.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 12,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 17,
+      "text": "A. The Forward Pass",
+      "type": "heading",
+      "level": 4,
+      "parent_id": 12,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 18,
+      "text": "In the forward pass (lines 5-13 of Alg.1), we feed the tokens obtained from each Transformer block F l into a MAPPO token pruning layer, which takes pruning decisions A l using the MAPPO actor network π θ for each token.The inputs, decisions and rewards of the multiple token pruning layers in the network can thus form a Markov Game trajectory, which will be used to optimize the RL components in the backward pass.We now separately present the MAPPO token pruning layers and the Markov Game trajectory.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 19,
+      "text": "1) MAPPO Token Pruning Layers: The general idea of Multi-Agent Proximal Policy Optimization (MAPPO) [11] for token pruning is to map each input token (except the class token, as in the context of image classification) to an agent.for each F l l = 1, 2, . . ., L do 7:",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 20,
+      "text": "Obtain tokens before pruning S l = F l (T l−1 ) 8:",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 21,
+      "text": "Obtain pruning decisions:",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 22,
+      "text": "A l = π θ (S l ) 9:",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 23,
+      "text": "Obtain tokens after pruning:",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 24,
+      "text": "T l = S l × A l 10:",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 25,
+      "text": "Update F l with T l 11:",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 26,
+      "text": "end for",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 27,
+      "text": "12: Compute rewards R 1 , R 2 , . . . , R l 13: Collect Markov Game trajectory S 1 , A 1 , R 1 , S 2 , A 2 , R 2 , . . . , S l , A l , R l ▷",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 28,
+      "text": "Step 2: Backward Pass end for 24: end for 25: return M , F l (l = 1, 2, . . ., L), C These agents, dictated by the actor network π θ , decide whether to prune their corresponding tokens.The pruning decisions are evaluated by the critic network V ϕ from a global point of view.Compared with a single-agent setting where the pruning decisions of all tokens in the ViT are taken by a single agent, our multi-agent approach allows for more individualized and thus effective decision-making for each token.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 29,
+      "text": "Concretely, we use MLPs for both the actor and critic networks.Furthermore, to reduce the number of learnable parameters, all agents in RL4EViT share a single actor network π θ with identical parameters, and all token pruning layers share a single critic network V ϕ .Each agent takes in the feature vector of its corresponding token (which we call a local feature) as the input, and outputs a binary decision value with 0 denoting pruning the token, and 1 denoting preserving it.The critic outputs a Q-value for the decision of each agent.Notably, while the MAPPO critic individually evaluates each agent, it does so from a global point of view.Hence, it is vital to input into the critic an Agent-Specific Global Feature, fusing the agent-specific feature with an Environment-Provided global feature [11].In RL4EViT, we use the downstream task-specific token (class token in image classification) as the global feature, concatenating it with the local feature as the input of the critic.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 30,
+      "text": "As with the reward function, we note that the goal of token pruning is to achieve the best trade-off between efficiency and accuracy.Accordingly, we define two reward functions for each agent.Specifically, given a single training image, for the i-th agent in layer l a l i , the rewards are defined as",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 31,
+      "text": "r l 1i = 0,",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 32,
+      "text": "if agent a l i decides to prune the token, −1, if agent a l i decides to preserve the token",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 33,
+      "text": "r l 2i = γ n l(1)",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 34,
+      "text": "where n l is the number of preserved tokens (after token pruning) in the l-th layer, and γ is some accuracy metric for the downstream task.For image classification, we let γ be 1 if the image is classified correctly, and 0 otherwise.The total reward for agent",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 35,
+      "text": "a l i is R l i = α * r l 1i + β * r l 2i(2)",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 36,
+      "text": "where α and β are pre-set weights.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 37,
+      "text": "Through the two rewards r l 1i and r l 2i , we allow all agents (not only in a single token pruning layer, but across all layers) to both compete and collaborate to strike a balance between efficiency and accuracy.On the one hand, r l 1i incentivizes pruning as many tokens as possible, letting them compete for valuable computational cost budgets.On the other hand, r l 2i incentivizes them to collaborate to enhance the eventual downstream task accuracy.Notably, in r l 2i , we amortize the accuracy gain to each preserved token by dividing n l to minimize the number of preserved tokens, keeping only the ones with the greatest contribution to the downstream task.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 38,
+      "text": "Before we move on, we note that for a pruned token, we do not explicitly remove it from the ViT architecture, as this would cause discrepancies in the network architecture from image to image, hindering mini-batch-based training.Rather, following the practice of [9], we mask the pruned tokens by setting their corresponding attention matrix values to a negative number with a large absolute value (e.g.-1000) before applying Softmax to them, effectively severing the connections between pruned and preserved tokens.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 39,
+      "text": "2) The Markov Game Trajectory: Token pruning for ViT is inherently sequential, as the tokens are obtained from consecutive Transformer blocks.Addressing this, we coordinate the multiple MAPPO token pruning layers using a Markov Game framework.Specifically, for the l-th (l = 1, 2, . . ., L) layer, we are concerned with the following:",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 40,
+      "text": "• state S l : feature vectors of the tokens before pruning;",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 41,
+      "text": "• joint action A l : decisions by all agents in the l-th layer;",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 42,
+      "text": "• reward R l : rewards (Eq.2) of all agents in the l-th layer; Assuming that the state of a layer S l+1 depends solely on the state S l and the joint action A l of the previous layer, the transition from S l to S l+1 is dictated by the conditional probability P (S l+1 |S l , A l ).The trajectory of the Markov Game is defined as",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 43,
+      "text": "S 1 , A 1 , R 1 , S 2 , A 2 , R 2 , ..., S L , A L , R L",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 44,
+      "text": "which will be used to calculate the RL loss functions.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 45,
+      "text": "B. The Backward Pass",
+      "type": "heading",
+      "level": 5,
+      "parent_id": 17,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 46,
+      "text": "In the backward pass (lines 14-22 of Alg.1), we alternately optimize the RL components and fine-tune the ViT.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 47,
+      "text": "1) Optimizing the RL components: The RL components to optimize are the actor network π θ and the critic network V ϕ .Specifically, we can obtain a Markov Game trajectory for each training image, resulting in B = |B| trajectories for the current mini-batch B. We iteratively optimize π θ and V ϕ based on these trajectories.In each iteration, for π θ , we maximize the following MAPPO policy objective [11] L θ = 1 m is its advantage obtained via Generalized Advantage Estimation (GAE) [13].",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 48,
+      "text": "r b θ,m = π new θ (a b m | s b m )/π old θ (a b m | s b m )",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 45,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 49,
+      "text": "where s b m is the state of the agent (i.e. the feature vector of its input token), π new ) is the logit (probability) that corresponds to a b m outputted by π θ (new or old).ϵ θ is a bounding hyperparameter for r b θ,m .For the critic network V ϕ , we minimize the following MAPPO value loss [11]:",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 50,
+      "text": "L ϕ = 1 B b=1 M b B b=1 M b m=1 max V new ϕ (s b m ) − R b m 2 , clip(V old ϕ (s b m ), V old ϕ (s b m ) ± ϵ ϕ ) − R b m 2(4)",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 45,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 51,
+      "text": "where for the m-th agent, s b m is its global feature (i.e. the concatenation of the feature vectors of its input token and the class token), R b m is its reward, with V new ϕ and V old ϕ being the current V ϕ and that at the end of the previous epoch.ϵ θ is a bounding hyperparameter.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 52,
+      "text": "2) Fine-tuning the ViT: After token pruning, the pre-trained ViT parameters may no longer be optimal.Therefore, we allow for optionally fine-tune all the ViT parameters after each update to the token pruning policy.The effectiveness of finetuning will be empirically shown in Section IV-B.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 53,
+      "text": "IV. EXPERIMENTS",
+      "type": "heading",
+      "level": 6,
+      "parent_id": 45,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 54,
+      "text": "We now report our experimental results, obtained on the well-known ImageNet-1k [10] dataset.Following the practices of previous works [4]- [9], we instantiate RL4EViT for the image classification task using DeiT-S and DeiT-B [2] as the backbone ViTs.Both backbones have 12 Transformer blocks.Following [9], we only conduct token pruning for blocks 3,  Both π θ and V ϕ are optimized with Adam with a learning rate of 5 × 10 −5 .The other hyperparameters are the same as those in [11].All experiments are run on an NVIDIA A6000 GPU.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 53,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 55,
+      "text": "A. Comparison Against Rival Methods",
+      "type": "heading",
+      "level": 7,
+      "parent_id": 53,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 56,
+      "text": "We compare the accuracy (measured by top-1 accuracy) and efficiency (measured by inference speed) of our RL4EViT against multiple state-of-the-art methods [4]- [9].Following the practices of previous works [9], we make sure that all methods compared have approximately the same model complexity (quantified by GFLOPs) for fair comparison.For our RL4EViT, the model complexity can be empirically adjusted by tuning α and β in Eq. 2. Specifically, the larger α/β is, the larger the number of preserved tokens, and the larger the GFLOPs.While there is no way to mathematically formulate the exact relationship between the GFLOPs and α/β, this can be empirically dipicted by Fig. 3.We can thus vary α/β to obtain models with different GFLOPs.Also, note that while our method allows for fine-tuning of the ViT, not all the rival methods allow for this.To be fair to these methods, we disregard fine-tuning in this experiment.",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 55,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 57,
+      "text": "The results are shown in Table I, which indicates that our RL4EViT can generally achieve the best trade-off between efficiency and accuracy.Specifically, most rival methods [4]- [8] apply purely handcrafted pruning policies, lacking adaptivity to diver input data.The rival method that is most affine to ours is DynamicViT [9], which exploits MLPs to learn the pruning policy.However, its flexibility is still limited by the fact that the number of tokens to prune in each layer remains manually defined, limiting its performance.By contrast, by fully unleashing the power of learned token pruning policies with RL, our RL4EViT can improve the inference speed by up to 44% while incurring a neglectable accuracy decay of only 0.4% as compared with no token pruning (in the case where the backbone is DeiT-B and the approximate GFLOPs is 11.6), which can be further improved to just 0.1% of accuracy decay when we apply fine-tuning to the ViT.Also note that several rival methods [5], [7], [8] entail separate token merging modules (see Section II) to enhance the accuracy.By contrast, our RL4EViT can outperform or match their accuracy in all cases with no need for token merging.",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 55,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 58,
+      "text": "B. Ablation Studies",
+      "type": "heading",
+      "level": 8,
+      "parent_id": 55,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 59,
+      "text": "We now conduct ablation studies for certain design features of our method, of which the most important one is our multiagent setting using MAPPO within the framework of a Markov Game.To validate its effectiveness, we consider the following two alternative token pruning policies: a Random policy where tokens are randomly pruned, and a single-agent PPO [14] policy which, instead of using an agent for each token, uses a single agent to make the pruning decisions for all tokens in the ViT.The results are shown in Table II.Unsurprisingly, the random policy is significantly inferior to the RL-based policies.Moreover, our multi-agent method outperforms its single-agent counterpart in all cases, owing to the former's ability to make a more individualized decision for each token.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 58,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 60,
+      "text": "Another design choice of ours is optional fine-tuning for the ViT after each update to the token pruning policy.Fig. 4 shows the accuracies with and without fine-tuning, indicating",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 58,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 61,
+      "text": "C. Visualization of Token Pruning Results",
+      "type": "heading",
+      "level": 9,
+      "parent_id": 58,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 62,
+      "text": "To further demonstrate the effect of the token pruning policy in our RL4EViT, we conduct a visual comparison on several images in the ImageNet-1k dataset between it and DynamicVit [9], which as mentioned previously is the rival method most similar to ours due to its learned (rather than purely handcrafted) nature.Specifically, in Figure 5, we show the original input image and the token pruning results after Transfomer blocks 3, 6, and 9 in DeiT-B [2], where the pixels corresponding to the pruned tokens are shown in white.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 61,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 63,
+      "text": "Note that our RL4EViT prunes most of the tokens in the first stage (block 3), while DynamicViT conducts the pruning in a more gradual manner.This is because in DynamicViT, the number of tokens pruned in each layer is fixed to a manually defined value, while our RL4EViT can automatically learn the number of tokens to prune in each layer in an attempt to strike the best global balance between accuracy and efficiency.As a result, it tends to prune unimportant tokens as early as possible, only passing the most important ones to later layers.Moreover, in most cases, the quality of the tokens preserved by Fig. 5. Visualization of token pruning results obtained via our RL4EViT and DynamicVit [9], after Transformer blocks 3, 6, and 9 in DeiT-B [2].The pruned tokens are shown in white.As is indicated, thanks to its more data-adaptive nature, our RL4EViT can conduct most of the pruning at the earliest possible stage (block 3), leaving only the most important tokens behind.By contrast, DynamicViT can only prune a fixed number of tokens in each block, which limits its flexibility and thus its performance.our method is better than that by DynamicViT.For instance, for the third example in the second column of Fig. 5 which is an image of a bird's head, our RL4EViT can preserve the tokens corresponding to the eye of the bird, while DynamicViT fails to do so, showcasing the superiority of our method.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 61,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 64,
+      "text": "V. CONCLUSION",
+      "type": "heading",
+      "level": 10,
+      "parent_id": 61,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 65,
+      "text": "In this paper, we proposed RL4EViT, which is (to the best of our knowledge) the first RL-based token pruning method for ViTs.By exploiting multiple MAPPO token pruning layers under a Markov Game framework, our method can be highly adaptive to varying input data, and capture important sequential information.Extensive experiments have shown that it can achieve state-of-the-art performance in terms of the trade-off between efficiency and accuracy.For future work, we will further study the application of our method in diverse downstream tasks other than image classification.",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 66,
+      "text": "RL4EViT Input: image dataset D, patch embedding network M , Transformer blocks F l (l = 1, 2, . . ., L), classifier C, MAPPO actor network π θ , MAPPO critic network V ϕ Output: fine-tuned patch embedding network M , tokenpruned Transformer blocks F l (l = 1, 2, . . ., L), fine-tuned classifier C 1: Pretrain M , F l (l = 1, 2, . . ., L), C 2: Initialize π θ and V ϕ 3: for each epoch e = 1, 2, . . ., E do 4: for each mini-batch B ∈ D do ▷ Step 1: Forward Pass 5: Obtain patch embedding T 0 = M (B) 6:",
+      "type": "figure",
+      "level": 11,
+      "parent_id": 64,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 67,
+      "text": "RL4EViT Input: image dataset D, patch embedding network M , Transformer blocks F l (l = 1, 2, . . ., L), classifier C, MAPPO actor network π θ , MAPPO critic network V ϕ Output: fine-tuned patch embedding network M , tokenpruned Transformer blocks F l (l = 1, 2, . . ., L), fine-tuned classifier C 1: Pretrain M , F l (l = 1, 2, . . ., L), C 2: Initialize π θ and V ϕ 3: for each epoch e = 1, 2, . . ., E do 4: for each mini-batch B ∈ D do ▷ Step 1: Forward Pass 5: Obtain patch embedding T 0 = M (B) 6:",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 68,
+      "text": "if e%2 == 1 then ▷ Optimize RL with ViT fixed 15: for each RL iteration k = 1, 2, . . ., K do 16: Compute policy objective L θ , value loss L ϕ 17: Update π θ and V ϕ using L θ and L ϕ 18: end for 19: else ▷ Fine-tune ViT with RL fixed 20: Compute classification loss L C 21:Update M , F l (l = 1, 2, . . ., L), C with L C",
+      "type": "figure",
+      "level": 11,
+      "parent_id": 64,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 69,
+      "text": "if e%2 == 1 then ▷ Optimize RL with ViT fixed 15: for each RL iteration k = 1, 2, . . ., K do 16: Compute policy objective L θ , value loss L ϕ 17: Update π θ and V ϕ using L θ and L ϕ 18: end for 19: else ▷ Fine-tune ViT with RL fixed 20: Compute classification loss L C 21:Update M , F l (l = 1, 2, . . ., L), C with L C",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 70,
+      "text": "Âb m , clip(r b θ,m , 1±ϵ θ ) Âb m (3) where for the m-th agent among the M b agents involved in the b-th trajectory, Âb",
+      "type": "figure",
+      "level": 11,
+      "parent_id": 64,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 71,
+      "text": "Âb m , clip(r b θ,m , 1±ϵ θ ) Âb m (3) where for the m-th agent among the M b agents involved in the b-th trajectory, Âb",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 72,
+      "text": "and π old θ are the current π θ and that at the end of the previous epoch, a b m = π new θ (s b m ) is the action (i.e.prune or preserve) to take according to the current π θ , and π θ (a b m | s b m",
+      "type": "figure",
+      "level": 11,
+      "parent_id": 64,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 73,
+      "text": "and π old θ are the current π θ and that at the end of the previous epoch, a b m = π new θ (s b m ) is the action (i.e.prune or preserve) to take according to the current π θ , and π θ (a b m | s b m",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 74,
+      "text": "Fig. 3. Relationship between the proportion of the preserved tokens, as well as the model complexity, and α/β, with DeiT-B as the backbone ViT.",
+      "type": "figure",
+      "level": 11,
+      "parent_id": 64,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 75,
+      "text": "Fig. 3. Relationship between the proportion of the preserved tokens, as well as the model complexity, and α/β, with DeiT-B as the backbone ViT.",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 76,
+      "text": "in RL4EViT.The actor network π θ is an MLP with five layers of the sizes (384, 1536, 256, 64, 2) for DeiT-S and (768, 3072, 256, 64, 2) for DeiT-B.The critic network V ϕ is an MLP with five layers of the sizes (768, 1536, 256, 64, 1) for DeiT-S and (1536, 3072, 256, 64, 1) for DeiT-B.The number of RL training iteration K in line 15 of Alg. 1 is 15.",
+      "type": "figure",
+      "level": 11,
+      "parent_id": 64,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 77,
+      "text": "in RL4EViT.The actor network π θ is an MLP with five layers of the sizes (384, 1536, 256, 64, 2) for DeiT-S and (768, 3072, 256, 64, 2) for DeiT-B.The critic network V ϕ is an MLP with five layers of the sizes (768, 1536, 256, 64, 1) for DeiT-S and (1536, 3072, 256, 64, 1) for DeiT-B.The number of RL training iteration K in line 15 of Alg. 1 is 15.",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 78,
+      "text": "Fig. 4. Top-1 accuracies with and without ViT fine-tuning that fine-tuning can make the ViT more adapted to the updated network configuration, yielding better accuracies.",
+      "type": "figure",
+      "level": 11,
+      "parent_id": 64,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 79,
+      "text": "Fig. 4. Top-1 accuracies with and without ViT fine-tuning that fine-tuning can make the ViT more adapted to the updated network configuration, yielding better accuracies.",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 80,
+      "text": "References",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "references"
+    },
+    {
+      "unit_id": 81,
+      "text": "Absoulte value (speedup against no token pruning). BEST RESULTS ARE IN BOLD, SECOND BESTS ARE UNDERLINED. INFERENCE SPEEDS ARE FORMATTED AS. Backbone: DeiT-S (Top-1 Acc. 79.9% at 1265.3 images/s with no token pruning",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 80,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 82,
+      "text": "Backbone: DeiT-B (Top-1 Acc. 81.8% at 408.8 images/s with no token pruning",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 80,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 83,
+      "text": "GFLOPs (α/β = 0.88) Approx. Method Params Approx. 15.313.1 GFLOPs (α/β = 0.76) Approx. 11.6 GFLOPs (α/β = 0.68",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 80,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 84,
+      "text": "TABLE II COMPARISON OF TOP-1 ACCURACIES WITH DIFFERENT TOKEN PRUNING POLICIES, WHICH VALIDATES THE EFFECTIVENESS OF OUR MULTI-AGENT METHOD WITH MAPPO.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 80,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 85,
+      "text": "An image is worth 16x16 words: Transformers for image recognition at scale. Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, arXiv:2010.119292020arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 80,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 86,
+      "text": "Training data-efficient image transformers & distillation through attention. Matthieu Hugo Touvron, Matthijs Cord, Francisco Douze, Alexandre Massa, Hervé Sablayrolles, Jégou, International conference on machine learning. PMLR2021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 80,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 87,
+      "text": "Transformer interpretability beyond attention visualization. Hila Chefer, Shir Gur, Lior Wolf, 2021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 80,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 88,
+      "text": "Peeling the onion: Hierarchical reduction of data redundancy for efficient vision transformer training. Zhenglun Kong, Haoyu Ma, Geng Yuan, Mengshu Sun, Yanyue Xie, Peiyan Dong, Xin Meng, Xuan Shen, Hao Tang, Minghai Qin, Proceedings of the AAAI Conference on Artificial Intelligence. the AAAI Conference on Artificial Intelligence202337",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 80,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 89,
+      "text": "Token merging: Your vit but faster. Daniel Bolya, Cheng-Yang Fu, Xiaoliang Dai, Peizhao Zhang, Christoph Feichtenhofer, Judy Hoffman, arXiv:2210.094612022arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 80,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 90,
+      "text": "Adaptive token sampling for efficient vision transformers. Mohsen Fayyaz, Abbasi Soroush, Koohpayegani, Rezaei Farnoush, Sunando Jafari, Hamid Sengupta, Vaezi Reza, Eric Joze, Hamed Sommerlade, Jürgen Pirsiavash, Gall, European Conference on Computer Vision. Springer2022",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 80,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 91,
+      "text": "Not all patches are what you need: Expediting vision transformers via token reorganizations. Youwei Liang, Chongjian Ge, Zhan Tong, Yibing Song, Jue Wang, Pengtao Xie, 2022",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 80,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 92,
+      "text": "Evo-vit: Slowfast token evolution for dynamic vision transformer. Yifan Xu, Zhijie Zhang, Mengdan Zhang, Kekai Sheng, Ke Li, Weiming Dong, Liqing Zhang, Changsheng Xu, Xing Sun, Proceedings of the AAAI Conference on Artificial Intelligence. the AAAI Conference on Artificial Intelligence202236",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 80,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 93,
+      "text": "Dynamicvit: Efficient vision transformers with dynamic token sparsification. Yongming Rao, Wenliang Zhao, Benlin Liu, Jiwen Lu, Jie Zhou, Cho-Jui Hsieh, Advances in neural information processing systems. 202134",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 80,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 94,
+      "text": "Imagenet: A large-scale hierarchical image database. Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, Li Fei-Fei, 2009 IEEE conference on computer vision and pattern recognition. Ieee2009",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 80,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 95,
+      "text": "Chao Yu, Akash Velu, Eugene Vinitsky, Jiaxuan Gao, Yu Wang, Alexandre Bayen, Y I Wu, The surprising effectiveness of ppo in cooperative multi-agent games. 202235",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 80,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 96,
+      "text": "Markov games as a framework for multi-agent reinforcement learning. Michael L Littman, Machine learning proceedings. Elsevier1994. 1994",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 80,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 97,
+      "text": "High-dimensional continuous control using generalized advantage estimation. John Schulman, Philipp Moritz, Sergey Levine, Michael Jordan, Pieter Abbeel, arXiv:1506.024382015arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 80,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 98,
+      "text": "John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, Oleg Klimov, arXiv:1707.06347Proximal policy optimization algorithms. 2017arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 80,
+      "subtype": "bibentry"
+    }
+  ]
+}

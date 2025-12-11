@@ -1,0 +1,351 @@
+BaFTA: Backprop-Free Test-Time Adaptation For Zero-Shot Vision-Language Models
+18 Jun 2024
+
+Xuefeng Hu xuefengh@usc.edu 
+University of Southern
+California
+
+Ke Zha kezha@amazon.com 
+University of Southern
+California
+
+Min Sun minnsun@amazon.com 
+University of Southern
+California
+
+Albert Chen aycchen@amazon.com 
+University of Southern
+California
+
+Cheng-Hao Kuo chkuo@amazon.com 
+University of Southern
+California
+
+Ram Nevatia nevatia@usc.edu 
+University of Southern
+California
+
+BaFTA: Backprop-Free Test-Time Adaptation For Zero-Shot Vision-Language Models
+18 Jun 20242F4DBDFE91B22CFA5E9ACB76A53A62CEarXiv:2406.11309v2[cs.CV]
+Large-scale pretrained vision-language models like CLIP have demonstrated remarkable zero-shot image classification capabilities across diverse domains.To enhance CLIP's performance while preserving the zero-shot paradigm, various test-time prompt tuning methods have been introduced to refine class embeddings through unsupervised learning objectives during inference.However, these methods often encounter challenges in selecting appropriate learning rates to prevent collapsed training in the absence of validation data during test-time adaptation.In this study, we propose a novel backpropagation-free algorithm BaFTA for test-time adaptation of vision-language models.Instead of fine-tuning text prompts to refine class embeddings, our approach directly estimates class centroids using online clustering within a projected embedding space that aligns text and visual embeddings.We dynamically aggregate predictions from both estimated and original class embeddings, as well as from distinct augmented views, by assessing the reliability of each prediction using Rényi entropy.Through extensive experiments, we demonstrate that BaFTA consistently outperforms state-of-the-art test-time adaptation methods in both effectiveness and efficiency.
+
+Introduction
+
+The emergence of large-scale pre-trained "foundation" vision-language models (VLM) such as CLIP (Radford et al., 2021) and ALIGN (Jia et al., 2021) has marked a paradigm shift in the field of computer vision.These models have demonstrated promising capacity for open-world generalization, and can be easily applied on novel tasks beyond the original training data.By harnessing an unified visual-text embedding space, VLMs can perform zero-shot image classification on novel concepts by translating the category names into this shared representation space as classification weights.
+
+In the pursuit to further enhancing performance of such VLMs, various adaptation and fine-tuning techniques have emerged to bridge the domain gap over downstream tasks.For instance, Zhou et al. (2022b), Zhou et al. (2022a) and Samadh et al. (2023) fine-tune text prompts for VLMs, tailoring them to specific downstream tasks with few-shot adaptation.Moreover, in the realm of zero-shot classification, numerous approaches have been proposed to boost VLM performance without requiring labeled data.For example, Hu et al. (2023) and Tanwisuth et al. (2023) improve CLIP through sourcefree unsupervised adaptation using unlabeled test examples, while Udandarao et al. (2022), Guo et al. (2023) and Ge et al. (2023) enhance the CLIP with training-free methods by utilizing the class hierarchy, gradient-based visual attention or external modules such as stable diffusion.Furthermore, test-time prompt tuning algorithms, such as Manli et al. (2022), Park & D'Amico (2023) and Ma et al. (2024), propose to refine learnable text prompts at inference time through the optimization of an unsupervised objective using augmentations, which lead to improved model accuracy.Recently, we also noted a contemporaneous work by Karmanov et al. (2024) on training-free test-time adaptation for VLMs.The online and label-free nature of these test-time prompt tuning methods underscores their practicality and versatility as effective means to enhance the performance of CLIP, especially within the context of zero-shot classification.
+
+However, as pointed out by Niu et al. (2023), test-time adaptation methods such as Wang et al. (2020), Liang et al. (2023) as well as methods like TPT, often encounter the intricate challenge of determining an optimal learning rate in the absence of validation data to avoid collapsed training.Striking the right balance is crucial-achieving maximum improvement while simultaneously safeguarding against the model's instability during test-time adaptation.
+
+To address the challenge of stable and efficient test-time adaptation, we propose the Backpropagation-Free Test-time Adaptation (BaFTA) algorithm.BaFTA eliminates the need for backpropagation and reliance on labeled examples, offering a stable and efficient method that achieves strong overall accuracy.BaFTA directly refines class embeddings within the unified visual-text embedding space of CLIP by leveraging neighboring information among test example visual embeddings with an online clustering algorithm.This novel approach mitigates the risk of collapsed training, leverages the natural clustering of high-quality visual embeddings from CLIP, and avoids the instability from noisy test-time self-supervised training.
+
+To further enhance the performance of online clustering predictions, we propose two key designs.First, recognizing that clustering-based predictions can be influenced by the biased distribution of test examples, we combine these predictions with standard predictions derived from randomly augmented views of the test examples.We use Rényi Entropy to evaluate the reliability of these predictions, ultimately arriving at an aggregated prediction that benefits from the strengths of both approaches while ensuring accuracy and robustness.Second, building upon insights from Hu et al. (2023), we execute the online clustering algorithm in a projected embedding space, which helps alleviate the disparity between CLIP's visual and text embeddings, leading to improved clustering outcomes.
+
+Our key contributions are summarized as follows:
+
+
+Background
+
+In this section, we revisit the large-scale pre-trained vision language model CLIP (Radford et al., 2021) and test-time prompt tuning algorithm TPT (Manli et al., 2022) for the necessary background and formulation before we introduce our method in Section 3.
+
+Zero-Shot Image Classification with VLM.A pre-trained vision-language model such as CLIP consists of two parallel components M = {M v , M t } where M v is the visual encoder and M t is the text encoder.Given test images D test = {x i } I i=1 and target class names C = {c j } J j=1 , the pre-trained vision-language model M performs zero-shot classification by generating the adaptive classification weights from text embeddings of the target class names t j = M t (θ 0 (c j )) for j ∈ {1, 2, ..., J}, where θ 0 is the text prompt template such as "a photo of a {class name}" that warpped the class names c j into full sentences θ 0 (c j ). the text embeddings, CLIP provides lists of templates {θ z } Z z=1 to align the text embeddings with the distribution of real captions used in pre-training, and generates the text embeddings for each class by taking the average of these templates,
+t j = 1 Z Z z=1 M t (θ z (c j )).
+Then, the prediction y i can be obtained by selecting the class j whose text embedding t j has the highest cosine similarity with its visual embedding M v (x i ), i.e.,
+y i = arg max j ⟨ M v (x i ) ∥M v (x i )∥ , t j ∥t j ∥ ⟩.
+Test-Time Prompt Tuning for VLM.To further enhance the zero-shot generalization ability of vision language model M , TPT proposes to learn an adaptive text template θ at inference time.For each test example x i , TPT first prepares a mini-batch of random augmented views {x 1 i , x 2 i , ..., x B i } and performs a single step gradient descent to optimize the entropy minimization loss over the high-confidence predictions among the augmented views,
+θ i = θ 0 − δ∇ θ B b=1 1[H(M(x b i ) < τ ]H(M (x b i )) | θ=θ0
+where H(•) is the entropy function, τ is the entropy threshold for high-confidence augmented view selection, and δ is the learning rate.M (
+x b i ) = sof tmax M (x b i , c j , θ) J j=1 is the estimated probability distribution of augmented view x b i over target classes c 1 , ..., c j , with M (x b i , c j , θ) = Mv(x b i ) ∥Mv(x b i )∥ , Mt(θ(cj )
+∥Mt(θ(cj )∥ as the cosine-similarity between visual embedding M v (x b i ) and text embedding M t (θ(c j )).Then, with adapted text prompt θ i , TPT produces the prediction for test example x i with the original image:
+y i = arg max j M (x b i , c j , θ)(1)
+3 Method
+
+As investigated by Niu et al. (2023)  In this work, we present an novel backpropagation-free solution which directly refines the class embeddings in the aligned visual-text embedding space instead of in the prompt embedding space.BaFTA performs Backpropagation-Free Test-time Adaptation for Vision-Language Models, and brings three major advantages over the test-time prompt tuning methods like TPT:
+
+• BaFTA avoids the use of back-propagation to update model weights.As a result, it achieves significantly faster inference speed while greatly reduces risk of causing model collapse during unsupervised adaptation.
+
+• In contrast to the test-time adaptation algorithms like TPT that require frequent restart to prevent model collapse, BaFTA possesses the capability to scale as more test examples become available, and to leverage from the relationships between neighboring examples.
+
+• BaFTA can leverage the multi-template prompts provided by CLIP to enhance text embedding quality.In contrast, prompt-tuning methods are constrained to single-template prompts due to computational costs.
+
+In the following sections, we first present the motivation and primary concepts behind the estimation of class embeddings using projected online clustering at inference time in Section 3.1.Subsequently, we dive into the discussion of the key findings that enhance the performance of online clustering, as elaborated in Section 3.3.Finally, we present a comprehensive overview of the BaFTA in Section 3.4.
+
+
+Estimate Class Embedding with Online Clustering
+
+As shown in Table 1, CLIP generates discriminative visual embeddings on various datasets, but the zero-shot classification performance is often limited by the imprecise text embeddings generated from uninformative class names.For example, FGVC Aircraft (Maji et al., 2013) uses codenames such as 707-320 and A300-B4 as class names, which are hardly informative for CLIP to generate proper embeddings to capture the visual difference between classes.
+
+Conversely, the results of linear evaluation suggest that the visual embeddings from CLIP exhibit a high degree of distinctiveness among target classes, enabling the linear classifier to attain remarkable classification accuracy.This finding opens up an opportunity to leverage the neighboring information within these visual embeddings to further enhance classification performance.
+
+Given a set of visual embeddings {v i |v i = M v (x i )} I i=1 come in order at inference time, we can obtain a set of cluster centroids w j as class embeddings using the online clustering algorithm Barbakh & Fyfe (2008):
+w j = t j ∥t j ∥
+(2)
+w yi = k yi w yi + v i ∥k yi w yi + v i ∥(3)k yi = k yi + 1 (4)
+where the cluster centroids {w j } are initialized with the text embeddings {t j }, and corresponding centroid w yi will be averaged with the online examples v i based on its prediction y i and the current cluster size k yi .
+
+
+Visual Text Alignment
+
+While VLMs aim to establish an unified embedding space for both visual and text modalities, recent research studies conducted by Liang et al. (2022), Tanwisuth et al. (2023) and Hu et al. (2023) have suggested that contrastive pre-trained models might still exhibit a notable disparity between their visual and text embeddings.Hu et al. (2023) introduces a simple yet effective projectionbased alignment method.This method effectively removes the classification-agnostic information that is inherent in both visual and text modalities.As a result, it efficiently aligns the visual and text embeddings, leading to the advantages of enhanced embedding distribution and clustering characteristics.
+
+Assuming a classification task with J classes, where the text embeddings are denoted as T = [t 1 , ..., t J ] with t j = M t (c j ).Using the singular value decomposition
+U, S, V = svd(T )
+we obtain U = [e 1 , e 2 , ..., e J ] as the orthonormal basis of the span of T , that defines a matrix P = U U ⊤ .This matrix projects embeddings onto the span of T and removes the class-agnostic information irrelevant to classification.Additionally, the principle axis e 1 within the outer space basis U represents where {t 1 , ..., t J } overlap the most.By removing e 1 , the text embeddings are separated from each other, which in turn distances the visual embeddings of different classes.Together with feature re-normalization, Hu et al. (2023) defines the projection function P * with
+P * (x) := U ′ U ′⊤ x ∥U ′ U ′⊤ x∥ U ′ = [e 2 , e 2 , ..., e J ]
+(5)
+
+
+Prediction Aggregation with Rényi Entropy
+
+The online clustering algorithm presented in Section 3.1 yields accurate estimations of the embedding centroids for classes that have a sufficient quantity of seen test examples.However, when it comes to classes with only a limited number of examples, the estimations of embedding centroids can become notably biased.In datasets featuring a large number of classes like ImageNet1k (Deng et al., 2009), certain categories might remain unassigned or have very few examples assigned to them until the adaptation process concludes.This situation reduces the reliability of centroid estimation for these classes.Consequently, it becomes imperative to implement a mechanism for filtering out predictions with low reliability.
+
+On the other hand, we follow TPT (Manli et al., 2022) to leverage random augmentations to improve the prediction quality on test examples.For each test example x i , we prepare B augmented views {x 1 i , ..., x B i }, which result in a B distinct predictions {p 1 i , ..., p B i } that also requires to be filtered and to preserve the reliable ones.As described in Equation 1, TPT selects the predictions p b i by thresholding their entropy H(p b i ) > τ , as the high entropy predictions tend to be more confident.On the contrary, we draw inspiration from a study from the area of speech recognition Laptev & Ginsburg (2023) and opt for Rényi Entropy to estimate the reliability of each prediction.This decision is motivated by the observed stronger correlation between Rényi Entropy and prediction accuracy, as indicated in the study.For each test example x i , we generate regular predictions p b i by calculating the softmax-cosine similarity between visual embedding v b i and text embedding t j :
+p b i = sof tmax cos(v b i , t j ) J j=1 ,(6)
+and also online-clustering predictions p b i by comparing v b i with the class centroids w j :
+pb i = sof tmax cos(P * (v b i ), w j ) J j=1 .(7)
+Note that we use projected visual embeddings P * (v b i ) to calculate pb i , because w j are calculated in the projection space.Then, we estimate the reliability of each prediction p with the negative Rényi Entropy:
+Re(p) = 1 α − 1 log J j=1 (p[j]) α (8)
+Finally, we aggregate the predictions {p b i } and { pb i } with their Rényi entropy as the weight:
+pi = β R 1 B b=1 Re(p b i )p b i + 1 R 2 B b=1 Re( pb i ) pb i = β p i R 1 + pi R 2 (9)
+where β further balances the weight between text embedding predictions and online clustering predictions, and
+R 1 = (1 + β) B b=1 Re(p b i ), R 2 = (1 + β) B b=1
+Re( pb i ) are the normalization factor to ensure pi sums to 1.
+
+
+Overview of BaFTA
+
+We demonstrate the overview of BaFTA in Figure 1.Instead of employing prompt-tuning, which entails back-propagation and the risk of potential model collapse during unsupervised training, BaFTA takes a backpropagation-free approach.We directly refine the class embeddings with online clustering (as detailed in Section 3.1) in a projection space that aligns the visual and text embeddings (as detailed in Section 3.2).For each test instance, BaFTA generates two sets of predictions.The first set follows the standard contrastive VLM classification protocol, measuring cosine similarity between visual embeddings of augmented views and the text embeddings of class names.The second set measures cosine similarity between visual embeddings and centroids obtained through online clustering.These predictions are subsequently combined, considering their reliability as evaluated by Rényi Entropy (as outlined in Section 3.3), to yield the final results.For a comprehensive understanding of BaFTA's procedures, please also refer to Algorithm 1 in Appendix A.
+
+
+Experiment and Results
+
+Baselines.We conduct experiments in comparison of BaFTA with several benchmark models and algorithms.Our comparisons include the baseline model CLIP (Radford et al., 2021), the state-of-theart test-time prompt-tuning algorithm TPT (Manli et al., 2022) and SwapPrompt (Ma et al., 2024), and state-of-the-art training-free method CALIP (Guo et al., 2023) with their officially reported scores.For CLIP, we report both single template (CLIP single), and multi-template version (CLIP multi).Furthermore, we have introduced CoOp (Zhou et al., 2022b) and PromptAlign (Zhu et al., 2023) as additional baseline models for comparison with few-shot prompt-tuning method, aligning with experiments from TPT.
+
+Datasets.We have conducted our experiments over two sets of datasets, following the experiment setup of Manli et al. (2022) and Zhou et al. (2022b), which includes: 1) ImageNet Robustness Evaluation with ImageNet (Deng et al., 2009) and its Out-Of-Distribution (OOD) variants ImageNet-V2 (Recht et al., 2019), ImageNet-R (Hendrycks et al., 2021a), ImageNet-Sketch (Wang et al., 2019) and ImageNet-A (Hendrycks et al., 2021b); 2) Fine-Grained Datasets with Stanford Cars (Krause et al., 2013), Caltech101 (Li et al., 2022), Describable Textures (DTD) (Cimpoi et al., 2014), EuroSAT (Helber et al., 2019), FGVC Aircrafts (Maji et al., 2013), Food101 (Bossard et al., 2014), Flowers102 (Nilsback & Zisserman, 2008), Oxford-IIIT-Pets (Parkhi et al., 2012), UCF101 (Soomro et al., 2012) and SUN397 (Xiao et al., 2010).and adaptation.In line with the TPT official implementation, we utilize a simple combination of RandomResizedCrop and RandomFlip to prepare 63 augmented views, constituting a minibatch of 64 images for each test image.For implementation details and hyper-parameters of BaFTA, please refer to Appendix D. In Table 7 and Table 3 we present the comprehensive results of backpropagation-free test-time algorithm BaFTA in comparison to baseline methods across five ImageNet robustness benchmarks and ten fine-grained classification benchmarks.As illustrated in Table 7 and Table 3, BaFTA significantly outperforms the baseline CLIP multi model, achieving improvements of 3.81% on ImageNet, 6.04% on OOD datasets, and 4.18% on fine-grained datasets using the ViT-B/16 backbone.Comparable gains are observed with the ResNet-50 backbone as well.
+
+
+Main Results
+
+
+ImageNet
+
+When compared to the state-of-the-art test-time prompt tuning method TPT, BaFTA demonstrates substantial enhancements, recording a 3.17% improvement on ImageNet, 4.65% on OOD datasets, and 3.67% on fine-grained datasets with the ViT-B/16 backbone.On the ResNet-50 backbone, we have also observed significant improvement of BaFTA over state-of-the-art methods TPT, SwapPrompt and CALIP on ImageNet, OOD variants and Fine-grained benchmarks.Remarkably, BaFTA achieves these results without relying on backpropagation training.
+
+In comparison with few-shot fine-tuning methods such as CoOp and PromptAlign, BaFTA exhibits comparable performance on ImageNet and significantly better results on OOD and fine-grained datasets, with improvements of 5.55% and 4.39% over CoOp, and improvements of 1.9% and 2.00% over the state-of-the-art PromptAlign respectively, using the ViT-B/16 backbone.This indicates that unsupervised test-time adaptation algorithm BaFTA provides superior results compared to cross-domain generalization few-shot prompt tuning methods.
+
+The results presented in Tables 7 and 3 have clearly demonstrated the effectiveness of BaFTA in improving the performance of vision-language base models at inference time.Notably, these enhancements are achieved without the need for backpropagation training or external resources, which solidifying BaFTA's position as a valuable and robust test-time adaptation method.
+
+
+Ablation Studies
+
+In this section, we present the inference time efficiency analysis, the ablation studies on BaFTA components and the comparison of aggregation weight function.Due to space constraint, please check Appendix E, F, G and H for the analysis over the Rényi Entropy Order α, prediction balance weight β, number of augmentation views, and effectiveness of the projected embedding space.
+
+Inference Time Efficiency Analysis.We conducted experiments to demonstrate the efficiency difference between TPT and BaFTA using both ViT-B/16 and RN50 backbones.While TPT requires an average of 873 and 841 millisecond to complete the inference on a single image with the ViT-B/16 and RN50, BaFTA completes such inference with only 158.7 and 183.8 millisecond over the corresponding backbones.The inference time per example (in milliseconds) was calculated by recording the total time required to complete the inference on 10,000 ImageNet examples.All experiments were conducted with a single NVIDIA A40 GPU.As indicated by the results, BaFTA exhibits a notable advantage, being approximately 5 times faster than TPT.The significant difference in inference time for TPT can be attributed to two main factors: 1) TPT requires two forward passes and one backward pass in each iteration, whereas BaFTA requires only a single forward pass; 2) TPT requires recomputation of classification embeddings through the text encoder at each forward pass, while BaFTA conducts the text encoder once offline and updates the classification embeddings directly in the embedding space during inference.
+
+Component Effectiveness Analysis.In Table 4, we assess the impact of various BaFTA components on its overall performance.Our evaluation focuses on: 1) the utilization of multi-template (MT) prompts provided by CLIP (Radford et al., 2021); 2) the choices of different classification weights, including regular text embeddings (TE), online clustering centroids (OC), or a combination of both (TE & OC); and 3) the choices of various augmented view aggregation strategies, such as Rényi Entropy aggregation, simple averaging, or averaging predictions with top 10% confidence.
+
+The inherent computational complexity of prompt tuning method TPT limits it to single-template base models.Additionally, despite utilizing augmentations for prompt tuning, TPT only employs original image for its predictions.To ensure a fair comparison and demonstrate the effectiveness of BaFTA innovations such as Rényi Entropy aggregation and projected online clustering, we evaluated BaFTA single and TPT-Agg.BaFTA single utilizes a single-template CLIP as its base model, while TPT-Agg aggregates predictions from top 10% high-confidence augmented views.Experiment results reveal that BaFTA single outperforms TPT-Agg by 1.61%, demonstrating the effectiveness of BaFTA's innovations.It is worth noting that BaFTA results can be further improved with the multi-template prompts, and it achieves these superior results via a backprop-free approach which is about 5 times faster than TPT.
+
+Results for BaFTA-TE and BaFTA-OC, as summarized in   5, Rényi Entropy at order of 0.50 provides the best results over all the other options.Please also refer to Appendix E for more analysis on Rényi Entropy Order.
+
+
+Conclusion
+
+In this work, we have focused on enhancing the performance of large-scale pre-trained visionlanguage models at inference time, in the context of zero-shot image classification.We have introduced a novel backpropagation-free test-time adaptation algorithm BaFTA.Unlike the previous methods which fine-tune text prompts to refine class embeddings, our approach directly estimates class centroids by performing online clustering within a projected embedding space that aligns text and visual embeddings.We have also proposed a dynamic aggregation method, which leverages predictions from both estimated and original class embeddings, as well as distinct augmented views, by assessing their reliability with Rényi Entropy.Our comprehensive experiments have shown that BaFTA consistently outperforms existing state-of-the-art test-time adaptation methods, achieving significant performance improvements at a considerably faster speed.BaFTA has demonstrated the feasibility of a stable and efficient backpropagation-free solution achieving strong performance in VLM adaptation, and offers a viable solution for practical real-world applications.
+
+
+A Full Algorithm of BaFTA
+
+In Algorithm 1 we present the detailed procedures in BaFTA.
+
+Algorithm 1 BaFTA: Backprop-Free Test-Time Adaptation for Zero-Shot Vision-Language Models.
+
+Require:
+Vision Language Pre-trained Model M = {M v , M t } Require: Test Samples X = {x i } I i=1 Require: Class Names C = {c j } J j=1 Require: Template Prompts {θ z } Z z=1 t j ← 1 Z z M t (θ z (c j )
+▷ Prepare multi-templates text embeddings for each class tj ← P * (t j |{t 1 , ..., t J })
+
+▷ Projected text embeddings (Eq 5) w j ← tj , k j ← 0 ▷ Initialize class centroids w j and counter k j for each class
+for i ← 1 to I do {x b i } B b=1 ← A(x i ) ▷ Generate B views with random augmentation function A(•) v b i ← M v (x b i ) ▷ Visual embedding for each augmented views vb i ← P * (v b i )
+▷ Projected visual embedding (Eq 5)
+p b i ← sof tmax cos(v b i , t j ) J j=1
+▷ Cosine-similarity between visual embedding v b i and text embedding t b j , (Eq 6)
+pb i ← sof tmax cos( vb i , w j ) J j=1
+▷ Cosine-similarity between projected visual embedding vb i and class centroids w b j , (Eq 7)
+pi ← β R1 b Re(p b i )p b i + 1 R2 b Re(p b i )p b i ▷ Prediction Aggregation (Eq. 9) y i ← arg max j pi ▷ Get prediction for example x i vi ← 1 B B b=1
+vb i w j ← (k j w j + vi ) /∥(k j w j + vi )∥, k j ← k j + 1 for j = y i ▷ Updates centroids and counter on predicted class y i (Eq 3) Output y i as prediction for x i end for
+
+
+B Full Results of Ablation Study on Effectiveness of BaFTA Components
+
+In Table 6 we present the complete results on the ablation analysis of BaFTA components as mentioned in Table 4   Table 6: Ablation studies on the effectiveness of BaFTA components, as described in
+
+
+D Implementation Details
+
+Unless otherwise specified, we use the same hyper-parameters for all BaFTA experiments, with β = 2 and α = 0.5.We have employed the exponential form of Renyi Entropy following Laptev & Ginsburg (2023).All BaFTA results are reported with a warm-up schedule of 10J examples (J as number of class) before the online clustering predictions aggregated into final prediction.For the embedding projection matrix, we use U ′ = [e 2 , ..., e J ] for all datasets, except for datasets with more than 150 categories such as ImageNet, we use U ′ = [e 2 , ..., e 150 ] for best performance.
+
+For experiments on-top-of the CoOp, we use the 16-shot fine-tuned model and ensemble the predictions generated from CoOp embeddings with our predictions using Rényi entropy.Instead of directly replacing the prompts, we adopt this approach because we have observed that CoOp embeddings sometimes perform less effectively than the multi-template embeddings provided by CLIP.For all other BaFTA results, we use official template sets provided by CLIP to generate the text embeddings.
+
+For experiment on time efficiency analysis, all experiments were conducted on a computation node equipped with an AMD EPYC 7313 CPU (32 cores), 256 GB memory, and a single NVIDIA A40 GPU (48GB).
+
+E Ablation Studies on Rényi Entropy Order α.
+
+In order to assess the sensitivity of Rényi Entropy aggregation performance to the entropy order α, we analyze the accuracy of Rényi Entropy aggregated predictions from augmented views with varying α, specifically α ∈ {0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.99}, over all 15 datasets used in our study.In all experiments, we employ CLIP-ViT-B/16 as the base model and evaluate BaFTA-RA to investigate the influence of α on prediction aggregation without the impact of online clustering results.
+
+Figure 2 illustrates the α−accuracy curve across all 15 datasets.The curves are normalized by subtracting the maximum value within each curve, ensuring they are plotted within the same value range.The bold red curves represent the averaged accuracy over the 15 datasets, revealing that the average performance peaks at α = 0.5 and α = 0.6.Additionally, the plot indicates that prediction aggregation accuracy is relatively insensitive to the choice of α, with most curves exhibiting less than a 0.3% change in accuracy across the α range [0.1, 0.99].Most datasets achieve peak performance predictions and online clustering predictions in BaFTA's aggregated output, as described in Equation 9. A higher β value weights the aggregation towards text embedding predictions, while a lower β favors online clustering predictions.Our findings reveal that BaFTA reaches optimal performance at β = 2, indicating the importance of having contribution from both text embedding and online clustering predictions.Furthermore, within the range of β ∈ [1, 5], BaFTA demonstrates relatively stable performance, deviating by only 0.3% from its peak.This suggests that BaFTA is robust across a range of β values, maintaining efficacy near its best setting.Table 11 provides evidence of the effectiveness of the Projection P * in enhancing the distribution of CLIP embeddings for clustering, as proposed in Hu et al. (2023).The results demonstrate a 2.48% improvement in averaged k-nearest neighbor (kNN) classifier accuracy across the 15 datasets after projecting the CLIP embeddings with P * .This improvement signifies that P * successfully enhances the neighboring relationships among CLIP embeddings in the projection space, which, in turn, will benefit the online clustering process.
+
+
+G Ablation Studies on Augmentation Views
+
+In Figure 3, we present t-SNE plots for Oxford-IIIT-Pets, Describable Textures, and Stanford Cars to visually showcase the distribution differences between original CLIP visual embeddings and projected visual embeddings.
+
+As illustrated by the t-SNE plots, the projection space effectively transforms sparse clusters into denser formations, leading to improved online clustering results.Additionally, we observed that the enhancement in clustering brought by the projection is potentially correlated with the classification accuracy on the respective datasets.For instance, CLIP attains a 86.92% zero-shot accuracy on Oxford-IIIT-Pets, with the projection significantly improving its clustering quality.In contrast, CLIP achieves only 45.04% accuracy on Describable Textures, and the improvement provided by the projection over the clustering condition is relatively subtle.
+
+
+I Broader Impact
+
+The BaFTA algorithm proposes and validates the feasibility of a stable and efficient backpropagationfree method achieving strong overall performance in VLM adaptation, enhancing their zero-shot image classification capability at inference time.This innovation can facilitate the deployment of more efficient and accurate AI systems in various practical applications, such as automated content moderation, medical image analysis, and autonomous driving.By improving the robustness and adaptability of vision-language models without requiring backpropagation or labeled data, BaFTA contributes to reducing computational resources and energy consumption, aligning with environmentally sustainable AI practices.Moreover, the dynamic prediction aggregation mechanism using Rényi entropy improves the prediction reliability across diverse datasets, promoting broader acceptance and trust in AI systems.
+
+
+J Limitations
+
+Despite its notable advantages, BaFTA has certain limitations.Firstly, while it effectively addresses the instability issues of test-time adaptation, its reliance on the quality of initial text embeddings means that it may still struggle with datasets containing ambiguous or less informative class names.Additionally, the algorithm's performance might degrade in scenarios with highly complex or mixed distributions, where the clustering assumptions do not hold as strongly.Furthermore, BaFTA is primarily designed for zero-shot classification tasks, and its applicability to other tasks, such as image retrieval or multi-modal generation, remains unexplored.Future work should focus on extending BaFTA's framework to accommodate a broader range of tasks and improving its robustness in handling diverse data distributions.
+
+Figure 1 :
+1
+Figure 1: Overview of the Backpropagation-Free Test-Time Adaptation algorithm BaFTA.Instead of prompt-tuning, we employ online clustering to directly estimate class embeddings in a projection space that aligns visual and text embeddings.The class centroids are initialized with text embeddings of class names, and updated incrementally with online test examples assigned to the class.For each test example, we generate two sets of predictions.The first set measures cosine similarity between visual embeddings of augmented views and class name text embeddings.The second set measures cosine similarity between visual embeddings and online-clustering centroids.Predictions are aggregated with reliability estimated by Rényi Entropy for final results.
+
+
+
+
+b ) 1[H(p b ) < τ ] Ĥ(p b ) Re 0.25 (p b ) Re 0.5 (p b ) Re 0.75 (p b ) Comparison on weighting function weight(p b ) that merges text embedding predictions p b from augmented views into aggregated prediction of p = b weight(p b )p b .All results are top-1 accuracy reported with CLIP (ViT-B/16) on ImageNet with 64 augmented views per test example.Aggregation Function Comparison.In Table 5, we present the ablation results on choice of aggregation function that merges text embedding predictions results from augmented views.From left to right, we have: 1) weight(p b ) = 1: simple averaging; 2) max(p b ): weighted-average prediction with confidence estimated by maximum entry of p b ; 3) 1[H(p b ) > τ ]: average of low-entropy (high-confidence) predictions, as adopted by TPT; 4) Ĥ(p b ): weighted-average prediction with confidence estimated by the normalized entropy Ĥ(p b ) = (H max − H(p b ))/H max ; 5) Re α (p b ): weighted-average prediction with confidence estimated by Rényi entropy Re(p b ), with entropy order α = 0.25, 0.50, 0.75.As shown in Table
+
+
+Figure 3 :
+3
+Figure 3: tSNE plots of original and projected visual embeddings from evaluation datasets.
+
+
+Table 1 :
+1
+(Radford et al., 2021) quality of Zero-Shot v.s.Linear Evaluation top-1 accuracy reported by CLIP(Radford et al., 2021).Linear Evaluation protocol assesses the quality of visual embeddings by training a fully-supervised linear classifier over the frozen visual embeddings.This Linear Evaluation result implies: 1) the zero-shot performance of CLIP are largely limited by the quality of zero-shot classifier, i.e, the text embeddings of class names; 2) The native visual embeddings of CLIP get classified well with a linear classifier, which suggests the distinctiveness of visual embeddings across target classes, and leads to an opportunity to leverage the neighboring relationships to enhance test-time performance.
+CarsCaltech101DTDEuroSATFGVCFood101Flower102PetsUCF101SUN397ImageNetCLIP (RN50) Zero-Shot55.8 82.1 41.7 41.1 19.3 81.1 65.9 85.4 63.6 59.6 59.6CLIP (RN50) Linear-Eval78.3 89.6 76.4 95.2 49.1 86.4 96.1 88.2 81.6 73.3 73.3CLIP (ViT-B/16) Zero-Shot 65.6 89.3 46.0 54.1 27.1 89.2 70.4 88.9 69.8 65.2 68.6CLIP (ViT-B/16) Linear-Eval 86.7 94.7 79.2 97.1 59.5 92.8 98.1 93.1 88.4 78.4 80.2
+
+Merged Logits Projected Online Clustering Test Example Augmented Views Visual Encoder Text Encoder Initialize Centroids at beginning Assign & Updates Projected Centroids Prediction Logits from Text Embedding Prediction Logits from Class Centroids Rényi Entropy Weighted Average
+
+, test-time adaptation algorithms frequently encounter the challenge regarding the appropriate choice of the learning rate in absence of validation data during unsupervised training.On one hand, opting for a small learning rate will restrict the enhancement of the model.On the other hand, employing a large learning rate can be risky in triggering the potential model collapse.TPT adopts a relatively large learning rate to expedite improvement, but chooses to restart from the original model for each test example to prevent the potential model collapse.
+a photo of a {}Doga photo of the {}Cata cropped photo of {}Deera photo of many {}Bird……Multi-Template Prompts
+
+Prediction Projected Visual Embeddings Cosine Similarity
+
+
+Table 2 :
+2
+Comparison of top-1 accuracy on ImageNet and its Out-Of-Distribution (OOD) variants benchmarks.All methods evaluated in zero-shot classification setting, except that CoOp and Promp-tAlign are fine-tuned on ImageNet with 16 examples per category.
+ImageNet-A ImageNet-V2 ImageNet-R ImageNet-Sketch OOD AvgCLIP single (ViT-B/16)66.7347.8760.8673.9846.0957.20CLIP multi (ViT-B/16)68.3449.8961.8877.6548.2459.42CoOp (16-shot)71.5149.7164.2075.2147.9959.28PromptAlign (16-shot)-59.3765.2979.3350.2363.56TPT68.9854.7763.4577.0647.9460.81BaFTA72.1563.3665.4080.9252.1565.46CLIP single (RN50)58.1621.8351.4156.1533.3740.69CLIP multi (RN50)59.8123.2452.9160.7235.4843.09CoOp (16-shot)63.3323.0655.4056.6034.6742.43TPT60.7426.6754.7059.1135.0943.89CALIP60.5723.9653.7060.8135.6143.52SwapPrompt61.4124.4252.9360.2538.1343.93BaFTA62.7131.0756.1461.9838.2246.85
+
+Table 3 :
+3
+Top-1 Accuracy on 10 Fine-grained Benchmarks.All baselines are evaluated in zero-shot classification setting, except CoOp and PromptAlign being fine-tuned on ImageNet with 16 examples per category.Note: SwapPrompt has provided results on DTD, EuroSAT, Flowers102 and UCF101 over different evaluation splits, which can not be directly compared.
+AverageCarsCaltech101DTDEuroSATFGVCFood101Flower102PetsUCF101SUN397CLIP single (ViT B/16) 63.58 65.48 93.35 44.27 42.01 23.67 83.65 67.44 88.25 65.13 62.59CLIP multi (ViT B/16) 64.59 66.11 93.55 45.04 50.42 23.22 82.86 66.99 86.92 65.16 65.63CoOp (16-shot)63.88 64.51 93.70 41.92 46.39 18.47 85.30 68.71 89.14 66.55 64.15PromptAlign (16-shot) 66.92 68.50 94.01 47.24 47.86 24.80 86.65 72.39 90.76 69.47 67.54TPT65.10 66.87 94.16 47.75 42.44 24.78 84.67 68.98 87.79 68.04 65.50BaFTA68.77 69.53 94.12 50.18 51.48 27.12 87.40 74.22 92.23 71.90 69.54CLIP single (RN50)55.82 55.70 85.88 40.37 23.69 15.66 73.97 61.75 83.57 58.84 58.80CLIP multi (RN50)56.63 55.89 87.26 40.37 25.79 16.11 74.82 62.77 82.97 59.48 60.85CoOp (16-shot)56.18 55.32 86.53 37.29 26.20 15.12 75.59 61.55 87.00 59.05 58.15TPT57.66 58.46 87.02 40.84 28.33 17.58 74.88 62.69 84.49 60.82 61.46CALIP59.35 56.27 87.71 42.39 38.90 17.76 77.42 66.38 86.31 61.72 58.59SwapPrompt-58.88 89.90---75.08-89.14-63.93BaFTA61.08 57.52 88.88 44.33 39.52 18.54 78.25 67.03 89.21 64.23 63.30
+
+Table 4 :
+4
+Table 4, correspond to aggregated predictions p i , pi detailed in Equation 9.With the help from Rényi Entropy aggregation, both BaFTA-TE This indicates the effectiveness of combining both text embedding predictions and online clustering predictions.Lastly, to validate the contribution of Rényi Entropy aggregation against naive simple average, we assessed BaFTA-Avg, wherein Rényi Entropy weighted averaging was substituted with simple averaging.This comparison revealed that BaFTA surpasses BaFTA-Avg by 1.87%, clearly demonstrating the effectiveness of Rényi Entropy aggregation.Effectiveness of BaFTA components.All results are averaged accuracies over 15 datasets, produced with CLIP (ViT-B/16).TE: Text Embeddings of Category Names, OC: Online Clustering Centroids.Please refer to Appendix B for complete results.
+Multi-Template Classification Weight Prediction Aggregation AccuracyCLIP single✗TENone62.09TPT✗TENone64.21TPT-Agg✗TETop 10% Avg.64.34TPT-Rényi✗TERényi Entropy64.42BaFTA single✗TE & OCRényi Entropy65.95CLIP multi✓TENone63.46BaFTA-TE✓TERényi Entropy66.70BaFTA-OC✓OCRényi Entropy64.29BaFTA-Avg✓TE & OCAverage66.24BaFTA✓TE & OCRényi Entropy68.11
+and BaFTA-OC improve the baseline model, achieving 3.24% improvement with the text embedding predictions, and 0.83% improvement with the online clustering predictions.As discussed in Section 3.3, the smaller improvement with BaFTA-OC is attributed to potential biases and early-stage instability in clustering.However, combining TE and OC predictions significantly enhances BaFTA's performance, yielding an average improvement of 4.65% across 15 datasets over the baseline CLIP model.
+
+
+
+
+.2.
+AverageImageNetImageNet-AImageNet-V2ImageNet-RImageNet-SCarsCaltech101DTDEuroSATFGVCFood101Flower102PetsUCF101SUN397CLIP single 62.09 66.73 47.87 60.86 73.98 46.09 65.48 93.35 44.27 42.01 23.67 83.65 67.44 88.25 65.13 62.59TPT64.21 68.98 54.77 63.45 77.06 47.94 66.87 94.16 47.75 42.44 24.78 84.67 68.98 87.79 68.04 65.50TPT-Agg64.34 69.00 61.54 64.
+
+Table 7 :
+7
+Manli et al. (2022)ed in Section 4.2.All results produced with CLIP (ViT-B/16).Orthogonal Improvements over Few-Shot Fine-tuned Prompts.All methods evaluated in zero-shot classification setting.FollowingManli et al. (2022), we provide comparison of BaFTA and TPT over ImageNet fine-tuned prompts CoOp.As shown by the results, both TPT and BaFTA can be combined with fine-tuned prompts and provides orthogonal enhancements.BaFTA+CoOp achieves improvements of 6.86% and 6.79% over the baseline CLIP ViT-B/16 model on ImageNet and OOD datasets, surpassing TPT, CoOp, and TPT+CoOp by significant margins.
+C Orthogonal Improvement over Few-Shot Fine-tuned PromptsImageNet ImageNet-A ImageNet-V2 ImageNet-R ImageNet-Sketch OOD AvgCLIP single (ViT-B/16)66.7347.8760.8673.9846.0957.20CLIP multi (ViT-B/16)68.3449.8961.8877.6548.2459.42CoOp (16-shot)71.5149.7164.2075.2147.9959.28TPT+CoOp73.6157.9566.8377.2749.2962.84BaFTA + CoOp75.1063.8467.5581.0052.4666.21CLIP single (RN50)58.1621.8351.4156.1533.3740.69CLIP multi (RN50)59.8123.2452.9160.7235.4843.09CoOp (16-shot)63.3323.0655.4056.6034.6742.43TPT+CoOp64.7330.3257.8358.9935.8645.75BaFTA + CoOp66.5633.4958.8462.0138.4648.20
+
+Table 10 :
+10
+Ablation study on BaFTA performance with different number of augmentation views.All results are top-1 accuracy reported with CLIP (ViT-B/16) on ImageNet with 64 augmented views for each test example.In Table10we present the ablation study on BaFTA performance at different number of augmentation sizes.It is shown that BaFTA achieves better performance with an increasing number of augmentation views, but the improvement scale is limited after 64-128 augmented views.We follow the practice from the TPT to use 64 augmentation views to strike the balance of performance and computation costs.64.04 66.62 48.91 55.41 77.91 47.62 67.01 93.55 45.74 53.75 23.52 69.35 86.33 89.64 69.36 65.87
+Augmentation Views256128643216BaFTA72.19 72.18 72.14 71.93 71.68AverageImageNetImageNet-AImageNet-V2ImageNet-RImageNet-SCarsCaltech101DTDEuroSATFGVCFood101Flower102PetsUCF101SUN397kNN w/o P  *  61.56 63.03 44.29 50.56 71.19 44.29 62.49 92.29 43.85 58.37 22.35 68.66 84.56 85.01 68.68 63.77kNN w/ P
+H Effectiveness of Projected Embedding Space *
+
+
+Table 11 :
+11
+Effectiveness of Projection P * (Eq.5) in improving embedding distribution.Results produced with CLIP (ViT-B/16) embeddings, demonstrated by the top-1 accuracy improvement of kNN classifier with k = 5.
+
+RényiIn order to fit all curves into one plot with unified value range, all curves are normalized by subtracting the maximum accuracy within the curve.The bold red curve represents the averaged accuracy over 15 datasets, achieves its maximum value at α = 0.5 and α = 0.6.This plot indicates that prediction aggregation accuracy is not highly sensitive to the choice of α, with most curves exhibiting less than a 0.3% change in accuracy across the α range [0.1, 0.99] with α in the range of [0.3, 0.8], and selecting α = 0.5 guarantees the performance to be within 0.25% from the peak.Pets UCF101 SUN397 accuracy std.(%) 0.12 0.14 0.93 0.17 0.16 0.27 0.08 0.07 0.06 0.27 0.10 0.03 0.07 0.05 0.15 0.06Table8: Accuracy standard deviation of Rényi Entropy aggregated predictions over varying α.In Table8, we display the accuracy standard deviation of Rényi Entropy aggregated predictions over varying α.The table reveals that the accuracy standard deviation is less than 0.3% on most datasets, with the exception of ImageNet-A (corresponding to the orange curve in Figure2).ImageNet-A is composed of challenging outlier examples where machine learning models often falter.It is possible that CLIP produces less confident and flatter prediction logits on ImageNet-A, rendering its performance more sensitive to variations in α compared to other datasets.F Ablation
+Online clustering algorithms. W Barbakh, C Fyfe, International journal of neural systems. 18032008
+
+Food-101-mining discriminative components with random forests. L Bossard, M Guillaumin, L V Gool, European conference on computer vision. Springer2014
+
+Describing textures in the wild. M Cimpoi, S Maji, I Kokkinos, S Mohamed, A Vedaldi, Proceedings of the IEEE Conf. on Computer Vision and Pattern Recognition (CVPR). the IEEE Conf. on Computer Vision and Pattern Recognition (CVPR)2014
+
+Imagenet: A large-scale hierarchical image database. J Deng, W Dong, R Socher, L.-J Li, K Li, L Fei-Fei, 2009 IEEE conference on computer vision and pattern recognition. Ieee2009
+
+Improving zero-shot generalization and robustness of multi-modal models. Y Ge, J Ren, A Gallagher, Y Wang, M.-H Yang, H Adam, L Itti, B Lakshminarayanan, J Zhao, Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. the IEEE/CVF Conference on Computer Vision and Pattern Recognition2023
+
+Calip: Zero-shot enhancement of clip with parameter-free attention. Z Guo, R Zhang, L Qiu, X Ma, X Miao, X He, B Cui, Proceedings of the AAAI Conference on Artificial Intelligence. the AAAI Conference on Artificial Intelligence202337
+
+Eurosat: A novel dataset and deep learning benchmark for land use and land cover classification. P Helber, B Bischke, A Dengel, D Borth, IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing. 1272019
+
+The many faces of robustness: A critical analysis of out-of-distribution generalization. D Hendrycks, S Basart, N Mu, S Kadavath, F Wang, E Dorundo, R Desai, T Zhu, S Parajuli, M Guo, D Song, J Steinhardt, J Gilmer, 2021aICCV
+
+Natural adversarial examples. D Hendrycks, K Zhao, S Basart, J Steinhardt, D Song, Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. the IEEE/CVF Conference on Computer Vision and Pattern Recognition2021b
+
+Reclip: Refine contrastive language image pre-training with source free domain adaptation. X Hu, K Zhang, L Xia, A Chen, J Luo, Y Sun, K Wang, N Qiao, X Zeng, M Sun, C.-H Kuo, R Nevatia, arXiv:2308.037932023arXiv preprint
+
+Scaling up visual and vision-language representation learning with noisy text supervision. C Jia, Y Yang, Y Xia, Y.-T Chen, Z Parekh, H Pham, Q Le, Y.-H Sung, Z Li, T Duerig, International Conference on Machine Learning. PMLR2021
+
+A Karmanov, D Guan, S Lu, A E Saddik, E Xing, arXiv:2403.18293Efficient test-time adaptation of vision-language models. 2024arXiv preprint
+
+3d object representations for fine-grained categorization. J Krause, M Stark, J Deng, L Fei-Fei, 4th International IEEE Workshop on 3D Representation and Recognition. Sydney, Australia2013
+
+Fast entropy-based methods of word-level confidence estimation for end-to-end automatic speech recognition. A Laptev, B Ginsburg, 2022 IEEE Spoken Language Technology Workshop (SLT). IEEE2023
+
+. Andreeto Li, Ranzato , Perona , Caltech. 101Apr 2022
+
+J Liang, R He, T Tan, arXiv:2303.15361A comprehensive survey on test-time adaptation under distribution shifts. 2023arXiv preprint
+
+Mind the gap: Understanding the modality gap in multi-modal contrastive representation learning. V W Liang, Y Zhang, Y Kwon, S Yeung, J Y Zou, Advances in Neural Information Processing Systems. 202235
+
+Test-time prompt adaptation for vision-language models. X Ma, J Zhang, S Guo, W Xu, Swapprompt, Advances in Neural Information Processing Systems. 202436
+
+Fine-grained visual classification of aircraft. S Maji, J Kannala, E Rahtu, M Blaschko, A Vedaldi, 2013Technical report
+
+Test-time prompt tuning for zero-shot generalization in vision-language models. S Manli, N Weili, H De-An, Y Zhiding, G Tom, A Anima, X Chaowei, NeurIPS. 2022
+
+Automated flower classification over a large number of classes. M.-E Nilsback, A Zisserman, Sixth Indian Conference on Computer Vision, Graphics & Image Processing. IEEE2008. 2008
+
+S Niu, J Wu, Y Zhang, Z Wen, Y Chen, P Zhao, M Tan, arXiv:2302.12400Towards stable test-time adaptation in dynamic wild world. 2023arXiv preprint
+
+Robust multi-task learning and online refinement for spacecraft pose estimation across domain gap. T H Park, S Amico, Advances in Space Research. 2023
+
+Cats and dogs. O M Parkhi, A Vedaldi, A Zisserman, C Jawahar, 2012 IEEE conference on computer vision and pattern recognition. IEEE2012
+
+Learning transferable visual models from natural language supervision. A Radford, J W Kim, C Hallacy, A Ramesh, G Goh, S Agarwal, G Sastry, A Askell, P Mishkin, J Clark, International Conference on Machine Learning. PMLR2021
+
+Do imagenet classifiers generalize to imagenet. B Recht, R Roelofs, L Schmidt, V Shankar, International conference on machine learning. PMLR2019
+
+Align your prompts: Test-time prompting with distribution alignment for zero-shot generalization. J H A Samadh, H Gani, N H Hussein, M U Khattak, M Naseer, F Khan, S Khan, Thirty-seventh Conference on Neural Information Processing Systems. 2023
+
+Ucf101: A dataset of 101 human actions classes from videos in the wild. K Soomro, A R Zamir, M Shah, arXiv:1212.04022012arXiv preprint
+
+Prompt-oriented unsupervised fine-tuning for large pre-trained models. K Tanwisuth, S Zhang, H Zheng, P He, M Zhou, Pouf, International Conference on Machine Learning. 2023
+
+Sus-x: Training-free name-only transfer of vision-language models. V Udandarao, A Gupta, S Albanie, arXiv:2211.161982022arXiv preprint
+
+D Wang, E Shelhamer, S Liu, B Olshausen, T Darrell, arXiv:2006.10726Tent: Fully test-time adaptation by entropy minimization. 2020arXiv preprint
+
+Learning robust global representations by penalizing local predictive power. H Wang, S Ge, Z Lipton, E P Xing, Advances in Neural Information Processing Systems. 2019
+
+Sun database: Large-scale scene recognition from abbey to zoo. J Xiao, J Hays, K A Ehinger, A Oliva, A Torralba, 2010 IEEE computer society conference on computer vision and pattern recognition. IEEE2010
+
+Conditional prompt learning for vision-language models. K Zhou, J Yang, C C Loy, Z Liu, IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). 2022a
+
+Learning to prompt for vision-language models. K Zhou, J Yang, C C Loy, Z Liu, International Journal of Computer Vision (IJCV). 2022b
+
+Prompt-aligned gradient for prompt tuning. B Zhu, Y Niu, Y Han, Y Wu, H Zhang, Proceedings of the IEEE/CVF International Conference on Computer Vision. the IEEE/CVF International Conference on Computer Vision2023

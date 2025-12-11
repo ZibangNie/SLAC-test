@@ -1,0 +1,401 @@
+RS-Mamba for Large Remote Sensing Image Dense Prediction
+10 Apr 2024
+
+Sijie Zhao 
+Hao Chen 
+Xueliang Zhang 
+Pengfeng Xiao 
+Lei Bai 
+Wanli Ouyang 
+RS-Mamba for Large Remote Sensing Image Dense Prediction
+10 Apr 2024943D2B6B5DBB274E4C044A4318F5033EarXiv:2404.02668v2[cs.CV]Large remote sensing imagesDense predictionSemantic segmentationChange detectionVery high resolutionState space modelDeep learning
+Context modeling is critical for remote sensing image dense prediction tasks.Nowadays, the growing size of veryhigh-resolution (VHR) remote sensing images poses challenges in effectively modeling context.While transformer-based models possess global modeling capabilities, they encounter computational challenges when applied to large VHR images due to their quadratic complexity.The conventional practice of cropping large images into smaller patches results in a notable loss of contextual information.To address these issues, we propose the Remote Sensing Mamba (RSM) for dense prediction tasks in large VHR remote sensing images.RSM is specifically designed to capture the global context of remote sensing images with linear complexity, facilitating the effective processing of large VHR images.Considering that the land covers in remote sensing images are distributed in arbitrary spatial directions due to characteristics of remote sensing over-head imaging, the RSM incorporates an omnidirectional selective scan module to globally model the context of images in multiple directions, capturing large spatial features from various directions.Extensive experiments on semantic segmentation and change detection tasks across various land covers demonstrate the effectiveness of the proposed RSM.We designed simple yet effective models based on RSM, achieving state-ofthe-art performance on dense prediction tasks in VHR remote sensing images without fancy training strategies.Leveraging the linear complexity and global modeling capabilities, RSM achieves better efficiency and accuracy than transformer-based models on large remote sensing images.Interestingly, we also demonstrated that our model generally performs better with a larger image size on dense prediction tasks.Our code is available at https: //github.com/walking-shadow/OfficialRemote Sensing Mamba.
+
+I. INTRODUCTION
+
+T HE advent of increasingly high spatial resolution in remote sensing images has marked a transformative period in the field, facilitating a deeper understanding and more nuanced analysis across a multitude of applications.These high-resolution images serve as pivotal resources in various domains, including urban planning [1], agricultural management [2], environmental monitoring [3], and disaster response [4].
+
+Sijie Zhao, Xueliang Zhang, and Pengfeng Xiao are with the Jiangsu Provincial Key Laboratory of Geographic Information Science and Technology, Key Laboratory for Land Satellite Remote Sensing Applications of Ministry of Natural Resources, School of Geography and Ocean Science, Nanjing University, Nanjing 210023, China (e-mail: zsj@smail.nju.edu.cn;zxl@nju.edu.cn;xiaopf@nju.edu.cn).
+
+Hao Chen, Lei Bai, and Wanli Ouyang is with the Shanghai Artificial Intelligence Laboratory, Shanghai 200000, China (e-mail: justchenhao@buaa.edu.cn,bailei@pjlab.org.cn,ouyangwanli@pjlab.org.cn).
+
+Corresponding Author: Hao Chen and Xueliang Zhang.
+
+Due to the unprecedented availability of very-highresolution (VHR) images, the field of remote sensing has undergone rapid expansion in recent years.VHR remote sensing images are characterized by rich contextual information, which is crucial for dense prediction tasks such as semantic segmentation and change detection.In these images, due to the very high spatial resolution, there is a wealth of spatial features within individual objects and among multiple objects, which often span large spatial scales.Additionally, since remote sensing images are captured from a downward-looking camera, the camera can acquire images from any direction, indicating that the spatial features of these images can exist in any direction.Therefore, the ability to globally model the context of VHR remote sensing images and extract large spatial features from multiple directions is essential for dense prediction tasks in VHR remote sensing.
+
+In recent years, deep learning models based on transformers [5] have been widely applied to VHR remote sensing dense prediction tasks [6,7,8,9].The transformer architecture, famous for its ability to capture global contextual information and model spatial dependencies effectively through self-attention mechanisms, has achieved impressive results in this domain.However, due to the quadratic complexity of transformers, training and inference with these models on large VHR remote sensing images necessitate dividing these images into smaller patches, as shown in Figure 1.This preprocessing step inevitably results in each patch containing only a portion of an object, offering limited contextual information.Consequently, the loss of internal spatial features within individual objects and the spatial dependencies among multiple objects can adversely affect the performance of VHR remote sensing tasks.This limitation underscores the need for innovative solutions that can efficiently process whole images or large segments to preserve and leverage the rich contextual information inherent in large VHR remote sensing images.
+
+The recent work Mamba [10] integrated time-varying parameters into the State Space Model (SSM) and proposed a hardware-aware algorithm that facilitates highly efficient training and inference processes.The SSM, which draws inspiration from the classical Kalman filter model [11], excels at capturing long-range dependencies and benefits from parallel training capabilities.Research on Mamba has illustrated its potential as a promising alternative to transformers in language modeling due to its robust contextual modeling capacity and linear complexity [10].However, Mamba is designed to process data along a specific direction, where preceding data cannot establish connections with subsequent data.This directional processing limitation renders it less applicable for image data, which lack a specific orientation and where spatial relationships are crucial across all dimensions.
+
+Recent works such as Vim [12] and VMamba [13] have harnessed SSM to achieve linear complexity and a global effective receptive field, tackling tasks such as image classification and segmentation on natural images.To address the challenge of image data nondirectionality, Vim employs SSM for selective scanning in both the forward and backward directions along the horizontal axis of an image.VMamba extends this approach by conducting selective scanning with SSM in both the horizontal and vertical directions, ensuring that every segment of the image can establish connections with other parts from both the horizontal and vertical directions.The visualization of the effective receptive field in VMamba shows that the effective receptive field is enhanced across both the horizontal and vertical directions [13].This indicates that the selective scanning direction of the SSM can significantly impact the effective receptive field in specific directions.
+
+However, Vim and VMamba are not ideally suited for VHR remote sensing images.Objects in natural images are captured from an eye-level view and adhere to the law of gravitation, which means that their main spatial features are distributed in the horizontal and vertical directions.For example, a natural image of a cat sitting on the ground cannot be rotated arbitrarily, as the cat's posture needs to conform to the law of gravity.In contrast, remote sensing images can be rotated freely as they are captured from a top-down satellite perspective, which means that their main spatial features can be distributed in any direction.Given that objects within VHR remote sensing images often span large spatial scales, the spatial features of individual objects and the dependencies among multiple objects can vary in direction.Therefore, VHR remote sensing images contain large spatial features in multiple directions.Due to the impact of the SSM' selective scanning direction on the effective receptive field in specific orientations, Vim's horizontal scanning and VMamba's horizontal and vertical scanning, while effective for natural images with primary features along these axes, cannot adequately address the diverse directional large spatial features inherent in VHR remote sensing images.
+
+To address the aforementioned challenges, we introduce SSM to VHR remote sensing dense prediction tasks for the first time, aiming to achieve global modeling capability and linear complexity.We propose Remote Sensing Mamba (RSM) to process VHR remote sensing images, leveraging the strengths of SSM to extract large and multidirectional spatial features in VHR remote sensing images with rich contextual information.
+
+The RSM can globally model the context of large VHR remote sensing images without self-attention operations.Furthermore, rather than dividing large VHR remote sensing images into small patches, the RSM can handle whole images without losing contextual information due to its linear complexity.Thus, the RSM is suitable for efficiently handling VHR remote sensing images.
+
+Furthermore, we propose the Omnidirectional Selective Scan Module (OSSM) to extract large spatial features from multiple directions in VHR remote sensing images.The OSSM employs SSM for selective scanning in the forward and backward directions across the horizontal, vertical, diagonal, and anti-diagonal axes.This approach enhances the global modeling capability of the contextual information in multiple directions, allowing for the extraction of comprehensive global spatial features.
+
+In summary, our contributions are as follows:
+
+1) We introduce the state space model for the first time to perform dense prediction tasks in VHR remote sensing.
+
+The proposed RSM employs SSM to process VHR remote sensing images with linear complexity, enabling direct handling of large remote sensing images without the necessity of segmenting them into small patches, which preserves the rich contextual information inherent in remote sensing images.
+
+
+II. RELATED WORKS
+
+
+A. Dense Prediction of Very High Resolution Remote Sensing
+
+Dense prediction tasks in VHR remote sensing mainly include semantic segmentation and change detection tasks, where remote sensing images have very high spatial resolution and abundant contextual information.Large remote sensing images span large spatial ranges, thereby offering rich contextual information, which is crucial for dense prediction tasks.Experiments in FCCDN [14] and SwinB-CNN [15] show that models utilizing larger remote sensing images can achieve superior performance in dense prediction tasks.This underscores the importance of leveraging rich contextual information in large remote sensing images for dense prediction tasks.
+
+There are three main types of deep learning models for VHR remote sensing dense prediction tasks: Convolutional Neural Network (CNN) based models, transformer-based models and CNN-transformer hybrid based models.
+
+CNN-based models excel in image processing due to their ability to efficiently capture local spatial features through their hierarchical structure.Papadomanolaki et al. [16] proposed an urban change detection framework that combines U-Net [17] for feature extraction and LSTMs [18] for temporal modeling.Yue et al. [19] proposed an adaptive network to increase the classification rate at the pixel level based on a deep semantic model infrastructure.Zhao et al. [20] introduced a novel change detection framework named EDED, which operates by exchanging features between two encoder branches.This approach enables the separate identification of changed objects in bitemporal images to produce change detection results.CNN-based models often incorporate attention modules to focus on important areas within images, thereby enhancing feature extraction capabilities.Yang et al. [21] proposed a multipath attention-fused block module to fuse multipath features, and a refinement attention-fused block module to fuse highlevel abstract features and low-level spatial features.Han et al. [22] proposed a change guide module for change detection, which can effectively capture the long-distance dependency among pixels and effectively overcomes the problem of the insufficient receptive field of traditional convolutional neural networks.To address the issue of varying spatial scales of objects in remote sensing images, CNN-based models utilize multi-scale modules to extract features at multiple scales, thus extracting object features of varying spatial scales.Diakogiannis et al. [23] incorporated atrous convolutions and pyramid scene parsing pooling into a UNet backbone, extracting multiscale features of remote sensing images.Han et al. [24] used hierarchical convolution operations to extract multi-scale features, continuously merges multi-scale features layer by layer to improve the expression of global and local information.Gu et al. [25] focused on exploiting the multiscale feature differences between bitemporal images to concentrate on the detailed information of the changing areas.
+
+However, the inherently large spatial scales of objects in VHR remote sensing images pose a challenge for CNN models.Due to their limited ability to capture global receptive fields, CNNs struggle to extract comprehensive global spatial features and dependencies within these images.Conversely, transformers excel at global context modeling across entire images by using self-attention mechanisms, thereby overcoming the limitations of CNNs in capturing global spatial relationships.This attribute has led to the widespread application of transformer-based models in VHR remote sensing tasks, demonstrating their ability to perform semantic segmentation and change detection with an enhanced understanding of the global context.Bandara et al. [7] proposed a transformer-based Siamese network architecture for change detection, which unified a hierarchically structured transformer encoder with a multi-layer perception decoder in a Siamese network architecture to efficiently render multi-scale long-range details.Zhang et al. [9] proposed a purely transformer-based architecture for change detection tasks, constructing a model based on the swin transformer [26] [8] designed a multi-context patch embedding scheme, which adopted a multi-range, multi-view context observation strategy to obtain higher-quality token embedding.
+
+The global modeling capabilities of transformer-based models have led to their widespread application in dense prediction tasks for remote sensing.However, their quadratic complexity and substantial computational demands pose challenges for model training and inference.In addition to the global features of remote sensing images, local features are equally important for dense prediction tasks.Consequently, CNN-transformer hybrid-based models have been introduced and extensively applied to dense prediction tasks in remote sensing.On the one hand, hybrid-based models can reduce the number of parameters and computations compared to transformer-based models, which facilitates more efficient training and inference.Zhang et al. [15] proposed an encoder-decoder network for remote sensing image segmentation, in which the encoder module uses a swin transformer [26] to extract features to achieve better long-range spatial dependencies modeling, and the decoder module draws on some effective blocks and successful strategies of CNN-based models.Chen et al. [6] integrated transformers into change detection tasks, utilizing a ResNet [28] as the encoder and self-attention modules as decoders.On the other hand, these models are capable of leveraging both the local features extracted by CNNs and the global features extracted by transformers, thus paying attention to both local and global aspects of images for dense prediction tasks.Li et al. [29] proposed an encoding-decoding hybrid transformer model for change detection, which has the advantages of both transformers and UNet [17] in learning global context and low-level details.Li et al. [30] proposed a CNN-transformer network with multiscale framework to better exploit global-local information in optical remote sensing images.
+
+Despite their strengths, transformer-based models and hybrid-based models still encounter challenges due to the quadratic complexity of their self-attention mechanisms, par-ticularly when processing large VHR remote sensing images.This necessitates transformer-based models and hybrid-based models to divide large images into smaller segments, which can result in a significant loss of contextual information.While transformers can model global contexts, the reduced contextual information limits their effectiveness in VHR remote sensing dense precition tasks.In response, we propose the SSM-based RSM for VHR remote sensing dense prediction tasks, which has linear complexity and global modeling capability.The RSM is adept at handling large images with rich contextual information, thereby providing a more effective solution for processing VHR remote sensing images.
+
+
+B. State Space Models
+
+State Space Models (SSM) have gained significant traction in the field of deep learning in recent years, marking a remarkable evolution in the way long-range dependencies and sequential data are handled [31,32,33].Initially inspired by their traditional application in control systems, SSMs were innovatively adapted to deep learning, leveraging the strengths of continuous state spaces to model complex temporal dynamics.The integration of SSM into deep learning was catalyzed by the introduction of the Highest Polynomial Powered Operator (HiPPO) initialization method [34], which significantly improved the models' ability to capture longrange dependencies.
+
+The LSSL model demonstrated the potential of SSM in addressing long-range dependency challenges, setting a foundation for subsequent research in the field [32].However, LSSL faces critical hurdles related to computational and memory efficiency, limiting its practical application.Addressing these limitations, the S4 model introduced by Gu et al. emerged as a pivotal advancement, proposing a normalized parameterization strategy that reduced computational overhead, thereby making SSM more feasible for practical applications [31].
+
+Following the breakthrough of the S4 model, the landscape of SSM research expanded rapidly, with several variants being developed to enhance the model's structure and efficiency.Notable among these are models incorporating complex-diagonal structures to improve temporal modeling capabilities [35,36], as well as those supporting multiple-input multiple-output configurations to increase model flexibility [33].Additionally, innovations such as the decomposition of operations into diagonal plus low-rank structures [37] and the introduction of selection mechanisms [10] have further refined the adaptability and performance of SSMs.
+
+However, the aforementioned models are only capable of processing unidirectional sequence data and cannot handle image data that lack a specific direction.Recent works [12,13,38] have achieved global modeling of the context of images using SSM by conducting selective scanning both forward and backward in certain directions.Vim [12] performs selective scanning in the horizontal direction, enabling each part of the image to perceive global information.VMamba [13] extends this by conducting selective scanning both horizontally and vertically, enhancing the model's global effective receptive field in both dimensions.
+
+Nevertheless, since the primary spatial features of natural images are distributed in both the horizontal and vertical directions, and VHR remote sensing images exhibit large spatial features in multiple directions, although Vim and VMamba achieved good performance on natural images, they are not suitable for VHR remote sensing images.The proposed Omnidirectional Selective Scan Module conducts selective scanning in multiple directions, and is capable of capturing the large spatial features of VHR remote sensing images in various directions.
+
+
+III. METHODOLOGY
+
+
+A. Preliminaries: State Space Models
+
+In the realm of deep learning, State Space Models (SSMs) have gained prominence for their ability to encapsulate dynamic systems that map an input sequence x(t) ∈ R L to an output y(t) ∈ R. SSMs are grounded in the principles of control theory and are defined by a set of linear ordinary differential equations (ODEs):
+h ′ (t) = Ah(t) + Bx(t)(1)y(t) = Ch(t) + Dx(t)(2)
+where
+A ∈ C N ×N , B ∈ R N ×L , C ∈ R N ,
+and D ∈ R L are the system matrices and h(t) denotes the hidden state vector at time t.
+
+The model's state-transition matrix A governs the evolution of the state vector h(t), while the input matrix B, output matrix C, and feedthrough matrix D articulate the relationships between the input x(t), state h(t), and output y(t), respectively.In discrete-time settings, which are typical in deep learning applications, these continuous equations must be discretized for computational tractability and alignment with data sampling rates.
+
+The discretization of SSM involves transforming the continuous ODE into a discrete-time representation.Employing a zero-order hold on the input signal, the discrete-time SSM can be represented as:
+h k = Φh k−1 + Γx k(3)y k = Ch k + Dx k (4)
+where h k is the hidden state at discrete time step k, y k is the output, Φ = e A∆T is the state transition matrix for time step ∆T , and Γ is derived as Γ = (e A∆T −I)A −1 B, assuming that the input remains constant over each interval ∆T .
+
+The Mamba [10] methodology distinguishes itself within the SSM framework by adopting a selective scan mechanism.This mechanism enhances the standard SSM structure by permitting dynamic adjustments to system matrices B and D, based on the current and historical context of the input sequence.Consequently, Mamba's SSM can model complex temporal dynamics more effectively, as these matrices adapt in response to the evolving features of the input data.The RSM-SS architecture utilizes the U-Net [17] encoderdecoder framework, where input VHR remote sensing images are first transformed into a sequence of image patches through patch embedding.These patches are then fed into the encoder to extract features, which are subsequently upsampled by the encoder to produce semantic segmentation results.The encoder consists of five stages, each comprising several OSS blocks.Stage 1 extracts features from the input VHR remote sensing images, while stages 2-5 progressively downsample the encoder features and double the number of feature channels at each stage.The encoder is composed of four encoder blocks, where features are upsampled and then concatenated with the encoder features along the channel dimension through skip connections followed by convolution.This process fuses the semantic information of decoder features with the spatial information of encoder features, facilitating semantic segmentation from both global and local perspectives.
+
+The RSM-CD employs an FC-Siam-Conc [39] Siamese network architecture.Bitemporal VHR remote sensing images are first converted into bitemporal sequences of image patches using patch embedding, which are then fed into bitemporal encoders with shared weights to extract features.These bitemporal encoder features are simply fused and upsampled in a single encoder to obtain the final change detection results.Similar to RSM-SS, the shared-weight encoders in RSM-CD consist of five stages with several OSS blocks each, and the encoder comprises four encoder blocks.After feature extraction by the shared-weight encoders, bitemporal features of the same size are concatenated along the channel dimension and convolved.This fusion captures the information of both temporal phases of VHR remote sensing images, enabling the effective segmentation of changed objects.The fused features are upsampled in the encoder and concatenated with fusion features of the same size through skip connections and convolution, thus preserving rich semantic and spatial information.
+
+
+C. Omnidirectional State Space Block
+
+The Omnidirectional State Space (OSS) block is a novel feature extraction unit designed for semantic segmentation and change detection tasks in VHR remote sensing images, as shown in Figure 2. Central to the OSS block is the Oriented Scanning Module (OSSM), which serves as the core for global contextual modeling across multiple orientations within an image.The OSSM selectively scans the input image in various directions, capturing the intricate spatial relationships and providing a comprehensive understanding of the context.
+
+The architecture begins with a layer normalization that standardizes the input data, enhancing the model training stability.Following this, a linear transformation adjusts the dimensionality of the data, preparing it for the depth-wise convolution process.This convolution operates on each input channel separately, reducing the parameter count and focusing on extracting spatial features.After convolution, the features pass through the OSSM.The OSSM performs selective scan-ning on the features in the forward and backward directions along the horizontal, vertical, diagonal, and anti-diagonal directions, which are then added together.The output from the OSSM then undergoes a linear transformation and a gating operation, adjusting deep features with outputs of a linear transformation of the normalized features.Finally, the features are passed to a final linear layer, which are then added with input features through a residual connection.
+
+The OSS block is crafted with a keen focus on balancing computational efficiency and the ability to extract rich spatial features from VHR remote sensing images.Therefore, as the OSS block is efficient and lightweight, we can stack more blocks with a similar total model depth budget when building the model.
+
+
+D. Omnidirectional Selective Scan Module
+
+Vim and VMamba have demonstrated commendable performance in natural images, where primary spatial features are distributed along the horizontal and vertical directions.Vim conducts selective scanning in the forward and backward directions along the horizontal axis, and VMamba introduces selective scanning across both the horizontal and vertical directions, allowing every part of the image to globally attend in both forward and backward directions along a specific direction, as illustrated in Figure 3. Specifically, the structure of the OSSM is illustrated in Figure 5. OSSM begins with the input image patches undergoing omnidirectional scanning in the horizontal, vertical, diagonal, anti-diagonal directions, and their respective reverse directions, resulting in eight sequences of image patches.These sequences are then stacked along a new dimension and fed into the S6 block.The S6 block's selective scanning mechanism independently processes each image patch sequence, performing global modeling in specific directions [10].Finally, all the image patch sequences are added after unstacking, merging global modeling information from multiple directions.This method enables the extraction of large spatial features from various orientations within VHR remote sensing images.
+
+
+IV. EXPERIMENTAL SETTINGS AND RESULTS
+
+To validate the efficiency and superiority of the RSM in VHR remote sensing tasks, we conducted experiments across two distinct tasks: semantic segmentation and change detection.For the semantic segmentation task, we evaluated the effectiveness of the RSM-SS model on the WHU [40] dataset and the Massachusetts Road [41] dataset.For the change detection task, we evaluated the effectiveness of the RSM-CD model on the WHU-CD [40] dataset and the LEVIR-CD [42] dataset.
+
+
+A. Datasets
+
+We offer a brief description of the experimental semantic segmentation and change detection datasets in Table I. 1) Semantic Segmentation Datasets: The WHU [40] building dataset is composed of two distinct subsets: one featuring satellite images and the other showcasing aerial photographs.Our investigation employs the aerial images subset, which includes a total of 8,189 images.The images are divided into 4,736 images designated for training, 1,036 for validation, and 2,416 for testing purposes, each with a spatial resolution of 0.3 meters.This subset collectively captures approximately 22,000 buildings across an expanse of more than 450 square kilometers.
+
+The Massachusetts [41] Roads dataset incorporates 1,171 aerial photographs from Massachusetts, with each image measuring 1500×1500 pixels and encompassing 2.25 square kilometers.This dataset is organized into 1,108 training images, 14 validation images, and 49 test images.It encompasses a diverse array of environments, including urban, suburban, and rural areas, spanning more than 2,600 square kilometers, with the test segment covering more than 110 square kilometers.For analytical purposes, we segment the images into 1024 × 1024-pixel patches with a 548-pixel overlap on both the horizontal and vertical axes.
+
+2) Change Detection Datasets: The WHU-CD [40] dataset includes bitemporal VHR aerial images from 2012 and 2016, revealing significant alterations in building structures.We segment the dataset into 1024 × 1024 pixel patches that do not overlap and distribute these patches into training, validation, and test sets at a 7:1:2 ratio.
+
+The LEVIR-CD [42] dataset is an extensive change detection dataset comprising VHR (0.5 m/pixel) Google Earth images that document a range of building transformations over a period of 5 to 14 years.This dataset is particularly focused on changes related to buildings, such as construction and demolition.The bitemporal images are meticulously labeled with binary masks by specialists, indicating changes (1) and no changes (0), featuring a total of 31,333 instances of building changes.We segment the dataset into nonoverlapping 1024× 1024 pixel patches.
+
+
+B. Benchmark Methods
+
+To evaluate the effectiveness of the proposed Remote Sensing Mamba, we conducted comparative experiments with various benchmark methods on the semantic segmentation and change detection tasks.The benchmark methods tested on the same dataset are based on the same splitting of the dataset and use the same data.
+
+On the semantic segmentation task, the compared CNNbased models include FCN [43], SegNet [44], U-Net [17], PSPNet [45], HRNet [46], MA-FCN [47], Deeplabv3+ [48], ResUNet [49], MAP-Net [50], D-LinkNet [51] and SI-INet [52], the compared transformer-based models include Segformer [53] and RoadFormer [8] , and the CNNtransformer hybrid models include BDTNet [54], Tran-sUNet [55] and CMTFNet [56].
+
+On the change detection task, the compared CNN-based models include FC-EF [39], FC-Siam-Diff [39], FC-Siam-Conc [39], STANet [57], DTCDSCN [58], SNUNet [59], CDNet [60], DDCNN [61], DASNet [62], DSIFN [63] and HANet [64], the compared transformer-based models include ChangeFormer [7], and the CNN-transformer hybrid models include BIT [6], MTCNet [65], MSCANet [66] and AMTNet-50 [67].
+
+
+C. Implementation Details 1) Data Augmentation:
+
+To demonstrate the effectiveness of the proposed methods, we only employed straightforward data augmentation techniques, avoiding the use of any elaborate tricks.For the semantic segmentation task, the data augmentation methods used for the RSM-SS model included flipping (p=0.5) and transposing (p=0.5).For the change detection task, the data augmentation methods used for the RSM-CD model included flipping (p=0.5),transposing (p=0.5), and swapping of bitemporal images (p=0.5).
+
+
+2) Training and Inference:
+
+We utilized PyTorch [68] to construct and deploy RSM-SS and RSM-CD on a single RTX A100 GPU.Given the variable image sizes across datasets, we adjusted the batch sizes accordingly: 16 for the WHU dataset, 4 for both the Massachusetts Roads and WHU-CD datasets, and 64 for the LEVIR-CD dataset.Our loss function integrates binary cross-entropy loss with Dice coefficient loss to optimize performance.We employed the AdamW [69] optimizer with an initial learning rate of 0.001 and a weight decay of 0.001.The learning rate adjustment strategy is to reduce the learning rate by a factor of 0.1 if there is no improvement in the F1-score on the validation set over a span of 10 epochs.The models were trained over 150 epochs to ensure ample training and convergence.Checkpoints capturing the highest F1-scores on the validation sets were preserved for subsequent testing.To maintain consistency with other change detection methodologies, we initialized our models using the default settings provided by PyTorch for all datasets.
+
+3) Evaluation Metrics: To evaluate the performance of the proposed models, we employ four key evaluation metrics: precision (P), recall (R), F1-score, and intersection over union (IoU).Precision quantifies the rate of false positives within the results, whereas recall measures the rate of false negatives.Achieving high scores in both precision and recall simultaneously poses a significant challenge due to their inversely proportional relationship.The F1-score, which represents the harmonic mean of precision and recall, serves as a balance between the two by simultaneously considering both metrics.Additionally, the IoU metric measures the proportion of overlap between the predicted and actual changed pixels relative to the total area of union, providing a spatial accuracy assessment of the model's predictions.
+
+
+D. Ablation Study
+
+To verify the effectiveness of OSSM, comparative experiments were conducted on the Massachusetts Roads dataset for the semantic segmentation task and the WHU-CD dataset for the change detection task.We compared the performance of three variations: SS1D [12], which employs selective scanning in the horizontal direction and its reverse direction; SS2D [13], which includes selective scanning in both the horizontal and vertical directions and their reverses; and OSSM, which extends selective scanning to eight directions-horizontal, vertical, diagonal, and anti-diagonal, along with their reverse directions.This comparison aimed to demonstrate the superiority of employing eight-directional selective scanning in VHR remote sensing images.
+
+Table II presents the comparative results of SS1D, SS2D, and OSSM, indicating that OSSM outperforms both SS1D and SS2D in semantic segmentation and change detection tasks.Specifically, for the semantic segmentation task on the Massachusetts Roads dataset, the presence of roads extending in multiple directions with significant spatial scales necessitates selective scanning across multiple directions, thereby extracting large road features oriented in various directions.Similarly, in the change detection task on the WHU-CD dataset, the spatial features of buildings, such as edge characteristics and arrangement directions, require selective scanning in multiple directions to capture large architectural features from various orientations.Compared to SS1D and SS2D, the omnidirectional selective scan of OSSM enables the extraction of large object features from multiple directions, making it more suitable for VHR remote sensing images.The accuracy comparison results on the Massachusetts Road dataset are presented in Table III.The RSM-SS surpasses all the compared models and achieves the highest IoU (0.6735) and F1-score (0.8049) on the Massachusetts Road dataset.The Massachusetts Road dataset is characterized by roads with extensive spatial scales, where contextual information plays a critical role in road semantic segmentation.Due to its linear complexity, RSM-SS is adept at processing VHR remote sensing images with rich contextual information.This capability allows it to accurately segment roads by effectively leveraging the vast amount of contextual information in remote sensing images.The accuracy comparison results on the WHU dataset are summarized in Table IV.The accuracy comparison results show that the RSM-SS achieves the highest IoU (0.9081) and F1-score (0.9518) on this dataset.In the WHU dataset, buildings are arranged in a variety of orientations and cover large spatial scales.Extracting large spatial features of buildings in multiple directions is crucial for accurate building detection.RSM-SS performs selective scanning across multiple directions on VHR remote sensing images, which enables the extraction of substantial spatial features of buildings from various angles, thus achieving precise segmentation of buildings in VHR remote sensing images.We show some inference results of the test set of the Massachusetts Road and WHU datasets in Figure 5.It shows that the RSM-SS can accurately segment all the roads in the Massachusetts Road dataset and buildings in the WHU dataset.On the Massachusetts Road dataset, despite roads extending in various directions and covering extensive spatial scales, RSM-SS manages to accurately segment roads by leveraging the rich contextual information available in large VHR remote sensing images.Similarly, on the WHU dataset, despite the dense arrangement of buildings and the presence of spatial features in multiple directions, the RSM-SS is capable of extracting building features across various directions.2) Change Detection Task: This subsection presents the results of comparing RSM-CD with other change detection models on the change detection task with two datasets (WHU-CD and LEVIR-CD datasets).
+
+The accuracy comparison results on the WHU-CD dataset are shown in Table V. RSM-CD achieves the highest IoU (0.8496) and F1-score (0.9187) on this dataset, outperforming all other change detection models.Given the very high spatial resolution of the WHU-CD dataset remote sensing images (0.075 m/pixel), a remote sensing image with a normal size (256×256 pixels) may only contain a few buildings or parts of buildings, thereby losing a significant amount of contextual information.Due to its linear complexity, RSM-CD is capable of processing large VHR remote sensing images.This allows RSM-CD to utilize the rich contextual information present in large images to accurately identify changed buildings.The accuracy comparison results on the LEVIR-CD dataset are summarized in Table VI.RSM-CD outperforms all the other models, achieving the highest IoU (0.8366) and F1score (0.9110) on this dataset.In the LEVIR-CD dataset, the presence of buildings with multiple orientations and arrangements in the bitemporal remote sensing images underscores the importance of extracting large features in multiple directions.The omnidirectional selective scan module of RSM-CD can extract large spatial features of buildings from various directions, thereby accurately identifying changed buildings.We show some inference results for the test sets of the WHU-CD and LEVIR-CD datasets in Figure 6.It shows that RSM-CD can accurately detect all the changed buildings in the WHU-CD and LEVIR-CD datasets.On the WHU-CD dataset, the high spatial resolution of remote sensing images necessitates the use of large images to preserve ample contextual information.The linear complexity of RSM-CD enables it to process large VHR remote sensing images.By leveraging the rich contextual information available in the bitemporal images, RSM-CD can accurately identify changed buildings.On the LEVIR-CD dataset, where buildings exhibit edge features in multiple directions, the ability to perform selective scanning in multiple directions allows RSM-CD to extract building features from various orientations, accurately identifying changed buildings.
+
+
+F. Impact of Image Size and Spatial Resolution
+
+The extensive contextual information and high-resolution spatial features of VHR remote sensing images are crucial for dense prediction tasks.To investigate the impact of contextual information and spatial features on dense prediction tasks in VHR remote sensing, we experimented with semantic segmentation and change detection tasks using images of varying sizes and downsampling factors, as cropping images into small patches would lose contextual information and downsampling images would lose spatial features.
+
+In our semantic segmentation experiments on the Massachusetts Roads dataset, where roads are the objects of interest, we first downsampled the remote sensing images by factors of 1 (no downsampling), 2, and 4.Then, we cropped the images to sizes of 32, 64, 128, 256, 512, and 1024 pixels.It is important to note that images downsampled by a factor of 2 have a maximum size of 512 pixels, and those downsampled by a factor of 4 have a maximum size of 256 pixels.For two images of the same size but different downsampling ratios (ratio 1, ratio 2), the latter has a ratio2/ratio1 times the spatial range of the former, which means that an image with a size of 512 and a downsampling ratio of 1 has the same spatial range as an image with a size of 256 and a downsampling ratio of 2. We used the F1-score as a metric to evaluate the model's performance across different image sizes and downsampling ratios, and the results are illustrated in Figure 7.The results indicate that the model's performance improves with increasing image size, regardless of the downsampling ratio.For images of the same size, those with a higher downsampling ratio perform worse, despite having more contextual information.This could be attributed to the elongated nature of roads, which extend in various directions across the image.Downsampling the images results in a significant loss of road spatial features, making it difficult to segment roads.Cropping the images into smaller patches leads to a substantial loss of contextual information, which hampers the ability to determine the roads' extension directions and segment them effectively.Thus, both large amounts of contextual information and highresolution spatial features are important for segmenting roads.
+
+In the change detection task, we conducted experiments on the WHU-CD dataset, where the changed objects are buildings.The strategies for image downsampling and cropping were the same as those applied to the Massachusetts Roads dataset, with the F1-score serving as the evaluation metric.The performance of the model across different image sizes and downsampling ratios is illustrated in Figure 8.The results show that the model's performance initially increases with the size of the image, reaching a peak before starting to decline.The image size peaks for downsampling ratios of 1, 2, and 4 correspond to 256, 512, and 1024, respectively, each offering the same level of spatial range.Furthermore, at any given size, the model performs worse on images with a higher downsampling ratio.This may be due to the presence of spatial features within individual buildings and between multiple buildings, necessitating a certain level of contextual information and high-resolution spatial features to accurately identify changed buildings.Downsampling results in a significant loss of spatial features, substantially reducing the model's performance.Cropping images to a certain size makes larger patches containing more contextual information, which benefits the model in detecting changed buildings.However, when there is too much contextual information, including a lot of irrelevant details for identifying a specific changed building, the model's performance decreases.The experiments on the Massachusetts Roads and WHU-CD datasets highlight the importance of contextual information and high-resolution spatial features for dense prediction tasks in VHR remote sensing, which aligns with the experimental results from FCCDN [14] and SwinB-CNN [15].The model's performance varies in response to the loss of contextual information and spatial features, with a more significant decrease in performance when downsampling road images than when downsampling building images.A common finding is that the model performs better on higher spatial resolution images.Moreover, the higher the spatial resolution of the images is, the larger the image size required to contain the same level of contextual information, thus larger images are needed for the model to perform optimally.Therefore, VHR remote sensing images and models capable of processing large images are crucial for dense prediction tasks in remote sensing.The linear complexity of the RSM enables it to handle large VHR remote sensing images, thereby achieving excellent results in dense prediction tasks for VHR remote sensing.
+
+
+G. Handling Large Remote Sensing Images
+
+Large remote sensing images contain rich contextual information, which is crucial for dense prediction tasks.To demonstrate the superiority of the RSM over CNN-based and transformer-based models in processing large remote sensing images, we conducted comparative experiments on the WHU-CD dataset for change detection tasks.Given that the original WHU-CD data are completely large remote sensing images, we can crop them into image patches of various sizes for our experiments.We compared RSM-CD with ResNet-50-CD and ViT-S-CD, which have a similar number of parameters.All these models have the same framework, with the only difference lying in the encoder.ResNet-50-CD replaces the encoder of RSM-CD with ResNet-50, and ViT-S-CD replaces it with ViT-S.
+
+The comparison results are shown in Table VII, where the batch size is set to 1 when calculating the FLOPs of the models.OOM stands for out of memory, indicating that the model training could not proceed because the required memory exceeded the machine's available memory.As the image size increased, the computational costs of ResNet-50-CD and RSM-CD exhibited a linear growth trend because they have linear complexity.In contrast, as ViT-S-CD has quadratic complexity, it exhibited a quadratic growth trend and significantly exceeded the computational costs of ResNet-50-CD and RSM-CD on large remote sensing images.This complexity led to the inability of the model to train on images of sizes 1024 and 2048 due to excessive memory requirements.
+
+In terms of model performance, RSM-CD achieved the best results on image size 1024 with a similar parameter count and lower computational cost, outperforming ResNet-50-CD and ViT-S-CD of all valid image sizes.Although ResNet-50-CD has linear complexity, it cannot globally model the context of remote sensing images and only has a local effective receptive field, which fails to utilize the rich contextual information of large remote sensing images effectively.While ViT-S-CD can globally model the context of remote sensing images, its quadratic complexity results in a rapid increase in computational cost and memory usage, restricting it to processing only small image patches.These small patches contain very limited contextual information, disadvantaging ViT-S-CD in change detection tasks.RSM-CD has linear complexity and can model the context of remote sensing images globally across multiple directions, extracting large spatial features from various directions, thus achieving superior results in change detection tasks.
+
+
+V. DISCUSSION
+
+In the realm of VHR remote sensing, contextual information within images is crucial for dense prediction tasks.However, current models based on CNNs and transformers struggle to process large VHR remote sensing images effectively.CNNbased models, limited by their local convolution operations, fail to model the global contextual information of VHR remote sensing images.Transformer-based models, due to their quadratic complexity, are incapable of handling large VHR images.These models typically resort to processing smaller image patches, which contain limited contextual information, thus hindering their performance on dense prediction tasks.
+
+To address these issues, we propose the RSM for dense prediction tasks in VHR remote sensing.The RSM, characterized by its linear complexity and global modeling capabilities, can process large VHR remote sensing images and model their global contextual information.It is capable of extracting large spatial features in multiple directions, thus effectively facilitating dense prediction tasks.The experimental results of the semantic segmentation and change detection tasks demonstrate that, despite RSM-SS and RSM-CD employing simple model architectures without any sophisticated modules or training techniques, they achieve state-of-the-art performance in their respective tasks.This validates the potential of the RSM in dense prediction tasks for VHR remote sensing.We hope that the RSM can serve as a baseline in the field, promoting the development of SSM-based methods within VHR remote sensing.
+
+Despite the notable performance of RSM in dense prediction tasks for ultra-high-resolution remote sensing, it also exhibits some limitations.On one hand, the models for semantic segmentation and change detection tasks are overly simplistic, not fully leveraging the potential of SSMs.The experimental results of RSM-CD on the WHU-CD dataset indicate optimal performance when the image size is 1024.However, a reduction in model performance is observed as the image size in-creases to 2048.This decline could be attributed to the inherent simplicity of the RSM-CD, which may limit its capability to effectively process the global contextual information contained within large remote sensing images.On the other hand, dense prediction tasks in ultra-high-resolution remote sensing require extensive training data, thus limiting RSM's applicability in tasks lacking labeled data.
+
+In the future, we will develop more complex and effective SSM-based models to enhance their capacity for processing global contextual information in large remote sensing images, further exploring the potential of SSM-based models in remote sensing dense prediction tasks.At the same time, we will investigate the potential of SSM-based models in remote sensing self-supervised learning, enabling the use of vast quantities of unlabeled remote sensing images for selfsupervised training of SSM-based models, and making these models applicable to tasks and scenarios where labeled data are scarce or unavailable.
+
+
+VI. CONCLUSION
+
+We have proposed the Remote Sensing Mamba for dense prediction tasks in VHR remote sensing imagery, addressing the limitations of CNN-based models in global context information modeling and the challenges of transformer-based models handling large remote sensing images.Our model can process large VHR remote sensing images with rich contextual information with linear complexity.Through selective scanning in multiple directions, the RSM models global context information and extracts large spatial features across various directions, thereby efficiently accomplishing dense prediction tasks.
+
+Experiments on semantic segmentation and change detection tasks demonstrate the superior performance of the RSM across different objects.Leveraging the State Space Model for processing large images and modeling global context information, the RSM operates on VHR remote sensing images without the need to segment these images into smaller patches, which is achieved through its linear complexity.By modeling globally in various directions, the RSM captures large spatial features from multiple perspectives, leading to outstanding performance in dense prediction tasks.We envision RSM to serve as a baseline for dense prediction tasks in VHR remote sensing, promoting further development of SSM-based approaches in this field.
+
+Fig. 1 .
+1
+Fig. 1.Illustration of the large image preprocessing strategy of transformerbased models.Dividing a large VHR remote sensing image into small patches results in the loss of many spatial features.Each patch contains very limited contextual information compared to the original large image.
+
+
+Fig. 2 .
+2
+Fig. 2. Illustration of the Overall structure of RSM-SS and RSM-CD.RSM-SS and RSM-CD can globally model the context of images in multiple directions with linear complexity using the omnidirectional selective scan.
+
+
+Fig. 3 .
+3
+Fig. 3. Illustration of the selective scan directions of Vim, VMamba, and OSSM.
+
+
+Fig. 4 .
+4
+Fig. 4. Illustration of the structure of the omnidirectional selective scan module.
+
+
+Fig. 5 .
+5
+Fig. 5. Sample inference results of RSM-SS on the semantic segmentation task.The results on the Massachusetts Road and WHU datasets are shown in the first and second rows, respectively.Red areas denote false positives and blue areas denote false negatives.(a) Input image.(b) Ground truth image.(c) RSM-SS result.
+
+
+Fig. 6 .
+6
+Fig. 6.Sample inference results of RSM-CD on the change detection task.The results on the WHU-CD and LEVIR-CD datasets are shown in the first and second rows, respectively.Red areas denote false positives and blue areas denote false negatives.(a) T1 image.(b) T2 image.(c) Ground truth image.(d) RSM-CD result.
+
+
+Fig. 7 .
+7
+Fig. 7. Performance of RSM-SS on the Massachusetts Roads dataset with different image sizes and downsampling ratios.
+
+
+Fig. 8 .
+8
+Fig. 8. Performance of RSM-CD on the WHU-CD dataset with different image sizes and downsampling ratios.
+
+
+TABLE I BRIEF
+I
+INTRODUCTION OF THE EXPERIMENTAL DATASETS.
+NameTask Resolution (m) ImagesImage sizeWHU [40]Seg0.38189512×512M-Road [41]Seg111711500 × 1500WHU-CD [40]CD0.075132207×15354LEVIR-CD [42]CD0.56371024×1024
+
+TABLE II ABLATION
+II
+STUDY OF OSSM ON THE MASSACHUSETTS ROAD DATASET AND WHU-CD DATASET.THE BEST VALUES ARE HIGHLIGHTED IN BOLD IN EACH DATASET.
+DatasetTask Module P (%) R (%) F1 (%) IoU (%)M-RoadSegSS1D85.1774.3779.4065.84M-RoadSegSS2D85.5774.7879.8166.41M-RoadSegOSSM86.5275.2480.4967.35WHU-CDCDSS1D91.8689.3390.5882.78WHU-CDCDSS2D92.2589.6690.9483.38WHU-CDCDOSSM93.3790.4291.8784.96E. Overall Comparison1) Semantic Segmentation Task: This subsection presentsthe results of comparing RSM-SS with other models on thesemantic segmentation task on two datasets (the MassachusettsRoad and WHU datasets).
+
+TABLE III ACCURACY
+III
+COMPARISON ON THE MASSACHUSETTS ROAD DATASET.THE BEST VALUES ARE HIGHLIGHTED IN BOLD.
+MethodsP (%) R (%) F1 (%) IoU (%)SegNet [44]76.0978.2377.1562.79U-Net [17]77.5377.8277.6763.50ResUNet [23]78.7777.4578.1064.07D-LinkNet [51]78.3477.9178.1264.10HRNetv2 [46]79.0178.2078.6064.75Deeplabv3+ [48]75.1472.5673.8358.51SIINet [52]85.3674.1379.3565.77RoadFormer [8]80.5478.9079.7166.27BDTNet [54]82.9976.3779.5466.03RSM-SS86.5275.2480.4967.35
+
+TABLE V ACCURACY
+V
+COMPARISON ON THE WHU-CD DATASET.THE BEST VALUES ARE HIGHLIGHTED IN BOLD.
+MethodsP (%) R (%) F1 (%) IoU (%)FC-EF [39]78.8678.6478.7564.95FC-Siam-Diff [39]84.7387.3186.0075.44FC-Siam-Conc [39]78.8678.6478.7564.95DTCDSCN [58]63.9282.3071.9556.19DSIFN [63]91.4489.7590.5982.79STANet [57]79.3785.5082.3269.95SNUNet [59]85.6081.4983.4971.67DASNet [62]88.2384.6286.3976.04HANet [64]88.3088.0188.1678.82CDNet [60]91.7586.8989.2580.59DDCNN [61]93.7189.1291.3684.09BIT [6]86.6481.4883.9872.39MTCNet [65]75.1091.9082.6570.43MSCANet [66]91.1089.8690.4782.60RSM-CD93.3790.4291.8784.96
+
+TABLE VI ACCURACY
+VI
+COMPARISON ON THE LEVIR-CD DATASET.THE BEST VALUES ARE HIGHLIGHTED IN BOLD.
+MethodsP (%) R (%) F1 (%) IoU (%)FC-EF [39]86.9180.1783.4071.53FC-Siam-Diff [39]89.5383.3186.3175.91FC-Siam-Conc [39]91.9976.7783.6971.96DTCDSCN [58]88.5386.8387.6778.05DSIFN [63]94.0282.9388.1378.77STANet [57]83.8191.0087.2677.39SNUNet [59]89.1887.1788.1678.83HANet [64]91.2189.3690.2882.27CDNet [60]91.6086.5088.9880.14DDCNN [61]91.8588.6990.2482.22BIT [6]89.2489.3789.3080.68ChangeFormer [7]92.0588.8090.4082.47MTCNet [65]90.8789.6290.2482.22MSCANet [66]91.3088.5689.9181.66AMTNet-50 [67]91.8289.7190.7683.08RSM-CD92.5289.7391.1083.66
+
+TABLE VII COMPARATIVE
+VII
+EXPERIMENTS ON THE COMPUTATIONAL COST AND MODEL PERFORMANCE, WHICH WERE CONDUCTED ON THE WHU-CD
+DATASET.ModelParam (M) Image size GFLOPs F1 (%)ResNet-50-CD30.4321.786.42ViT-S-CD26.9321.386.74RSM-CD27.9322.987.17ResNet-50-CD30.4643.987.33ViT-S-CD26.9643.688.53RSM-CD27.9644.189.17ResNet-50-CD30.41286.888.07ViT-S-CD26.91287.689.74RSM-CD27.91287.290.71ResNet-50-CD30.425613.588.41ViT-S-CD26.925616.890.33RSM-CD27.925615.791.39ResNet-50-CD30.451253.788.53ViT-S-CD26.9512107.990.52RSM-CD27.951250.291.65ResNet-50-CD30.41024194.788.37ViT-S-CD26.91024973.4OOMRSM-CD27.91024185.291.87ResNet-50-CD30.42048793.988.45ViT-S-CD26.920489148.7OOMRSM-CD27.92048742.891.49
+ACKNOWLEDGMENTThis work was done during the internship of Sijie Zhao at Shanghai Artificial Intelligence Laboratory.
+Remote sensing in urban planning: Contributions towards ecologically sound policies?. T Wellmann, A Lausch, E Andersson, S Knapp, C Cortinovis, J Jache, S Scheuer, P Kremer, A Mascarenhas, R Kraemer, Landscape and urban planning. 2041039212020
+
+Remote sensing for agricultural applications: A meta-review. M Weiss, F Jacob, G Duveiller, Remote sensing of environment. 2361114022020
+
+Uav-based remote sensing for the petroleum industry and environmental monitoring: State-of-the-art and perspectives. S Asadzadeh, W J De Oliveira, C R De Souza Filho, Journal of Petroleum Science and Engineering. 2081096332022
+
+Building damage assessment for rapid disaster response with a deep object-based semantic change detection framework: From natural disasters to man-made disasters. Z Zheng, Y Zhong, J Wang, A Ma, L Zhang, Remote Sensing of Environment. 2651126362021
+
+Attention is all you need. A Vaswani, N Shazeer, N Parmar, J Uszkoreit, L Jones, A N Gomez, Ł Kaiser, I Polosukhin, Advances in neural information processing systems. 201730
+
+Remote sensing image change detection with transformers. H Chen, Z Qi, Z Shi, IEEE Transactions on Geoscience and Remote Sensing. 602021
+
+A transformerbased siamese network for change detection. W G C Bandara, V M Patel, IGARSS 2022-2022 IEEE International Geoscience and Remote Sensing Symposium. IEEE2022
+
+Roadformer: Pyramidal deformable vision transformers for road network extraction with remote sensing images. X Jiang, Y Li, T Jiang, J Xie, Y Wu, Q Cai, J Jiang, J Xu, H Zhang, International Journal of Applied Earth Observation and Geoinformation. 1131029872022
+
+Swinsunet: Pure transformer network for remote sensing image change detection. C Zhang, L Wang, S Cheng, Y Li, IEEE Transactions on Geoscience and Remote Sensing. 602022
+
+Mamba: Linear-time sequence modeling with selective state spaces. A Gu, T Dao, arXiv:2312.007522023arXiv preprint
+
+A new approach to linear filtering and prediction problems. R E Kalman, 1960
+
+Vision mamba: Efficient visual representation learning with bidirectional state space model. L Zhu, B Liao, Q Zhang, X Wang, W Liu, X Wang, arXiv:2401.094172024arXiv preprint
+
+Y Liu, Y Tian, Y Zhao, H Yu, L Xie, Y Wang, Q Ye, Y Liu, arXiv:2401.10166Vmamba: Visual state space model. 2024arXiv preprint
+
+Fccdn: Feature constraint network for vhr image change detection. P Chen, B Zhang, D Hong, Z Chen, X Yang, B Li, ISPRS Journal of Photogrammetry and Remote Sensing. 1872022
+
+Transformer and cnn hybrid deep neural network for semantic segmentation of very-highresolution remote sensing imagery. C Zhang, W Jiang, Y Zhang, W Wang, Q Zhao, C Wang, IEEE Transactions on Geoscience and Remote Sensing. 602022
+
+Detecting urban changes with recurrent neural networks from multitemporal Sentinel-2 data. M Papadomanolaki, S Verma, M Vakalopoulou, S Gupta, K Karantzalos, IGARSS 2019-2019 IEEE International Geoscience and Remote Sensing Symposium. IEEE2019
+
+U-Net: Convolutional networks for biomedical image segmentation. O Ronneberger, P Fischer, T Brox, Medical Image Computing and Computer-Assisted Intervention-MICCAI 2015: 18th International Conference. Munich, GermanySpringerOctober 5-9, 2015. 2015Proceedings, Part III 18
+
+Convolutional LSTM network: A machine learning approach for precipitation nowcasting. X Shi, Z Chen, H Wang, D.-Y Yeung, W.-K Wong, W.-C Woo, Advances in Neural Information Processing Systems. 201528
+
+Treeunet: Adaptive tree convolutional neural networks for subdecimeter aerial image segmentation. K Yue, L Yang, R Li, W Hu, F Zhang, W Li, ISPRS Journal of Photogrammetry and Remote Sensing. 1562019
+
+Exchanging dual-encoder-decoder: A new strategy for change detection with semantic guidance and spatial localization. S Zhao, X Zhang, P Xiao, G He, IEEE Transactions on Geoscience and Remote Sensing. 612023
+
+An attention-fused network for semantic segmentation of very-high-resolution remote sensing imagery. X Yang, S Li, Z Chen, J Chanussot, X Jia, B Zhang, B Li, P Chen, ISPRS Journal of Photogrammetry and Remote Sensing. 1772021
+
+Change guiding network: Incorporating change prior to guide change detection in remote sensing imagery. C Han, C Wu, H Guo, M Hu, J Li, H Chen, IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing. 2023
+
+Resunet-a: A deep learning framework for semantic segmentation of remotely sensed data. F I Diakogiannis, F Waldner, P Caccetta, C Wu, ISPRS Journal of Photogrammetry and Remote Sensing. 1622020
+
+Hcgmnet: A hierarchical change guiding map network for change detection. C Han, C Wu, B Du, IGARSS 2023-2023 IEEE International Geoscience and Remote Sensing Symposium. IEEE2023
+
+Fdffnet: A full-scale difference feature fusion network for change detection in high-resolution remote sensing images. F Gu, P Xiao, X Zhang, Z Li, D Muhtar, IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing. 2023
+
+Swin transformer: Hierarchical vision transformer using shifted windows. Z Liu, Y Lin, Y Cao, H Hu, Y Wei, Z Zhang, S Lin, B Guo, Proceedings of the IEEE/CVF international conference on computer vision. the IEEE/CVF international conference on computer vision20211022
+
+Rethinking transformers for semantic segmentation of remote sensing images. Y Liu, Y Zhang, Y Wang, S Mei, IEEE Transactions on Geoscience and Remote Sensing. 2023
+
+Deep residual learning for image recognition. K He, X Zhang, S Ren, J Sun, Proceedings of the IEEE conference on computer vision and pattern recognition. the IEEE conference on computer vision and pattern recognition2016
+
+Transunetcd: A hybrid transformer network for change detection in optical remote-sensing images. Q Li, R Zhong, X Du, Y Du, IEEE Transactions on Geoscience and Remote Sensing. 602022
+
+Convtransnet: A cnn-transformer network for change detection with multiscale global-local representations. W Li, L Xue, X Wang, G Li, IEEE Transactions on Geoscience and Remote Sensing. 2023
+
+Efficiently modeling long sequences with structured state spaces. A Gu, K Goel, C Ré, arXiv:2111.003962021arXiv preprint
+
+Combining recurrent, convolutional, and continuous-time models with linear state space layers. A Gu, I Johnson, K Goel, K Saab, T Dao, A Rudra, C Ré, Advances in neural information processing systems. 342021
+
+Simplified state space layers for sequence modeling. J T Smith, A Warrington, S W Linderman, arXiv:2208.049332022arXiv preprint
+
+Hippo: Recurrent memory with optimal polynomial projections. A Gu, T Dao, S Ermon, A Rudra, C Ré, Advances in neural information processing systems. 202033
+
+On the parameterization and initialization of diagonal state space models. A Gu, K Goel, A Gupta, C Ré, Advances in Neural Information Processing Systems. 202235
+
+Diagonal state spaces are as effective as structured state spaces. A Gupta, A Gu, J Berant, Advances in Neural Information Processing Systems. 202235
+
+Liquid structural state-space models. R Hasani, M Lechner, T.-H Wang, M Chahine, A Amini, D Rus, arXiv:2209.129512022arXiv preprint
+
+Changemamba: Remote sensing change detection with spatio-temporal state space model. H Chen, J Song, C Han, J Xia, N Yokoya, arXiv:2404.034252024arXiv preprint
+
+Fully convolutional siamese networks for change detection. R C Daudt, B Le Saux, A Boulch, 2018 25th IEEE International Conference on Image Processing (ICIP). IEEE2018
+
+Fully convolutional networks for multisource building extraction from an open aerial and satellite imagery dataset. S Ji, S Wei, M Lu, IEEE Transactions on Geoscience and Remote Sensing. 5712018
+
+Machine learning for aerial image labeling. V Mnih, 2013University of Toronto (Canada)
+
+A spatial-temporal attention-based method and a new dataset for remote sensing image change detection. H Chen, Z Shi, Remote Sensing. 121016622020
+
+Fully convolutional networks for semantic segmentation. J Long, E Shelhamer, T Darrell, Proceedings of the IEEE conference on computer vision and pattern recognition. the IEEE conference on computer vision and pattern recognition2015
+
+Segnet: A deep convolutional encoder-decoder architecture for image segmentation. V Badrinarayanan, A Kendall, R Cipolla, IEEE transactions on pattern analysis and machine intelligence. 201739
+
+Pyramid scene parsing network. H Zhao, J Shi, X Qi, X Wang, J Jia, Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition. the IEEE Conference on Computer Vision and Pattern Recognition2017
+
+Deep highresolution representation learning for human pose estimation. K Sun, B Xiao, D Liu, J Wang, Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. the IEEE/CVF conference on computer vision and pattern recognition2019
+
+Toward automatic building footprint delineation from aerial images using cnn and regularization. S Wei, S Ji, M Lu, IEEE Transactions on Geoscience and Remote Sensing. 5832019
+
+Encoder-decoder with atrous separable convolution for semantic image segmentation. L.-C Chen, Y Zhu, G Papandreou, F Schroff, H Adam, Proceedings of the European conference on computer vision (ECCV). the European conference on computer vision (ECCV)2018
+
+Building extraction in very high resolution remote sensing imagery using deep learning and guided filters. Y Xu, L Wu, Z Xie, Z Chen, Remote Sensing. 1011442018
+
+Mapnet: Multiple attending path neural network for building footprint extraction from remote sensed imagery. Q Zhu, C Liao, H Hu, X Mei, H Li, IEEE Transactions on Geoscience and Remote Sensing. 5972020
+
+D-linknet: Linknet with pretrained encoder and dilated convolution for high resolution satellite imagery road extraction. L Zhou, C Zhang, M Wu, Proceedings of the IEEE conference on computer vision and pattern recognition workshops. the IEEE conference on computer vision and pattern recognition workshops2018
+
+Spatial information inference net: Road extraction using roadspecific contextual information. C Tao, J Qi, Y Li, H Wang, H Li, ISPRS Journal of Photogrammetry and Remote Sensing. 1582019
+
+Segformer: Simple and efficient design for semantic segmentation with transformers. E Xie, W Wang, Z Yu, A Anandkumar, J M Alvarez, P Luo, Advances in neural information processing systems. 20213490
+
+Bdtnet: Road extraction by bi-direction transformer from remote sensing images. L Luo, J.-X Wang, S.-B Chen, J Tang, B Luo, IEEE Geoscience and Remote Sensing Letters. 192022
+
+Transunet: Transformers make strong encoders for medical image segmentation. J Chen, Y Lu, Q Yu, X Luo, E Adeli, Y Wang, L Lu, A L Yuille, Y Zhou, arXiv:2102.043062021arXiv preprint
+
+Cmtfnet: Cnn and multiscale transformer fusion network for remote sensing image semantic segmentation. H Wu, P Huang, M Zhang, W Tang, X Yu, IEEE Transactions on Geoscience and Remote Sensing. 2023
+
+A spatial-temporal attention-based method and a new dataset for remote sensing image change detection. H Chen, Z Shi, Remote Sensing. 121016622020
+
+Building change detection for remote sensing images using a dual-task constrained deep siamese convolutional network model. Y Liu, C Pang, Z Zhan, X Zhang, X Yang, IEEE Geoscience and Remote Sensing Letters. 1852020
+
+SNUNet-CD: A densely connected siamese network for change detection of vhr images. S Fang, K Li, J Shao, Z Li, IEEE Geoscience and Remote Sensing Letters. 192021
+
+Adversarial instance augmentation for building change detection in remote sensing images. H Chen, W Li, Z Shi, IEEE Transactions on Geoscience and Remote Sensing. 602021
+
+Optical remote sensing image change detection based on attention mechanism and image difference. X Peng, R Zhong, Z Li, Q Li, IEEE Transactions on Geoscience and Remote Sensing. 5992020
+
+Dasnet: Dual attentive fully convolutional siamese networks for change detection in highresolution satellite images. J Chen, Z Yuan, J Peng, L Chen, H Huang, J Zhu, Y Liu, H Li, IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing. 142020
+
+A deeply supervised image fusion network for change detection in high resolution bi-temporal remote sensing images. C Zhang, P Yue, D Tapete, L Jiang, B Shangguan, L Huang, G Liu, ISPRS Journal of Photogrammetry and Remote Sensing. 1662020
+
+Hanet: A hierarchical attention network for change detection with bi-temporal very-high-resolution remote sensing images. C Han, C Wu, H Guo, M Hu, H Chen, IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing. 2023
+
+A cbam based multiscale transformer fusion approach for remote sensing image change detection. W Wang, X Tan, P Zhang, X Wang, IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing. 152022
+
+A cnn-transformer network with multiscale context aggregation for finegrained cropland change detection. M Liu, Z Chai, H Deng, R Liu, IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing. 152022
+
+An attentionbased multiscale transformer network for remote sensing image change detection. W Liu, Y Lin, W Liu, Y Yu, J Li, ISPRS Journal of Photogrammetry and Remote Sensing. 2022023
+
+Pytorch: An imperative style, high-performance deep learning library. A Paszke, S Gross, F Massa, A Lerer, J Bradbury, G Chanan, T Killeen, Z Lin, N Gimelshein, L Antiga, A Desmaison, A Kopf, E Yang, Z Devito, M Raison, A Tejani, S Chilamkurthy, B Steiner, L Fang, J Bai, S Chintala, Advances in Neural Information Processing Systems. Curran Associates, Inc201932
+
+Adam: A method for stochastic optimization. D P Kingma, J Ba, arXiv:1412.69802014arXiv preprint

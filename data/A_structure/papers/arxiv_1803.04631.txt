@@ -1,0 +1,377 @@
+CuLDA_CGS: Solving Large-scale LDA Problems on GPUs
+
+
+Xiaolong Xie 
+Center for Energy-Efficient Computing and Applications
+EECS
+Peking University
+BeijingChina
+
+Yun Liang 
+Center for Energy-Efficient Computing and Applications
+EECS
+Peking University
+BeijingChina
+
+Xiuhong Li lixiuhong@pku.edu.cn 
+† 
+Wei Tan weitan@ieee.org 
+Center for Energy-Efficient Computing and Applications
+EECS
+Peking University
+BeijingChina
+
+Citadel LLC
+ChicagoIL
+
+CuLDA_CGS: Solving Large-scale LDA Problems on GPUs
+CCS CONCEPTS • Computing methodologies → Topic modeling• Computer systems organization → Single instruction, multiple dataKEYWORDS Topic Modeling, LDA, GPU
+Latent Dirichlet Allocation(LDA) is a popular topic model. Given the fact that the input corpus of LDA algorithms consists of millions to billions of tokens, the LDA training process is very time-consuming, which may prevent the usage of LDA in many scenarios, e.g., online service. GPUs have benefited modern machine learning algorithms and big data analysis as they can provide high memory bandwidth and computation power. Therefore, many frameworks, e.g. Ten-sorFlow, Caffe, CNTK, support to use GPUs for accelerating the popular machine learning data-intensive algorithms. However, we observe that LDA solutions on GPUs are not satisfying.In this paper, we present CuLDA_CGS, a GPU-based efficient and scalable approach to accelerate large-scale LDA problems. CuLDA_CGS is designed to efficiently solve LDA problems at high throughput. To it, we first delicately design workload partition and synchronization mechanism to exploit the benefits of multiple GPUs. Then, we offload the LDA sampling process to each individual GPU by optimizing from the sampling algorithm, parallelization, and data compression perspectives. Evaluations show that compared with state-of-the-art LDA solutions, CuLDA_CGS outperforms them by a large margin (up to 7.3X) on a single GPU.CuLDA_CGS is able to achieve extra 3.0X speedup on 4 GPUs. The source code is publicly available on https://github.com/cuMF/ CuLDA_CGS.
+
+INTRODUCTION
+
+Machine learning algorithms are now widely used for automatic big data analysis [14]. Latent Dirichlet Allocation (LDA) [6,17] is a popular Bayesian topic model and it's been demonstrated to be practical in real applications. The research community has conducted a variety of studies to optimize LDA and broaden it's usage scope [4,5,12,16,24,36]. In general, existing studies could be categorized into two streams. One stream is algorithmic optimization that aims to improve the accuracy or reduce the number of training iterations to converge [13]. In this paper, we focus on another stream, system optimization [3, 8-10, 19, 20, 23, 30-35]. Our goal is to achieve high system throughput to minimize the cost of large-scale LDA training.
+
+A typical LDA problem needs to infer K topics from a corpus that is consisted of up to millions of documents and up to billions of tokens. To achieve the goal, various training algorithms have been proposed [13,32]. At each step of the training, one token is selected from the corpus and a new topic is assigned to the token. In general, it requires hundreds of iterations to converge to an accurate model. The sampling complexity is O(K) and given that the input data size is large, similar to other big data analysis applications [15,21,22,25], the LDA training process is very time-consuming. The total elapsed time ranges from hundreds of seconds to tens of hours [16].
+
+Various CPU-based LDA optimization techniques, e.g. sparsityaware sampling [32], computing complexity optimization [19,35], memory optimization [3,10,23], distributed computing [30,31,33,34], have been proposed. However, the performance of existing LDA solutions are still not satisfying. The LDA training is mainly limited by the memory bandwidth. For example, the typical LDA solution only performs 0.27 arithmetic operation for each byte data loaded from the memory 1 . Single-node CPU solutions mainly rely on caches to improve the memory bandwidth [10]. However, the increasing data size makes the cache performance sub-optimal [29]. Distributed LDA solutions does not face the cache problems, however, the limited network speed becomes the performance bottleneck as the LDA algorithm requires frequent model data communication. Other big data applications face the similar problems, too. Therefore, systems that are equipped with hardware accelerators ( e.g., GPU, TPU [18], ASIC [11]) are employed for these big data applications. In this paper, we use GPUs. GPUs are many-core architectures and it provides much higher memory bandwith compared to CPUs.
+
+However, due to the distinct architecture design, simply porting existing CPU-based or distributed system-based LDA solutions to GPUs can not deliver good performance [29]. GPU-based LDA solutions has also been studied by other researchers [8,20]. However, we observe that existing solutions are not able to fully release the horse power of GPUs nor scalable to multiple GPUs. Several challenges remains. First, the LDA algorithms are basically irregular. It is very difficult to achieve high resource utilization on GPUs [29]. Second, the inter-GPU synchronization mechanism has high impact on the system throughput. A scalable multi-GPU solution for largescale LDA problems is essential. To solve the above challenges, we present CuLDA_CGS, an efficient and scalable LDA solution on GPUs. Our design goal is to solve large-scale LDA problems with one single machine and achieve comparable or even better performance than distributed systems. To this, we not only focus on the single-GPU performance, but also the multi-GPU (single machine) scalability.
+
+We contribute to the state-of-the-art machine learning and big data analysis research community as following,
+
+• We conduct comprehensive analysis on LDA training algorithms and identify that LDA training is memory bound. • We propose to employ systems that consist of GPUs for accelerating LDA training and develop CuLDA_CGS, an efficient LDA training algorithm to fully utilize the GPU hardware resources. CuLDA_CGS is well-optimized in many aspects, including but to limited to memory resources utilization, workload partition, and multi-GPU scalability. • We evaluate CuLDA_CGS on different GPU architectures using real data sets. Evaluations demonstrate that CuLDA_CGS is able to achieve high throughput and scalable to different GPU architectures and different number of GPUs. We also compare it with the state-of-the-art LDA solutions and CuLDA_CGS outperforms existing solutions by a large margin (up to 7.3X). • CuLDA_CGS achieves an extra 1.9X, 3.0X speedup on 2 GPUs and 4 GPUs, respectively. To the best of our knowledge, CuLDA_CGS is the first LDA solution that is able to scale to multiple GPUs. The remainder of this paper is organized as follows. We describe the LDA and GPU background knowledge in Section 2. In Section 3, we show the bottleneck analysis of LDA algorithm and motivate our study. In section 4, we show the system overview of CuLDA_CGS. Section 5 describes the details of synchronization mechanism that exploits the computation horsepower of multiple GPUs, Section 6 describes how does CuLDA_CGS effectively executes LDA samplings and model update on GPUs. Finally, Section 8 concludes this paper. Topic Model is a statistical model that is used to infer K topics from a corpus. LDA model [6] is an efficient solution for topic model. It is widely used in text analysis and other popular applications [5,36]. The input corpus is a collection of documents which is composed of D documents(Doc 0 , Doc 1 , ..., Doc D−1 ). Each document is a group of tokens. A token is an instance of a word and the vocabulary size is V (W ord 0 ,W ord 1 , ...,W ord V −1 ). Note that one word may appear multiple times in one document. Initially, each token is randomly assigned with a topic. For a given document set (d ∈ [0, D)) and vocabulary(v ∈ [0, V ) ), the process of LDA training is to infer a handful of topics (k ∈ [0, K) ) and to infer the topic distribution of each document. Figure 1 shows an pseudo example of LDA application. More details about LDA model are provided in [6].
+
+The output of LDA model is:
+
+• Document-topic matrix θ D×K , where θ d,k represents the number of words of topic k in document d. • Topic-word matrix ϕ K ×V , where ϕ k,v represents the number of occurrences of word v of topic k in all documents.
+
+There exists several solutions to train matrices (model) θ and ϕ. In this paper, we adopt the Collapsed Gibbs Sampling (CGS) algorithm [13,32]. CGS iteratively picks up one token from the corpus and reassigns a new topic for this token following the multinomial possibility distribution:
+p(k) = (θ d,k + α)(ϕ k,v + β) v ∈[0,V ) ϕ k,v + βV(1)
+where p(k) represents the possibility of choosing topic k. α and β are hyper parameters. In this paper, same with the previous paper [10], we set α as K/50 and β as 0.01. We refer a full pass of all tokens as a iteration. We term this step as sampling. After each iteration, the model θ D×K and ϕ K ×V are updated and a new iteration is started until the model converges.
+
+The training typically requires hundreds of iteration to converge. Given that the input corpus is often large and K ranges from 1k to 10k, the training time is very long. To quantify the performance, we use the number of processed tokens per second (#Tokens/sec) as the performance metric: We use NVIDIA CUDA programming interface [2]. Figure 2 shows the architecture and programming model of GPUs. The heterogeneous system is composed of CPUs and multiple GPUs. The CPUs and GPUs are connected via PCIe bus and work in a master-slave mode. The application explicitly manages the data transfer between processors and sends control commands to GPUs. Using CUDA terminology, a GPU function is termed as a kernel. By default, a GPU executes one kernel at a time. When a kernel is launched to GPU, it spawns hundreds of thousands of threads. Those threads share the same instruction stream. Each thread is assigned a unique ID, therefore, they operate on different input data elements.
+#Tokens/sec = #Tokens × #Iterations ElapsedTime(2)
+
+GPU Architecture and Programming Interface
+
+The threads are organized into thread blocks. Threads within one thread block can synchronize through intrinsic API and more importantly, they can exchange data using the shared memory(aka software managed cache). Shared memory can provide much shorter latency and higher throughput than memory as it's on-chip. One GPU can execute hundreds of thread blocks concurrently. Thread blocks with smaller IDs are issued first. At the hardware-level, consecutive 32 thread is grouped into one warp (64 on AMD GPUs). Threads in one warp are executed as a vector group and they can exchange data through register file(faster than shared memory).
+
+
+MOTIVATION
+
+In this Section, we present our research motivation. Fully utilizing the tremendous hardware resources on GPUs is not a trivial task. In Section 3.1, we give the characterization of LDA sampling algorithm and the benefits of using GPUs. In Section 3.2, we present the design challenges.
+
+
+Characterization
+
+To find the performance bottleneck of LDA, we analyze the resource consumption of each LDA sampling. Note that our characterization is independent of platform. We use the roofline model to simplify our analysis [26]. Roofline model is often used to identify the performance bottleneck on parallel processors. It relys on a metric, Flops/Byte
+Flops/Byte = #FloatinдPointOps #MemoryOps(Byte)(3)
+to represent the computation to memory ratio of an application. If the Flops/Byte is larger than the peak FLOPS to peak memory bandwidth ratio of the processor, the application is bound by computation and otherwise, it's bound by memory. We examine the LDA algorithm (Algorithm 2) and calculate the Flops/Byte for each step of LDA sampling. We use 32-bit integer and 32-bit floating point data representation. Document-topic matrix θ is stored in CSR format 2 . Table 1 shows the results. On average, the Flops/Byte of LDA is 0.27. We use the latest Volta architecture from NVIDIA as our experiment platforms (Table 2). We use the CPU used in the Volta platform as comparison, it provides up to 470 GFLOPS and 51.2 GB/s theoretical peak performance(470/51.2=9.2). We conclude that LDA is bound by memory bandwidth. Table 1: Flops/Byte of each steps of one LDA sampling. K d is the number of non-zero elements of θ d, * .
+
+Step
+Formulas Values Compute S 4 * K d /(3 * I nt * K d ) 0.33 Compute Q 2 * K /(2 * I nt * K ) 0.25 Sampling from p 1 (k) 6 * K d /((3 * I nt + 2 * F loat ) * K d ) 0.30 Sampling from p 2 (k) 3 * K /((2 * I nt + 2 * F loat ) * K ) 0.19
+
+Challenges
+
+Modern CPUs rely on caches to improve the effective memory bandwidth of applications. Previous LDA solutions [10] has focused on optimizing the cache performance. However, given that the 2 https://en.wikipedia.org/wiki/Sparse_matrix input of LDA applications is often large and keeps increasing, the working set size can not fit into CPU's caches. Therefore, CPUbased LDA solutions is not scalable for big data. One solution is to distribute the data set on distributed systems to improve the cache performance [30,31,33,34]. However, as the processors on different nodes need to synchronize the model at each iteration, the performance is limited by the network bandwidth. Due to the above limitations, in this paper, we propose to use GPUs to solve large-scale LDA problems. We show the overview of the targeted system in Figure 3. The CPUs are responsible for data preprocessing and workload management. After the data preprocessing, the CPUs are responsible for distributing the workloads to GPUs and collecting the results when the GPUs finish the execution. There are two benefits of using such a system. On one hand, each GPU processor is able to provide more resources than one CPU processor. For example, one NVIDIA Volta V100 GPU can provides up to 900GB/s peak memory bandwidth and 1,400 GFLOPS peak single-precision speed. Moreover, GPUs provide on-chip memory resources(e.g., shared memory) to accelerate memory accesses. On other hand, The processors are connected via PCIe 3.0 bus that provides up to 16GB/s bandwidth. The most-recent NVLink can provides up to 300GB/s connection bandwidth [1]. In comparison, the bandwidth of used interconnection in [34] is only 10 Gb/s . In conclusion, the system shown in Figure 2 is suitable for communication-rich applications like LDA.
+
+Though the benefits of using GPU-based system is clear, there are still many challenges when designing an efficient GPU solution. First, to achieve the optimal performance, we need to optimize the single-GPU sampling speed. GPUs are many-core architectures, it's necessary to launch tens of thousands of concurrent threads to saturate one GPU processor. In comparison, dozens of threads is enough to saturate one CPU processor. Therefore, we need to design extreme light-weight workload scheduling and sampling algorithms for GPUs. At the meantime, we also need to carefully utilize the on-chip memory resources on GPUs to improve the effective memory bandwidth. Second, at each iteration, after sampling, we need to update the model. The original update algorithm is irregular and not suitable for GPUs [7]. We have to transform the algorithm to make sure that the model update step is not the performance bottleneck. Third, scaling to large-scale data set and multiple GPUs is not a trivial task. The memory capacity of GPUs is smaller than CPUs, simply allocating space for all of the data in GPU's memory is infeasible for large-scale LDA problems. At the meantime, as the GPUs is more powerful than CPUs, according to Amadhl's law, the synchronization overhead becomes critical for overall performance. If the synchronization between CPUs and GPUs is not well-optimized, we are not able to benefit from multiple GPUs. We need to design an efficient workload partition and communication mechanism.
+
+
+OVERVIEW
+
+To overcome the challenges, we design CuLDA_CGS and present its overview in this section. Figure 3(a) shows the workload partition mechanism of CuLDA_CGS. We partition the input corpus into multiple chunks. Correspondingly, the document-topic matrix  θ D×K and topic-word matrix ϕ K ×V are also partitioned into multiple replicas. We will discuss the decision of number of chunks in Section 5.
+
+
+Document-Topic Matrix(θ D×K )
+Topic-Word Matrix(φ K×V ) … θ 0 θ 1 θ C-1 Replicas … + + + φ 0 φ 1 φ C-1 Replicas CPU GPU 0 … Sampling Update φ Update θ GPU G-1 Sampling Update φ Update θ Sync φ
+Basically, there are two workload partition policy, partition-bydocument and partition-by-word. For the partition-by-word policy, θ D×K is spatially partitioned and therefore, θ D×K is spatially partitioned while ϕ V ×K equals to the summation of all replicas. Therefore, after the sampling, we only need to synchronize each replica of ϕ K ×V . For the partition-by-word policy, we only need to synchronize the replicas of θ D×K . Consider D is often several orders of magnitude greater than V , synchronize θ D×K is more expensive than ϕ V ×K . Therefore, we select the partition-by-document policy. Different documents have different number of tokens. To avoid load imbalance, the corpus is evenly partitioned by number of tokens, instead of number of documents. Figure 3(b) shows the parallelization schema. Originally, all of the corpus chunks and the replicas of θ D×K and ϕ K ×V resides in the main memory of CPU. The CPU is responsible for the workload scheduling and data transfers for GPUs. When a data chunk is scheduled to one GPU, the GPU samples the corpus chunk, update θ replica, and update ϕ replica. After that the GPUs synchronize matrix ϕ and the CPU schedules new workloads for the GPU. We describe the details of workload scheduling and ϕ synchronization algorithms in Section 5. We describe how each GPU efficiently samples the tokens and the details of model update algorithms in Section 6.
+
+
+PARALLELIZATION SCHEME
+
+We describe how to design the workload scheduling algorithm and model synchronization algorithms for CuLDA_CGS in this Section.
+
+
+Scheduling Algorithm
+
+As shown in Figure 3, to exploit the resources on G GPUs and avoid load imbalance, we evenly partition the corpus into C chunks and C = M × G(M ≥ 1). At each iteration, the chunks are scheduled to GPUs in a round-robin order. Chunk i is scheduled to GPU i%G and the chunks with smaller IDs are scheduled first. After all GPUs finish there execution, the model update kernels are called. The scheduling algorithm continues until the number of given iterations is reached.
+
+The ideal choice is M = 1. If M = 1, the data transfer between CPU and GPUs only happens at the start and the end of the computation. Given that a LDA algorithm needs hundreds of iterations(#Ite) Algorithm 1 Workload Scheduling Algorithm. for it e ∈ [0, #I t e) do 11: for i ∈ [0, C] do in parallel 12: G PU i .run() 13: end for 14: Reduce(ϕ 0 ,...,ϕ C − 1) 15: Broadcast(ϕ 0 ) 16: end for 17: DataTransfer(ϕ 0 , G PU 0 → C PU ) 18: for i ∈ [0, C) do 19: DataTransfer(θ i ,G PU i → C PU ) 20: end for 21: end procedure 22: procedure WorkSchedule2() 23: for it e ∈ [0, #I t e) do 24: for i ∈ [0, C] do in parallel 25: for m ∈ [0, M ] do 26: DataTransfer(Chunk M ×i +m , C PU → G PU i ) 27: DataTransfer(θ M ×i +m , C PU → G PU i ) 28: G PU i .run() 29: DataTransfer(ϕ 0 , G PU 0 → C PU ) 36: end procedure to converge, the amortized data transfer overhead is negligible. However, as discussed before, one main drawback of using GPUs is the device memory capacity. A typical GPU has only 12GB-16GB memory, which is much smaller than CPU's memory capacity. Thus, when deciding the value of M, we need to make sure that the one GPU's memory can accommodate at least one data chunk.
+DataTransfer(θ M ×i +m , G PU i → C PU )
+We show the detailed workload scheduling algorithm in Algorithm 1. When M = 1, CuLDA_CGS calls scheduling procedure WorkSchedule1() (Line 1-2). The declaration of procedure WorkSched-ule1() is shown at Line 6-21. At the start of the LDA training, CuLDA_CGS transfers to data to GPUs(Line 7-9) and after the training (Line 10-13), the CPU collectes the trained model from all GPUs (Line 17-20). The training needs #Ite iterations to finish. At each iteration, CuLDA_CGS calls each GPU in parallel(Line [11][12][13] and after all GPUs finish their execution, the CPU synchronizes the topic-word matrix ϕ. The details of the synchronization algorithm are shown in Section 5.2.
+
+When M > 1, CuLDA_CGS calls scheduling procedure WorkSched-ule2()(Line 3-4) and the declaration of procedure WorkSchedule2() is shown at Line 22-36. The main different between WorkSched-ule2() and WorkSchedule1() is, the data transfer between CPU and GPUs happens at each iteration(Line [26][27][28][29]. Despite that the PCIe bandwidth is higher than Ethernet network, the transfer overhead is still a bottleneck for the performance. To minimize the data transfer overhead, on one hand, we compress the data sizes of data chunks and models, on other hand, we overlap the data transfer and the computation. We will discuss how to compress the data size in Section 6. As for the overlap, the main idea is to pipeline the loop(Line 25-30) and overlap the transfer of (m + 1) t h loop with the computation of m t h loop. We employ the GPU's stream interface. To overlap the computation and memory transfer, we need to allocate two data chunks in the GPU's memory. Therefore, when choosing value for M, we need to make sure the GPU's memory is able to accommodate two data chunks.
+
+
+Model Synchronization Algorithm
+
+As discussed in Section 5.1, at each iteration, after each GPU finishes it's computation, we need to synchronize the topic-word matrix ϕ as follows,
+ϕ = ϕ 0 + ...ϕ G−1(4)
+An intuitive solution is to transfer all ϕ replicas to CPU and add all the replicas. However, we observe it's not optimal as the CPU is slower than GPUs in terms of matrix adding. Therefore, in this step, we only use GPUs to perform the synchronization. To minimize the overhead, we split the synchronization into two operations, reduce and broadcast. We shows how CuLDA_CGS perform the synchronization in Figure 4. We use four GPUs in the psuedo case. In this case, it requires two iterations to finish the reduce operation. In the first iteration, GPU 1 transfers ϕ 1 to GPU 0 and GPU 3 transfers ϕ 3 to GPU 2. After the data transfers, GPU 0 sums ϕ 0 and ϕ 1 up and GPU 2 sums ϕ 2 and ϕ 3 up, respectively. At the second step, GPU 2 transfers ϕ 2 to GPU 0 and GPU 0 sums ϕ 0 and ϕ 2 up. ϕ 0 is the result. After the reduction, we broadcast the result(ϕ 0 ) to all GPUs. Note that reductions in the same iteration is performed in parallel, therefore, the computation complexity of reduction is loдG. By doing so, our algorithm is still efficient when scaling to multiple GPUs.
+
+
+GPU KERNEL OPTIMIZATION
+
+For each GPU, its computation consists of three kernels, sampling, update θ , and update ϕ as shown in Figure 3. Here, we discuss how to optimize the sampling kernel in Section 6.1 and how to optimize the update kernels in Section 6.2.
+
+
+Sampling Optimization
+
+In the following, we optimize one LDA sampler (Section 6.1.1) , parallelize thousands of samplers (Section 6.1.2), and optimize the memory accesses (Section 6.1.3).
+
+
+Sampler Design.
+
+Our sampler is based on the sparsityaware sampling [32]. As shown in Eq. 1, at each step, the LDA sampler computes the vector p(k) at length K and generates a new topic. The computing complexity is O(K). To reduce the complexity, sparsity-aware LDA sampling [32] is widely adopted. The basis observation of sparsity-aware sampling is that the doc-topic matrix θ D×K is often sparse because
+DocLen d = k ∈[0, K ) θ d,k(5)
+where DocLen d is the number of tokens in the d t h document. Given the fact that DocLen d is often much smaller than K, the number of non-zero elements in d th line of θ is often much smaller than K. Hence, θ D×K is a sparse matrix. To exploit this feature, the p(k)(Eq. 1) is decomposed to:
+p(k) = p 1 (k) + p 2 (k) p 1 (k) = θ d,k (ϕ k,v + β) v ∈[0,V ) ϕ k,v + βV p 2 (k) = α(ϕ k,v + β) v ∈[0,V ) ϕ k,v + βV(6)
+We find out that p 1 (k) is a sparse vector while p 2 (k) is dense. To exploit this feature, before the sampling, we first compute S and Q,
+S = k ∈[0, K ) p 1 (k), Q = k ∈[0, K ) p 2 (k)(7)
+As S is the sum of p1(k), which is sparse, we can exploit the sparsity to minimize the computation overhead of S as we only need to consider p1(k) where θ d,k is non-zero. Then we generate a random value, u ∼ U (0, 1). If u < S/(S + Q), then we sample a new topic p z ∝ multi(p 1 (k)). Otherwise, we sample a new topic p z ∝ multi(p 2 (k)). As θ D×K is sparse, the computation complexity is reduced.
+
+GPUs provides shared memory as a software-managed cache. If well-managed, the shared memory is able to provide high memory throughput. In the sparsity-aware sampling, the possibility array p 1 (k) and p 2 (k) are accessed twice, computing S&Q and sampling.
+
+However, the shared memory is not large enough to accommodate the entire array. We exploit tree-based structure to reuse the data. Figure 5 illustrates the idea. In the pseudo case, we need to sample a topic from p [8]. To it, we first compute the prefix summation of p [8](pre f ixSum [8]). Then we randomly generate u ∝ U (0, p [7]). To get the topic, we need to find the minimal k that makes p[k] > u. By doing so, we transform the sampling to a search problem. We construct a binary search tree to find the result. The benefit of tree-based sampling is two-fold. The first is, the sampling overhead is reduced. The second is, the index tree is small enough to fit into shared memory. At the sampling step, we only need to access the data in the circles. More importantly, the index tree is in the fast shared memory, only the two elements of p [8] are in the memory. Therefore, the memory footprint is minimized. We put the sparsity-aware sampling and tree-based sampling together. Algorithm 2 shows the design of one sampler. In the shown algorithm, we only present one thread. The length of the operations in Algorithm 2 is K or K d . GPUs are SIMD(single-instruction, multiple data)processors, On NVIDIA GPUs, consecutive 32 GPU threads are grouped into one SIMD group, aka warp. Threads in one warp can works together as a vector machine. CuLDA_CGS uses one warp to process one LDA sampling at a time. We refer a warp as a sampler. Similarly, we use 32-way tree in the tree-based sampling .
+
+Algorithm 2 The design of LDA sampler. if u ≤ S /(S + Q ) then 7: sample p z ∝ mul t inomial (p 1 (k))) 8: else 9: sample p z ∝ mul t inomial (p 2 (k)) 10: end if 11: end procedure 6.1.2 Parallelization. A GPU can execute tens of thousands of threads concurrently. Hence, running one sampler can not fully utilize the GPU. An intuitive parallelization mechanism is to launch one sampler for one token and let the GPU to determine the execution order. However, we observe that it's not optimal.  Figure 6: The overview of LDA sampler parallelization algorithm used in CuLDA_CGS.
+
+
+Corpus chunk
+
+As addressed before, LDA is bound by the memory bandwidth. To maximize the memory bandwidth, we try to utilize the softwaremanaged cache(aka shared memory) on the GPUs [27]. The shared memory is managed by software and the cache hit rate for the allocated data is 100%. Therefore, it's very important for memory bound applications. From Eq. 8, we can find that tokens of the same word shares the same values of p 2 (k). Therefore, for the given corpus chunk, we sort the tokens in a word-first order. As the samplers in the same thread block could share data through shared memory, they can share the same index tree for p 2 (k). We let the samplers in the same thread block sample the tokens from the same word. We set the number of samplers in each thread block as 32, which is the allowed maximal value.
+
+We show the overview of our sampling parallelism algorithm in Figure 6. The tokens assigned to one thread block are evenly partitioned by all samplers in the thread block. Thus, samplers in one thread block share the same index tree for p 2 (k). Words that have a lot of tokens are assigned to multiple thread blocks to avoid load imbalance. At the mean time, those words are assigned to thread blocks that have the smallest IDs to avoid long-tail effect. We let the GPU scheduler to determine the execution order of thread blocks and by default, the GPU scheduler schedules those block first. We also apply the tree-based sampling for the sampling from p 1 (k). Line 4 and Line 9 in Algorithm 2 both uses array p 1 (k). To reuse the data, as shown in Figure 6, each sampler keeps a private index tree for p 2 (k).
+
+NVIDIA GPUs are equipped with L1 data cache and developers can decide which memory access instructions can access the cache. To further improve the performance, follow the performance models shown in [28], we let the sparse matrix index access instructions to use the L1 cache to improve performance. 6.1.3 Data compression. . In addition to L1 data cache and shared memory, we also try to compress the data structure to improve the performance. The first optimization is precision compression. The corpus chunk and model θ D×K are stored in CSR format(a sparse matrix format). As the topic K is smaller than 2 16 , we use the short integer as column index in the CSR format 3 . Model ϕ K ×V is a dense matrix, we also use short integer which is accurate enough. Another optimization is sub-expression reuse. We represent Eq. 8 in another format,
+p * (k) = (ϕ k,v + β) v ∈[0,V ) ϕ k,v + βV p 1 (k) = θ d,k p * (k) p 2 (k) = αp * (k)(8)
+We find that p 1 (k) and p 2 (k) share the same sub-expression, p * (k).
+
+To reuse the common sub-expression, before start the sampling, each thread block first computes p * (k) and store it in the shared memory. Subsequent reads to p * (k) are all served by the shared memory, instead of GPU's off-chip memory.
+
+
+Model Update Optimization
+
+As shown in Figure 3, after sampling each chunk, CuLDA_CGS updates the replicas of θ and ϕ. Model ϕ is a dense matrix, the update algorithm is intuitive. We use the intrinsic atomic add instructions to update all elements of ϕ. The corpus chunk is sorted in a wordfirst order, therefore, the update is word by word. Atomic function is expensive on processors. However, we observe that on NVIDIA GPUs, atomic functions that have good data locality shows good performance. Therefore, the update of ϕ is very fast.
+
+Updating model θ is more complex. θ is a sparse matrix and stored in CSR format, we can't directly use the atomic function. We design efficient update algorithm for model θ . The update algorithm works document by document. In the first step, we first generate a dense array for the document, which corresponds to a line in θ . We use the atomic functions in this step. In the second step, we transform the dense array to a sparse array in CSR format. In the first step, as the corpus chunk is in word-first order, we generate a document-word map to index all tokens in the same document. The map is generated on CPU's side at the data preprocessing stage. By doing so, we can enjoy the fast atomic functions. The second step uses the prefix sum array, which is a common algorithm for parallel processors. Please refer the source codes for the implementation details.
+
+As shown in Section 5.1, after the model update, we need the synchronize replicas of ϕ on different GPUs. Therefore, we first update model ϕ. Hence, we can start the synchronization of model ϕ earlier and the update of model θ can be overlapped with the synchronization of model ϕ.
+
+
+EXPERIMENT RESULTS
+
+In this Section, we evaluate CuLDA_CGS on real GPU platforms using wide-adopted data sets and compare it with the state-ofthe-art LDA solutions. We use three commercially available GPUs as experimental platforms, the detailed configurations of the platforms are shown in Table 2. The GPUs and CPUs are connected via PCIe 3.0(up to 16GB/s). More clearly, the Volta Platform has the newest V100 GPUs and ideally, it delivers the best performance over other two platforms. We use two real data sets, NYTimes and PubMed, in the experiments. Those data sets are also used in previous works [10,13,34]. Table 3 shows the details of the two data sets. In this paper, we use the same values of α(50/k) and β(0.01) as previous works [20].
+
+In the rest of this Section, we present the following experiments:  
+
+
+Performance Evaluation
+
+In this Section, we run CuLDA_CGS on all three platforms and collect the #Tokens/sec metric for each iteration. Figure 7 shows the performance results. We summarize the average #Tokens/sec of the first 100 iterations in Table 4.  Figure 7, the first observation is, the performance increases slowly at first few iterations and goes steady later. Previous work [10] reports the similar observation on CPU platforms. The behind reason is, the sparsity rate of model θ D×K increases at the first few iterations. We also observe that, the performance variable of data set PubMed is smaller than NYTimes. That is because PubMed has shorter average document length than NYTimes(92 vs. 332). Therefore, the initial model sparsity rate of PubMed is higher than that of NYTimes. Hence, the initial performance of PubMed is very close the the maximal performance.
+
+Another observation is that CuLDA_CGS is able to achieve the optimal performance on all three generations of GPUs. On average, compared with the Titan platform, CuLDA_CGS achieves 1.28X speedup on the Pascal platform and 4.03X speedup on the Volta  platform. The Titan GPU provides 336GB/s peak off-chip memory bandwidth and 24 processors on each GPU processors. In comparison, the Pascal GPU provides 550GB/s peak off-chip memory bandwidth and 28 processors. Therefore, CuLDA_CGS can enjoy the increasing of hardware capability and achieves higher sampling speed. The Volta GPU is equipped with an even higher 900GB/s bandwidth and 80 processors. Therefore, the Volta GPU achieves the highest sampling speed. In conclusion, CuLDA_CGS is able to scale to different GPU architectures and we believe it can be scaled to future GPUs as well. Table 5 shows the performance breakdown of CuLDA_CGS using data set NYTimes. We observe most of the execution time(79.4%-87.9%) is spent on the LDA sampling. It demonstrates that our model update algorithms shown in Section 6.2 is efficient. 
+
+
+Performance Comparison
+
+To demonstrate CuLDA_CGS is efficient, we compare CuLDA with the state-of-the-art LDA solutions. We use the log-likelyhood per token as the performance metric. Figure 8 shows the log-likehood per token of the evaluated solutions. The following techniques are evaluated:
+
+• CPU-based LDA solution [10,19,32,35]. We select the WarpLDA as it's the most updated solution. The source code is public available and we evaluate it on our Volta Platform. The used CPU is the most powerful one among all of the in-hand CPUs.
+
+• Distributed LDA solution [3,30,33,34]. W select the most updated LDA * . It employs up to 5600 machines to accelerate large-scale LDA and uses parameter server to manage the parallel workers. As the code is not available, we report their results on data set PubMed directly. For this data set, LDA * uses 20 nodes. • GPU-based LDA solution [8,20]. We select the most updated SaberLDA [20] as comparison. SaberLDA is designed for single GPU and as the code is not publicly available, we cite the best reported performance in the paper. The cited results are conducted on NVIDIA GTX 1080 GPU that is at the same generation with our Titan platform and it's more powerful than Titan platform.
+
+Compared with CPU-based solution WarpLDA [10], CuLDA_CGS shows significant performance advantage. From Figure 7 and Table 4, we observe that CuLDA_CGS achieves much higher sampling speed(1.61X-7.34X) than WarpLDA on all used platforms and data sets. According to the original paper, one main performance advantage of WarpLDA is that it optimizes the cache to improve the memory efficiency. In comparison, CuLDA_CGS relies on the software managed cache to achieve better performance. At the mean time, CuLDA_CGS tries the reuse the sub-expression and compress data size to minimize memory footprint. In conclusion, CuLDA_CGS is more efficient than WarpLDA.
+
+Compared with distributed LDA solution, CuLDA_CGS is more efficient. The main reason is, the distributed LDA solution is limited by the network bandwidth. As reported in the original paper [34], the machines used by LDA * are connected by 10Gb/s ethernet. Such a bandwidth is much slower than the PCIe bandwidth. As the LDA samplers need to synchronize the model after each iteration, the performance is limited by the network bandwidth. Note that CuLDA_CGS only uses one GPU in this evaluation. It's more powerful when scaling to multiple GPUs.
+
+CuLDA_CGS achieves faster convergence speed than existing GPU-based LDA solution, SaberLDA [20]. First, CuLDA_CGS achieves faster sampling speed. As reported in the paper, SaberLDA achieves 120M tokens/sec for NYTimes data set on a GTX 1080 GPU. In comparison, CuLDA_CGS achieves 173.6M tokens/sec on a Titan X GPU. Note that GTX 1080 is more powerful as it is equipped with more hardware resources than Titan X GPU. Thus, CuLDA_CGS is better than SaberLDA in terms of sampling speed with a lower-end GPU. Second, we have demonstrated that CuLDA_CGS achieves high performance on different generations of GPUs while the cross platform results of SaberLDA is not reported. Third, in Section 7.3, we will demonstrate that CuLDA_CGS can benefit from multiple GPUs while SaberLDA lacks of multi-GPU support.
+
+
+Multi-GPU Scaling
+
+In this Section, we evaluate CuLDA_CGS scalability on multiple GPUs. We evaluate CuLDA_CGS on the Pascal platform using PubMed data set. Figure 9(a) shows the detailed performance results and Figure 9(b) shows the normalized performance of first 100 iterations. Compared with one GPU, CuLDA_CGS achieves 1.93X and 2.99X speedup when using two and four GPUs, respectively.  
+
+
+CONCLUSTION
+
+LDA is a popular model for large-scale document analysis. However, the computational complexity and large input data size make LDA solution time-consuming. In this paper, we present CuLDA_CGS, an efficient and scalable solution to large-scale LDA problems. Our proposed CuLDA_CGS is based on heterogeneous system that is composed CPUs and GPUs. On one hand, we design efficient workload partition and model synchronization algorithms to utilize the computational horsepower of multiple GPUs. On other hand, we design efficient LDA sampling algorithm to maximize the memory efficiency and minimize the model update overhead. We evaluate CuLDA_CGS on three platforms using widely-adopted data sets. Evaluations show that CuLDA_CGS is efficient and scalable to multiple GPUs. Compared with existing LDA solutions, CuLDA_CGS shows significant performance advantage.
+
+Figure 1 :
+1A pseudo example of LDA application(K = 3, D = 3, V = 6).
+
+Figure 2 :
+2GPU architecture and programming model.
+
+Figure 3 :
+3The design overview of CuLDA_CGS. The input corpus is partitioned into C chunks.
+
+
+Input: Corpus chunks, θ D×K , ϕ K ×V , C=M × G,#Ite 1: if M==1 then
+
+Figure 4 :
+4The model synchronization algorithm for ϕ K ×V is composed of two operations, reduce and broadcast.
+
+Figure 5 :
+5Idea of tree-based sampling.
+
+Figure 7 :
+7Achieved sampling speed(#Tokens/sec) of CuLDA_CGS on different platforms(Titan, Pascal, Volta).
+
+Figure 8 :
+8Log-likelyhood per token w.r.t. time of evaluated LDA solutions.
+
+Figure 9 :
+9Performance scalability evaluation of CuLDA_CGS using PubMed data set on the Pascal platform.
+
+Table 2 :
+2Configuration of the Evaluated Platforms.Maxwell Platform 
+
+CPU 
+Intel Xeon CPU E5-2670*2, 64 GB memory. 
+
+GPU 
+
+NVIDIA TITAN X GPU*1, Maxwell architecture, 
+336 GB/s. 
+Pascal Platform 
+
+CPU 
+Intel E5-2650 v3 processor*2, 64GB memory. 
+
+GPU 
+
+NVIDIA Titan Xp GPU*4, Pascal architecture, 
+550 GB/s memory. 
+Volta Platform 
+
+CPU 
+IntelCPU E5-2690 v4 processor*2, 64GB Memory. 
+GPU 
+NVIDIA V100 GPU*2, 900GB/s. 
+
+
+
+Table 3 :
+3Details of workload data sets. 
+Dataset #Tokens(T ) #Documetns(D) #Words(V ) 
+NYTimes 99,542,125 
+299,752 
+101,636 
+PubMed 737,869,083 
+8,200,000 
+141,043 
+
+• Performance. We evaluate CuLDA_CGS on all three plat-
+forms and demonstrate that CULDA_CGS is efficient and 
+easy to scale to future GPU architectures.(Section 7.1) 
+• Comparison. We compare CuLDA_CGS with the state-of-
+the-art LDA solutions, including single-node CPU-based so-
+lution, previous GPU-based soltion, and distributed system-
+based solution.(Section 7.2) 
+• Multi-GPU scalability. We evaluate CuLDA_CGS on multi-
+GPU systems and demonstrate that CuLDA_CGS is able to 
+scale to multiple GPUs for better performance.(Section 7.3) 
+
+
+
+Table 4 :
+4Average #Tokens/sec of CuLDA_CGS and WarpLDA.Dataset 
+Titan 
+Pascal 
+Volta 
+WarpLDA 
+NYTimes 173.6M 208.0M 633.0M 
+108.0M 
+PubMed 155.6M 213.0M 686.2M 
+93.5M 
+
+From 
+
+Table 5 :
+5Execution time breakdown of CuLDA_CGS on data set NYTimes.Function Titan Pascal Volta 
+Sampling 87.7% 87.9% 79.4% 
+Update θ 
+8.0% 
+9.3% 
+10.8% 
+Update ϕ 
+4.3% 1.7%% 9.8% 
+
+
+Detailed analysis is shown in Section 3. arXiv:1803.04631v1 [cs.DC] 13 Mar 2018
+https://en.wikipedia.org/wiki/Sparse_matrix
+
+. Nvidia, Research, NVIDIA, DGX for AI Research. https://www.nvidia.com/en-us/data-center/dgx-1/.
+
+NVIDIA CUDA programming guide. NVIDIA CUDA programming guide., 2016. http://docs.nvidia.com/cuda/cuda-c-programming-guide.
+
+Scalable inference in latent variable models. A Ahmed, M Aly, J Gonzalez, S Narayanamurthy, A J Smola, WSDM '12. A. Ahmed, M. Aly, J. Gonzalez, S. Narayanamurthy, and A. J. Smola. Scalable inference in latent variable models. WSDM '12, 2012.
+
+Streaming-LDA: A copula-based approach to modeling topic dependencies in document streams. H Amoualian, M Clausel, E Gaussier, M.-R Amini, 16H. Amoualian, M. Clausel, E. Gaussier, and M.-R. Amini. Streaming-LDA: A copula-based approach to modeling topic dependencies in document streams. KDD '16, 2016.
+
+SR-LDA: Mining effective representations for generating service ecosystem knowledge maps. B Bai, Y Fan, W Tan, J Zhang, B. Bai, Y. Fan, W. Tan, and J. Zhang. SR-LDA: Mining effective representations for generating service ecosystem knowledge maps. SCC'17, 2017.
+
+Latent dirichlet allocation. D M Blei, A Y Ng, M I Jordan, Journal of machine Learning research. D. M. Blei, A. Y. Ng, and M. I. Jordan. Latent dirichlet allocation. Journal of machine Learning research, 2003.
+
+A quantitative study of irregular programs on GPUs. M Burtscher, R Nasre, K Pingali, 12M. Burtscher, R. Nasre, and K. Pingali. A quantitative study of irregular programs on GPUs. IISWC'12, 2012.
+
+Bidmach: Large-scale learning with zero memory allocation. J Canny, H Zhao, BigLearning, NIPS Workshop. J. Canny and H. Zhao. Bidmach: Large-scale learning with zero memory allocation. In BigLearning, NIPS Workshop, 2013.
+
+Big data analytics with small footprint: Squaring the cloud. J Canny, H Zhao, 13J. Canny and H. Zhao. Big data analytics with small footprint: Squaring the cloud. KDD '13, 2013.
+
+WarpLDA: A cache efficient o(1) algorithm for latent dirichlet allocation. J Chen, K Li, J Zhu, W Chen, Proc. VLDB Endow. VLDB EndowJ. Chen, K. Li, J. Zhu, and W. Chen. WarpLDA: A cache efficient o(1) algorithm for latent dirichlet allocation. Proc. VLDB Endow., 2016.
+
+DianNao: A small-footprint high-throughput accelerator for ubiquitous machine-learning. T Chen, Z Du, N Sun, J Wang, C Wu, Y Chen, O Temam, ASPLOS '14T. Chen, Z. Du, N. Sun, J. Wang, C. Wu, Y. Chen, and O. Temam. DianNao: A small-footprint high-throughput accelerator for ubiquitous machine-learning. ASPLOS '14, 2014.
+
+The contextual focused topic model. X Chen, M Zhou, L Carin, 12X. Chen, M. Zhou, and L. Carin. The contextual focused topic model. KDD '12, 2012.
+
+Stochastic collapsed variational bayesian inference for latent dirichlet allocation. J Foulds, L Boyles, C Dubois, P Smyth, M Welling, 13J. Foulds, L. Boyles, C. DuBois, P. Smyth, and M. Welling. Stochastic collapsed variational bayesian inference for latent dirichlet allocation. KDD '13, 2013.
+
+Node2Vec: Scalable feature learning for networks. A Grover, J Leskovec, 16A. Grover and J. Leskovec. Node2Vec: Scalable feature learning for networks. KDD '16, 2016.
+
+TurboGraph: A fast parallel graph engine handling billion-scale graphs in a single PC. W.-S Han, S Lee, K Park, J.-H Lee, M.-S Kim, J Kim, H Yu, 13W.-S. Han, S. Lee, K. Park, J.-H. Lee, M.-S. Kim, J. Kim, and H. Yu. TurboGraph: A fast parallel graph engine handling billion-scale graphs in a single PC. KDD '13, 2013.
+
+Efficient correlated topic modeling with topic embedding. J He, Z Hu, T Berg-Kirkpatrick, Y Huang, E P Xing, J. He, Z. Hu, T. Berg-Kirkpatrick, Y. Huang, and E. P. Xing. Efficient correlated topic modeling with topic embedding. KDD '17, 2017.
+
+Probabilistic latent semantic indexing. SIGIR '99. T Hofmann, T. Hofmann. Probabilistic latent semantic indexing. SIGIR '99, 1999.
+
+In-datacenter performance analysis of a tensor processing unit. N P Jouppi, 17N. P. Jouppi et al. In-datacenter performance analysis of a tensor processing unit. ISCA '17, 2017.
+
+Reducing the sampling complexity of topic models. A Q Li, A Ahmed, S Ravi, A J Smola, 14A. Q. Li, A. Ahmed, S. Ravi, and A. J. Smola. Reducing the sampling complexity of topic models. KDD '14, 2014.
+
+SaberLDA: Sparsity-aware learning of topic models on GPUs. K Li, J Chen, W Chen, J Zhu, K. Li, J. Chen, W. Chen, and J. Zhu. SaberLDA: Sparsity-aware learning of topic models on GPUs. ASPLOS '17, 2017.
+
+Efficient mini-batch training for stochastic optimization. M Li, T Zhang, Y Chen, A J Smola, 14M. Li, T. Zhang, Y. Chen, and A. J. Smola. Efficient mini-batch training for stochastic optimization. KDD '14, 2014.
+
+Robust large-scale machine learning in the cloud. S Rendle, D Fetterly, E J Shekita, B Su, S. Rendle, D. Fetterly, E. J. Shekita, and B. yiing Su. Robust large-scale machine learning in the cloud. 2016.
+
+Stochastic divergence minimization for online collapsed variational bayes zero inference of latent dirichlet allocation. I Sato, H Nakagawa, 15I. Sato and H. Nakagawa. Stochastic divergence minimization for online collapsed variational bayes zero inference of latent dirichlet allocation. KDD '15, 2015.
+
+Targeted topic modeling for focused analysis. S Wang, Z Chen, G Fei, B Liu, S Emery, 16S. Wang, Z. Chen, G. Fei, B. Liu, and S. Emery. Targeted topic modeling for focused analysis. KDD '16, 2016.
+
+Gunrock: A high-performance graph processing library on the GPU. Y Wang, A Davidson, Y Pan, Y Wu, A Riffel, J D Owens, Y. Wang, A. Davidson, Y. Pan, Y. Wu, A. Riffel, and J. D. Owens. Gunrock: A high-performance graph processing library on the GPU. PPoPP 2015, 2015.
+
+Roofline: An insightful visual performance model for multicore architectures. S Williams, A Waterman, D Patterson, Commun. ACM. S. Williams, A. Waterman, and D. Patterson. Roofline: An insightful visual performance model for multicore architectures. Commun. ACM, 2009.
+
+Enabling coordinated register allocation and thread-level parallelism optimization for gpus. X Xie, Y Liang, X Li, Y Wu, G Sun, T Wang, D Fan, MICRO-48X. Xie, Y. Liang, X. Li, Y. Wu, G. Sun, T. Wang, and D. Fan. Enabling coordinated register allocation and thread-level parallelism optimization for gpus. MICRO-48, 2015.
+
+An efficient compiler framework for cache bypassing on GPUs. X Xie, Y Liang, G Sun, D Chen, 13X. Xie, Y. Liang, G. Sun, and D. Chen. An efficient compiler framework for cache bypassing on GPUs. ICCAD'13, 2013.
+
+CuMF_SGD: Parallelized stochastic gradient descent for matrix factorization on GPUs. X Xie, W Tan, L L Fong, Y Liang, X. Xie, W. Tan, L. L. Fong, and Y. Liang. CuMF_SGD: Parallelized stochastic gradient descent for matrix factorization on GPUs. HPDC '17, 2017.
+
+E P Xing, Q Ho, W Dai, J.-K Kim, J Wei, S Lee, X Zheng, P Xie, A Kumar, Y Yu, Petuum: A new platform for distributed machine learning on big data. KDD '15. E. P. Xing, Q. Ho, W. Dai, J.-K. Kim, J. Wei, S. Lee, X. Zheng, P. Xie, A. Kumar, and Y. Yu. Petuum: A new platform for distributed machine learning on big data. KDD '15, 2015.
+
+Distributing the stochastic gradient sampler for large-scale LDA. Y Yang, J Chen, J Zhu, 16Y. Yang, J. Chen, and J. Zhu. Distributing the stochastic gradient sampler for large-scale LDA. KDD '16, 2016.
+
+Efficient methods for topic model inference on streaming document collections. L Yao, D Mimno, A Mccallum, 9L. Yao, D. Mimno, and A. McCallum. Efficient methods for topic model inference on streaming document collections. KDD '09, 2009.
+
+A scalable asynchronous distributed algorithm for topic modeling. H.-F Yu, C.-J Hsieh, H Yun, S Vishwanathan, I S Dhillon, WWW '15H.-F. Yu, C.-J. Hsieh, H. Yun, S. Vishwanathan, and I. S. Dhillon. A scalable asynchronous distributed algorithm for topic modeling. WWW '15, 2015.
+
+LDA*: A robust and large-scale topic modeling system. L Yu, C Zhang, Y Shao, B Cui, Proc. VLDB Endow. VLDB EndowL. Yu, C. Zhang, Y. Shao, and B. Cui. LDA*: A robust and large-scale topic modeling system. Proc. VLDB Endow., 2017.
+
+J Yuan, F Gao, Q Ho, W Dai, J Wei, X Zheng, E P Xing, T.-Y Liu, W.-Y Ma, LightLDA: Big topic models on modest computer clusters. WWW '15. J. Yuan, F. Gao, Q. Ho, W. Dai, J. Wei, X. Zheng, E. P. Xing, T.-Y. Liu, and W.-Y. Ma. LightLDA: Big topic models on modest computer clusters. WWW '15, 2015.
+
+Topic modeling of short texts: A pseudo-document view. Y Zuo, J Wu, H Zhang, H Lin, F Wang, K Xu, H Xiong, 16Y. Zuo, J. Wu, H. Zhang, H. Lin, F. Wang, K. Xu, and H. Xiong. Topic modeling of short texts: A pseudo-document view. KDD '16, 2016.

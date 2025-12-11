@@ -1,0 +1,2901 @@
+{
+  "doc_id": "corpus_275213057",
+  "units": [
+    {
+      "unit_id": 0,
+      "text": "Regularized Proportional Fairness Mechanism for Resource Allocation Without Money",
+      "type": "heading",
+      "level": 0,
+      "parent_id": null,
+      "subtype": "doc_title"
+    },
+    {
+      "unit_id": 1,
+      "text": "Introduction",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 2,
+      "text": "Mechanism design studies how to allocate items (resources) to market participants (agents) holding private preferences with the goal of maximizing a criterion such as cumulative revenue (Manelli & Vincent, 2007;Navabi & Nayyar, 2018;Kazumura et al., 2020) or social welfare (Balseiro et al., 2019;Padala & Gujar, 2021), through a differentiable regularized linear program.Compared to RegretNet, the method in Curry et al. (2022) enlargens the solvable class of auctions.Dekel et al. (2010) consider regression learning where the global goal is to minimize average loss in the setting of strategic agents that might misreport their values over the input space.When payments are disallowed, they present a mechanism which is approximately IC and optimal for the special case of the buyer's utilities defined by the absolute loss.More recently, (Chen et al., 2020) focus on learning linear classifiers, when the training data comes in online manner from the strategic agents who can misreport the feature vectors, and propose an algorithm that exploits the geometry of the learner's action space.Ravindranath et al. ( 2021) is another highly related work that designs approximately IC and stable mechanisms for two-sided matching using concepts from differentiable economics.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 3,
+      "text": "Approximate incentive compatibility in ML:",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 4,
+      "text": "Organization.The rest of the paper is structured as follows.In Section 2 we formulate the payment-free resource allocation problem and introduce the existing mechanisms.In Section 3, we present the proposed mechanism with the novel neural network architecture as well as the procedure to train the mechanism.In Section 4 we develop the methods for evaluating the exploitability of the PF mechanism and for backpropagating the gradient through RPF-Net during training.Section 5 provides guarantees on the performance of RPF-Net trained under finite and out-of-distribution samples.Simulations that illustrate the merits of the proposed mechanism are presented in Section 6.Finally, we conclude and reflect on the connection to the literature in Section 7.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 3,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 5,
+      "text": "Preliminaries & Problem Formulation",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 6,
+      "text": "We study the problem of allocating a finite number M of divisible resources to N agents in the form of a vector a ∈ R N M , with a i,m the amount of resource m allocated to agent i.There is a budget b m ≥ 0 on each resource m = 1, • • • , M , and we denote",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 7,
+      "text": "b = [b 1 , • • • , b M ] ⊤ ∈ B ⊆ R M + .",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 8,
+      "text": "We assume that every agent has a (thresholded) linear additive utility -each additional unit of resource m linearly increases the utility of agent i by value v i,m , up to the demand x i,m .We represent the overall values and demands as",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 9,
+      "text": "v i = [v i,1 , • • • , v i,M ] ⊤ , x i = [x i,1 , • • • , x i,M ] ⊤ , and v = [v ⊤ 1 , • • • , v ⊤ N ] ⊤ , x = [x ⊤ 1 , • • • , x ⊤ N ] ⊤ .",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 10,
+      "text": "Given allocation a ∈ R N M + , value v ∈ V, and demand x ∈ D, the utility function u : R N M + × V × D → R N + is agent-wise expressed as",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 11,
+      "text": "u i (a, v, x) ≜ M m=1 v i,m min{a i,m , x i,m },(1)",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 12,
+      "text": "with V ⊆ [v, v] N M , D ⊆ [d, d] N M for some scalars v, v, d, d > 0.",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 13,
+      "text": "The linear additive utility structure is widely considered and realistically models satisfaction in many practical problems (Bliem et al., 2016;Camacho et al., 2021), though the mechanism proposed in the paper may handle alternative utility functions.The supplier knows the functional form of the utility function and relies on each agent i to report the parameters v i and x i .It may be in the interest of the agents to report untruthfully.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 14,
+      "text": "Since the allocation needs to satisfy budget constraints and should not exceed what the agents request, valid allocations have to be contained in the set A b,x = {a ∈ R N M : 0 ≤ a i,m ≤ x i,m , ∀i, m, N i=1 a i,m ≤ b i , ∀m}.A mechanism may incorporate non-negative agent weights w ∈ R N + to encode prioritization.Next, we formalize that a mechanism is a mapping from values, demands, budgets, and weights to a valid allocation.Definition 1 (Mechanism).A mapping f :",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 15,
+      "text": "V × D × B × R N + → R N M + is a mechanism if f (v, x, b, w) ∈ A b,x for all v ∈ V, x ∈ D, b ∈ B, w ∈ R N + .",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 16,
+      "text": "Agent weights w may be determined solely by the supplier before the agents reveal their requests or can potentially be a function of the reported values and demands.Since agents may not directly alter weights, we suppress dependence on w to write allocations as f (v, x, b).",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 17,
+      "text": "Two competing axes for characterizing the merit of a mechanism exist: social welfare and incentive compatibility (IC).Among the many social welfare metrics (see (Bertsimas et al., 2011)), we consider Nash social welfare (NSW), which balances fairness and efficiency.Definition 2 (Nash Social Welfare).The NSW of a mechanism f is",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 18,
+      "text": "NSW(f, v, x, b) ≜ Π N i=1 u i (f (v, x, b), v, x) wi ,(2)",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 19,
+      "text": "Due to NSW as the product of agents' utilities, it may become numerically unstable as the number of agents scales up.In comparison, dealing with the logarithm NSW is usually more convenient logNSW(f, v, x, b) ≜ log (NSW(f, v, x, b)).",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 20,
+      "text": "The definition simplifies to logNSW(f, v, x, b) = w ⊤ log u(f (v, x, b), v, x).",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 21,
+      "text": "To quantify approximate incentive compatibility, we next introduce exploitability as the maximum positive unilateral deviation in an agent' utility when it misreports its preferences.Definition 3 (Exploitability).Under mechanism f and v ∈ V, x ∈ D, b ∈ B, we define the exploitability at agent i as its largest possible utility increase due to misreporting, given that the every agent j ̸ = i reports v j , x j",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 22,
+      "text": "expl i (f, v, x, b) ≜ max v ′ i ,x ′ i u i f ((v ′ i , v −i ), (x ′ i , x −i ), b), v, x − u i f (v, x, b), v, x . (3) A mechanism f is incentive compatible (IC) if it satisfies expl i (f, v, x, b) = 0, for all v, x, b and i = 1, • • • , N .",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 23,
+      "text": "Assuming that the agents truthfully report their preferences, the following mechanism directly seeks to optimize the (log) NSW and achieves the largest possible NSW by definition.The mechanism is usually referred to as the Proportional Fairness (PF) mechanism, as the solution satisfies the proportional fairness property: when switching to any other allocation the percentage utility changes across all agents sum up to a non-positive value (Caragiannis et al., 2019).",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 24,
+      "text": "Mechanism: Proportional Fairness",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 25,
+      "text": "f P F (v, x, b) = argmin a∈R N M − N i=1 w i log(a ⊤ i v i ) s.t. 0 ≤ a ≤ x, N i=1 a i,m ≤ b m , ∀m.(4)",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 26,
+      "text": "With",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 27,
+      "text": "D = 1 ⊤ N ⊗ I M ×M ∈ R M ×N M",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 28,
+      "text": ", the last inequality of (4) can be expressed in the matrix form Da ≤ b.It is important to note that the PF mechanism is not IC, i.e., it has nonzero exploitability.This fact motivates us to develop ways to ensure it is approximately so by trading off NSW.In this section, we illustrate the exploitability of the PF mechanism using a simple example.Consider a two-agent two-resource allocation problem, in which we choose x = 1 N M , b = 1 M , and w = 1 N .Both agents have a higher valuation for the first resource, with v 1 = {1, 1/2} and v 2 = {1, 1/4}.When agent 2 reports truthfully, Figure 1 plots the utility of agent 1 [cf.(1)] as it varies the reported preference ratio v 1,2 /v 1,1 from 0.1 to 3 (the true ratio is 0.5).With the dashed line indicating the utility of agent 1 under truthful reporting, under-reporting v 1,2 /v 1,1 increases agent 1's utility up to 17%.By contrast, RPF-Net proposed in this work substantially reduces the exploitability.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 29,
+      "text": "PF Mechanism Has a Non-Zero Exploitability",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 30,
+      "text": "The state-of-the-art IC mechanism in the nonpayment setting is Partial Allocation (PA) (Cole et al., 2013), built upon the PF mechanism, which strategically withholds resources to ensure truthfulness 1 .Under the PA mechanism, each agent can only be guaranteed to at least receive a 1/e fraction of the resources that it would receive under the PF mechanism, meaning that there is resource waste and a significant reduction in NSW.In other words, the best known IC mechanism achieves a sub-optimal NSW, whereas the PF mechanism is optimal in NSW but incurs high exploitability.This dichotomy does not exist in the auction setting due to payments as an enforcement for truthful reporting.At least in the case m = 1, classic auction mechanisms including the VCG mechanism (Vickrey, 1961;Clarke, 1971;Groves, 1973) and Myerson mechanism (Myerson, 1981) can achieve IC and revenue maximization.However, in the payment-free setting, NSW maximization and IC are conflicting objectives that are provably not perfectly achievable at the same time (Hartline & Roughgarden, 2008;Cole et al., 2013).",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 29,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 31,
+      "text": "Learning Approximate Payment-Free Mechanism",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 5,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 32,
+      "text": "In this work, we are motivated to design a mechanism that approximately optimizes NSW and exploitability and strikes a desirable balance between them.Specifically, assuming that in a resource allocation problem the values and demands of the agents and the budgets on the resources follow a joint distribution F , we formalize our objective as maximizing the (log)NSW subject to a constraint on the exploitability for some ϵ ≥ 0.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 31,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 33,
+      "text": "max ω E (v,x,b)∼F [logNSW(f ω , v, x, b)] s.t. E (v,x,b)∼F [expl i (f ω , v, x, b)] ≤ ϵ, ∀i(5)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 31,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 34,
+      "text": "We say a mechanism is ϵ-incentive compatible over the distribution F if it satisfies the constraints in ( 5).",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 31,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 35,
+      "text": "PA and PF mechanisms are on the two ends of the trade-off between NSW and exploitability that are not optimal/feasible in the sense of (5).In this work, we propose parameterizing the mechanism with a neural network and learning the solution to (5) from data.This can be regarded as an adaptation of Dütting et al. (2023) to the payment-free setting.However, different from the auction setting, due to the impossibility result which states that IC cannot be achieved without \"money burning\" (i.e., resource withholding) (Hartline & Roughgarden, 2008), a regular neural network not equipped with the ability to withhold may fail to achieve low exploitability.In the following section, we propose a mechanism built on a novel neural network architecture specially designed for learning (5).We show later through numerical simulations that the architectural innovation is crucial -the mechanism with the proposed architecture performs substantially better than a learned mechanism parameterized by a regular neural network or ExS-Net (Zeng et al., 2024) which is the state-of-the-art learning-based solution.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 31,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 36,
+      "text": "Regularized Proportional Fairness Network",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 37,
+      "text": "We develop a novel learning-based mechanism for resource allocation that can be regarded as a composition of a neural network (in this work we employ a feed-forward neural network of identical structure to parameterize both mechanisms, but in general any function approximation can be used) and a novel specific-purpose activation function.The mechanism, RPF-Net (Regularized Proportional Fairness Network), is a regularized variant of the PF mechanism that diverts allocation from what the agents would like to receive when they misreport to their largest advantage.A schematic representation of the mechanism is presented in Figure 2.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 36,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 38,
+      "text": "Neural Network Design",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 36,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 39,
+      "text": "The motivation behind RPF-Net is that we would like to reduce the agents' incentive to misreport through a linear regularization added to the NSW objective.We use a function approximation to track the allocation that an agent aims to receive when misreporting, and penalize such allocation to be produced.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 40,
+      "text": "Suppose that each agent i has the perfect information about the mechanism and the parameters of others (x −i , v −i ).The most adversarial misreport occurs when it maximizes its own utility under mechanism f , i.e., it would select (ṽ i , xi ):",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 41,
+      "text": "(ṽ i , xi ) = argmax v ′ i ,x ′ i u i (f ((v ′ i , v −i ), (x ′ i , x −i ), b), v, x). (6",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 42,
+      "text": ")",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 43,
+      "text": "Let",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 44,
+      "text": "y i = f i ((ṽ i , v −i ), (x i , x −i ), b) ∈ R m denote",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 45,
+      "text": "the allocation to agent i under the optimal misreport.The goal of agent i when misreporting is to obtain allocation y i .To ensure robustness to misreporting, the mechanism f should avoid allocating y i to agent i, which could be enforced as a constraint:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 46,
+      "text": "⟨a i , y i ⟩ ≤ δ, ∀i(7)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 47,
+      "text": "for some constant δ > 0. With δ selected sufficiently small, alignment between the allocation decision a i and the direction y i desired by the untruthful agent i is penalized by the inner-product constraint, which prevents allocating a i = y i .In other words, the constraint (7) ensures that the allocation to an untruthful agent deviates from what it most desires, hence reducing the incentive to misreport.This line of reasoning is in the spirit of robust control (Zhou & Doyle, 1998;Borkar, 2002).",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 48,
+      "text": "Denote the stacked vector of nominal allocations as y",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 49,
+      "text": "= [y ⊤ 1 , • • • , y ⊤ N ] ⊤ ∈ R N M .",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 50,
+      "text": "If y were known, (4) with the additional inner-product constraint would be equivalent to",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 51,
+      "text": "argmin a∈R N M − N i=1 w i log(a ⊤ i v i ) + N i=1 ξ ⋆ i ⟨a i , y i ⟩ s.t. 0 ≤ a ≤ x, N i=1 a i,m ≤ b m , ∀m(8)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 52,
+      "text": "where ξ ⋆ i is the optimal dual variable associated with the inner-product constraint (7) for each i.Unfortunately, y is difficult to compute as it encodes a notion of self-consistencyy defines the mechanism (7) but is simultaneously the output of (7) under specific misreports.Due to difficulty of practical evaluation, we instead approximate y from data.We propose substituting ξ ⋆ i y i by a parameterized function approximator.To be more precise, since the vector y i can be a function of values, demands, and budgets, we fit z ω : V × D × B → R N M such that [z ω (v, x, b)] i tracks ξ ⋆ i y i under reported values v, demands x, and budgets b.In this work, we take the function approximator to be a feed-forward neural networkw represents the set of weights and biases while z w represents the neural network parameterized by w as a mapping from the input values, demands, and budgets to an allocation outcome.Here [z ω (v, x, b)] i denotes the evaluation of the neural network restricted to the component associated with the allocation of agent i. Substituting z ω into (8) leads to our first proposed approach, RPF-Net, whose associated mechanism [cf.Definition 1] is detailed below.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 53,
+      "text": "Mechanism: Exploitability-Aware PF (1) Compute z ω (v, x, b) as output of neural network (2) Solve f RP F ω (v, x, b) = argmin a∈R N M − N i=1 w i log(a ⊤ i v i ) + ⟨a, z ω (v, x, b)⟩ s.t. 0 ≤ a ≤ x, N i=1 a i,m ≤ b m , ∀m.(9)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 54,
+      "text": "Given a learned network parameter ω, this procedure describes the operations to be performed in the inference phase.For any ω, the output of the RPF-Net mechanism is always feasible, i.e., is non-negative, not exceeding the demand, and within the budget constraint, by the definition of the optimization problem (9), which can be regarded as a special activation function operating on the output of the neural network z ω (v, x, b).Note that for (9) to be a proper activation function we need to be able to back-propagate gradients through it.It is not obvious how we can back-propagate through (9) as the mapping from z ω (v, x, b)",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 55,
+      "text": "to f RP F ω (v, x, b",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 56,
+      "text": ") is defined indirectly through an optimization problem.We address this important question in Section 4.3.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 38,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 57,
+      "text": "Training RPF-Net",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 36,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 58,
+      "text": "While we would like to solve the objective (5) over distribution F , in practice, we often may not have access to F , but instead a training set of values, demand, and budgets {(v l , x l , b l ) ∼ F } L l=1 .We train the mechanisms with the finite dataset via empirical risk minimization (ERM) by forming the sample-averaged estimates of the expected NSW and exploitability.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 57,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 59,
+      "text": "max ω L l=1 logNSW(f ω , v l , x l , b l ) (10) s.t. L l=1 expl i (f ω , v l , x l , b l ) ≤ ϵ, ∀i",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 57,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 60,
+      "text": "The sample-averaged performance of a mechanism approaches its expectation as the number of collected samples increases -the gap between them is known as generalization error (Shalev-Shwartz & Ben-David, 2014).In Sec. 5, we bound the generalization error by a sublinear function of batch size L for both proposed mechanisms.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 57,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 61,
+      "text": "It is important to note that the learning objective does not require paired samples of (v l , x l , b l ) and the ground-truth optimal allocation under (v l , x l , b l ).We only need samples of valuations, demands, and budgets to learn the optimal parameter w in an unsupervised manner.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 57,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 62,
+      "text": "To train the neural network, we optimize (10) with respect to ω by using a simple primal-dual gradient descent-ascent algorithm to find the saddle point of the Lagrangian.We present the training scheme in Alg. 1, where Π + denotes the projection of a scalar to the non-negative range.The dual variable γ i ∈ R + is associated with the i th exploitability constraint in (10).",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 57,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 63,
+      "text": "Algorithm 1: Training RPF-Net",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 57,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 64,
+      "text": "Input: Initial network parameter ω [0] , dual variables {γ",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 63,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 65,
+      "text": "[0] i } N i=1 , training dataset {(v l , x l , b l )} L l=1",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 63,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 66,
+      "text": ", batch size s, training iterations K, primal and dual learning rate α, β Output: Network parameter ω [K] .k] with |S [k] | = s and compute empirical logNSW and exploitability",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 63,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 67,
+      "text": "for k = 0, 1, • • • , K − 1 do 1) Randomly draw sample index set S [",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 63,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 68,
+      "text": "logNSW [k] = l∈S [k] logNSW(f ω [k] , v l , x l , b l ), expl [k] i = l∈S [k] expl i (f ω [k] , v l , x l , b l ), ∀i 2) Neural network parameter update: ω [k+1] = ω [k] − α∇ ω [k] i γ [k] i expl [k] i − logNSW [k]",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 63,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 69,
+      "text": "3) Dual variable update:",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 63,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 70,
+      "text": "γ [k+1] i = Π + γ [k] i + β expl [k] i − ϵ , ∀i end",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 63,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 71,
+      "text": "The RPF-Net mechanism is composed of a neural network and an optimization program.The latter can be interpreted as a special activation function on the network output.Passing z through this activation in the Published in Transactions on Machine Learning Research (01/2025) forward direction requires solving (9).Backward pass is practiced in the training stage, in which we need to back-propagate the training loss ℓ [k]",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 63,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 72,
+      "text": "= i γ [k] i expl [k] i − logNSW [k]",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 63,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 73,
+      "text": ". As a critical step, we need to find the gradient ∂ℓ [k]  ∂z ω [k] given ∂ℓ [k]   ∂f RP F ω .Computing such gradients is a challenging task, as the mapping from z ω to the solution of ( 9) is defined implicitly through the optimization program.In the following section, we develop the technique that allows ∂ℓ [k]  ∂z ω [k] to be computed (relatively) efficiently.But still, the gradient computation requires inverting a square matrix of dimension (3N M + M ) × (3N M + M ).Both forward and backward operations can be increasingly expensive as the number of agents and resources scales up, which is a fact that we have to point out that may limit the scalability of RPF-Net in systems with computational constraints.Detailed complexity evaluation of RPF-Net is given in Section 6.4.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 63,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 74,
+      "text": "Remark 1.We note that our work measures and optimizes exploitability only empirically and cannot guarantee strict exploitability constraint satisfaction, at least for two reasons.First, we cannot guarantee that gradient descent applied to the right hand side of Eq. (3) with respect to v ′ i , x ′ i finds the global maximizer, especially when the mechanism is a complicated mapping encoded by a neural network.Second, while we aim to optimize the objective (10), we cannot guarantee that the parameter ω obtained from training is a feasible solution.If the desired exploitability threshold ϵ is chosen too small, we sometimes observe constraint violation.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 63,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 75,
+      "text": "PF Mechanism Exploitability Evaluation & RPF-Net Differentiation",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 76,
+      "text": "Two main technical challenges are present at this point in training the proposed mechanism and evaluating its performance against benchmarks.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 75,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 77,
+      "text": "1.It is unclear how we may systematically calculate the exploitability of the PF mechanism, which is the fundamental baseline for any IC mechanism design.With a small number of resources, the exploitability can possibly be computed by exhaustively searching in the valuation and demand space, which we performed to generate Figure 1.However, as the system dimension scales up, an exhaustive parameter search quickly becomes computationally intractable.The main difficulty in computing expl i (f P F , v, x) lies in finding the optimal misreport (ṽ i , xi ) as the solution to (6).It may be tempting to solve (6) with gradient ascent.However, as the mapping f P F is implicitly defined through an optimization problem (4), it is unclear how ∂f P F ∂v ′ i and ∂f P F ∂x ′ i (and potentially ∂f P F ∂w , since w may be a function of x ′ i , v ′ i ) can be derived or even whether f P F is differentiable.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 75,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 78,
+      "text": "2. It is unclear how to back-propagate through RPF-Net.To train RPF-Net with gradient descent, we need to compute ∂ℓ ∂zω given",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 75,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 79,
+      "text": "∂ℓ ∂f RP F ω (v,x,b) where ℓ is a downstream loss function calculated from f RP F ω (v, x, b).",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 75,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 80,
+      "text": "We address both challenges in this section, by adapting and extending the techniques from differentiable convex programming (Amos & Kolter, 2017;Agrawal et al., 2019).As an important contribution of the work, we characterize the (sub)differentiability of f P F (Section 4.1) and develop an efficient method for calculating the (sub)gradients",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 75,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 81,
+      "text": "∇ v ′ i u i , ∇ x ′ i u i , ∇ w u i of (6) (Section 4.",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 75,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 82,
+      "text": "2).This allows iterative (sub)gradient ascent to be performed on the utility function u i to find a (locally) optimal solution of (6).This solution can then be leveraged to evaluate the exploitability of the PF mechanism according to (3).Building on a similar technique, we present an efficient method for differentiating through RPF-Net in Section 4.3.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 75,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 83,
+      "text": "The main property of f P F that we exploit to drive this innovation is the preservation of the KKT system of (4) at the optimal solution under differential changes to values and demands.We now present the detailed technical development.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 75,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 84,
+      "text": "Characterizing Sub-Differentiability of f P F",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 75,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 85,
+      "text": "Our goal is to determine how the differential changes in v, x, and w affect the optimal solution of (4), which we denote by a ⋆ (v, x, b) = f P F (v, x, b) (or a ⋆ for short when v, x, and b are clear from the context).We Published in Transactions on Machine Learning Research (01/2025) start by writing the KKT equations of (4) for stationarity, primal and dual feasibility, and complementary slackness",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 86,
+      "text": "− w i v i v ⊤ i a ⋆ i − µ ⋆ i + ν ⋆ i + λ ⋆ = 0, ∀i (11a) µ ⋆ i,m a ⋆ i,m = 0, ∀i, m (11b) ν ⋆ i,m (a ⋆ i,m − x i,m ) = 0, ∀i, m (11c) λ ⋆ m (Da ⋆ − b) m = 0, ∀m,(11d)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 87,
+      "text": "where µ ⋆ , ν ⋆ , λ ⋆ are the optimal dual solutions associated with constraints a ≥ 0, a ≤ x, and Da ≤ b, respectively.As a ⋆ satisfies v ⊤ i a ⋆ i > 0 for all i (any allocation that makes v ⊤ i a ⋆ i = 0 for any i blows up the objective of (4) to negative infinity and thus cannot be optimal), (11a) can be re-written as",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 88,
+      "text": "(µ ⋆ i − ν ⋆ i − λ ⋆ )v ⊤ i a ⋆ i + w i v i = 0. (12",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 89,
+      "text": ")",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 90,
+      "text": "For ( 11) to hold when values, demands, and/or weights changes from v, x, w to v + dv, x + dx, w + dw, the optimal primal and dual solutions need to adapt accordingly.We can describe the adaptation through the following system of equations on the differentials, which we obtain by differentiating ( 12) and ( 11b)-(11d).",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 91,
+      "text": "(dµ",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 92,
+      "text": "⋆ i − dν ⋆ i − dλ ⋆ )v ⊤ i a ⋆ i + (µ ⋆ i − ν ⋆ i − λ ⋆ )dv ⊤ i a ⋆ i + (µ ⋆ i − ν ⋆ i − λ ⋆ )v ⊤ i da ⋆ i + w i dv i + dw i v i = 0, ∀i, dµ ⋆ i,m a ⋆ i,m + µ ⋆ i,m da ⋆ i,m = 0, ∀i, m, dν ⋆ i,m (a ⋆ i,m − x i,m ) + ν ⋆ i,m (da ⋆ i,m − dx i,m ) = 0, ∀i, m, dλ ⋆ m D m a ⋆ + λ ⋆ m D m da ⋆ − dλ ⋆ m b m = 0, ∀m.",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 93,
+      "text": "We can equivalently express this system of equations in a compact matrix form",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 94,
+      "text": "M (da ⋆ ) ⊤ , (dµ ⋆ ) ⊤ , (dν ⋆ ) ⊤ , (dλ ⋆ ) ⊤ ⊤ = h(dv, dx, dw), (13",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 95,
+      "text": ")",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 96,
+      "text": "where",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 97,
+      "text": "M ∈ R (3N M +M )×(3N M +M ) and vh(dv, dx, dw) ∈ R 3N M +M are M =     M 1 M 2 −M 2 −M 3 diag(µ ⋆ ) diag(a ⋆ ) 0 0 diag(ν ⋆ ) 0 diag(a ⋆ − x) 0 diag(λ ⋆ )D 0 0 diag(Da ⋆ − b)     and h(dv, dx, dw) =     c(dv, dw) 0 diag(ν ⋆ )dx 0     . The sub-matrices M 1 , M 2 ∈ R N M ×N M , M 3 ∈ R N M ×M and sub-vector c ∈ R N M are M 1 =    (µ ⋆ 1 − ν ⋆ 1 − λ ⋆ )v ⊤ 1 • • • 0 . . . . . . . . . 0 • • • (µ ⋆ N − ν ⋆ N − λ ⋆ )v ⊤ N    , M 2 =    v ⊤ 1 a ⋆ 1 I M ×M • • • 0 . . . . . . . . . 0 • • • v ⊤ N a ⋆ N I M ×M    , M 3 =    v ⊤ 1 a ⋆ 1 I M ×M . . . v ⊤ N a ⋆ N I M ×M    , c(dv, dw) = −      (µ ⋆ 1 − ν ⋆ 1 − λ ⋆ )(a ⋆ 1 ) ⊤ + w 1 I M ×M dv 1 + v 1 dw 1 (µ ⋆ 2 − ν ⋆ 2 − λ ⋆ )(a ⋆ 2 ) ⊤ + w 2 I M ×M dv 2 + v 2 dw 2 . . . (µ ⋆ N − ν ⋆ N − λ ⋆ )(a ⋆ N ) ⊤ + w N I M ×M dv N + v N dw N      .",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 98,
+      "text": "Under any differential changes dv, dx, dw, their impact on da ⋆ can be derived by solving (13), which by definition gives the (sub)gradients when dv, dx, dw are set to proper identity matrices/tensors.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 99,
+      "text": "Example 4.1.To compute ∂a ⋆ ∂v1,1 , we evaluate how a unit change in dv 1,1 affects da ⋆ .If M is invertible, we solve",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 100,
+      "text": "(da ⋆ ) ⊤ , (dµ ⋆ ) ⊤ , (dν ⋆ ) ⊤ , (dλ ⋆ ) ⊤ ⊤ = M −1 h(e 1 , 0, 0)(14)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 101,
+      "text": "and extract da ⋆ from the solution, where e 1 ∈ R N M denotes a vector with value 1 at the first entry and 0 otherwise.Under a general profile of values and demands, the matrix M need not be invertible.A singular matrix M leads to a non-differentiable mapping f P F , but all solutions of dx, dw) are in the sub-differential of a ⋆ at v 1,1 .",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 102,
+      "text": "M [(da ⋆ ) ⊤ , (dµ ⋆ ) ⊤ , (dν ⋆ ) ⊤ , (dλ ⋆ ) ⊤ ] ⊤ = h(e 1 ,",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 103,
+      "text": "Theorem 1. Suppose that strict complementary slackness holds at solution (a ⋆ , µ ⋆ , ν ⋆ , λ ⋆ ) and that the demands are non-zero.When at least N M − N inequality constraints in (4) hold as equalities at a ⋆ , the matrix M is invertible, and the mapping from (v, x) to a ⋆ is differentiable.Otherwise, the mapping is only sub-differentiable.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 104,
+      "text": "Theorem 1 provides a sufficient condition for the differentiability of f P F , and connects the differentiability to the number of tight constraints.The proof is presented in Appendix B. Similar characterizations have been established for quadratic programs and disciplined parameterized programs (Amos & Kolter, 2017;Agrawal et al., 2019).However, (4) does not fall (and cannot be re-formulated to fall) under either category.Hence, Theorem 1 generalizes these works to a broader category of convex programs; see Appendix E for further discussions.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 84,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 105,
+      "text": "Composing (Sub)Gradients",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 75,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 106,
+      "text": "In principle, one can find ∂a ⋆ ∂v (and also ∂a ⋆ ∂x , ∂a ⋆ ∂w with an identical approach) by repeatedly solving ( 14) for the unit change in each entry of v.However, doing so would require solving a large system of equations for every partial derivative or inverting M and storing its inverse, which is a costly operation.Fortunately, the following proposition shows that if 6), we can back-propagate the gradient ∇ a ⋆ u i through the PF mechanism to obtain ∇ v i ′ u i , ∇ x i ′ u i , and ∇ w u i by pre-computing and storing a matrix-vector product.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 105,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 107,
+      "text": "a ⋆ ((v i ′ , v −i ), (x i ′ , x −i ), b) is used downstream to compute the utility u i (a ⋆ ((v i ′ , v −i ), (x i ′ , x −i ), b), v, x) in (",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 105,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 108,
+      "text": "Proposition 1.Under the same conditions as Theorem 1 and at least N M − N inequality constraints of (4)",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 105,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 109,
+      "text": "are tight at a ⋆ ((v i ′ , v −i ), (x i ′ , x −i ), b), then given ∇ a ⋆ u i , we have ∇ v i ′ u i = (ν ⋆ i + λ ⋆ − µ ⋆ i )(a ⋆ i ) ⊤ − w i I M ×M g a,iM :(i+1)M , ∇ x i ′ u i = diag(ν ⋆ )g ν , ∇ wi u i = v ⊤ i g a,iM :(i+1)M , (15",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 105,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 110,
+      "text": ")",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 105,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 111,
+      "text": "with M ⊤ g ⊤ a , g ⊤ µ , g ⊤ ν , g ⊤ λ ⊤ = ∇ a ⋆ u i ⊤ , 0 ⊤ , 0 ⊤ , 0 ⊤ ⊤ . (16",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 105,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 112,
+      "text": ")",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 105,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 113,
+      "text": "If the assumptions in Prop. 1 do not hold, M is singular, whereby (15) defines subgradients of u i , with g a and g ν as any solution of ( 16).In practice, we use the one with minimal ℓ 2 norm.These results enable performing (sub)gradient ascent to compute exploitability of the PF mechanism.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 105,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 114,
+      "text": "RPF-Net Differentiation",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 75,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 115,
+      "text": "We can repeat the steps in Sections 4.1 and 4.2 on the modified objective (9) and derive the gradient of a loss function ℓ, computed from ∂f RP F ω (v, x, b), with respect to z ω when we are given",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 114,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 116,
+      "text": "∂ℓ ∂f RP F ω (v,x,b)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 114,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 117,
+      "text": "2 .We need to solve the system of equations",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 114,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 118,
+      "text": "(M ′ ) ⊤ g ⊤ a , g ⊤ µ , g ⊤ ν , g ⊤ λ ⊤ = ∂ℓ ∂f RP F ω (v, x, b) ⊤ , 0 ⊤ , 0 ⊤ , 0 ⊤ ⊤",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 114,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 119,
+      "text": "where the matrix M ′ ∈ R (3N M +M )×(3N M +M ) , defined in the appendix, shares common entries as M .Then, with",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 114,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 120,
+      "text": "a ⋆ = f RP F ω (v, x, b), we have ∂ℓ ∂[z ω (v, x, b)] i = v ⊤ i a ⋆ i g a,iM :(i+1)M .",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 114,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 121,
+      "text": "To evaluate the exploitability of the RPF-Net mechanism using gradient descent as outlined in Section 4, we also need to find ∂ℓ ∂vi , ∂ℓ ∂x , and possibly ∂ℓ ∂wi .Their expressions are given as follows",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 114,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 122,
+      "text": "∂ℓ ∂v i = − w i I M ×M − (µ ⋆ i − ν ⋆ i − λ ⋆ − z i )(a ⋆ i ) ⊤ g a,iM :(i+1)M , ∂ℓ ∂x = diag(ν ⋆ )g ν , ∂ℓ ∂w i = v ⊤ i g a,iM :(i+1)M ,",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 114,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 123,
+      "text": "where µ ⋆ , ν ⋆ , λ ⋆ are the optimal dual solutions of ( 9) associated with constraints a ≥ 0, a ≤ x, and Da ≤ b.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 114,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 124,
+      "text": "Theoretical Guarantees",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 125,
+      "text": "In this section, we establish the convergence of the learned mechanism.First, we bound the sub-sampling error by a sublinear function of the batch size, which matches recent rates for auctions (Dütting et al., 2023), and ensures the objective of (10) converges to (5) with enough data.Next, we show that the learned mechanism is robust under distribution mismatch, i.e., when we train (5) on a distribution F ′ and evaluate on distinct distribution F , the learned mechanism achieves low exploitability with performance determined by distributional distance between F and F ′ .",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 124,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 126,
+      "text": "Generalization Bounds",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 124,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 127,
+      "text": "For mechanism f , we define the generalization errors with L samples as",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 126,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 128,
+      "text": "ε logNSW (f, L) = −E (v,x,b)∼F [logNSW(f, v, x, b)] + L l=1 logNSW(f, v l , x l , b l ), ε exp,i (f, L) = E (v,x,b)∼F [expl i (f, v, x, b)] − L l=1 expl i (f, v l , x l , b l ).",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 126,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 129,
+      "text": "With a slight abuse of notation, let",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 126,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 130,
+      "text": "u ω (v, x, b) := u(f ω (v, x, b), v, x) and let y → (v, x, b).",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 126,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 131,
+      "text": "Assumption 1.For each agent i, assume that 1 ψ ≤ u ω i (y) ≤ ψ, ∀ y ∈ F and some ψ > 1, and v i (S) ≤ 1, ∀ i and all subsets of resources.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 126,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 132,
+      "text": "An implication of this assumption is that the activation function of RPF-Net is Φ−Lipschitz for some Φ > 0.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 126,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 133,
+      "text": "Theorem 2 (Generalization Bound).Consider RPF-Net parameterized by a neural network with R hidden layers with ReLU activation and K nodes per hidden layer.Let d denote the total parameters with the vector of all model parameters ∥ω∥ 1 ≤ Ω.Under Assumption 1, the following holds with probability at least 1 − δ",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 126,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 134,
+      "text": "max{ε logNSW (f RP F ω , L), ε exp,i (f RP F ω , L)} ≤ O ψN Rd log(LN ΩΦ max{K, M N }) L + N log(1/δ) L .",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 126,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 135,
+      "text": "The result provides that the generalization error decays at rate O(L −1/2 ) where L is the training sample size.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 126,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 136,
+      "text": "In auction design with payment, RegretNet, the state-of-the-art learned mechanism proposed in Dütting et al. (2023), also achieves a O(L −1/2 ) rate, which we match in the non-payment setting.The proof of Theorem 2 is inspired by Dütting et al. (2023), but extended to handle: i) the fairness objective (NSW) in the absence of payment; ii) the special activation function in RPF-Net.The arguments in the proof can be used to obtain a similar order on the generalization error for the ExS-Net architecture of Zeng et al. (2024) as well.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 126,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 137,
+      "text": "Robustness to Distribution Mismatch",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 124,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 138,
+      "text": "Let ω ⋆ (F ) denote an optimizer of (10) under samples {(v l , x l , b l )} l drawn from the distribution F .Next, we establish that the performance of f ω ⋆ (F ′ ) on samples from distribution F when trained on samples from a different distribution F ′ in terms of the worst-case exploitability is controlled by the degree of mismatch.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 137,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 139,
+      "text": "Theorem 3. Suppose the mechanism f RP F ω with parameter ω is ϵ-incentive compatible over distribution F ′ .We have for any",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 137,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 140,
+      "text": "i = 1, • • • , N E (v,x,b)∼F [expl i (f, v, x, b)] ≤ ϵ + 2M v x d T V (F, F ′ ),",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 137,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 141,
+      "text": "where d T V denotes the total variation (TV) distance.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 137,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 142,
+      "text": "As an implication of Theorem 3, we can train RPF-Net with samples from distribution F ′ and expect them to perform well under distribution F , provided that the mismatch between F and F ′ is not arbitrarily large.Later in Sec.6.2, we will verify this result through numerical simulations.The proof of Theorem 3 is presented in Appendix G.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 137,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 143,
+      "text": "Experiments",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 144,
+      "text": "We numerically evaluate RPF-Net i) as the number of agents and resources changes; and ii) when the mechanisms are tested on a distribution different from that observed during training.We also visualize the decision boundary of RPF-Net in contrast to the PF mechanism to provide more insight on how RPF-Net deviates from the PF mechanism which it is designed to approximate and enhance.The final subsection discusses the computational time required for training and performing inference with RPF-Net.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 145,
+      "text": "efficiency(f, v, x, b) = M m=1 N i=1 f i,m (v, x, b) M m=1 b m .",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 146,
+      "text": "Efficiency quantifies the averaged utilization of resources.Mechanisms should preferably have a high efficiency, although efficiency is merely a byproduct of NSW in the training objective.As the total demand for a resource may be smaller than the budget, the maximum efficiency can be smaller than 1.The PF mechanism is fully efficient (i.e., all available resources are allocated if the demand is sufficiently large), and hence serves as a benchmark.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 147,
+      "text": "Baselines: Besides the PF mechanism introduced in (4), we evaluate against the PA mechanism (Cole et al., 2013), denoted by f P A , which achieves state-of-the-art NSW among IC mechanisms.A probabilistic mixture of PA and PF provides a strong trade-off between NSW and exploitability.Given ρ ∈ [0, 1], we consider a new mechanism f mixture :",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 148,
+      "text": "r ∼ Bern(ρ), f mixture (v, x, b) = f P F (v, x, b), if r = 1 f P A (v, x, b), if r = 0",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 149,
+      "text": "Varying ρ between [0, 1] linearly interpolates PF and PA in expectation.We set ρ = 1/2 in the experiments.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 150,
+      "text": "Another important baseline is the ExS-Net mechanism proposed in Zeng et al. (2024) which shares the same training objective as RPF-Net and is different in the neural network activation function.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 151,
+      "text": "We also compare against a standard neural network, which has the same architecture as RPF-Net and ExS-Net except that the activation function of its last layer is a standard softmax function and is trained on the same objective for the same amount of iterations.Any performance gain of RPF-Net over ExS-Net and this standard network can be attributed to the architectural innovation.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 152,
+      "text": "Data Generation:",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 153,
+      "text": "In all experiments, the true values and demands follow uniform and Bernoulli uniform distributions, respectively, within the range [0.1, 1].Specifically, we generate the test samples according to",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 152,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 154,
+      "text": "v i,m ∼ Unif(0.1, 1) , x i,m ∼ Unif(0.1, 1) , (17",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 152,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 155,
+      "text": ")",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 152,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 156,
+      "text": "x i,m ∼ Bern(0.5), x i,m = x i,m x i,m .",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 152,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 157,
+      "text": "Unless noted otherwise in Sec.6.1, the budget for each resource is set to N 2 , where N is the number of agents.This creates moderate competition for the resources in expectation.Training data is sampled from the same distributions as test data according to (17) except in Sec.6.2 which studies distribution mismatch.All agent weights are set to 1.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 152,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 158,
+      "text": "Varying System Parameters",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 159,
+      "text": "We test the proposed mechanism as the problem dimension varies.We start with two small-scale problems with 2 agents, 2 resources, and 10 agents, 3 resources.The 2x2 system is the smallest non-trivial case, and the 10x3 system is the largest considered in a line of recent works (Dütting et al., 2023;Ivanov et al., 2022) on auction design with payment.All reported numbers are normalized by that of the PF mechanism.As shown in Figure 3, RPF-Net achieves an advantageous trade-off between PF and PA: it consistently reduces the exploitability of PF by over at least 80% while achieving similar NSW.Compared with PA, RPF-Net improves the efficiency and NSW.For larger numbers of agents, the NSW of PA mechanism decreases drastically being the product of agents' utilities, while RPF-Net still exhibits a favorable NSW.In addition, RPF-Net outperforms the interpolated mixture of PF and PA and ExS-Net under all three metrics.The performance of the standard neural network is unstable (mechanism 4 in orange) -while it performs well in the 2x2 system, it fails to achieve a meaningful NSW with 10 agents present.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 158,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 160,
+      "text": "Distribution Mismatch",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 161,
+      "text": "It can be difficult in practical problems to know and sample from the true distribution of values, demands, and budgets in the test set.In this section, we show that RPF-Net is still effective when the distribution on which they are expected to perform is slightly different from the training distribution.Such distribution mismatch may occur due to measurement error or more pernicious sources such as strategically misrepresenting preferences.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 160,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 162,
+      "text": "Recall that F denotes the true distribution of utility function parameters and F ′ the distribution of the training samples.We denote by ω ⋆ (F ′ ) the optimal solution to (10) under samples {(v l , x l , b l ) ∼ F ′ }.The performance of ω ⋆ (F ′ ) under the true distribution F , measured by",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 160,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 163,
+      "text": "E F [NSW(ω ⋆ (F ′ ), v, x, b)] and E F [expl(ω ⋆ (F ′ ), v, x, b)]",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 160,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 164,
+      "text": ", can in theory be sub-optimal by a factor of d T V (F, F ′ ), which is non-ideal under a large discrepancy between F and F ′ .Nonetheless, empirically we observe robustness: we study two sources of distribution mismatch and see in the experiments that",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 160,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 165,
+      "text": "E F [NSW(ω ⋆ (F ′ ), v, x, b)] and E F [expl(ω ⋆ (F ′ ), v, x, b)] closely match E F [NSW(ω ⋆ (F ), v, x, b)] and E F [expl(ω ⋆ (F ), v, x, b)].",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 160,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 166,
+      "text": "Randomly perturbed training samples.In a 2 × 2 system we suppose that the distribution F follows (17) while each training sample {(v l , x l )} l is generated according to In other words, F ′ has a perturbed uniform distribution.We would like to draw the perturbation from a heavy-tailed distribution to increase the likelihood of generating extreme values.The Cauchy distribution has been used to explain extreme events like Flash Crash (Parker, 2016) and to describe price fluctuations (Casault et al., 2011), which motivates our selection.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 160,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 167,
+      "text": "vl i,m ∼ Unif(0.1, 1), xl i,m ∼ Unif(0.1, 1). ṽl i,m ∼ Cauchy(0, 0.01), xl i,m ∼ Cauchy(0, 0.01), v l i,m = [v l i,m + ṽl i,m ] [0.1,1] , x i,m ∼ Bern(0.5), x l i,m = x i,m [x l i,m + xl i,m ] [0.1,1] . (18",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 160,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 168,
+      "text": "Adversarially generated training samples.Again, we consider a 2 × 2 system where the true distribution F is described in (17).Suppose that the training dataset is composed of historical valuations and demands collected through past interactions of the agents with the supplier.If the agents believe that the supplier runs the PF mechanism in these past interactions, they may have reported strategically to \"trick\" the PF  mechanism.The training samples {(v l , x l )} l will then take the following form:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 160,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 169,
+      "text": "vl i,m ∼ Unif(0.1, 1), xl i,m ∼ Unif(0.1, 1). v l i , x l i = arg max v ′ i ,x ′ i u i (f P F ((v ′ i , vl −i ), (x ′ i , xl −i ), b), vl , xl ).(19)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 160,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 170,
+      "text": "In Table 1 and Figure 4 we present the NSW, exploitability, and efficiency of RPF-Net trained under contaminated samples ( 18) and ( 19).We observe that under contaminated training samples the metrics of RPF-Net closely track those under truthful training data.Notably, the NSW and efficiency are almost unaffected, while the exploitability only mildly increases.The proposed mechanism still achieves near-optimal NSW and efficiency while maintaining a low exploitability (not exceeding 20% of that of the PF mechanism).This demonstrates the robustness of the proposed mechanism to mismatch between training and inference distribution and supports the theoretical results in Sec.5.2.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 160,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 171,
+      "text": "Mechanism",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 160,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 172,
+      "text": "Visualizing Allocation Under RPF-Net",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 173,
+      "text": "To shed more light on RPF-Net, we visualize and compare the allocation vectors generated by PF and well-trained RPF-Net on a 2-agent 2-resource allocation problem.Under a specific profile of preferences and with the reporting of agent 2 fixed, Figure 5 plots the allocation to agent 1 as v 1,1 and v 1,2 vary at the same time.PF has clear and sharp decision boundaries.As an interesting observation, the learned RPF-Net mechanism closely tracks the boundary of PF but determines allocations in a smoother way.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 172,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 174,
+      "text": "Complexity of Proposed Mechanism in Training and Inference Phase",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 143,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 175,
+      "text": "In this section, we provide more light on the amount of computation required to train RPF-Net and use it for inference.For this purpose, it is worth comparing with the existing mechanism ExS-Net proposed in Zeng et al. (2024) which considers the same training objective as ours but parameterizes the mechanism with a much simpler regular neural network architecture.The main difference between RPF-Net and ExS-Net (Zeng et al., 2024) lies in the activation function.In the case of ExS-Net, the activation involves standard scalar/vector operation and a softmax function.Both forward and backward passes through the activation can be completed in time O(N M ), which means that ExS-Net is fast in both training and inference phases.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 174,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 176,
+      "text": "For RPF-Net, forward pass requires solving the convex optimization program (9).We use an interior-point solver for this program, which is guaranteed to converge within polynomial time, i.e., the time to obtain an solution up to precision ε is no more than some polynomial function of ε, N , and M .However, the exact complexity is unknown but should be expected to be worse than O((N M ) 3 ) (Renegar, 1988) (as O((N M ) 3 ) is the time it would take for the interior-point method to converge if (9) were a linear program).In the backward pass, RPF-Net needs to invert solve a system of equations of dimension (3N M + M ) × (3N M + M ), which requires O((N M ) 3 ) computation.To summarize, we organize the complexity results in Table 2.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 174,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 177,
+      "text": "We also show in Table 2 the training and inference time on a ten-agent three-resource allocation problem.Note that both PF and PA are hand-designed mechanisms that do not require training, but are time-consuming during inference since they solve optimization programs.The amount of computation required by RPF-Net during inference is on the same order as that of PF and PA mechanisms.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 174,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 178,
+      "text": "Mechanism",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 174,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 179,
+      "text": "Conclusion",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 180,
+      "text": "This paper studied the important problem of fair and incentive compatible resource allocation without the use of monetary payment.Identifying that hand-designing mechanisms that achieve the exact IC and maximum NSW is impossible, we considered learning an approximate mechanism that desirably trades off the two competing objectives.As a key contribution, we innovated the neural network architecture used to parameterize the mechanism -we proposed RPF-Net, a learned variant of the standard PF mechanism with an optimization-based activation function in the output layer.We established a way of differentiating through the activation function to enable efficient training.On the theoretical side, we showed that the proposed mechanism is consistent (learns better with more training data) and is robust to distributional changes in the data, two properties that make the mechanism useful in practice.We showed through numerical simulations that RPF-Net outperforms the existing methods on a range of evaluation criteria.In particular, compared to the state-of-the-art architecture (Zeng et al., 2024), RPF-Net significantly increases the NSW without incurring a higher exploitability, thereby improving the Pareto frontier.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 179,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 181,
+      "text": "It is worth noting the limitation of RPF-Net in its computational complexity.The optimization-based activation function requires significant amount of computation to evaluate in the forward direction and to differentiate through in the backward direction.Enhancing the computational complexity of the architecture while not compromising performance is an important future work.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 179,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 182,
+      "text": "Disclaimer",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 179,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 183,
+      "text": "This paper was prepared for informational purposes [\"in part\" if the work is collaborative with external partners] by the Artificial Intelligence Research group of JPMorgan Chase & Co. and its affiliates (\"JP Morgan\") and is not a product of the Research Department of JP Morgan.JP Morgan makes no representation and warranty whatsoever and disclaims all liability, for the completeness, accuracy or reliability of the information contained herein.This document is not intended as investment research or investment advice, or a recommendation, offer or solicitation for the purchase or sale of any security, financial instrument, financial product or service, or to be used in any way for evaluating the merits of participating in any transaction, and shall not constitute a solicitation under any jurisdiction or to any person, if such solicitation under such jurisdiction or to such person would be unlawful.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 182,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 184,
+      "text": "G Proof of Theorem 3 28",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 182,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 185,
+      "text": "A Partial Allocation Mechanism",
+      "type": "heading",
+      "level": 4,
+      "parent_id": 184,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 186,
+      "text": "The partial allocation mechanism, proposed in Cole et al. (2013), is built upon the PF mechanism and withholds resources according to an externality ratio.Specifically, given reported valuations v ∈ R N ×M and demands d ∈ R N ×M across all agents and resources and budgets b ∈ R M , let a ⋆ ≜ f P F (v, x, b) denote the allocation made by the PF mechanism.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 185,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 187,
+      "text": "Let x −i ∈ R N ×M denote a modified demand matrix where",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 185,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 188,
+      "text": "x −i j = x j ∈ R M , i ̸ = j 0 ∈ R M , i = j",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 185,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 189,
+      "text": "For each agent i, we calculate",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 185,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 190,
+      "text": "a −i,⋆ ≜ f P F (v, x −i , b),",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 185,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 191,
+      "text": "which is the PF allocation outcome that would arise in the absence of agent i.We further compute the externality ratio r i ∈ R + for agent i as",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 185,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 192,
+      "text": "r i = j̸ =i u j (a ⋆ , v, x) wj j̸ =i u j (a −i,⋆ , v, x) wj 1/wi",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 185,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 193,
+      "text": ", where u i is the utility function defined in (1).",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 185,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 194,
+      "text": "The PA mechanism allocates to agent i according to the following rule",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 185,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 195,
+      "text": "f P A i (v, x, b) = r i a ⋆ i .",
+      "type": "equation",
+      "level": 5,
+      "parent_id": 185,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 196,
+      "text": "It is easy to verify that r i ∈ [0, 1].Therefore, the PA mechanism is always feasible.Cole et al. (2013)[Theorem 3.2] proves that it is also perfectly incentive compatible for any v, x, b.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 185,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 197,
+      "text": "B Proof of Theorem 1",
+      "type": "heading",
+      "level": 5,
+      "parent_id": 185,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 198,
+      "text": "To show the invertibility of M when at least N M − N constraints are tight, it is equivalent to show that the following system of equations has a unique solution [da",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 197,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 199,
+      "text": "⊤ , dµ ⊤ , dν ⊤ , dλ ⊤ ] ⊤ for any vector [α ⊤ , β ⊤ , γ ⊤ , ζ ⊤ ] ⊤ M     da dµ dν dλ     =     α β γ ζ     .",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 197,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 200,
+      "text": "We define",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 197,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 201,
+      "text": "I µ ≜ {(i, m) ∈ [1, • • • , N ] × [1, • • • , M ] | µ ⋆ i,m > 0} = {(i, m) ∈ [1, • • • , N ] × [1, • • • , M ] | a ⋆ i,m = 0}",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 197,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 202,
+      "text": ", where the second equality is due to strict complementary slackness.Similarly, we define and m / ∈ I λ , we are able to immediately write the solutions dν i,m and dλ m and remove them from the system of equations.Eventually, the system to be solved reduces to",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 197,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 203,
+      "text": "I ν ≜ {(i, m) ∈ [1, • • • , N ] × [1, • • • , M ] | ν ⋆ i,m > 0} = {(i, m) ∈ [1, • • • , N ] × [1, • • • , M ] | a ⋆ i,m = x i,m }, and I λ = {m ∈ [1, • • • , M ] : λ m > 0} = {m ∈ [1, • • • , M ] : i a ⋆ i,m = b m }. We use I c µ , I c ν , I c λ to",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 197,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 204,
+      "text": "     M 1 (M 2 ) :,Iµ −(M 2 ) :,Iν −(M 3 ) :,I λ diag(µ ⋆ Iµ ) diag(a ⋆ Iµ ) 0 0 diag(ν ⋆ Iν ) 0 diag((a ⋆ − x) Iµ ) 0 diag(λ ⋆ I λ )D I λ 0 0 diag((Da ⋆ − b) I λ )          da dµ Iµ dν Iν dλ I λ     =      α−(M 2 ) :,I c µ dµ I c µ +(M 2 ) :,I c ν dµ I c ν +(M 3 ) :,I c λ dµ I c λ β Iµ γ Iν ζ I λ      .",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 197,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 205,
+      "text": "As a ⋆ i,m = 0 for any (i, m) ∈ I µ (and similarly, a ⋆ i,m = x i,m for any (i, m) ∈ I ν , i a ⋆ i,m = b m for any m ∈ I λ ), this can be further simplified as",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 197,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 206,
+      "text": "     M 1 (M 2 ) :,Iµ −(M 2 ) :,Iν −(M 3 ) :,I λ diag(µ ⋆ Iµ ) 0 0 0 diag(ν ⋆ Iν ) 0 0 0 diag(λ ⋆ I λ )D I λ 0 0 0      M I     da dµ Iµ dν Iν dλ I λ     =      α − (M 2 ) :,I c µ dµ I c µ + (M 2 ) :,I c ν dµ I c ν + (M 3 ) :,I c λ dµ I c λ β Iµ γ Iν ζ I λ      . Note that |I µ | + |I ν | + |I λ | ≥ N M",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 197,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 207,
+      "text": "− N when at least N M − N constraints are tight.Since x > 0, the total number of linearly independent constraints on da is therefore N (from M 1 ) + (N M − M ) = N M , which uniquely determines da.Due to the diagonal structure of M 2 , the block diagonal structure of M 3 , and the fact that the optimal allocation a ⋆ needs to satisfy v ⊤ i a ⋆ i > 0 for all i to avoid making the objective function infinitely negatively large, it is not hard to see that we can determine the remaining variables dµ Iµ , dν Iµ , and dλ Iµ from the first row block of M I .The invertibility of M leads to the uniqueness of",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 197,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 208,
+      "text": "M −⊤ [ ∂ℓ ∂a ⊤ , 0 ⊤ , 0 ⊤ , 0 ⊤ ] ⊤ ,",
+      "type": "equation",
+      "level": 6,
+      "parent_id": 197,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 209,
+      "text": "which obviously implies the differentiability of the mapping from (v, x) to a ⋆ .When less than N M − N constraints are tight, the number of linear constraints on da is at most N M − 1, which cannot uniquely determine the N M -dimensional vector da.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 197,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 210,
+      "text": "C Proof of Proposition 1",
+      "type": "heading",
+      "level": 6,
+      "parent_id": 197,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 211,
+      "text": "Under the assumptions of the proposition, M is an invertible matrix.The following equations follow from the fact that the utility function u i does not depend on the dual variables",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 210,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 212,
+      "text": "∂ℓ ∂v ′ 1,1 = ( ∂ℓ ∂a ⋆ ) ⊤ ∂a ⋆ ∂v ′ 1,1 = ( ∂ℓ ∂a ⋆ ) ⊤ , 0 ⊤ , 0 ⊤ , 0 ⊤ M −1 h(e 1 , 0, 0) = h(e 1 , 0, 0) ⊤ M −⊤ (∇ a ⋆ u i ) ⊤ , 0 ⊤ , 0 ⊤ , 0 ⊤ ⊤ .",
+      "type": "equation",
+      "level": 7,
+      "parent_id": 210,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 213,
+      "text": "The important observation is that the computation of the gradient with respect to any entry in v ′ i (and also x ′ i and w) uses the product of M and [ (∇ a ⋆ u i ) ⊤ , 0 ⊤ , 0 ⊤ , 0 ⊤ ] ⊤ , and only the vector h is different.Taking advantage of this fact, it is not hard to see (following a line of analysis similar to derivation of Eq. ( 8) in Amos & Kolter (2017)) that once we solve",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 210,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 214,
+      "text": "g ⊤ a , g ⊤ µ , g ⊤ ν , g ⊤ λ ⊤ = M −⊤ ∇ a ⋆ u i ⊤ , 0 ⊤ , 0 ⊤ , 0 ⊤ ⊤ .",
+      "type": "equation",
+      "level": 7,
+      "parent_id": 210,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 215,
+      "text": "the gradients admit the closed-form expressions",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 210,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 216,
+      "text": "∇ v i ′ u i = − w i I M ×M − (µ ⋆ i − ν ⋆ i − λ ⋆ )(a ⋆ i ) ⊤ g a,iM :(i+1)M , ∇ x i ′ u i = diag(ν ⋆ )g ν , ∇ wi u i = v ⊤ i g a,iM :(i+1)M .",
+      "type": "equation",
+      "level": 7,
+      "parent_id": 210,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 217,
+      "text": "D Derivation of Gradients of Exploitability-Averse Proportional Fairness Mechanism",
+      "type": "heading",
+      "level": 7,
+      "parent_id": 210,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 218,
+      "text": "With values v and demands x, let a ⋆ denote the solution of (9), i.e., a ⋆ = f RP F ω (v, x, b).The aim of this section is to derive the (sub)gradient of a loss function ℓ with respect to z, v, x, and w when we are given ∇ a ⋆ ℓ.The arguments used here are mostly straightforward extension of the result in Sec. 4.",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 217,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 219,
+      "text": "The equations in the KKT system of (9) include",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 217,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 220,
+      "text": "− w i v i v ⊤ i a ⋆ i + z i − µ ⋆ i + ν ⋆ i + λ ⋆ = 0, ∀i = 1, • • • , N µ ⋆ i,m a ⋆ i,m = 0, ∀i = 1, • • • , N, m = 1, • • • , M ν ⋆ i,m (a ⋆ i,m − x i,m ) = 0, ∀i = 1, • • • , N, m = 1, • • • , M λ ⋆ m (Da ⋆ − b) m = 0, ∀m = 1, • • • , M.",
+      "type": "equation",
+      "level": 8,
+      "parent_id": 217,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 221,
+      "text": "Since the optimal solution a ⋆ need to satisfy v ⊤ i a ⋆ i > 0 for every agent i, the first equation can be simplified as",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 217,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 222,
+      "text": "(µ ⋆ i − ν ⋆ i − λ ⋆ )v ⊤ i a ⋆ i + w i v i − z i v ⊤ i a ⋆ i = 0, ∀i = 1, • • • , N.",
+      "type": "equation",
+      "level": 8,
+      "parent_id": 217,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 223,
+      "text": "Taking the differential,",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 217,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 224,
+      "text": "(dµ ⋆ i − dν ⋆ i − dλ ⋆ − dz i )v ⊤ i a ⋆ i + (µ ⋆ i − ν ⋆ i − λ ⋆ − z i )dv ⊤ i a ⋆ i + (µ ⋆ i − ν ⋆ i − λ ⋆ − z i )v ⊤ i da ⋆ i + w i dv i + dw i vi = 0, ∀i dµ ⋆ i,m a ⋆ i,m + µ ⋆ i,m da ⋆ i,m = 0, ∀i, m dν ⋆ i,m (a ⋆ i,m − x i,m ) + ν ⋆ i,m (da ⋆ i,m − dx i,m ) = 0, ∀i, m dλ ⋆ m D m a ⋆ + λ ⋆ m D m da ⋆ − dλ ⋆ m b m = 0.",
+      "type": "equation",
+      "level": 8,
+      "parent_id": 217,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 225,
+      "text": "This systems of equations can be written in the concise matrix form",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 217,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 226,
+      "text": "M ′     da dµ dν dλ     =     c ′ 0 diag(ν ⋆ )dx 0     ,",
+      "type": "equation",
+      "level": 8,
+      "parent_id": 217,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 227,
+      "text": "where the matrix",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 217,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 228,
+      "text": "M ′ ∈ R (3N M +M )×(3N M +M ) is M ′ =     M ′ 1 M 2 −M 2 −M 3 diag(µ ⋆ ) diag(a ⋆ ) 0 0 diag(ν ⋆ ) 0 diag(a ⋆ −x) 0 diag(λ ⋆ )D 0 0 diag(Da ⋆ −b)     , the vector c ′ ∈ R N M is c ′ = c +      v ⊤ 1 a ⋆ 1 dz 1 + z 1 (a ⋆ 1 ) ⊤ dv 1 v ⊤ 2 a ⋆ 2 dz 2 + z 2 (a ⋆ 2 ) ⊤ dv 2 . . . v ⊤ N a ⋆ N dz N + z N (a ⋆ N ) ⊤ dv N      , the matrix M ′ 1 ∈ R N M ×N M is M ′ 1 =    (µ ⋆ 1 −ν ⋆ 1 −λ ⋆ −z 1 )v ⊤ 1 • • • 0 . . . . . . . . . 0 • • • (µ ⋆ N −ν ⋆ N −λ ⋆ −z N )v ⊤ N    ,",
+      "type": "equation",
+      "level": 8,
+      "parent_id": 217,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 229,
+      "text": "and the matrices M 2 , M 3 and vector c are defined in Sec.4.1.",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 217,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 230,
+      "text": "Again, it can be shown that once we pre-compute and save",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 217,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 231,
+      "text": "(M ′ ) ⊤     g a g µ g ν g λ     =     ∂ℓ ∂a ⋆ 0 0 0     ,",
+      "type": "equation",
+      "level": 8,
+      "parent_id": 217,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 232,
+      "text": "the gradients have the closed-form expressions",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 217,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 233,
+      "text": "∂ℓ ∂v i = − w i I M ×M − (µ ⋆ i − ν ⋆ i − λ ⋆ − z i )(a ⋆ i ) ⊤ g a,iM :(i+1)M , ∂ℓ ∂x = diag(ν ⋆ )g ν , ∂ℓ ∂w i = v ⊤ i g a,iM :(i+1)M , ∂ℓ ∂z i = v ⊤ i a ⋆ i g a,iM :(i+1)M .",
+      "type": "equation",
+      "level": 8,
+      "parent_id": 217,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 234,
+      "text": "E Proportional Fairness Mechanism and Discipline Parameterized Program",
+      "type": "heading",
+      "level": 8,
+      "parent_id": 217,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 235,
+      "text": "Discipline parameterized programs (DPP) are a special class of convex programs introduced in Agrawal et al. (2019), in which the authors show how (sub)gradients can be derived through the mapping from parameters of a DPP to its optimal solution.We start the discussion by introducing the DPP, which is an optimization program of the form",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 234,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 236,
+      "text": "y ⋆ = argmin y f 0 (x, θ) s.t. f i (y, θ) ≤ 0, i = 1, . . . , m ineq",
+      "type": "equation",
+      "level": 9,
+      "parent_id": 234,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 237,
+      "text": "where y ∈ R n1 is the decision variable, θ ∈ R n2 is the parameter which we need to derive the gradient for, and the functions f i are convex.In addition, all functions are required to be affine in a special sense.An expression is said to be parameter-affine if it is affine in affine in the parameter θ and variable-free (does not involve variable x).An expression is said to be parameter-free if it does not involve any parameter (it can involve the variable x).Any expression ϕ prod (z 1 , z 2 ) = z 1 z 2 as the product of z 1 ∈ R and z 2 ∈ R p for any p is affine if at least one of the two conditions is true:",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 234,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 238,
+      "text": "• y 1 or y 2 is both parameter-free and variable-free",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 234,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 239,
+      "text": "• among y 1 and y 2 , one is parameter-affine and the other is parameter-free When we try to capture (4) by a DPP, the decision variable y corresponds to allocation a, and the parameter θ abstracts (v, x, b, w).As part of the objective of (4), a ⊤ i v i can be verified to be affine since a i is parameter-free and v i is parameter-affine.However, the overall objective − N i=1 w i log(a ⊤ i v i ) is not affine as w i is not parameter-free and log(a ⊤ i v i ) is not variable-free, parameter-affine or parameter-free.While sometimes re-formulation can be made to transform a non-DPP to an equivalent DPP, such re-formulation is not possible in this case.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 234,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 240,
+      "text": "F Generalization Bound",
+      "type": "heading",
+      "level": 9,
+      "parent_id": 234,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 241,
+      "text": "F.1 Definitions & Preliminaries",
+      "type": "heading",
+      "level": 10,
+      "parent_id": 240,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 242,
+      "text": "Let F denote a class of bounded functions f : Z → [−c, c] defined on an input space Z for some c > 0. Let D be a distribution over Z and let S = {z 1 , z 2 , • • • , z L } be a sample drawn i.i.d from some distribution D over input space Z. Definition 4. The capacity of the function class F measured in terms of empirical Rademacher complexity on sample S is defined as",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 241,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 243,
+      "text": "R(F) := 1 L E σ sup f ∈F zi∈S σ i f (z i ) ,",
+      "type": "equation",
+      "level": 11,
+      "parent_id": 241,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 244,
+      "text": "where σ ∈ {−1, 1} L and each σ i is drawn from a uniform distribution on {−1, 1}.Definition 5.The covering number of a set M, denoted as N ∞ (M, ϵ), is the minimal number of balls of radius ϵ (measured in the l ∞,1 distance) needed to cover the set M.",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 241,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 245,
+      "text": "For example, the l ∞,1 distance between mechanisms f, f ′ ∈ M is given as max",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 241,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 246,
+      "text": "(v,x,b) N i=1 M j=1 |f ij (v, x, b) − f ′ ij (v, x, b)|. Lemma F.1 ((Shalev-Shwartz & Ben-David, 2014)). Then with probability at least 1 − δ over draw of S from D, for f ∈ F, E z∼D [f (z)] ≤ 1 L L l=1 f (z l ) + 2 RL (F) + 4c 2 log(4/δ) L Lemma F.2 (Massart). Let G be some finite subset of R m and σ 1 , σ 2 , • • • , σ m be independent Rademacher random variables. Then, E sup g∈G 1 m m i=1 σ i g i ≤ 2 sup g i g 2 i log |G| m .",
+      "type": "equation",
+      "level": 11,
+      "parent_id": 241,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 247,
+      "text": "Let ϕ : R N → R N represent the activation function of the any layer for input s ∈ R N M , given as",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 241,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 248,
+      "text": "ϕ = [softmax(s 1,1 , • • • , s N,1 ), • • • , softmax(s 1,m , • • • , s N,M )],",
+      "type": "equation",
+      "level": 11,
+      "parent_id": 241,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 249,
+      "text": "where softmax : R N → [0, 1] N .Note that for any u ∈ R N , Dütting et al., 2023)).For any s, s ′ ∈ R N M , the activation function for a softmax layer is Dütting et al., 2023)).Let F k be a class of feed-forward neural networks that maps an input vector y ∈ R d0 to an output vector R d k , with each layer l containing T l nodes and computing z → ϕ l (w l z) and ϕ l : R T l → [−κ, κ] T l .Further, for each network in F k , let the parameter matrices ∥w l ∥ 1 ≤ W and ∥ϕ",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 241,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 250,
+      "text": "softmax i (u) = e ui N k=1 e u k . Lemma F.3 ((",
+      "type": "equation",
+      "level": 11,
+      "parent_id": 241,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 251,
+      "text": "1−Lipschitz, i.e., ∥ϕ(s) − ϕ(s ′ )∥ 1 ≤ ∥s − s ′ ∥. Lemma F.4 ((",
+      "type": "equation",
+      "level": 11,
+      "parent_id": 241,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 252,
+      "text": "l (s) − ϕ l (s ′ )∥ ≤ Φ∥s − s ′ ∥ 1 for any s, s ′ ∈ R T l−1 . The covering number of the network is N ∞ (F k , ϵ) ≤ 2κd 2 W (2ΦW ) k ϵ d ,",
+      "type": "equation",
+      "level": 11,
+      "parent_id": 241,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 253,
+      "text": "where T = max l∈[k] T l and d is the total number of parameters in the network.Corollary F.4.1.For the same configuration as in Lemma F.4, but having ∥ϕ l (s) − ϕ l (s ′ )∥ ≤ ∥s − s ′ ∥ 1 for all hidden layer activation functions (l < k), and having ∥ϕ o (s) − ϕ o (s ′ )∥ ≤ Φ∥s − s ′ ∥ 1 for the output layer, the covering number is given as",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 241,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 254,
+      "text": "N ∞ (F k , ϵ) ≤ Φd 2 κ(2W ) k+1 ϵ d .",
+      "type": "equation",
+      "level": 11,
+      "parent_id": 241,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 255,
+      "text": "F.2 Proof of Theorem 2",
+      "type": "heading",
+      "level": 11,
+      "parent_id": 241,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 256,
+      "text": "Consider a parametric class of mechanisms, f ω ∈ M, defined using parameters ω ∈ R d for d > 0. With a slight abuse of notation, let u",
+      "type": "paragraph",
+      "level": 12,
+      "parent_id": 255,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 257,
+      "text": "ω (v, x, b) := u(f ω (v, x, b), v, x) and let y → (v, x, b), y ′ i → ((v ′ i , v −i ), (x ′ i , x −i ), b).",
+      "type": "equation",
+      "level": 12,
+      "parent_id": 255,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 258,
+      "text": "Consider the following function classes",
+      "type": "heading",
+      "level": 12,
+      "parent_id": 255,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 259,
+      "text": "U i = u ω i :Y → R|u ω i (y)= m v i,m min{f ω i,m (y),x i,m } for some f ω ∈M NSW • M = f : Y → R | f (y) = N i=1 log u ω i (y) for u ω i ∈ U i exp • U i = e i : Y → R | e i (y)=max y ′ i u ω i (y ′ i )−u ω i (y) for u ω i ∈ U i exp • U = h : Y → R|h(y)= N i=1 e i (y) for some (e 1 , e 2 , • • • , e N )∈exp • U .",
+      "type": "equation",
+      "level": 13,
+      "parent_id": 258,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 260,
+      "text": "Proposition 2. Suppose Assumption 1 holds.Let M denote the class of mechanisms and fix δ ∈ (0, 1).With probability at least 1 − δ, over draw of L profiles from F , for any parameterized allocation f ω ∈ M,",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 258,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 261,
+      "text": "E y∼F N i=1 log u ω i (y) ≥ 1 L L l=1 N i=1 log u ω i (y (l) ) − 2N ∆ L − CN log(1/δ) L ,",
+      "type": "equation",
+      "level": 13,
+      "parent_id": 258,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 262,
+      "text": "where C is a distribution independent constant and Proof.As before, using Lemma F.1, the result follows except the characterization of the empirical Rademacher complexity of the class R(exp • U), which we do below.The proof builds on the following results.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 258,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 263,
+      "text": "∆ L = inf",
+      "type": "equation",
+      "level": 13,
+      "parent_id": 258,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 264,
+      "text": "i.) N ∞ (exp",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 258,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 265,
+      "text": "• U i , ϵ) ≤ N ∞ (U i , ϵ 2 )",
+      "type": "equation",
+      "level": 13,
+      "parent_id": 258,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 266,
+      "text": ". By the definition of covering number N ∞ (U i , ϵ), there exists a cover Ûi with size at most N ∞ (U i , ϵ",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 258,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 267,
+      "text": "2 ) such that for any u ω i ∈ U i there is a ûω and using the same arguments as above.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 258,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 268,
+      "text": "iii.) N ∞ (U, ϵ) ≤ N ∞ (M, ϵ).",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 258,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 269,
+      "text": "By definition of the covering number for the mechanism class M, there exists a cover M of size M ≤ N ∞ (M, ϵ) such that for any f ω ∈ M there is a f ω ∈ M such that for all y, i,m",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 258,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 270,
+      "text": "|f ω i,m (y) − f ω i,m (y)| ≤ ϵ.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 258,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 271,
+      "text": "We have for the class U, The result follows from Lemma F.2 and similar arguments as in Proposition 2.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 258,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 272,
+      "text": "Note that the activation functions on all hidden layers are ReLU functions, which are 1-Lipschitz.The output layer of the regularized PF activation is Lipschitz from Assumption 1 with some constant Φ > 0.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 258,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 273,
+      "text": "Using",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 258,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 274,
+      "text": "G Proof of Theorem 3",
+      "type": "heading",
+      "level": 13,
+      "parent_id": 258,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 275,
+      "text": "It is obvious that the exploitability of any mechanism at agent i cannot exceed the utility of agent i when its demands are fully satisfied.This means for any mechanism f and v ∈ V, x ∈ D, b ∈ B, we have",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 276,
+      "text": "expl i (f, v, x, b) ≤ M m=1 v i,m x i,m ≤ M v x, (20",
+      "type": "equation",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 277,
+      "text": ")",
+      "type": "equation",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 278,
+      "text": "where the second inequality is due to the boundedness of values and demands.",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 279,
+      "text": "Let p F and p F ′ denote the probability density function associated with F and F ′ .We have for any i where the third inequality applies (20) and the final equation comes from the definition of TV distance, i.e., for any distribution F 1 , F 2 over X",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 280,
+      "text": "E (v,",
+      "type": "equation",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 281,
+      "text": "d T V (F 1 , F 2 ) = 1 2 X |p F (x) − p F ′ (x)| dx.",
+      "type": "equation",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 282,
+      "text": "Figure 1: Exploitability of PF and learned RPF-Net.",
+      "type": "figure",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 283,
+      "text": "Figure 1: Exploitability of PF and learned RPF-Net.",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 284,
+      "text": "Figure 2: RPF-Net Pipeline.",
+      "type": "figure",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 285,
+      "text": "Figure 2: RPF-Net Pipeline.",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 286,
+      "text": "Figure 3: Mechanism performance in 2x2 and 10x3 systems (normalized with respect to PF mechanism)",
+      "type": "figure",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 287,
+      "text": "Figure 3: Mechanism performance in 2x2 and 10x3 systems (normalized with respect to PF mechanism)",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 288,
+      "text": ") Here [•] [a,b] for scalar a, b denotes the element-wise projection to the interval [a, b].",
+      "type": "figure",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 289,
+      "text": ") Here [•] [a,b] for scalar a, b denotes the element-wise projection to the interval [a, b].",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 290,
+      "text": "Figure 4: Performance of RPF-Net trained under data containing untruthful report.Numbers normalized by NSW/exploitability/efficiency of PF mechanism.",
+      "type": "figure",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 291,
+      "text": "Figure 4: Performance of RPF-Net trained under data containing untruthful report.Numbers normalized by NSW/exploitability/efficiency of PF mechanism.",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 292,
+      "text": "Figure 5: Allocations from PF (top) and RPF-Net (bottom).",
+      "type": "figure",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 293,
+      "text": "Figure 5: Allocations from PF (top) and RPF-Net (bottom).",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 294,
+      "text": "(Proposed) At least O((M N ) 3 ) At least O((M N )",
+      "type": "figure",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 295,
+      "text": "(Proposed) At least O((M N ) 3 ) At least O((M N )",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 296,
+      "text": "Work . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .Mechanism Has a Non-Zero Exploitability . . . . . . . . . . . . . . . . . . . . . . . . . . . 5 2.2 Learning Approximate Payment-Free Mechanism . . . . . . . . . . . . . . . . . . . . . .Network Design . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .7 3.2 Training RPF-Net . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .8 4 PF Mechanism Exploitability Evaluation & RPF-Net Differentiation 9 4.1 Characterizing Sub-Differentiability of f P F . . . . . . . . . . . . . . . . . . . . . . . . . . . .9 4.2 Composing (Sub)Gradients . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .11 4.3 RPF-Net Differentiation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .Bounds . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .12 5.2 Robustness to Distribution Mismatch . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .System Parameters . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .14 6.2 Distribution Mismatch . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .14 6.3 Visualizing Allocation Under RPF-Net . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .15 6.4 Complexity of Proposed Mechanism in Training and Inference Phase . . . . . . . . . . . . ..1 Definitions & Preliminaries . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25 F.2 Proof of Theorem 2 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .26",
+      "type": "figure",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 297,
+      "text": "Work . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .Mechanism Has a Non-Zero Exploitability . . . . . . . . . . . . . . . . . . . . . . . . . . . 5 2.2 Learning Approximate Payment-Free Mechanism . . . . . . . . . . . . . . . . . . . . . .Network Design . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .7 3.2 Training RPF-Net . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .8 4 PF Mechanism Exploitability Evaluation & RPF-Net Differentiation 9 4.1 Characterizing Sub-Differentiability of f P F . . . . . . . . . . . . . . . . . . . . . . . . . . . .9 4.2 Composing (Sub)Gradients . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .11 4.3 RPF-Net Differentiation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .Bounds . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .12 5.2 Robustness to Distribution Mismatch . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .System Parameters . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .14 6.2 Distribution Mismatch . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .14 6.3 Visualizing Allocation Under RPF-Net . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .15 6.4 Complexity of Proposed Mechanism in Training and Inference Phase . . . . . . . . . . . . ..1 Definitions & Preliminaries . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25 F.2 Proof of Theorem 2 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .26",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 298,
+      "text": "denote their complement sets.Note that for any (i, m) / ∈ I µ , its corresponding row in the second row block of M only has one non-zero entry a ⋆ i,m in the second column block of M .This implies the solution dµ i,m = βi,m a ⋆ i,m .Similarly, for any (i, m) / ∈ I ν Published in Transactions on Machine Learning Research (01/2025)",
+      "type": "figure",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 299,
+      "text": "denote their complement sets.Note that for any (i, m) / ∈ I µ , its corresponding row in the second row block of M only has one non-zero entry a ⋆ i,m in the second column block of M .This implies the solution dµ i,m = βi,m a ⋆ i,m .Similarly, for any (i, m) / ∈ I ν Published in Transactions on Machine Learning Research (01/2025)",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 300,
+      "text": "Using Lemma F.1, the result follows except the characterization of the empirical Rademacher complexity that we derive below.By the definition of the covering number, we have that for any h(y) ∈ NSW • M, there is a ĥ(y) ∈ NSW • M such that max y |h(y) − ĥ(y)| ≤ ϵ.We have the following RL (NSW • M) the covering number for the mechanism class M, there exists a cover M of size | M| ≤ N ∞ (M, ϵ ψ ) such that for any f ω ∈ M there is a f ω ∈ M such that for all y,For g(y) = N i=1 log u ω i (y), we haveg(y) − ĝ(y) = N i=1 log u ω i (y) − log ûω i (y) m min{f ω i,m (y), x i,m } − min{ f ω i,m (y), x i,m } ≤ ψ i m v i,m min{f ω i,m (y), x i,m } − min{ f ω i,m (y), x i,m } ≤ ψ i m v i,m f ω i,m (y) − f ω i,m (y) < ϵ.ii.)We have from Massart's lemma (Lemma F.2Suppose Assumption 1 holds.Let exp i (ω) := E y max y ′ u ω i (y ′ i ) − u ω i (y) and exp i (ωu ω i (y (l) ) .Under the same assumptions as in Theorem 2, the empirical exploitability satisfies the following:",
+      "type": "figure",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 301,
+      "text": "Using Lemma F.1, the result follows except the characterization of the empirical Rademacher complexity that we derive below.By the definition of the covering number, we have that for any h(y) ∈ NSW • M, there is a ĥ(y) ∈ NSW • M such that max y |h(y) − ĥ(y)| ≤ ϵ.We have the following RL (NSW • M) the covering number for the mechanism class M, there exists a cover M of size | M| ≤ N ∞ (M, ϵ ψ ) such that for any f ω ∈ M there is a f ω ∈ M such that for all y,For g(y) = N i=1 log u ω i (y), we haveg(y) − ĝ(y) = N i=1 log u ω i (y) − log ûω i (y) m min{f ω i,m (y), x i,m } − min{ f ω i,m (y), x i,m } ≤ ψ i m v i,m min{f ω i,m (y), x i,m } − min{ f ω i,m (y), x i,m } ≤ ψ i m v i,m f ω i,m (y) − f ω i,m (y) < ϵ.ii.)We have from Massart's lemma (Lemma F.2Suppose Assumption 1 holds.Let exp i (ω) := E y max y ′ u ω i (y ′ i ) − u ω i (y) and exp i (ωu ω i (y (l) ) .Under the same assumptions as in Theorem 2, the empirical exploitability satisfies the following:",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 302,
+      "text": "m min{f ω i,m (y), x i,m } − min{ f ω i,m (y), x i,m } ≤ i m v i,m min{f ω i,m (y), x i,m } − min{ f ω i,m (y), x i,m } ≤ i m v i,m f ω i,m (y) − f ω i,m (y) < ϵ.",
+      "type": "figure",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 303,
+      "text": "m min{f ω i,m (y), x i,m } − min{ f ω i,m (y), x i,m } ≤ i m v i,m min{f ω i,m (y), x i,m } − min{ f ω i,m (y), x i,m } ≤ i m v i,m f ω i,m (y) − f ω i,m (y) < ϵ.",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 304,
+      "text": "the definitions of ∆'s with the activation having a Lipschitz constant of Φ, and the hidden layers having a Lipschitz constant of 1, and with d = max{K, M N } in Corollary F.4.1, we have from Proposition 2 and Proposition 3 that the following holds with probability at least 1 − δmax{ε logNSW (f ω , L), ε exp,i (f ω , L)} ≤ O ψNRd log(LN ΩΦ max{K, M N })",
+      "type": "figure",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 305,
+      "text": "the definitions of ∆'s with the activation having a Lipschitz constant of Φ, and the hidden layers having a Lipschitz constant of 1, and with d = max{K, M N } in Corollary F.4.1, we have from Proposition 2 and Proposition 3 that the following holds with probability at least 1 − δmax{ε logNSW (f ω , L), ε exp,i (f ω , L)} ≤ O ψNRd log(LN ΩΦ max{K, M N })",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 306,
+      "text": "x,b)∼F [expl i(f, v, x, b)]Published in Transactions on Machine Learning Research (01/2025) = E (v,x,b)∼F ′ [expl i (f, v, x, b)] + E (v,x,b)∼F [expl i (f, v, x, b)] − E (v,x,b)∼F ′ [expl i (f, v, x, b)] ≤ ϵ + expl i (f, v, x, b) (p F ′ (v, x, b) − p F (v, x, b)) dv dx db ≤ ϵ + | expl i (f, v, x, b)| |p F (v, x, b) − p F ′ (v, x, b)| dv dx db ≤ ϵ + M v x |p F (v, x, b) − p F ′ (v, x, b)| dv dx db = ϵ + 2M v xd T V (F, F ′ ),",
+      "type": "figure",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 307,
+      "text": "x,b)∼F [expl i(f, v, x, b)]Published in Transactions on Machine Learning Research (01/2025) = E (v,x,b)∼F ′ [expl i (f, v, x, b)] + E (v,x,b)∼F [expl i (f, v, x, b)] − E (v,x,b)∼F ′ [expl i (f, v, x, b)] ≤ ϵ + expl i (f, v, x, b) (p F ′ (v, x, b) − p F (v, x, b)) dv dx db ≤ ϵ + | expl i (f, v, x, b)| |p F (v, x, b) − p F ′ (v, x, b)| dv dx db ≤ ϵ + M v x |p F (v, x, b) − p F ′ (v, x, b)| dv dx db = ϵ + 2M v xd T V (F, F ′ ),",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 308,
+      "text": "Performance of RPF-Net trained under data containing untruthful report.Mean and standard deviation reported.",
+      "type": "figure",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 309,
+      "text": "Performance of RPF-Net trained under data containing untruthful report.Mean and standard deviation reported.",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 310,
+      "text": "Training and inference time for a ten-agent three-resource problem with samples generated according to (17).Reported training time and inference time of all mechanisms are normalized with respect to those of ExS-Net.",
+      "type": "figure",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 311,
+      "text": "Training and inference time for a ten-agent three-resource problem with samples generated according to (17).Reported training time and inference time of all mechanisms are normalized with respect to those of ExS-Net.",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 312,
+      "text": "N ∞ (exp • U, ϵ) ≤ N ∞ (U, ϵ 2N).The result following by considering a cover N ∞ (U, ϵ",
+      "type": "figure",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 313,
+      "text": "N ∞ (exp • U, ϵ) ≤ N ∞ (U, ϵ 2N).The result following by considering a cover N ∞ (U, ϵ",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 314,
+      "text": "i ∈ Ûi with max ′ i ) − max y ′ i ûω i (y ′ i )| + |u ω i (y) − ûω i (y)| ≤ ϵ.where the last inequality follows from the following relation.maxȳi u ω i (ȳ i ) = u ω i (y * ) ≤ ûω i (y * ) + ϵ/2 ≤ ûω i (ȳ * ) + ϵ/2 ≤ max ȳ ûω i (ȳ) + ϵ, max yi ûω i (y i ) = ûω i (y * )",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 274,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 315,
+      "text": "References",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "references"
+    },
+    {
+      "unit_id": 316,
+      "text": "Differentiable convex optimization layers. Akshay Agrawal, Brandon Amos, Shane Barratt, Stephen Boyd, Steven Diamond, J Zico Kolter, Advances in neural information processing systems. 201932",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 317,
+      "text": "Fair share: Allocation of gpu resources for both performance and fairness. Paula Aguilera, Katherine Morrow, Nam Sung Kim, 2014 IEEE 32nd International Conference on Computer Design (ICCD). IEEE2014",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 318,
+      "text": "Optnet: Differentiable optimization as a layer in neural networks. Brandon Amos, Kolter Zico, International Conference on Machine Learning. PMLR2017",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 319,
+      "text": "Multiagent mechanism design without money. Huseyin Santiago R Balseiro, Peng Gurkan, Sun, Operations Research. 6752019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 320,
+      "text": "The price of fairness. Dimitris Bertsimas, F Vivek, Nikolaos Farias, Trichakis, Operations research. 5912011",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 321,
+      "text": "Complexity of efficient and envy-free resource allocation: Few agents, resources, or utility levels. Bernhard Bliem, Robert Bredereck, Rolf Niedermeier, IJCAI. 2016",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 322,
+      "text": "Q-learning for risk-sensitive control. S Vivek, Borkar, Mathematics of operations research. 200227",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 323,
+      "text": "Nash social welfare approximation for strategic agents. Simina Brânzei, Vasilis Gkatzelis, Ruta Mehta, Operations Research. 7012022",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 324,
+      "text": "An algorithmic characterization of multidimensional mechanisms. Yang Cai, Constantinos Daskalakis, Matthew Weinberg, Proceedings of the forty-fourth annual ACM symposium on Theory of computing. the forty-fourth annual ACM symposium on Theory of computing2012a",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 325,
+      "text": "Optimal multi-dimensional mechanism design: Reducing revenue to welfare maximization. Yang Cai, Constantinos Daskalakis, Matthew Weinberg, 2012 IEEE 53rd Annual Symposium on Foundations of Computer Science. IEEE2012b",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 326,
+      "text": "Franklin Camacho, Rigoberto Fonseca-Delgado, Ramón Pino Pérez, Guido Tapia, arXiv:2109.08461Beyond identical utilities: buyer utility functions and fair allocations. 2021arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 327,
+      "text": "The unreasonable fairness of maximum nash welfare. Ioannis Caragiannis, David Kurokawa, Hervé Moulin, Ariel D Procaccia, Nisarg Shah, Junxing Wang, ACM Transactions on Economics and Computation (TEAC). 732019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 328,
+      "text": "On the use of the cauchy distribution to describe price fluctuations in r&d and other forms of real assets. Sébastein Casault, Aard J Groen, Jonathan D Linton, 8th ESU Conference on Entrepreneurship. 2011. 2011Universidad de Sevilla",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 329,
+      "text": "Multi-parameter mechanism design and sequential posted pricing. Shuchi Chawla, Jason D Hartline, David L Malec, Balasubramanian Sivan, Proceedings of the forty-second ACM symposium on Theory of computing. the forty-second ACM symposium on Theory of computing2010",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 330,
+      "text": "Learning strategy-aware linear classifiers. Yiling Chen, Yang Liu, Chara Podimata, Advances in Neural Information Processing Systems. 202033",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 331,
+      "text": ". Chevaleyre, Dunne, Endriss, Lang, Lemaître, Maudet, Padget, J A Phelps, Rodriguez-Aguilar, Sousa, Issues in multiagent resource allocation. Informatica. 3012006",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 332,
+      "text": "Public choice. Clarke Edward, Multipart pricing of public goods. 1971",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 333,
+      "text": "Mechanism design for fair division: allocating divisible items without payments. Richard Cole, Vasilis Gkatzelis, Gagan Goel, Proceedings of the fourteenth ACM conference on Electronic commerce. the fourteenth ACM conference on Electronic commerce2013",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 334,
+      "text": "Learning revenue-maximizing auctions with differentiable matching. J Michael, Uro Curry, Tom Lyi, John P Goldstein, Dickerson, International Conference on Artificial Intelligence and Statistics. PMLR2022",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 335,
+      "text": "Incentive compatible regression learning. Ofer Dekel, Felix Fischer, Ariel D Procaccia, Journal of Computer and System Sciences. 7682010",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 336,
+      "text": "Optimal auctions through deep learning: Advances in differentiable economics. Paul Dütting, Zhe Feng, Harikrishna Narasimhan, David C Parkes, Sai Srivatsa Ravindranath, Journal of the ACM. 2023",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 337,
+      "text": "Duality and optimality of auctions for uniform distributions. Yiannis Giannakopoulos, Elias Koutsoupias, Proceedings of the fifteenth ACM conference on Economics and computation. the fifteenth ACM conference on Economics and computation2014",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 338,
+      "text": "Exploitability minimization in games and beyond. Denizalp Goktas, Amy Greenwald, Advances in Neural Information Processing Systems. 202235",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 339,
+      "text": "Mingyu Guo and Vincent Conitzer. Strategy-proof allocation of multiple items between two agents without payments or priors. Theodore Groves, AAMAS. 1973. 2010Incentives in teams",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 340,
+      "text": "On strategy-proof allocation without payments or priors. Li Han, Chunzhi Su, Linpeng Tang, Hongyang Zhang, Internet and Network Economics. Ning Chen, Edith Elkind, Elias Koutsoupias, Berlin, Heidelberg; Berlin HeidelbergSpringer2011",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 341,
+      "text": "Optimal mechanism design and money burning. Jason D Hartline, Tim Roughgarden, Proceedings of the fortieth annual ACM symposium on Theory of computing. the fortieth annual ACM symposium on Theory of computing2008",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 342,
+      "text": "The design of mechanisms for resource allocation. Leonid Hurwicz, The American Economic Review. 6321973",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 343,
+      "text": "Resource allocation algorithm for gpus in a private cloud. Ahmed Hosny, Ibrahim , Hossam El-Deen, Mostafa Faheem, Youssef Bassyouni Mahdy, Abdel-Rahman Hedar, International Journal of Cloud Computing. 51-22016",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 344,
+      "text": "Optimal-er auctions through attention. Dmitry Ivanov, Iskander Safiulin, Igor Filippov, Ksenia Balabaeva, Advances in Neural Information Processing Systems. 202235",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 345,
+      "text": "Strategy-proof multi-object mechanism design: Ex-post revenue maximization with non-quasilinear preferences. Tomoya Kazumura, Debasis Mishra, Shigehiro Serizawa, Journal of Economic Theory. 1881050362020Published in Transactions on Machine Learning Research (01/2025",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 346,
+      "text": "Charging and rate control for elastic traffic. Frank Kelly, European transactions on Telecommunications. 811997",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 347,
+      "text": "Resource allocation neural network in portfolio selection. Po- , Chang Ko, Ping-Chen Lin, Expert Systems with Applications. 351-22008",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 348,
+      "text": "Multidimensional mechanism design: Revenue maximization and the multiple-good monopoly. Alejandro M Manelli, Daniel R Vincent, Journal of Economic theory. 13712007",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 349,
+      "text": "Shiva Navabi and Ashutosh Nayyar. Revenue-optimal mechanism design for rate-differentiated energy services. Roger B Myerson, 2018 IEEE Conference on Decision and Control (CDC). IEEE1981. 20186Mathematics of operations research",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 350,
+      "text": "Mechanism design without money for fair allocations. Manisha Padala, Sujit Gujar, IEEE/WIC/ACM International Conference on Web Intelligence and Intelligent Agent Technology. 2021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 351,
+      "text": "Flash crashes: The role of information processing based subordination and the cauchy distribution in market instability. Edgar Parker, Journal of Insurance and Financial Management. 272016",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 352,
+      "text": "Optimal mechanism for selling two goods. Gregory Pavlov, The BE Journal of Theoretical Economics. 11100001022021935170416642011",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 353,
+      "text": "Approximate mechanism design without money. D Ariel, Moshe Procaccia, Tennenholtz, ACM Transactions on Economics and Computation (TEAC). 142013",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 354,
+      "text": "Srivatsa Sai, Zhe Ravindranath, Shira Feng, Jonathan Li, Scott D Ma, David C Kominers, Parkes, arXiv:2107.03427Deep learning for two-sided matching. 2021arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 355,
+      "text": "A polynomial-time algorithm, based on newton's method, for linear programming. Mathematical programming. James Renegar, 198840",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 356,
+      "text": "Understanding machine learning: From theory to algorithms. Tim Roughgarden, Communications of the ACM. Shai Shalev-Shwartz and Shai Ben-David5372010. 2014Cambridge university pressAlgorithmic game theory",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 357,
+      "text": "Matching, allocation, and exchange of discrete resources. Tayfun Sönmez, Ünver Utku, Handbook of social Economics. Elsevier20111",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 358,
+      "text": "Counterspeculation, auctions, and competitive sealed tenders. William Vickrey, The Journal of finance. 1611961",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 359,
+      "text": "An n-to-1 bidder reduction for multi-item auctions and its applications. Chi-Chih Andrew, Yao, Proceedings of the twenty-sixth annual ACM-SIAM symposium on Discrete algorithms. the twenty-sixth annual ACM-SIAM symposium on Discrete algorithmsSIAM2014",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 360,
+      "text": "Learning payment-free resource allocation mechanisms. Sihan Zeng, Sujay Bhatt, Eleonora Kreacic, Parisa Hassanzadeh, Alec Koppel, Sumitra Ganesh, arXiv:2311.109272024arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 361,
+      "text": "Essentials of robust control. Kemin Zhou, John Comstock, Doyle , 1998Prentice hall Upper104Saddle River, NJ",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 315,
+      "subtype": "bibentry"
+    }
+  ]
+}

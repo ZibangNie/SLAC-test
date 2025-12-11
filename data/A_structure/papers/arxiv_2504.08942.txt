@@ -1,0 +1,383 @@
+AGENTREWARDBENCH: Evaluating Automatic Evaluations of Web Agent Trajectories
+11 Apr 2025
+
+Xing Han Lù 
+McGill University
+2 Mila Quebec AI Institute 4 Google DeepMind 5 Canada CIFAR AI Chair 6 Polytechnique Montréal
+
+Amirhossein Kazemnejad 
+Nicholas Meade 
+McGill University
+2 Mila Quebec AI Institute 4 Google DeepMind 5 Canada CIFAR AI Chair 6 Polytechnique Montréal
+
+Arkil Patel 
+McGill University
+2 Mila Quebec AI Institute 4 Google DeepMind 5 Canada CIFAR AI Chair 6 Polytechnique Montréal
+
+Dongchan Shin 
+Alejandra Zambrano 
+Karolina Sta 
+McGill University
+2 Mila Quebec AI Institute 4 Google DeepMind 5 Canada CIFAR AI Chair 6 Polytechnique Montréal
+
+Peter Shaw 
+Christopher J Pal 
+ServiceNow Research
+
+
+Siva Reddy siva.reddy@mila.quebec 
+McGill University
+2 Mila Quebec AI Institute 4 Google DeepMind 5 Canada CIFAR AI Chair 6 Polytechnique Montréal
+
+ServiceNow Research
+
+
+AGENTREWARDBENCH: Evaluating Automatic Evaluations of Web Agent Trajectories
+11 Apr 2025DD99C3726CFA862895C8F1CB4294C4A0arXiv:2504.08942v1[cs.LG]
+Web agents enable users to perform tasks on web browsers through natural language interaction.Evaluating web agents trajectories is an important problem, since it helps us determine whether the agent successfully completed the tasks.Rule-based methods are widely used for this purpose, but they are challenging to extend to new tasks and may not always recognize successful trajectories.We may achieve higher accuracy through human evaluation, but the process would be substantially slower and more expensive.Automatic evaluations with LLMs may avoid the challenges of designing new rules and manually annotating trajectories, enabling faster and cost-effective evaluation.However, it is unclear how effective they are at evaluating web agents.To this end, we propose AGENTREWARD-BENCH, the first benchmark to assess the effectiveness of LLM judges for evaluating web agents.AGENTREWARDBENCH contains 1302 trajectories across 5 benchmarks and 4 LLMs.Each trajectory in AGENTREWARD-BENCH is reviewed by an expert, who answers questions pertaining to the success, side effects, and repetitiveness of the agent.Using our benchmark, we evaluate 12 LLM judges and find that no single LLM excels across all benchmarks.We also find that the rule-based evaluation used by common benchmarks tends to underreport the success rate of web agents, highlighting a key weakness of rule-based evaluation and the need to develop more flexible automatic evaluations.We release the benchmark at: https://agent-reward-bench.github.io
+
+Introduction
+
+Giving a Large Language Model (LLM) access to a web browser unlocks an entirely new capability paradigm: beyond interacting with a user through a chat interface, such models can interact with the online world to complete tasks similar to how a human would.The promise of a new paradigm has motivated the design of LLMs to control interfaces such as web browsers, starting from earlier foundation models such as ACT-1 (Adept, 2022) to the more recent OpenAI Operator (OpenAI, 2025) and Claude Computer use (Anthropic, 2024a), showing promising results in real-world tasks (Zhou et al., 2024).
+
+To measure the progress of web agents, a well-designed benchmark should compile a collection of realistic tasks across diverse websites.As illustrated in Figure 1, a user may ask the agent to locate a Classifieds listing for a Google Pixel phone and submit an offer via a comment.Inside a dedicated environment (e.g., a self-hosted Classifieds site), the web agent would complete the task by filling the search bar, identifying the correct listing, and writing a comment to show interest in purchasing the item.To determine if the agent successfully completed the request, we need to automatically evaluate the agent's chosen actions -known as trajectories -using a set of rules uniquely designed for the task of finding a Pixel phone on Classifieds.As expected, rule-based evaluation is time-consuming for experts to design, and may not cover every successful scenario (e.g., what if the agent finds a different but valid listing?).It is also possible for an expert to annotate the trajectories, but it would be slow and expensive to scale across many web agents.This brings us to the following questions: Given a web agent trajectory, can an LLM decide if it is successful?If so, how do we determine which LLM is the most capable at evaluating web agents?
+
+Past works have shown that LLMs can be used as judges to evaluate the output of LLM chatbots (Zheng et al., 2023).More recently, LLM judges have been used for automatically evaluating trajectories from web agents (Pan et al., 2024;Murty et al., 2025;Trabucco et al., 2025).With highly accurate automatic evaluation methods, we can measure the progress of web agents on new sets of tasks, use them to synthesize trajectories for finetuning smaller models, and design reward models that can be used in a reinforcement learning (RL) setting.However, it remains unclear whether current automatic evaluators, whether rule-based or LLM-based, can predict the success of a trajectory in a way that reflects expert judgment.
+
+To address this problem, we introduce AGENTREWARDBENCH ( §3), a benchmark for determining the capability of an LLM at evaluating web agents (see Figure 1).It consists of 1300 trajectories produced by 4 popular LLM agents on 5 diverse web environments, ranging from common tasks like online shopping and posting on a forum, to highly specialized requests in professional environments, such as updating task schedules on IT task management platforms.Each trajectory is labeled by expert annotators to determine whether the agent successfully completed the task, caused unintended side effects, or entered cycles of repetitive actions.Using this benchmark, we evaluate both existing and novel LLM judges ( §4) alongside rule-based evaluation.We find that rule-based methods, which are used as the official automatic evaluation by environment-based benchmarks, severely underestimate the capabilities of agents and do not reflect how experts define success ( §5).We further provide an in-depth analysis ( §6) that highlights the weaknesses of existing LLMs when used as judges.Overall, we believe AGENTREWARDBENCH can be used to enable better automatic evaluation and reward modeling for web agents.
+
+
+Related Works
+
+Web Agents and Environments Designing agents that can automatically navigate user interfaces has been a long standing problem; earlier approaches employed program-based heuristics (St. Amant & Zettlemoyer, 2000), whereas later works on web navigation focus on training reinforcement learning (RL) models (Gur et al., 2018;Humphreys et al., 2022), language models (Nakano et al., 2021;Gur et al., 2023;Deng et al., 2023) and multimodal models (Shaw et al., 2023;Lù et al., 2024;Zheng et al., 2024).To measure the advancements in web agents, various benchmarks have been proposed, with initial works proposing simplified environments (Shi et al., 2017;Liu et al., 2018) and subsequent iterations focusing on specific tasks like web shopping (Yao et al., 2022).More recent benchmarks focus on designing realistic environments that cover commonly used websites (Zhou et al., 2024;Koh et al., 2024) as well as specialized environments (Drouin et al., 2024;Boisvert et al., 2025).
+
+LLM Judges Zheng et al. (2023) proposed using LLMs to predict human preferences of dialogue completion for chat models.They show that a GPT-4-based judge achieves over 80% agreement with human votes on the task of selecting better completions between models pairs.He et al. (2024) extend the idea by using LLMs to judge trajectories from web agents, allowing them to determine task completion without human annotators, resulting in a high correlation with humans on a private subset of trajectories.To determine the quality of automatic judgments, Pan et al. (2024) evaluate four LLM judges using trajectories from a GPT-4 agent on WebArena tasks, and find that the best judge achieves 80.6% accuracy against the rule-based evaluator from WebArena.Unlike prior works on LLM judges, we design AGENTREWARDBENCH with trajectories from several LLM agents on diverse web benchmarks, where each one is annotated by human experts on multiple dimensions.By following a human-focused approach similar to Lambert et al. (2024), we ensure that LLM judges are evaluated against expert preferences on a wide range of scenarios.
+
+Trajectory Synthesis Leveraging web environments that can be created and reset without real-world impact, recent works started to explore generating trajectories without human supervision.Leveraging LLM judges and LLM-generated tasks, trajectory synthesis can be used to bootstrap agent-judge training loops (Murty et al., 2024;2025), to create contrastive pairs (Putta et al., 2024) for direct preference optimization (Rafailov et al., 2023), or as training data to finetune a base model (Lai et al., 2024;Patel et al., 2024;Trabucco et al., 2025).Although all the methods leverage an LLM judge, they lack a clear way of directly determining the quality of judgments, instead relying on the downstream performance improvement to validate their approach.To this end, AGENTREWARDBENCH enables researchers to choose the most appropriate LLM judge for a category of web tasks based on their effectiveness at evaluating web agents.
+
+
+AGENTREWARDBENCH
+
+In this work, we introduce AGENTREWARDBENCH, a benchmark designed to assess the capabilities of LLM judges for evaluating web agents ( §3.1).We curate 5 diverse web environments and tasks ( §3.2) in order to collect trajectories from web agents based on 4 LLMs ( §3.3).For each trajectory, a team of expert annotators carefully reviews the screenshots, actions, and the agent's reasoning chains before labeling them as either successful or unsuccessful, alongside other auxiliary labels (see Figure 2).Finally, we evaluate LLM judges (Table 1) by comparing their predictions with expert annotations to determine their effectiveness for automatic evaluation.
+
+
+Assessment Framework
+
+Trajectory Definition Let o i be an observation of a browser at time step i, a i be an action that can be executed on a webpage through a browser navigation engine B such that o i+1 = B(o i , a i ), and r i be the reasoning for choosing the action.We define a web agent trajectory as the sequence T = {o 1 , (r 1 , a 1 ), o 2 , (r 2 , a 2 ), . . ., o n−1 , (r n−1 , a n−1 ), o n } where o n is the final observation in the trajectory.Each observation contains a screenshot of the browser s i , the Document Object Model (DOM) tree representation of the browser, and an accessibility (A11Y) tree rendered from the DOM tree.For the observation to be useful for an LLM agent, we need a representation function R that produces p i = R(o 1 , r 1 , a 1 , . . ., o i ), which can be used as an input for an LLM.If the agent is multimodal, o i would include screenshots; otherwise, it would be a textual representation of the page (e.g., accessibility tree).Then, p i is given to a language model to produce a completion c i c i = VLM(p i , s i ) in the case of a multimodal LLM.The completion is parsed by an execution function E to produce (a i , r i ) = E(c i ).
+
+Annotation Design For each trajectory, an expert annotator reviews a goal g and sequence {s 1 , (r 1 , a 1 ), . . ., s n−1 , (r n−1 , a n−1 ), s n } in order to answer questions Q = {q 1 , . . ., q m }.We consider the answers produced, A * = {a * 1 , . . ., a * m }, as the ground truth annotations for the trajectory, which indicate whether the agent successfully completed g.To collect A * , we use the following Q in the annotation guidelines:
+
+1. Success: Was the sequence of actions successful in achieving the goal? 2. Side Effect: Did the agent perform unnecessary actions that could lead to unintended side effects?3. Repetition Cycle: Did the agent loop through a sequence of actions that did not make progress towards the goal?
+
+Agreement with respect to success is the primary criterion with which we evaluate LLM judges.The remaining can be useful as auxiliary criteria for detecting issues ahead of time.
+
+For example, if an agent purchases several irrelevant products when the user only requested one, then the trajectory would be flagged for side effects, independent of task success.A judge can also indicate the presence of a cycle, for example, if the agent repeatedly clicks on a disabled button.Both signals can be used to penalize the agent during training or steer it to another action at inference.
+
+
+Annotation Setup
+
+The team of annotators consisted of 6 experts with a deep understanding of the tasks and environments through their research on web agents.They used a custombuilt user interface that displays each trajectory with screenshots, actions, and reasoning.Rating disagreements were resolved by annotators discussing among themselves until clear annotations can be produced for ambiguous trajectories.Moreover, the annotators also have access to the environment and accessibility trees when screenshots are insufficient.
+
+Judge Model Given a goal g, trajectory T and questions Q, a judge model returns a judgment Â, which is an estimate of A * .We can use Â to derive a reward in RL or to automatically evaluate web agents when A * is unavailable.To implement the judge, we need a judgespecific function R j that produces a representation of the trajectory, p = R j (o 1 , r 1 , a 1 , . . ., o n ).R j = can vary substantially, ranging from a simple list of actions a 1 , . . ., a n−1 , to using another LLM to process the observation history.We describe judges used in previous works and introduce a simplified judge in Section 4 and provide supplementary details in Appendix A.3.
+
+
+Tasks and Environments
+
+We select 5 benchmarks designed to evaluate web agents inside dedicated environments and real websites, including general-purpose (Zhou et al., 2024), vision-focused (Koh et al., 2024), real-world (Yoran et al., 2024), and enterprise-oriented (Drouin et al., 2024;Boisvert et al., 2025)  To increase the diversity of tasks relevant to professional environments, we incorporate WorkArena (Boisvert et al., 2025), a benchmark of 18 basic tasks on ServiceNow,1 a softwareas-a-service platform for professional workflows in the information technology (IT), human resources, and customer management domains.WorkArena++ introduces tasks with greater complexity, requiring planning and reasoning to correctly complete multiple sub-tasks.Including this alongside WorkArena allows us to evaluate judges on a wider range of task difficulty.We focus on the Level 2 tasks since Level 3 is too challenging for current agents.
+
+
+Web Agents Design
+
+To collect trajectories on the 5 benchmarks, we design web agents using two models from major commercial providers and two open-weight LLMs.
+
+LLM backbones On the commercial side, we use OpenAI's GPT-4o2 (Hurst et al., 2024) and Anthropic's Claude 3.7 Sonnet (Anthropic, 2024b).They are the flagship models of their respective providers, both of which offer computer-use agents powered by their LLMs, namely OpenAI Operator (OpenAI, 2025) and Anthropic Claude's Computer use (Anthropic, 2024a).We select two leading open-weights LLMs to complement the commercial LLMs: Llama-3.3-70B(Grattafiori et al., 2024) and Qwen2.5-VL(Bai et al., 2025).In both cases, we choose the instruction-tuned variant, which have undergone post-training for tool-use or UI navigation.Moreover, since Llama-3.3 is a text-only model, it was excluded from VisualWebArena, which requires image-based reasoning.
+
+Agent Platform By default, each LLM backbone receives an input processed by a representation function R and generates a completion c i .Then, c i is interpreted as an action by an execution function E.
+
+To implement E, we use AgentLab and BrowserGym (Chezelles et al., 2025), an ecosystem for designing web agents using LLMs (details in Appendix A.1).
+
+
+Trajectory Annotations and Splits
+
+We collect a total of 1302 trajectories from our 4 LLMbased web agents across five benchmarks.Based on the task split ( §3.2), 196 trajectories are in the development split and 1106 are in the test split (details in A.2).The annotators follow the process described in Section 3.1 to label all trajectories, producing a total of 3906 binary annotations.To assess agreement between annotators, we annotated the GPT-4o agent's trajectory on WebArena with a second annotator.We obtained an inter-annotator agreement of 89.3% on success, indicating a high level of consistency among annotators.
+
+
+LLM judges for web tasks
+
+
+Judge implementations
+
+We consider two existing implementations of LLM judges for web agents, Agent Eval Refine (AER; Pan et al. 2024) and NNetNav (Murty et al., 2025), and introduce a simplified judge that simultaneously predicts success, side effects, and repetition.Other LLM judge variants were proposed (He et al., 2024;Putta et al., 2024;Lai et al., 2024;Trabucco et al., 2025), but our three judge implementations cover major strategies for representing trajectories.
+
+
+AER (Pan et al., 2024)
+
+The judge in this framework takes as input the sequence of agent thoughts and actions alongside the final browser state, which is either passed to a visionenabled model as a screenshot (AER-V) or as a caption generated by a captioner model (AER-C).Then, the judge outputs its reasoning before predicting success or failure.For both the judge and captioner, we implement this method using GPT-4o, which is an overall stronger model than the GPT-4 (Achiam et al., 2023) model originally used.
+
+
+NNetNav (Murty et al., 2025)
+
+In this work, a Llama 3.1 70B judge receives a summary of changes across all observations and has to give a rating between 1 (worst) and 5 (best) after providing the thought process; the rating is binarized by thresholding at 4, based on the original implementation.To generate summaries, an LLM is used to describe the change between two observations based on the accessibility trees instead of screenshots.We use Llama 3.3 70B (Al-Dahle, 2024), an improved version of the original backbone.
+
+
+Simplified judge (ours)
+
+We propose a simplified design for our judge.First, it directly answers the three questions asked to the annotators.This allows it to return multiple labels within a single completion.Then, we decouple the system prompt and reasoning chain from the final state representation, allowing the judge to receive either the accessibility tree or the screenshot.This differs from AER, which requires a vision-enabled model, and NNetNav, which requires a long-context model capable of receiving multiple accessibility trees.Our method is compatible with both multimodal and text-only LLMs and does not require a separate LLM to caption the screenshot or summarize changes across observations.
+
+
+Evaluation
+
+To evaluate LLM judges, we use the precision score, which is the ratio of true positives over all predicted positives (true + false positives).The metric is a good fit for rejection finetuning (RFT), where we are interested in increasing the number of true positives (actual successful Table 2: Ablation study of our GPT-4o mini judge, measured in precision (P), recall (R), and F1.We consider how including accessibility trees and screenshots in the input affects the predictions.
+
+trajectories) while reducing the number of false positives (failed trajectories added to the dataset due to poor LLM judgments).For reward modeling, we also want to prioritize true positives since they are the primary signals for many RL algorithms, while false positives should be minimized to avoid introducing noise to the loss function.Moreover, recall and F1 benefit from minimizing false negatives, which is useful for improving sample efficiency by reducing the number of valid trajectories removed; we report them as auxiliary metrics.
+
+
+Judge Performance
+
+In Table 1, we provide an overview of the performance of judges across benchmarks using the metrics defined in Section 4.2.We find that GPT-4o and Claude 3.7 Sonnet-based simplified judges achieve higher precision compared to prior approaches, indicating that removing the internal LLMs for captioning or summarizing changes does not hinder their capabilities.Notably, no judge consistently stands out across benchmarks, highlighting the importance of selecting an appropriate LLM backbone based on the nature of the task.
+
+
+Low precision limits existing judges
+
+We notice that no judge achieves above 70% precision, which means that 30% of trajectories are erroneously marked as successful.This severely limits the usefulness of the judges for downstream applications, such as using the filtered trajectories for finetuning an agent, as the agent will learn to generate incorrect trajectories for a substantial portion of the tasks.This indicates LLM judges are currently not a reliable way of assessing the true capabilities of agents.Consequently, judges will need to achieve higher precision before they are useful for automatic evaluation, which also affects their downstream utility for methods like RFT and RL.
+
+Official rule-based evaluation underestimates success Similar to LLM judges, the rulebased evaluation used by benchmarks can be compared with expert annotations.Since they use task-specific configurations to determine success, they may reject successful trajectories due to inconsequential differences.For instance, in WebArena, if a user asks "What's the closest national park to the largest city in Maine?", the agent may reply: "The closest national park to Portland [...] is Acadia National Park".Rule-based evaluation considers it unsuccessful since the configuration requires it to exactly match "Acadia National Park".As a result, the rule-based approach achieves a recall of 55.9%, indicating a higher rate of false negatives compared to LLM judges.Overall, a substantial precision gap exists between rulebased methods and LLM judges, but rule-based methods severely underestimate the true performance of web agents, highlighting the need for more flexible automatic evaluation.
+
+
+Impact of Input Representation
+
+Browser screenshots represent an intuitive state for humans, but LLMs may need more than vision alone, as screenshots miss page structure and hidden attributes found in accessibility trees.To investigate the impact of different representations, we ablate our GPT-4o-mini simplified judge in Table 2.We observe that only including screenshots achieves a high precision for success and repetition, whereas only including accessibility trees allows higher recall.Surprisingly, including both accessibility trees and screenshots yields a lower performance than including only the screenshot, indicating that more information distracts rather than assists the judge.Table 3: Success Rate of web agents measured by expert annotators, GPT-4o Judge (with accessibility tree) and rule-based evaluation on various benchmarks ( §3.2). Results by environment are in Table 6.
+
+
+Revisiting how we evaluate task success rate
+
+One of the core applications of LLM judges is to estimate the success rate on a web navigation benchmark, which is useful in scenarios where there are no dedicated functions to calculate the rule-based success rate, which is the standard evaluation for many web agent benchmarks.However, rule-based approaches may not always agree with experts.
+
+In Table 3, we compare the success rate calculated from expert annotations, rule-based evaluation, and a GPT-4o judge with accessibility trees.
+
+Rule-based evaluation does not reflect expert-defined success rates We notice a stark difference between the judge and rule-based approach: whereas the LLM judge tends to overestimate the success rate of every agent (with two exceptions in WorkArena++), rule-based methods consistently underestimate it.Moreover, the underestimation varies substantially, with the performance of GPT-4o being 16.7% lower on WebArena and 18.5% lower on VWA compared to expert annotations.This highlights a major discrepancy between the official task success rate reported by rule-based methods and the success rate according to expert annotators.For instance, rule-based evaluation ranks Qwen2.5-VLabove GPT-4o on WebArena and WorkArena++ (and equally on VWA), whereas expert annotators prefer GPT-4o over Qwen2.5-VL on all benchmarks, with over 14% higher success rate on VWA.Overall, this stresses the need to develop new methods to calculate task success rate that more precisely reflect expert judgments.
+
+
+Error Analysis
+
+In this section, we qualitatively examine failure cases of LLM judges.Following a GPT-4o judge, we focus on the common error categories to understand how LLM judges fail.
+
+Grounding mismatch When an agent misunderstands what is happening on the screen, its thought process may not reflect the reality of the webpage.In such cases, a judge without access to the screenshots may produce an erroneous judgment due to the agent misunderstanding what is happening on the screen.For example, when a user requests to show "the product page for the item in the second row, second column," the Qwen2.5-VLagent ends up selecting the second item in the first row.However, it writes in its reasoning chain that "Based on the layout of the page, the second row, second column item is the [energy Drink]."The judge accepts the agent's thought process without realizing it opened the wrong page: "The agent's goal was to navigate to the product page for the item in the second row, second column.The agent successfully reached the correct product page."
+
+Misleading agent reasoning The agent may have misleading elements in its reasoning, leading the judge to reason that the agent completed the task correctly.In a multi-step WorkArena++ task, the user requested the agent to apply a search filter to include a unique ID.After several unsuccessful attempts, the agent ended up stating it succeeded in its reasoning chain, even though no filter was applied.The judge was misled by the agent and wrote in its own reasoning chain that "The agent successfully [...] applied the filter to extract entries..." before incorrectly indicating that the trajectory was successful.
+
+
+Missed instruction details
+
+In some cases, the agent does not complete the task completely, missing crucial details from the instruction (see Figure 3).For example, when the user re- quests to "buy the cheapest cereal with a graphic character on the box in the Cereals category," the agent finds the correct product and informs the customer: "I've found the cheapest cereal with a graphic character on the box.It's Cocoa Puffs, 10.4 Oz Box..." However, it missed a crucial detail: the user requested that they buy the product.Unfortunately, the judge mistakenly believes that the agent completed a purchase: "The agent successfully identified and purchased the cheapest cereal with a graphic character on the box..."
+
+
+Misunderstanding action intents
+
+We found that the agent may misuse certain actions, leading to the trajectory to fail very close to completion.In such cases, the LLM judge may incorrectly decide that the trajectory is successful and ignore the misused action.In one instance where the goal was to answer "What is the minimum travel time by car from Animal Rescue League of Pittsburgh to Schenley park?," the Qwen2.5-VLagent completes all required actions, but ends up reporting the task as unfeasible instead of replying to the user.The GPT-4o judge (with screenshot) correctly reasons that the travel time was shown on the screen, but does not point out that reporting the task as unfeasible is incorrect, instead asserting that "all actions were confined to the task of finding the travel time."
+
+Overall, current LLM judges are limited by their capability to detect nuanced issues within trajectories, as shown by the judge missing details and misunderstanding an action.Moreover, they will easily agree with the agent's reasoning even when it is wrong, which has been previously observed in LLMs (Sharma et al., 2023).Future research should aim to address these issues to improve the performance of LLM judges for evaluating web agents.
+
+
+Conclusion
+
+We introduce AGENTREWARDBENCH, a benchmark for evaluating LLM judges for web agent trajectories.The benchmark consists of over 1300 trajectories, each annotated by experts across three dimensions: whether the agent succeeded, whether it caused unintended side effects, and whether it repeated unnecessary actions.We evaluate 12 LLM judges on AGENTREWARDBENCH and find that simpler input representation can achieve higher agreement with expert annotators compared to prior approaches.Moreover, we find that rule-based evaluation, often used by environment-based benchmarks, does not achieve a lower-than-expected agreement with experts.Instead, it tends to reject many valid trajectories, which results in the success rate of certain web agents being lower than what an expert would perceive.Overall, we believe our benchmark will help researchers design better LLM judges for web agents trajectories, which will enable the design of automatic evaluators and reward models that better reflect expert judgments.
+
+
+A Benchmark
+
+
+A.1 Environment and Experiments Details
+
+AssistantBench Although an unlimited number of websites can be visited, we observed that the agents visited a total of 66 unique domains between 1 and 129 times across all trajectories we collected.The number of times a domain was visited can be found in Table 4. Additionally, we replace the default search engine with an alternative search engine (https://duckduckgo.com) as the original homepage blocks browser automation, which renders the tasks unachievable.
+
+
+Tasks Subgroups
+
+We define the subgroup for WebArena and VisualWebArena as the combination of web domain and evaluation method from the original works.The evaluation methods consist of string matching, HTML-based programs, webpage image querying, and final URL matching.We randomly sample up to 8 tasks from each domain-evaluation group for WebArena, and up to 9 for VisualWebArena, since certain domain-evaluation groups have a very small number of tasks.For WorkArena, we attempt to evenly distribute the task categories.As a result, we have the following task distributions:  5. We set a maximum limit of 40K input tokens and 8192 output tokens.
+
+
+Agent Platform Implementation
+
+In addition to abstracting websites and browser engines into Gym-compatible environments (Brockman et al., 2016), BrowserGym (Drouin et al., 2024;Chezelles et al., 2025) offers advanced preprocessing of complex web inputs (i.e., DOM and accessibility trees) and can automatically parse LLM output and execute them as browser actions like clicks, form inputs, tab actions, etc.Additionally, the BrowserGym ecosystem includes AgentLab, a framework for processing input representation and managing web agent experiments.We use AgentLab to design our representation function R, ensuring unified hyperparameters and inputs.As a result, we can avoid unintended differences that may arise from customizing prompts and representations for each LLM.
+
+
+A.2 Annotations
+
+Trajectory filtering In total, 351 tasks were considered across 5 benchmarks (33 in As-sistantBench, 100 in VisualWebArena, 100 in WebArena, 18 in WorkArena, and 100 in WorkArena++).We collect trajectories from agents built from each of three multimodal models: Claude 3.7 Sonnet, GPT-4o, Qwen2.5-VL.Moreover, since Llama 3.3 is not multimodal, we only collect trajectories on 251 tasks (excluding VisualWebArena).Additionally, Llama 3.3 did not complete two WebArena tasks (nos.735 and 805) due to timeout issues that consistently occurred in the environment, despite multiple attempts to restart.Thus, we obtain a total of 1302 trajectories, where 196 are stored in the development split and 1106 in the test split.
+
+Interface To annotate the trajectories, we designed a fully customized annotation interface using Gradio (see Figure 4).For a selected agent and task, we displayed the goal and each of the steps of the trajectory taken by the model.It shows the model's reasoning and action, as well as a screenshot with the action element on overlay.Then, the annotators are prompted to answer a series of questions regarding the success, side effects, and repetitiveness of the agent, using the same questions that we ask the LLM judges.
+
+
+A.3 LLM Judges
+
+Prompts We use simple system prompt (Figure 5) and user message (Figure 6) templates without model-specific commands, allowing our prompt to be transferred to any LLM.We use distinct tags, such as <success> and <reasoning>, to facilitate parsing the model output.
+
+
+Results
+
+We report extended results for 10 LLM judges, with the overall results in Table 7 and the finegrained results in Table 8 over all agents; the unaggregated results are presented in Tables 9 to 12.
+
+
+System Prompt Template
+
+You are a Language Model specialized in judging the performance of web agents in web navigation tasks.For a certain website, you are given the goal of a navigation task, the current URL of the webpage, the actions taken by the agent, and the thought process of the agent.Additionally, you will have access to the first and last screenshots, as well as the last accessibility tree.Your task is to answer several questions about the agent's performance in the task.Table 12: Finegrained results by benchmark and judge for GPT-4o agent.We report the precision (P) as the primary metric, and F1 and recall (R) as the auxiliary metrics.
+
+Figure 1 :
+1
+Figure 1: Example from AGENTREWARDBENCH, where an LLM judge evaluates a web agent's trajectory on VisualWebArena (Koh et al., 2024).The benchmark compares judgments against expert annotations to determine the effectiveness of the judge for evaluating web agents.
+
+
+Figure 3 :
+3
+Figure3: Example of judge error (discussed in Section 6).In this example, the user requests the agent to buy cereal in VisualWebArena, but the agent stops after adding it to the cart.The judge erroneously identified the trajectory as successful, even though the agent missed an important detail in the instruction.
+
+
+Figure 4 :
+4
+Figure 4: User Interface used by annotators for answering questions
+
+
+
+
+AGENTREWARDBENCH creation process.We first collect trajectories from LLM agents inside web environments using instructions from several benchmarks.Then, the trajectories are reviewed by expert annotators, who indicate if the trajectory is successful, led to side effects, and contains repetition cycles.Finally, we use the annotated trajectories to evaluate LLM judges.
+Web Environment ( §3.2)Assessment Platform ( §3.1)InstructionsHumanGuidelinesWeb Agent ( §3.3)TrajectoriesAnnotationsAgentRewardBench ( §3)Figure 2:
+= LM(p i ), or
+
+
+(WA; Zhou et al. 2024) This
+
+tasks.In total, we curate 351 unique tasks across 8 environments and 66 websites, which we separate into 51 development and 300 test tasks (details in Appendix A.1).
+WebArena benchmark comprises 6 self-hosted websitescovering a wide range of domains: customer relationship management, map navigation,online encyclopedia, shopping site, social forum, and software development collaborationplatform. Each environment is derived from real open-source projects that develop self-hosted environments for both commercial and personal usage. Each task consists of a textualgoal that requires a good understanding of one or multiple environments to complete.VisualWebArena (VWA; Koh et al. 2024) To complement WebArena's text-based goals,we also include VisualWebArena (VWA), a benchmark focusing on tasks that require visualreasoning to complete. For instance, a user may include an image alongside the goal, or thetask could be designed to only be solved if the agent selects an item with a unique visualcharacteristic (e.g., purchasing a TV with the widest bezel). VWA also introduces a newonline marketplace environment (Classifieds).
+
+AssistantBench (AB; Yoran et al. 2024) In
+
+addition to the self-hosted environments, we consider trajectories resulting from agent execution on real-world websites.This benchmark defines tasks that require navigating the internet, starting from a search engine.Since the test set is private, we use the validation set, which consists of 33 unique tasks.
+
+
+WorkArena (Work; Drouin et al. 2024) and WorkArena++ (Wk++; Boisvert et al. 2025)
+
+
+Table 1 :
+1
+Judge
+Category JudgeOverall Precision RecallF1ABVWA WA Work Wk++ PrecisionOfficialRule-based *83.855.967.125.085.279.0 100.083.3AER-C67.771.969.783.356.068.8 100.066.7ExistingAER-V67.671.569.583.361.267.696.459.3NNetNav52.582.464.120.854.554.377.343.2Claude 3.7 S.68.881.674.787.561.069.385.066.7GPT-4o69.883.175.977.863.070.294.663.0Ours (A)GPT-4o Mini61.586.171.780.057.963.584.249.4Llama 3.367.779.072.975.059.668.294.362.7Qwen2.5-VL64.389.875.072.759.363.687.260.3Claude 3.7 S.69.476.372.771.464.869.385.366.7Ours (S)GPT-4o GPT-4o Mini68.1 64.580.3 78.373.7 70.877.8 80.060.7 57.469.9 66.993.8 90.359.6 54.8Qwen2.5-VL64.586.173.770.058.562.993.864.4
+performance for predicting success, measured with precision ( §4.2).We report recall and F1 as auxiliary scores.We examine two variants of the simplified judge: one with the final accessibility tree (A), and the other with the final screenshot (S).*Rule-based evaluation are included for reference.
+
+
+Table 4 :
+4
+AssistantBench Website Visit Counts
+Question 1: Was the sequence of actions below successful in achieving the goal?Choices: <success>Successful</success>, <success>Unsuccessful</success>Question 2: Did the agent perform unnecessary actions that could lead to unintendedside effects?Choices: <side>Yes</side>, <side>No</side>Question 3: Did the agent perform the task optimally, by only performing necessaryactions and avoiding unnecessary ones?Choices: <optimal>1. Complete Failure</optimal>, <optimal>2. Suboptimal</optimal>,<optimal>3. Somewhat Optimal</optimal>, <optimal>4. Completely Optimal</optimal>Question 4: Did the agent loop through a sequence of actions that did not makeprogress towards the goal?Choices: <loop>Yes</loop>, <loop>No</loop>You should provide your reasoning process for each question, and you can refer tothe screenshots and the accessibility tree to support your answers. Your answermust follow the following format:<reasoning>your reasoning here</reasoning><success>answer</success><side>answer</side><optimal>answer</optimal><loop>answer</loop>Figure 5: System Prompt Template used for the simplified judgeUser Prompt TemplateThe user goal is: {goal}The agent performed the following actions:-----Step: {step_number}URL: {url}Action: {action}Reasoning: {reasoning}-----...-----The last accessibility tree is:{axtree}Here is the screenshot of the last step.{screenshot}Provide your reasoning and answer the four questions from the system prompt, usingthe specified format.
+Figure 6: User Prompt Template used for the simplified judge
+
+
+Table 5 :
+5
+Agentlab Hyperparameters
+BenchmarkAgentExpertLLM JudgeRule-basedClaude 3.7 S.11.111.10.8AssistantBenchGPT-4o Llama 3.314.8 3.714.8 7.43.7 5.3Qwen2.5-VL0.00.02.2Claude 3.7 S.55.164.130.8WebArenaGPT-4o Llama 3.342.3 22.450.0 27.625.6 18.4Qwen2.5-VL33.352.629.5Claude 3.7 S.28.334.823.9VisualWebArenaGPT-4o Qwen2.5-VL35.9 21.747.8 34.817.4 17.4Claude 3.7 S.68.868.850.0WorkArenaGPT-4o Llama 3.350.0 56.256.2 50.050.0 56.2Qwen2.5-VL56.256.256.2Claude 3.7 S.18.420.78.1WorkArena++GPT-4o Llama 3.318.4 9.211.5 5.84.6 3.5Qwen2.5-VL13.814.911.5Claude 3.7 S.33.038.020.4OverallGPT-4o Llama 3.331.3 17.035.3 17.516.3 13.3Qwen2.5-VL22.331.719.5
+
+Table 6 :
+6
+Success Rate by evaluation type.For the LLM judge, we use GPT-4o with accessibility trees.
+BenchmarkJudgePSuccess RF1PSide Effect RF1PRepetition RF1AER-C83.362.571.4------AER-V83.362.571.4------Claude 3.7 S. (A)87.587.587.57.133.311.870.194.080.3Claude 3.7 S. (S)71.462.566.77.733.312.570.892.080.0Functional25.012.516.7------GPT-4o (A)77.887.582.43.2100.06.368.696.080.0AssistantBenchGPT-4o (S)77.887.582.43.2100.06.367.194.078.3GPT-4o Mini (A)80.0100.088.92.766.75.259.332.041.6GPT-4o Mini (S)80.0100.088.93.433.36.390.018.030.0Llama 3.3 (A)75.075.075.03.4100.06.665.896.078.0NNetNav20.862.531.2------Qwen2.5-VL (A)72.7100.084.20.00.00.073.862.067.4Qwen2.5-VL (S)70.087.577.85.766.710.572.252.060.5AER-C56.070.962.6------AER-V61.279.769.2------Claude 3.7 S. (A)61.077.268.216.735.722.778.796.886.8Claude 3.7 S. (S)64.874.769.417.142.924.577.897.686.6Functional85.258.269.2------GPT-4o (A)63.086.172.712.489.321.875.298.485.2VisualWebArenaGPT-4o (S)60.782.369.912.492.921.972.799.283.9GPT-4o Mini (A)57.983.568.410.764.318.474.446.056.9GPT-4o Mini (S)57.473.464.411.235.717.187.121.434.4Llama 3.3 (A)59.674.766.312.082.121.074.492.182.3NNetNav54.569.661.1------Qwen2.5-VL (A)59.388.671.117.271.427.886.973.879.8Qwen2.5-VL (S)58.587.370.015.464.324.883.359.569.4AER-C68.883.275.3------AER-V67.684.074.9------Claude 3.7 S. (A)69.389.177.911.828.616.784.988.686.7Claude 3.7 S. (S)69.389.177.914.838.121.380.885.182.9Functional79.053.864.0------GPT-4o (A)70.289.178.59.690.517.482.993.988.1WebArenaGPT-4o (S)69.989.978.77.976.214.382.792.187.1GPT-4o Mini (A)63.590.874.710.171.417.770.339.550.6GPT-4o Mini (S)66.986.675.57.528.611.986.711.420.1Llama 3.3 (A)68.286.676.38.676.215.479.786.082.7NNetNav54.390.867.9------Qwen2.5-VL (A)63.694.175.96.728.610.984.763.272.4Qwen2.5-VL (S)62.992.474.89.438.115.190.550.064.4AER-C100.081.189.6------AER-V96.473.083.1------Claude 3.7 S. (A)85.091.988.38.350.014.376.086.480.8Claude 3.7 S. (S)85.378.481.70.00.00.077.377.377.3Functional100.091.995.8------GPT-4o (A)94.694.694.62.650.05.070.486.477.5WorkArenaGPT-4o (S)93.881.187.05.3100.010.072.081.876.6GPT-4o Mini (A)84.286.585.33.350.06.266.736.447.1GPT-4o Mini (S)90.375.782.40.00.00.0100.018.230.8Llama 3.3 (A)94.389.291.70.00.00.081.881.881.8NNetNav77.391.983.9------Qwen2.5-VL (A)87.291.989.50.00.00.0100.059.174.3Qwen2.5-VL (S)93.881.187.00.00.00.086.759.170.3AER-C66.742.351.8------AER-V59.330.840.5------Claude 3.7 S. (A)66.762.764.717.138.923.787.597.492.2Claude 3.7 S. (S)66.750.057.113.661.122.287.398.992.8Functional83.338.552.6------GPT-4o (A)63.055.859.25.5100.010.385.698.591.6WorkArena++GPT-4o (S)59.653.856.65.5100.010.484.598.290.8GPT-4o Mini (A)49.476.960.15.283.39.787.852.966.1GPT-4o Mini (S)54.865.459.64.633.38.196.520.233.4Llama 3.3 (A)62.761.562.14.783.38.986.793.890.1NNetNav43.278.855.8------Qwen2.5-VL (A)60.378.868.37.577.813.791.979.085.0Qwen2.5-VL (S)64.473.168.56.477.811.893.275.783.6
+
+Table 8 :
+8
+Finegrained results by benchmark and judge for all agents.We report the precision (P) as the primary metric, and F1 and recall (R) as the auxiliary metrics.
+BenchmarkJudgePSuccess RF1PSide Effect RF1PRepetition RF1AER-C83.362.571.4------AER-V83.362.571.4------Claude 3.7 S. (A)87.587.587.57.133.311.870.194.080.3Claude 3.7 S. (S)71.462.566.77.733.312.570.892.080.0Functional25.012.516.7------GPT-4o (A)77.887.582.43.2100.06.368.696.080.0AssistantBenchGPT-4o (S)77.887.582.43.2100.06.367.194.078.3GPT-4o Mini (A)80.0100.088.92.766.75.259.332.041.6GPT-4o Mini (S)80.0100.088.93.433.36.390.018.030.0Llama 3.3 (A)75.075.075.03.4100.06.665.896.078.0NNetNav20.862.531.2------Qwen2.5-VL (A)72.7100.084.20.00.00.073.862.067.4Qwen2.5-VL (S)70.087.577.85.766.710.572.252.060.5AER-C56.070.962.6------AER-V61.279.769.2------Claude 3.7 S. (A)61.077.268.216.735.722.778.796.886.8Claude 3.7 S. (S)64.874.769.417.142.924.577.897.686.6Functional85.258.269.2------GPT-4o (A)63.086.172.712.489.321.875.298.485.2VisualWebArenaGPT-4o (S)60.782.369.912.492.921.972.799.283.9GPT-4o Mini (A)57.983.568.410.764.318.474.446.056.9GPT-4o Mini (S)57.473.464.411.235.717.187.121.434.4Llama 3.3 (A)59.674.766.312.082.121.074.492.182.3NNetNav54.569.661.1------Qwen2.5-VL (A)59.388.671.117.271.427.886.973.879.8Qwen2.5-VL (S)58.587.370.015.464.324.883.359.569.4AER-C68.883.275.3------AER-V67.684.074.9------Claude 3.7 S. (A)69.389.177.911.828.616.784.988.686.7Claude 3.7 S. (S)69.389.177.914.838.121.380.885.182.9Functional79.053.864.0------GPT-4o (A)70.289.178.59.690.517.482.993.988.1WebArenaGPT-4o (S)69.989.978.77.976.214.382.792.187.1GPT-4o Mini (A)63.590.874.710.171.417.770.339.550.6GPT-4o Mini (S)66.986.675.57.528.611.986.711.420.1Llama 3.3 (A)68.286.676.38.676.215.479.786.082.7NNetNav54.390.867.9------Qwen2.5-VL (A)63.694.175.96.728.610.984.763.272.4Qwen2.5-VL (S)62.992.474.89.438.115.190.550.064.4AER-C100.081.189.6------AER-V96.473.083.1------Claude 3.7 S. (A)85.091.988.38.350.014.376.086.480.8Claude 3.7 S. (S)85.378.481.70.00.00.077.377.377.3Functional100.091.995.8------GPT-4o (A)94.694.694.62.650.05.070.486.477.5WorkArenaGPT-4o (S)93.881.187.05.3100.010.072.081.876.6GPT-4o Mini (A)84.286.585.33.350.06.266.736.447.1GPT-4o Mini (S)90.375.782.40.00.00.0100.018.230.8Llama 3.3 (A)94.389.291.70.00.00.081.881.881.8NNetNav77.391.983.9------Qwen2.5-VL (A)87.291.989.50.00.00.0100.059.174.3Qwen2.5-VL (S)93.881.187.00.00.00.086.759.170.3AER-C66.742.351.8------AER-V59.330.840.5------Claude 3.7 S. (A)66.762.764.717.138.923.787.597.492.2Claude 3.7 S. (S)66.750.057.113.661.122.287.398.992.8Functional83.338.552.6------GPT-4o (A)63.055.859.25.5100.010.385.698.591.6WorkArena++GPT-4o (S)59.653.856.65.5100.010.484.598.290.8GPT-4o Mini (A)49.476.960.15.283.39.787.852.966.1GPT-4o Mini (S)54.865.459.64.633.38.196.520.233.4Llama 3.3 (A)62.761.562.14.783.38.986.793.890.1NNetNav43.278.855.8------Qwen2.5-VL (A)60.378.868.37.577.813.791.979.085.0Qwen2.5-VL (S)64.473.168.56.477.811.893.275.783.6
+
+Table 9 :
+9
+Finegrained results by benchmark and judge for Qwen2.5-VLagent.We report the precision (P) as the primary metric, and F1 and recall (R) as the auxiliary metrics.
+BenchmarkJudgePSuccess RF1PSide Effect RF1PRepetition RF1AER-C83.362.571.4------AER-V83.362.571.4------Claude 3.7 S. (A)87.587.587.57.133.311.870.194.080.3Claude 3.7 S. (S)71.462.566.77.733.312.570.892.080.0Functional25.012.516.7------GPT-4o (A)77.887.582.43.2100.06.368.696.080.0AssistantBenchGPT-4o (S)77.887.582.43.2100.06.367.194.078.3GPT-4o Mini (A)80.0100.088.92.766.75.259.332.041.6GPT-4o Mini (S)80.0100.088.93.433.36.390.018.030.0Llama 3.3 (A)75.075.075.03.4100.06.665.896.078.0NNetNav20.862.531.2------Qwen2.5-VL (A)72.7100.084.20.00.00.073.862.067.4Qwen2.5-VL (S)70.087.577.85.766.710.572.252.060.5AER-C56.070.962.6------AER-V61.279.769.2------Claude 3.7 S. (A)61.077.268.216.735.722.778.796.886.8Claude 3.7 S. (S)64.874.769.417.142.924.577.897.686.6Functional85.258.269.2------GPT-4o (A)63.086.172.712.489.321.875.298.485.2VisualWebArenaGPT-4o (S)60.782.369.912.492.921.972.799.283.9GPT-4o Mini (A)57.983.568.410.764.318.474.446.056.9GPT-4o Mini (S)57.473.464.411.235.717.187.121.434.4Llama 3.3 (A)59.674.766.312.082.121.074.492.182.3NNetNav54.569.661.1------Qwen2.5-VL (A)59.388.671.117.271.427.886.973.879.8Qwen2.5-VL (S)58.587.370.015.464.324.883.359.569.4AER-C68.883.275.3------AER-V67.684.074.9------Claude 3.7 S. (A)69.389.177.911.828.616.784.988.686.7Claude 3.7 S. (S)69.389.177.914.838.121.380.885.182.9Functional79.053.864.0------GPT-4o (A)70.289.178.59.690.517.482.993.988.1WebArenaGPT-4o (S)69.989.978.77.976.214.382.792.187.1GPT-4o Mini (A)63.590.874.710.171.417.770.339.550.6GPT-4o Mini (S)66.986.675.57.528.611.986.711.420.1Llama 3.3 (A)68.286.676.38.676.215.479.786.082.7NNetNav54.390.867.9------Qwen2.5-VL (A)63.694.175.96.728.610.984.763.272.4Qwen2.5-VL (S)62.992.474.89.438.115.190.550.064.4AER-C100.081.189.6------AER-V96.473.083.1------Claude 3.7 S. (A)85.091.988.38.350.014.376.086.480.8Claude 3.7 S. (S)85.378.481.70.00.00.077.377.377.3Functional100.091.995.8------GPT-4o (A)94.694.694.62.650.05.070.486.477.5WorkArenaGPT-4o (S)93.881.187.05.3100.010.072.081.876.6GPT-4o Mini (A)84.286.585.33.350.06.266.736.447.1GPT-4o Mini (S)90.375.782.40.00.00.0100.018.230.8Llama 3.3 (A)94.389.291.70.00.00.081.881.881.8NNetNav77.391.983.9------Qwen2.5-VL (A)87.291.989.50.00.00.0100.059.174.3Qwen2.5-VL (S)93.881.187.00.00.00.086.759.170.3AER-C66.742.351.8------AER-V59.330.840.5------Claude 3.7 S. (A)66.762.764.717.138.923.787.597.492.2Claude 3.7 S. (S)66.750.057.113.661.122.287.398.992.8Functional83.338.552.6------GPT-4o (A)63.055.859.25.5100.010.385.698.591.6WorkArena++GPT-4o (S)59.653.856.65.5100.010.484.598.290.8GPT-4o Mini (A)49.476.960.15.283.39.787.852.966.1GPT-4o Mini (S)54.865.459.64.633.38.196.520.233.4Llama 3.3 (A)62.761.562.14.783.38.986.793.890.1NNetNav43.278.855.8------Qwen2.5-VL (A)60.378.868.37.577.813.791.979.085.0Qwen2.5-VL (S)64.473.168.56.477.811.893.275.783.6
+
+Table 10 :
+10
+Finegrained results by benchmark and judge for Llama 3.3 agent.We report the precision (P) as the primary metric, and F1 and recall (R) as the auxiliary metrics.
+BenchmarkJudgePSuccess RF1PSide Effect RF1PRepetition RF1AER-C83.362.571.4------AER-V83.362.571.4------Claude 3.7 S. (A)87.587.587.57.133.311.870.194.080.3Claude 3.7 S. (S)71.462.566.77.733.312.570.892.080.0Functional25.012.516.7------GPT-4o (A)77.887.582.43.2100.06.368.696.080.0AssistantBenchGPT-4o (S)77.887.582.43.2100.06.367.194.078.3GPT-4o Mini (A)80.0100.088.92.766.75.259.332.041.6GPT-4o Mini (S)80.0100.088.93.433.36.390.018.030.0Llama 3.3 (A)75.075.075.03.4100.06.665.896.078.0NNetNav20.862.531.2------Qwen2.5-VL (A)72.7100.084.20.00.00.073.862.067.4Qwen2.5-VL (S)70.087.577.85.766.710.572.252.060.5AER-C56.070.962.6------AER-V61.279.769.2------Claude 3.7 S. (A)61.077.268.216.735.722.778.796.886.8Claude 3.7 S. (S)64.874.769.417.142.924.577.897.686.6Functional85.258.269.2------GPT-4o (A)63.086.172.712.489.321.875.298.485.2VisualWebArenaGPT-4o (S)60.782.369.912.492.921.972.799.283.9GPT-4o Mini (A)57.983.568.410.764.318.474.446.056.9GPT-4o Mini (S)57.473.464.411.235.717.187.121.434.4Llama 3.3 (A)59.674.766.312.082.121.074.492.182.3NNetNav54.569.661.1------Qwen2.5-VL (A)59.388.671.117.271.427.886.973.879.8Qwen2.5-VL (S)58.587.370.015.464.324.883.359.569.4AER-C68.883.275.3------AER-V67.684.074.9------Claude 3.7 S. (A)69.389.177.911.828.616.784.988.686.7Claude 3.7 S. (S)69.389.177.914.838.121.380.885.182.9Functional79.053.864.0------GPT-4o (A)70.289.178.59.690.517.482.993.988.1WebArenaGPT-4o (S)69.989.978.77.976.214.382.792.187.1GPT-4o Mini (A)63.590.874.710.171.417.770.339.550.6GPT-4o Mini (S)66.986.675.57.528.611.986.711.420.1Llama 3.3 (A)68.286.676.38.676.215.479.786.082.7NNetNav54.390.867.9------Qwen2.5-VL (A)63.694.175.96.728.610.984.763.272.4Qwen2.5-VL (S)62.992.474.89.438.115.190.550.064.4AER-C100.081.189.6------AER-V96.473.083.1------Claude 3.7 S. (A)85.091.988.38.350.014.376.086.480.8Claude 3.7 S. (S)85.378.481.70.00.00.077.377.377.3Functional100.091.995.8------GPT-4o (A)94.694.694.62.650.05.070.486.477.5WorkArenaGPT-4o (S)93.881.187.05.3100.010.072.081.876.6GPT-4o Mini (A)84.286.585.33.350.06.266.736.447.1GPT-4o Mini (S)90.375.782.40.00.00.0100.018.230.8Llama 3.3 (A)94.389.291.70.00.00.081.881.881.8NNetNav77.391.983.9------Qwen2.5-VL (A)87.291.989.50.00.00.0100.059.174.3Qwen2.5-VL (S)93.881.187.00.00.00.086.759.170.3AER-C66.742.351.8------AER-V59.330.840.5------Claude 3.7 S. (A)66.762.764.717.138.923.787.597.492.2Claude 3.7 S. (S)66.750.057.113.661.122.287.398.992.8Functional83.338.552.6------GPT-4o (A)63.055.859.25.5100.010.385.698.591.6WorkArena++GPT-4o (S)59.653.856.65.5100.010.484.598.290.8GPT-4o Mini (A)49.476.960.15.283.39.787.852.966.1GPT-4o Mini (S)54.865.459.64.633.38.196.520.233.4Llama 3.3 (A)62.761.562.14.783.38.986.793.890.1NNetNav43.278.855.8------Qwen2.5-VL (A)60.378.868.37.577.813.791.979.085.0Qwen2.5-VL (S)64.473.168.56.477.811.893.275.783.6
+
+Table 11 :
+11
+Finegrained results by benchmark and judge for Claude 3.7 Sonnet agent.We report the precision (P) as the primary metric, and F1 and recall (R) as the auxiliary metrics.
+BenchmarkJudgePSuccess RF1PSide Effect RF1PRepetition RF1AER-C83.362.571.4------AER-V83.362.571.4------Claude 3.7 S. (A)87.587.587.57.133.311.870.194.080.3Claude 3.7 S. (S)71.462.566.77.733.312.570.892.080.0Functional25.012.516.7------GPT-4o (A)77.887.582.43.2100.06.368.696.080.0AssistantBenchGPT-4o (S)77.887.582.43.2100.06.367.194.078.3GPT-4o Mini (A)80.0100.088.92.766.75.259.332.041.6GPT-4o Mini (S)80.0100.088.93.433.36.390.018.030.0Llama 3.3 (A)75.075.075.03.4100.06.665.896.078.0NNetNav20.862.531.2------Qwen2.5-VL (A)72.7100.084.20.00.00.073.862.067.4Qwen2.5-VL (S)70.087.577.85.766.710.572.252.060.5AER-C56.070.962.6------AER-V61.279.769.2------Claude 3.7 S. (A)61.077.268.216.735.722.778.796.886.8Claude 3.7 S. (S)64.874.769.417.142.924.577.897.686.6Functional85.258.269.2------GPT-4o (A)63.086.172.712.489.321.875.298.485.2VisualWebArenaGPT-4o (S)60.782.369.912.492.921.972.799.283.9GPT-4o Mini (A)57.983.568.410.764.318.474.446.056.9GPT-4o Mini (S)57.473.464.411.235.717.187.121.434.4Llama 3.3 (A)59.674.766.312.082.121.074.492.182.3NNetNav54.569.661.1------Qwen2.5-VL (A)59.388.671.117.271.427.886.973.879.8Qwen2.5-VL (S)58.587.370.015.464.324.883.359.569.4AER-C68.883.275.3------AER-V67.684.074.9------Claude 3.7 S. (A)69.389.177.911.828.616.784.988.686.7Claude 3.7 S. (S)69.389.177.914.838.121.380.885.182.9Functional79.053.864.0------GPT-4o (A)70.289.178.59.690.517.482.993.988.1WebArenaGPT-4o (S)69.989.978.77.976.214.382.792.187.1GPT-4o Mini (A)63.590.874.710.171.417.770.339.550.6GPT-4o Mini (S)66.986.675.57.528.611.986.711.420.1Llama 3.3 (A)68.286.676.38.676.215.479.786.082.7NNetNav54.390.867.9------Qwen2.5-VL (A)63.694.175.96.728.610.984.763.272.4Qwen2.5-VL (S)62.992.474.89.438.115.190.550.064.4AER-C100.081.189.6------AER-V96.473.083.1------Claude 3.7 S. (A)85.091.988.38.350.014.376.086.480.8Claude 3.7 S. (S)85.378.481.70.00.00.077.377.377.3Functional100.091.995.8------GPT-4o (A)94.694.694.62.650.05.070.486.477.5WorkArenaGPT-4o (S)93.881.187.05.3100.010.072.081.876.6GPT-4o Mini (A)84.286.585.33.350.06.266.736.447.1GPT-4o Mini (S)90.375.782.40.00.00.0100.018.230.8Llama 3.3 (A)94.389.291.70.00.00.081.881.881.8NNetNav77.391.983.9------Qwen2.5-VL (A)87.291.989.50.00.00.0100.059.174.3Qwen2.5-VL (S)93.881.187.00.00.00.086.759.170.3AER-C66.742.351.8------AER-V59.330.840.5------Claude 3.7 S. (A)66.762.764.717.138.923.787.597.492.2Claude 3.7 S. (S)66.750.057.113.661.122.287.398.992.8Functional83.338.552.6------GPT-4o (A)63.055.859.25.5100.010.385.698.591.6WorkArena++GPT-4o (S)59.653.856.65.5100.010.484.598.290.8GPT-4o Mini (A)49.476.960.15.283.39.787.852.966.1GPT-4o Mini (S)54.865.459.64.633.38.196.520.233.4Llama 3.3 (A)62.761.562.14.783.38.986.793.890.1NNetNav43.278.855.8------Qwen2.5-VL (A)60.378.868.37.577.813.791.979.085.0Qwen2.5-VL (S)64.473.168.56.477.811.893.275.783.6
+https://developer.servicenow.com
+We use the versiongpt-4o-2024-11-20   
+AcknowledgmentsXing Han Lù acknowledges the support of the Natural Sciences and Engineering Research Council of Canada (NSERC) [funding reference no.579403].The project is supported by the Google-Mila grant.We thank Alexandre Lacoste, Shikhar Murty, and the McGill NLP group members for helpful discussions.Table7: Results over all benchmarks by judge.We report the precision (P) as the primary metric, and F1 and recall (R) as the auxiliary metrics.
+Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, arXiv:2303.08774Shyamal Anadkat, et al. Gpt-4 technical report. 2023arXiv preprint
+
+Act-1: Transformer for actions. Adept. 2022
+
+Ahmad Al-Dahle, The future of ai: Built with llama. December 2024
+
+Introducing computer use, a new claude 3.5 sonnet, and claude 3.5 haiku. Anthropic, 2024a
+
+The claude 3 model family: Opus, sonnet, haiku. Anthropic, 2024b268232499
+
+Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, Humen Zhong, Yuanzhi Zhu, Mingkun Yang, Zhaohai Li, Jianqiang Wan, Pengfei Wang, Wei Ding, Zheren Fu, Yiheng Xu, Jiabo Ye, Xi Zhang, Tianbao Xie, Zesen Cheng, Hang Zhang, Zhibo Yang, Haiyang Xu, and Junyang Lin. Qwen2.5-vl technical report. 2025
+
+Workarena++: Towards compositional planning and reasoning-based common knowledge work tasks. Léo Boisvert, Megh Thakkar, Maxime Gasse, Massimo Caccia, Le Thibault, De Sellier, Quentin Chezelles, Nicolas Cappart, Alexandre Chapados, Alexandre Lacoste, Drouin, 2025
+
+Greg Brockman, Vicki Cheung, Ludwig Pettersson, Jonas Schneider, John Schulman, Jie Tang, Wojciech Zaremba, Openai gym. 2016
+
+Thibault Le, Sellier De Chezelles, Maxime Gasse, Alexandre Drouin, Massimo Caccia, Léo Boisvert, Megh Thakkar, Tom Marty, Rim Assouel, Sahar Omidi Shayegan, Lawrence Keunho Jang, Xing Han Lù, Ori Yoran, Dehan Kong, Frank F Xu, Siva Reddy, Ruslan Salakhutdinov, Nicolas Chapados, and Alexandre Lacoste. The browsergym ecosystem for web agent research. Quentin Cappart, Graham Neubig2025
+
+Mind2web: Towards a generalist agent for the web. Xiang Deng, Yu Gu, Boyuan Zheng, Shijie Chen, Sam Stevens, Boshi Wang, Huan Sun, Yu Su, Advances in Neural Information Processing Systems. 362023
+
+How capable are web agents at solving common knowledge work tasks?. Alexandre Drouin, Maxime Gasse, Massimo Caccia, H Issam, Laradji, Del Manuel, Tom Verme, Léo Marty, Megh Boisvert, Quentin Thakkar, David Cappart, Nicolas Vazquez, Alexandre Chapados, Lacoste, Workarena, 2024
+
+The llama 3 herd of models. Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, Alex Vaughan, 2024arXiv preprint
+
+Izzeddin Gur, Ulrich Rueckert, Aleksandra Faust, Dilek Hakkani-Tur, arXiv:1812.09195Learning to navigate the web. 2018arXiv preprint
+
+A real-world webagent with planning, long context understanding, and program synthesis. Izzeddin Gur, Hiroki Furuta, Austin Huang, Mustafa Safdari, Yutaka Matsuo, Douglas Eck, Aleksandra Faust, arXiv:2307.128562023arXiv preprint
+
+Building an end-to-end web agent with large multimodal models. Hongliang He, Wenlin Yao, Kaixin Ma, Wenhao Yu, Yong Dai, Hongming Zhang, Zhenzhong Lan, Dong Yu, Webvoyager, ArXiv, abs/2401.139192024
+
+A data-driven approach for learning to control computers. David Peter C Humphreys, Toby Raposo, Gregory Pohlen, Rachita Thornton, Alistair Chhaparia, Josh Muldal, Petko Abramson, Alex Georgiev, Adam Goldin, Timothy Santoro, Lillicrap, 2022
+
+Aaron Hurst, Adam Lerer, Adam P Goucher, Adam Perelman, Aditya Ramesh, Aidan Clark, Akila Ostrow, Alan Welihinda, Alec Hayes, Radford, arXiv:2410.21276Gpt-4o system card. 2024arXiv preprint
+
+VisualWebArena: Evaluating Multimodal Agents on Realistic Visual Web Tasks. Jing Yu Koh, Robert Lo, Lawrence Jang, Vikram Duvvur, Ming Chong Lim, Po-Yu Huang, Graham Neubig, Shuyan Zhou, Ruslan Salakhutdinov, Daniel Fried, arXiv:2401.13649June 2024
+
+Hanyu Lai, Xiao Liu, Iat Long Iong, Shuntian Yao, Yuxuan Chen, Pengbo Shen, Hao Yu, Hanchen Zhang, Xiaohan Zhang, Yuxiao Dong, Jie Tang, Autowebglm: A large language model-based web navigating agent. 2024
+
+Rewardbench: Evaluating reward models for language modeling. Nathan Lambert, Valentina Pyatkin, Jacob Morrison, Bill Miranda, Khyathi Yuchen Lin, Nouha Chandu, Sachin Dziri, Tom Kumar, Yejin Zick, Noah A Choi, Hannaneh Smith, Hajishirzi, 2024
+
+Reinforcement Learning on Web Interfaces using Workflow-guided Exploration. Evan Zheran Liu, Kelvin Guu, Panupong Pasupat, Tianlin Shi, Percy Liang, 6th International Conference on Learning Representations, ICLR 2018. Vancouver, BC, CanadaApril 30 -May 3, 2018. 2018Conference Track Proceedings
+
+Xing Han Lù, Zdeněk Kasner, Siva Reddy, Weblinx, arXiv:2402.05930Real-world website navigation with multi-turn dialogue. 2024arXiv preprint
+
+BAGEL: Bootstrapping Agents by Guiding Exploration with Language. Shikhar Murty, Christopher Manning, Peter Shaw, Mandar Joshi, Kenton Lee, arXiv:2403.08140June 2024
+
+Nnetnav: Unsupervised learning of browser agents through environment interaction in the wild. Shikhar Murty, Hao Zhu, Dzmitry Bahdanau, Christopher D Manning, 2025
+
+Reiichiro Nakano, Jacob Hilton, Suchir Balaji, Jeff Wu, Long Ouyang, Christina Kim, Christopher Hesse, Shantanu Jain, Vineet Kosaraju, William Saunders, arXiv:2112.09332Browserassisted question-answering with human feedback. 2021arXiv preprint
+
+. OpenAI. Introducing operator. January 2025
+
+Autonomous evaluation and refinement of digital agents. Jiayi Pan, Yichi Zhang, Nicholas Tomlin, Yifei Zhou, Sergey Levine, Alane Suhr, 2024
+
+Large language models can self-improve at web agent tasks. Ajay Patel, Markus Hofmarcher, Claudiu Leoveanu-Condrei, Marius-Constantin Dinu, Chris Callison-Burch, Sepp Hochreiter, 2024
+
+Agent q: Advanced reasoning and learning for autonomous ai agents. Pranav Putta, Edmund Mills, Naman Garg, Sumeet Motwani, Chelsea Finn, Divyansh Garg, Rafael Rafailov, 2024
+
+Direct preference optimization: Your language model is secretly a reward model. Rafael Rafailov, Archit Sharma, Eric Mitchell, Christopher D Manning, Stefano Ermon, Chelsea Finn, Advances in Neural Information Processing Systems. 362023
+
+Mrinank Sharma, Meg Tong, Tomasz Korbak, David Duvenaud, Amanda Askell, R Samuel, Newton Bowman, Esin Cheng, Zac Durmus, Scott R Hatfield-Dodds, Shauna Johnston, Timothy Kravec, Sam Maxwell, Kamal Mccandlish, Oliver Ndousse, Nicholas Rausch, Da Schiefer, Miranda Yan, Ethan Zhang, Perez, Towards understanding sycophancy in language models. 2023
+
+From pixels to UI actions: Learning to follow instructions via graphical user interfaces. Peter Shaw, Mandar Joshi, James Cohan, Jonathan Berant, Panupong Pasupat, Hexiang Hu, Urvashi Khandelwal, Kenton Lee, Kristina Toutanova, Thirty-seventh Conference on Neural Information Processing Systems. 2023
+
+World of bits: An open-domain platform for web-based agents. Tianlin Shi, Andrej Karpathy, Linxi Fan, Jonathan Hernandez, Percy Liang, International Conference on Machine Learning. PMLR2017
+
+The user interface as an agent environment. Robert St, Luke S Amant, Zettlemoyer, 10.1145/336595.337575Proceedings of the Fourth International Conference on Autonomous Agents, AGENTS '00. the Fourth International Conference on Autonomous Agents, AGENTS '00New York, NY, USAAssociation for Computing Machinery2000
+
+WebShop: Towards Scalable Real-world Web Interaction with Grounded Language Agents. Brandon Trabucco, Gunnar Sigurdsson, Robinson Piramuthu, Ruslan Salakhutdinov ; Shunyu, Howard Yao, John Chen, Karthik Yang, Narasimhan, NeurIPS. 2025. 2022Towards internet-scale training for agents
+
+Assistantbench: Can web agents solve realistic and time-consuming tasks?. Ori Yoran, Samuel Joseph Amouyal, Chaitanya Malaviya, Ben Bogin, ; , Jonathan Berant, 2024Ofir Press
+
+Gpt-4v(ision) is a generalist web agent, if grounded. Boyuan Zheng, Boyu Gou, Jihyung Kil, Huan Sun, Yu Su, 2024
+
+Judging llm-as-a-judge with mt-bench and chatbot arena. Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric P Xing, Hao Zhang, Joseph E Gonzalez, Ion Stoica, 2023
+
+WebArena: A Realistic Web Environment for Building Autonomous Agents. Shuyan Zhou, Frank F Xu, Hao Zhu, Xuhui Zhou, Robert Lo, Abishek Sridhar, Xianyi Cheng, Tianyue Ou, Yonatan Bisk, Daniel Fried, Uri Alon, Graham Neubig, arXiv:2307.13854April 2024

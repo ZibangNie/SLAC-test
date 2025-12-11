@@ -1,0 +1,334 @@
+CombineHarvesterFlow: Joint Probe Analysis Made Easy with Normalizing Flows
+
+
+Peter L Taylor 
+Center for Cosmology and AstroParticle Physics (CCAPP)
+The Ohio State University
+43210ColumbusOHUSA
+
+Department of Physics
+The Ohio State University
+43210ColumbusOHUSA
+
+Department of Astronomy
+The Ohio State University
+43210ColumbusOHUSA
+
+Andrei Cuceu 
+Center for Cosmology and AstroParticle Physics (CCAPP)
+The Ohio State University
+43210ColumbusOHUSA
+
+NASA Einstein Fellow
+
+
+Chun-Hao To 
+Center for Cosmology and AstroParticle Physics (CCAPP)
+The Ohio State University
+43210ColumbusOHUSA
+
+Department of Physics
+The Ohio State University
+43210ColumbusOHUSA
+
+Department of Astronomy
+The Ohio State University
+43210ColumbusOHUSA
+
+Erik A Zaborowski 
+Center for Cosmology and AstroParticle Physics (CCAPP)
+The Ohio State University
+43210ColumbusOHUSA
+
+Department of Physics
+The Ohio State University
+43210ColumbusOHUSA
+
+CombineHarvesterFlow: Joint Probe Analysis Made Easy with Normalizing Flows
+5E3653890C03FD30AF385554EE0B01E4
+We show how to efficiently sample the joint posterior of two non-covariant experiments with a large set of nuisance parameters.Specifically, we train an ensemble of normalizing flows to learn the posterior distribution of both experiments.Once trained, we can use the flows to reweight O(10 9 ) samples from both measurements to compute the joint posterior in seconds -saving up to O(1) ton of CO2 per Monte Carlo run.Using this new technique we find joint constraints between the Dark Energy Survey 3 × 2 point measurement, South Pole Telescope and Planck CMB lensing and a BOSS direct fit full shape analyses, for the first time.We find Ωm = 0.32 +0.01 −0.01 and S8 = 0.79 +0.01 −0.01 .We release a public package called CombineHarvesterFlow a which performs these calculations.
+
+I. INTRODUCTION
+
+Analyses of data from the Atacama Cosmology Telescope (ACT) [1], the Baryon Oscillation Spectroscopic Survey (BOSS) [2], the Dark Energy Survey (DES) [3], the Dark Energy Spectroscopic Instrument (DESI) [4], the extended Baryon Oscillation Spectroscopic Survey (eBOSS) [2], Hyper Suprime-Cam (HSC) [5], the Kilodegree Survey (KiDS) [6], Planck [7] and the South Pole Telescope (SPT) [8], have provided some of the tightest cosmological constraints.Future measurements with Euclid [9], the Nancy Grace Roman Space Telescope 1 , the Rubin Observatory 2 , the Simons Observatory 3 and CMB-S4 4 will tighten these constraints even further.
+
+Meanwhile there has been a proliferation of cosmological likelihood packages to perform inference with these datasets (e.g.MontePython [10], CosmoMC [11], COS-MOLIKE [12], desilike 5 , CosmoSIS [13], Cobaya [14], firecrown 6 , CLOE 7 ).With each collaboration preferring different pipelines, performing joint analyses requires substantial effort and computational resources -even when the analyses are statistically independent.It is this problem which we set out to solve.
+
+Traditionally there have been three ways to sample from the joint posterior of two statistically independent measurements: 1) explicitly sampling the joint posterior, 2) importance sampling or 3) emulating the likelihood (or posterior) directly from the samples.All these approaches have significant drawbacks.
+
+Explicitly sampling the likelihood requires the likelihood of each experiment to be integrated into a single unified likelihood package (e.g.CosmoSIS).This time consuming exercise may have to be repeated multiple times for each new experiment.The computational costs are also significant.A single DES Year 3 (DESY3) 3×2 point analysis takes up to 4 node days on a modern high-performance node with 128 cores [15].
+
+Importance sampling offers a promising alternative.Suppose that we have access to samples from the posterior (chains) of one of the experiments, {c i }, over cosmological parameter space c.Then to sample from the joint posterior we compute the likelihood of the second experiment at each point in the original chain {L(c i )} and then re-weight the original chain by these likelihoods.However, if both sets of experiments contain a large set of nuisance parameters, this option is no longer viable.This is because at every point in the first chain, there is a distribution of nuisance parameter values in the second experiment.
+
+A third alternative is to directly emulate the likelihood (or posterior) using a neural network or Gaussian process emulator.In Appendices A-B, we show that this approach fails in many circumstances.
+
+In this paper we advocate for a new approach using normalizing flows.Given two chains from two independent cosmological experiments our approach is capable of reweighting O(10 9 ) points from each experiment to compute the joint posterior in seconds.
+
+The structure of the paper is as follows.In Sec.II, we present the formalism and describe our publicly released code in Sec.III.In Sec.IV, we show our method works on a toy problem before presenting joint large scale structure parameter constraints from photometric, spectroscopic and CMB lensing data.Finally, in Sec.V we discuss the future outlook for this method.
+
+
+II. FORMALISM
+
+
+A. Joint Sampling Two Likelihoods
+
+Let us suppose that we have performed two independent cosmological likelihood analyses and that we have arXiv:2406.06687v2[astro-ph.CO] 7 Oct 2024 samples from the posterior distributions, P (c, m i |d i ), for both experiments i ∈ {1, 2}, assuming some model M. Here, c, are the parameters sampled in both chains, usually the cosmological parameters of interest, while d i and m i are the data vectors and nuisance parameters.In all that follows, we will assume that there is no covariance between the two data vectors and that the two experiments have completely different sets of nuisance parameters.We will also assume that the priors on the cosmologial and nuisance parameters are separable, that is p(c, m i ) = p(c)p(m i ).These conditions are often met and we will apply them to a real world example in Sec.IV.For the time being we will also assume that the analyses were run with the same prior p(c), but we relax this assumption in Sec.II E.
+
+To perform a joint analysis, we would like to find the joint posterior on c, after marginalizing over both sets of nuisance parameters i.e.,
+p(c|d 1 , d 2 ) = dm 1 dm 2 p(c, m 1 , m 2 |d 1 , d 2 ). (1)
+Using the independence of the likelihood and Bayes' Theorem we find,
+p(c|d 1 , d 2 ) ∝ p(c|d 1 )p(c|d 2 ) p(c) ,(2)
+where, p(c|d i ), is
+p(c|d i ) = dm i p(c, m i |d i ).(3)
+The factor p(c) appears in the denominator of Eqn. 2 to avoid double counting the prior.If the prior is uninformative, the denominator can be ignored.
+
+The key idea in this paper is that we can fit normalizing flows to estimate the conditional density, p(c|d 1 ), from the chains of the first experiment.Then to sample the joint posterior, we weight the samples of the second posterior by our estimate by our estimate p(c|d 1 ).If the prior is informative we must also apply a weight 1/p(c), to all points, so that the final weight is p(c|d 1 )/p(c).
+
+Alternatively, we could have trained the flows to approximate, p(c|d 2 ), and used this estimate to weight the samples of the first posterior.An essential crosscheck is to ensure that we get the same joint posterior in both cases.This will be discussed further in Sec.IV.
+
+To combine N analyses, we first combine the first two using Eqn. 2 and then iteratively add the next N − 2 analyses one at a time.
+
+
+B. Estimating the Marginal Posterior with Normalizing Flows
+
+Given samples from a target distribution p t (x), one can train a normalizing flow to learn an invertible map-ping, F , from a multivariate normal distribution centered at the origin with identity covariance, to the target.Once the mapping is learned, one can estimate the likelihood of each point in the target from the Jacobian:
+p t (x) = G(F −1 (x))| ∂F −1 ∂x |,
+where G is the probability density of the unit normal.We use this feature of normalizing flows to estimate the marginal posterior, p(c|d i ), from the chains as described in the previous section.
+
+In all that follows, we use flowjax8 [16] a publicly available package written in Jax to train the normalizing flows using a masked autoregressive flow (MAFs) [17,18] architecture.We use the default MAF settings in flowjax throughout.We construct the invertible transform using a rational quadratic spline with 8 knots on the interval [−4, 4], using the builtin RationalQuadraticSpline class in flowjax.In all that follows the learning rate is set to 10 −3 .
+
+
+C. A Flow Ensemble Model
+
+To improve the accuracy of the density estimate, we train an ensemble of N flows with the same architecture.Each flow is given equal weight so that when we compute the log-probability of a point x, our estimate, ln p(x), is taken to be the average estimate over all the flows.We find that results typically convergence for N ≳ 5.
+
+
+D. Using Outputs from Nested Samplers
+
+Nested samplers such as PolyChord [19], nautilus [20] and MultiNest [21] return a set of samples and corresponding weights.Since flowjax does not take weights as input, we use a custom loss function in CombineHarvesterFlow which uses the weighted average of the log-probabilities over the training set, rather than the average, used in flowjax.
+
+
+E. Change of Variable
+
+So far we have assumed that both sets of chains have the same priors.Let us relax this assumption and suppose the two chains have the priors, p 1 (c 1 ), and p 2 (c 2 ), and we have a target prior, p t (c t ), which we would like to use for the joint analysis.Here, the priors and target may not be expressed in the same parameterization but we will assume there is a mapping, T : c i → c t , between c t and c i , for each i.We will also assume that the support of p(c t ) is a subset of the intersection of the supports of p 1 (c 1 ) and p 2 (c 2 ).
+
+Then to map the posterior sample from c i to c t , we weight the chains [22] to account for both the change in prior and the Jacobian.Hence, if we write c ij for the jth point in chain i and we assume it has an initial weight w I (c ij ), then the final weight in the target parameterization is
+w f T (c ij ) = p t T (c ij ) p i (c ij ) ∂c t ∂c i w I (c ij ).(4)
+After one has mapped both posteriors to the same target prior, one must still divide the joint constraints by p(c t ) (see Eqn. 2), to avoid double counting the prior in the joint constraints.
+
+
+III. CODE
+
+We release CombineHarvesterFlow as a pipinstallable package.
+
+The package is also available at https://github.com/pltaylor16/CombineHarvesterFlow.
+
+The code has a simple two class structure.The harvest class allows the user to train, save and load flows on both CPU and GPU, while a combine class allows the user to draw samples from the joint marginal posterior using the approach described in Sec II A. Given the large number of potential corner cases, the package does not account for the prior in the denominator of Eqn. 2, nor weights associated with a change of variable described in Sec II E. The user is responsible for weighting the points in the input and output chains appropriately.The examples presented in Sec.IV A-IV B are made publicly available in a jupyter notebook released with the package -in addition to a notebook containing an example with an informative prior.
+
+
+IV. RESULTS
+
+
+A. Validation on Toy Models
+
+As a simple test case, we find the joint constraints from two 2-dimensional Gaussian posteriors using CombineHarvesterFlow.To validate our estimate, we use the fact that the product of two Gaussians with means µ 1 and µ 2 and covariances Σ 1 and Σ 2 is also a Gaussian with covariance
+Σ = [(Σ 1 ) −1 + (Σ 2 ) −1 ] −1 and mean µ = Σ[(Σ 1 ) −1 µ 1 + (Σ 2 ) −1 µ 2 ]
+. In this example, we assume there are no nuisance parameters and that the prior is uninformative.Before rotation, the mean and covariances of the two Gaussian are given by: µ 1 = (0, 0), µ 2 = (1, 0), Σ 1 = diag (1,4) and (3,1).Both Gaussians are then rotated by 45 • .
+Σ 2 = diag
+The resulting 68% and 95% confidence regions on parameters p 1 and p 2 found by sampling 20000 points from these distributions are shown in the top panel of Fig. 1 by the dashed black and red contours respectively.
+
+The confidence regions of the joint posterior found by sampling 20000 points from the exact joint posterior is shown in solid blue.
+
+Using CombineHarvesterFlow, we train an ensemble of 7 flows to learn the original posteriors.We then weight the samples in the first posterior by the flow weights of the second posterior -and crucially as a crosscheck, we weight the samples of the second posterior by the flow weights of the first posterior.The results are shown in the bottom panel of Fig. 1.In both cases, we reproduce the true joint posteriors almost exactly.
+
+
+B. Validation of CombineHarvesterFlow and Causes of Failure
+
+In certain circumstances CombineHarvesterFlow can fail to return accurate joint posteriors.In this Section, we discuss the most common causes and show that checking that the results derived from weighting the first posterior versus the second posterior is a robust way to ensure CombineHarvesterFlow returns accurate constraints.
+
+If two experiments are in severe tension, one should not attempt to find joint constraints, as the tension likely indicates the presence of systematics -or that the underlying model assumption (e.g.ΛCDM) is wrong.However, if one does persist to find joint constraints, this is an instance where CombineHarvesterFlow can fail.This is because the sampling density is so low in the regions where the joint posterior is large, that the normalizing flows do not accurately model the density in these regions.
+
+To illustrate this point, we consider two Gaussian posteriors with means and covariances given by: µ 1 = (0, 0), µ 2 = (9, 0), Σ 1 = diag (1,4)  CombineHarvesterFlow can also fail when one experiment is much more constraining than the other.This is because the less constraining experiment undersamples the region where the joint density is large.
+
+To exemplify, we again consider two Gaussians.This time we take µ 1 = (0, 0), µ 2 = (1, 0), Σ 1 = diag(0.001,0.004) and Σ 2 = diag (3,1).The original posteriors and joint constraints are shown in the top middle panel of Fig. 2  tightly constraining posteriors does actually return an accurate estimate of the joint posterior, while weighting the less constraining posterior results in slightly different constraints.Even though weighting the tighter posteriors accurately determined the joint posterior in this instance -it is not clear that this will be true in general, so we always recommend discarding the results when the two CombineHarvesterFlow estimates are not the same.
+
+In the case where one set of posteriors is much tighter than the other, there is likely little to be gained from combining the results.Nevertheless, we can still obtain joint constraints if we first place a more restrictive prior on the less constraining experiment and rerun the chains to increase the sampling density in the relevant region of parameter space.This still may be favorable to running joint chains if the two likelihood pipelines are not merged.
+
+To highlight this point, we take the same initial posteriors as in the previous example, but this time enforce a flat prior so that p i ∈ [−0.2, 0.2].We show the initial posteriors in the top right of Fig. 2 and the joint posterior and the CombineHarvesterFlow estimates are shown in the bottom right panel.In this case the two CombineHarvesterFlow estimates and the true joint posteriors agree exactly.
+
+Even in the extreme examples presented in this section, CombineHarvesterFlow extracts reasonably accurate posteriors -while the results from the two different weighting strategies give a rough estimate on the uncertainties.In many circumstances (e.g.non-publishable testing and validation runs) this accuracy is more than sufficient, so we expect CombineHaresterFlow to dramatically accelerate workflows even when it fails to produce extremely accurate joint posteriors.We stress that these errors are typically much smaller than those expected from model mis-specification.In the future, we recommend that users specify a success criterion (e.g.fractional error on the error for parameters of interest) and add the differences from the CombineHaresterFlow cross-check to the total error budget.
+
+
+C. DESY3 × CMB Lensing + Boss Full Shape Direct Fit
+
+Due to the different coverage in radial modes, the covariance between projected statistics and spectroscopic full shape statistics is negligible [23].Hence, we use CombineHarvesterFlow to derive joint constraints between the DESY3 × CMB lensing 6 × 2 point posterior 9 [24] and the BOSS full shape direct fit posteriors found in [25] 10 .To our knowledge this is the first time that this combination of probes has been combined into a single analysis.We pay particular attention to S 8 where tensions between CMB and large scale structure measurements have previously been reported (see e.g.Fig. 12 in [26]). 9publicly available at https://des.ncsa.illinois.edu/releases/y3a2 10 We use the chains which exclude the bispectrum information FIG. 2. CombineHarvesterFlow can fail due to under sampling regions of high joint density (left and right panels), but can be fixed in certain circumstances by adjusting the prior right.Failures are usually caused by tensions between the two experiments (left), or when one experiment is much more constraining than the other (middle).In former case one should not combine experiments as the tension likely points to systematics -while in the later case, the tension can be overcome by enforcing a tighter prior on the less constraining experiment (right).Top: Dashed lines indicate the original 68% and 95% confidence intervals for two experiments, while solid blue indicates the true joint posteriors.Bottom: Black and red contours are the CombineHarvesterFlow estimates from weighting the first and second posteriors, while blue indicates the true joint constraints.In the case of tension (left) or undersampling (middle) the two CombineHarvesterFlow joint posterior estimates do not match so the results should be rejected.
+
+We use CombineHarvesterFlow11 to find joint constraints in {Ω m , h 0 , ω b , n s , S 8 }.We take flat uninformative priors on h 0 and A s . 12Since the DESY3 × CMB lensing constraints ran up against the boundaries of the flat prior on n s , we impose a conservative Gaussian prior, n s ∼ N (0.96, 0.02), by retroactively weighting the chains after running CombineHarvesterFlow to avoid boundary effects.The DES chains were parameterised in {Ω m , h 0 , Ω b , n s , A s } space while the BOSS chains were run in {ω c , h 0 , ω b , n s , ln(10 10 A s )}.Hence, the contribution of the Jacobians cancel when going to {Ω m , h 0 , ω b , n s , A s }-space, when we introduce a weighting factor of A s to the chains.Both chains, store the σ 8 values at all sampled points, so we train the flows and present our final results in S 8 , rather than A s .Finally, we take a Gaussian prior on ω b ∼ N (0.02268, 0.00036) as in the BOSS chains.Since the DES prior is uninformative, this is achieved simply by not dividing out by the ω b prior in Eqn. 2.
+
+The joint constraints in the S 8 −Ω m plane13 are shown in Fig. 3. Crucially, we find good agreement between weighting the DES 6 × 2 point chains and the BOSS chains.We find that the two CombineHarvesterFlow constraints are consistent and Ω m = 0.32 +0.01 −0.01 and S 8 = 0.79 +0.01 −0.01 .For comparison, reweighing the Planck chains 14 to have the same prior described above, we find Ω m = 0.32 +0.02 −0.02 and S 8 = 0.83 +0.02 −0.02 .Adding the S 8 errors in quadrature [28]  point constraints are consistent with Planck at the 1.3σ level.
+
+
+V. FUTURE OUTLOOK A. Environmental and Cost Impact
+
+As noted in [29] (hereafter To22), the environmental impact of single Monte Carlo analysis are O($100) in energy costs and emit O(1) ton of CO 2 .This is roughly equivalent to the emission of a transatlantic flight.Over the next decade, collaborations may collectively run as many as O(10 2 ) − O(10 4 ) joint analyses, in which case our approach could save up to O($10, 000)−O($1, 000, 000) in energy costs and reduce emissions by O(10 2 ) − O(10 4 ) tons of CO 2 .
+
+
+B. Methodological Extensions
+
+In this work we have focused on combing constraints from two-point statistics but we suspect that due to the different radial coverage in Fourier space that the covariance between projected and redshift-space space analyses is negligible in general.This opens the possibility of performing joint non-Gaussian constraints derived from non-Gaussian estimators, simulation-based inference or field-level Hamiltonian Monte-Carlo (e.g.[30][31][32][33][34][35][36][37]).
+
+Several papers have investigated using normalizing flows to estimate the Bayesian evidence directly from MCMC chains [38,39].In a follow up work we will investigate computing the evidence of the joint posteriors.This will require training the flows on the full posteriors, p(c, m i ).
+
+
+VI. CONCLUSION
+
+In this paper we have shown how to jointly sample from two independent experiments with a large set of nuisance parameters using only the chains from the two experiments.In particular, training normalizing flows to learn the posterior, after marginalizing over the nuisance parameters, and then cross-weighting the chains by the probability density effectively recovers the joint posterior when there is no covariance.We release a public package called CombineHarvesterFlow which performs these calculations.
+
+CombineHarvesterFlow enables joint probe parameter estimation without tedious pipeline integration.One can even sample from joint likelihoods when the likelihood pipeline for one of the datasets is not publicly available.
+
+CombineHarvesterFlow is fast.We have found that training time for each flow can vary depending on the hardware and size of parameters space -but training typically takes less than a minute on a CPU.Once trained, the flows enable virtually instantaneous sampling of the joint posterior.
+
+We estimate that compared to running joint likelihood analyses our approach will reduce emissions by between O(10 2 ) − O(10 4 ) tons of CO 2 and save between O($10, 000) − O($1, 000, 000) in energy costs.
+
+This speed and efficiency opens up new possibilities for validation tests inside large collaborations.For example, when different parts of the data vector are not covariant (e.g.different tracers in DESI or the photometric and spectroscopic analyses in Euclid), one can run independent MCMC runs for each part of the data vector and then combine different combinations -determining the cosmological impact of each piece -at virtually no additional computational cost.
+
+Our approach can fail when two experiments are in tension or when one measurement is significantly more constraining than the other.In the former case, one should not combine the measurements as the tension likely signals the presence of unmitigated systematics, while in the later case there is little to be gained from combining the measurements.
+
+CombineHarvesterFlow helps the user detect spurious results.In particular, weighting the first chain by the flows trained on the second chain, and vice versa, should yield consistent constraints.After submission, we became aware of several papers which proposed similar techniques to the one proposed in this work [40,41].Subsequent to this work [42] also proposed a similar method.However, the ability to detect spurious re-sults with the cross-check is a key feature that sets CombineHarvesterFlow apart.
+
+We have also shown that when CombineHarvesterFlow fails due to one posterior being much tighter than the other, readjusting the original priors and resampling can resolve the issue.For this reason, we recommend that there is coordination between collaborations to choose priors that ensure chains can be reused without costly resampling.
+
+Since the covariance between projected angular statistics and redshift space multipoles is negligible, we used CombineHarvesterFlow to combine DESY3 × CMB lensing with BOSS full shape direct fit measurements.To our knowledge this is the first time a joint analysis of these datasets have been performed.We find S 8 = 0.79 +0.01 −0.01 which is consistent with Planck at the 1.3σ level.This example showcases the efficacy of CombineHarvesterFlow -a tool which will render many currently tedious joint sampling problems trivially implementable, fast and computationally inexpensive.FIG. 5. A sample of 1000 points from a highly non-Gaussian likelihood described in Appendix B. Colors represent the ratio of the true likelihood to the GP-emulated likelihood.For many of the points, the ratio is far away from unity indicating that the emulator has failed dramatically.This is due to the GP sampling scheme which fails for non-Gaussian posteriors.
+
+of the training set.However, GP emulators do not scale with large training sets which requires one to subsample the chains [51].We find that the sampling scheme available AReconstructionTool, which is optimized for Gaussian posteriors such as those found in Planck, does not generalize well to non-Gaussian posteriors.
+
+As an example, we take the Gaussian with mean (µ x , µ y ) = (0, 10) and covariance, Σ = diag(5, 1) and make the transform y → y ′ = x 2 y.We compute the log-likelihood, which is analytically tractable, at 1000 points randomly sampled from the likelihood.At the same points we estimate the ratio of the true likelihood to the emulated likelihood.The results are shown in Fig. 5.We find that for many of these points, the ratio is far from unity indicated the GP-emulator has failed dramatically.
+
+
+
+and Σ 2 = diag(3, 1), before rotating both Gaussians by 45 • .These posteriors are shown as dashed black and red lines in the top left of Fig. 2. The joint constraints are shown in solid blue.In the bottom left corner of Fig. 2, we zoom in on the joint constraints.The CombineHarvesterFlow estimates from weighting the first and second posteriors are shown in black and red respectively, while the true joint constraints are shown in blue.In both cases CombineHarvesterFlow fails to accurately reproduce the joint posteriors.The two CombineHarvesterFlow constraints are in disagreement which suggests the CombineHarvesterFlow results should be discarded.
+
+
+FIG. 1 .
+1
+FIG. 1. Top: The 68% and 95% confidence intervals for two initial Gaussian posteriors are indicated by the red and black dashed lines.The joint constraints which are known analytically are shown in solid blue.Bottom: The joint constraints are again shown in blue, while the constraints found using CombineHarvesterFlow from weighting the first posterior and the second posterior are shown in black and red respectively.In both cases, CombineHarvesterFlow accurately recovers the joint posterior.
+
+
+FIG. 6 .
+6
+FIG.6.CombineHarvesterFlow joint constraints from DESY3 × CMB lensing and BOSS full shape analyses.Different weighting strategies result in consistent constraints in the parameters of interest, S8 and Ωm, but the other parameters are not completely consistent.This is likely due to undersampling, as the DES posteriors are much broader in h0 and ω b .
+
+
+
+
+the joint BOSS and DES 6 × 2
+DES X CMB LensingBOSSPlanckWeighted DES ChainWeighted BOSS Chain0.88S0.70.30 0.360.7 0.8Ω mS 8FIG. 3. Joint DESY3 × CMB lensing and BOSS full shapedirect fit 68% and 95% confidence intervals. When run-ning CombineHarvesterFlow we find good agreement be-tween weighting the BOSS and DES chains. The joint S8constraints are consistent with Planck (blue) at the 1.3σlevel.
+https://github.com/danielward27/flowjax
+We trained an ensemble of 50 flows and checked that our results are converged.
+We note however, that our choice of ns prior can have a substantial impact on the inferred value of h 0 in CMB lensing[27].
+The full joint constraints are shown and discussed in Appendix C.
+14 We start with the the Planck chains available at https://des.ncsa.illinois.edu/releases/y3a2 to match the DES prior.
+Emulating the data-vector does not suffer from this issue because in unconstrained regions the χ 2 is most likely large and hence rejected by the sampler.
+16 https://github.com/tmcclintock/AReconstructionTool
+VII. ACKNOWLEDGEMENTSPLT is supported in part by NASA ROSES 21-ATP21-0050.This work received support from the U.S. Department of Energy under contract number DE-SC0011726.AC acknowledges support provided by NASA through the NASA Hubble Fellowship grant HST-HF2-51526.001-A awarded by the Space Telescope Science Institute, which is operated by the Association of Universities for Research in Astronomy, Incorporated, under NASA contract NAS5-26555.The authors thank Mikhail Ivanov for providing the BOSS full shape chains used in this work and the anonymous referee who's comments improved the manuscript.We acknowledge use of the open source software[43][44][45][46][47][48]Appendix A: Failure of Neural Network Likelihood EmulationEmulating the data vector over parameter space using neural networks is a popular technique to accelerate parameter inference (see e.g.[29,49]).Since we wish to compute posteriors from the output chains, we do not have access to the data vectors, but we can emulate the likelihood if the chains also store the likelihood at the sampled points.Emulating both likelihoods could in principle dramatically speed up joint parameter inference.However, we find that direct emulation of the likeli- hood, rather than data-vector can fail catastrophically.This is because most of the prior volume is not sampled by the chains leaving the emulated likelihood completely unconstrained in these regions. 15To illustrate this, we trained a likelihood emulator using the publicly available DESY3 3 × 2 point chains.Using this emulator we reran the DES chains, sampling with Emcee[50].The results in the Ω m −A s plane, after marginalizing over the other parameters, are shown in Fig.4.Here it is clear the emulated likelihood analysis has failed.It may be possible to solve this problem by (e.g.forcing the posterior to zero away from the samples), but this could require substantial fine-tuning to the problem at hand.Appendix B: Failure of Gaussian Process Likelihood EmulationThe authors of[51], proposed direct emulation of the likelihood using Gaussian processes (GP) and released a GP emulation package, AReconstructionTool 16 .Unlike neural network emulators, the GP-emulated likelihood is well constrained outside the immediate vicinityAppendix C: Full ConstraintsWe plot the full joint constraints from the DESY3 × CMB lensing and BOSS full shape analyses in Fig.6.Although we find very consistent results when weighting the DES chains compared to weighting the BOSS chain in the main parameters of interest, S 8 and Ω m , we find small discrepancies in the other parameters.These differences are almost certainly caused by the DES chains undersampling the regions where the joint posterior is high (see Sec. IV B).In particular, to calibrate the BAO scale, the BOSS chains prior on ω b is substantially tighter than the initial prior in DES chains and DES alone places virtually no constrain on h 0 .This reinforces the need for collaborations to agree on priors which enable easy parameter combination a posteriori with CombineHarvesterFlow.
+. F J Qu, ACT)10.3847/1538-4357/acfe06arXiv:2304.05202Astrophys. J. 9622024astro-ph.CO
+
+. S Alam, eBOSS10.1103/PhysRevD.103.083533arXiv:2007.08991Phys. Rev. D. 103835332021astro-ph.CO
+
+. T M C Abbott, DES10.1103/PhysRevD.105.023520arXiv:2105.13549Phys. Rev. D. 105235202022astro-ph.CO
+
+. A G Adame, DESIarXiv:2404.030022024astro-ph.CO
+
+. S More, 10.1103/PhysRevD.108.123520arXiv:2304.00703Phys. Rev. D. 1081235202023astro-ph.CO
+
+. C Heymans, 10.1051/0004-6361/202039063arXiv:2007.15632Astron. Astrophys. 6462021astro-ph.CO
+
+. N Aghanim, Planck10.1051/0004-6361/201833910arXiv:1807.06209Astron. Astrophys. 6412020Erratum: Astron.Astrophys. 652, C4 (2021). astro-ph.CO
+
+. F Bianchini, SPT)10.3847/1538-4357/ab6082arXiv:1910.07157Astrophys. J. 8882020astro-ph.CO
+
+. Y Mellier, EuclidarXiv:2405.134912024
+
+. T Brinckmann, J Lesgourgues, 10.1016/j.dark.2018.100260arXiv:1804.07261Phys. Dark Univ. 241002602019astro-ph.CO
+
+. A Lewis, 10.1103/PhysRevD.87.103529arXiv:1304.4473Phys. Rev. D. 871035292013astro-ph.CO
+
+. E Krause, T Eifler, Mon Not, Roy, 10.1093/mnras/stx1261arXiv:1601.05779Astron. Soc. 47021002017astro-ph.CO
+
+. J Zuntz, M Paterno, E Jennings, D Rudd, A Manzotti, S Dodelson, S Bridle, S Sehrish, J Kowalkowski, 10.1016/j.ascom.2015.05.005arXiv:1409.3409Astron. Comput. 122015astro-ph.CO
+
+. J Torrado, A Lewis, 10.1088/1475-7516/2021/05/057arXiv:2005.05290JCAP. 05572021astro-ph.IM
+
+. P Lemos, DES10.1093/mnras/stac2786arXiv:2202.08233Mon. Not. Roy. Astron. Soc. 52111842023astro-ph.CO
+
+Flowjax: Distributions and normalizing flows in jax. D Ward, 10.5281/zenodo.10402073release year of version
+
+D P Kingma, T Salimans, R Jozefowicz, X Chen, I Sutskever, M Welling, Advances in neural information processing systems. 201629
+
+Advances in neural information processing systems. G Papamakarios, T Pavlakou, I Murray, 201730
+
+. W J Handley, M P Hobson, A N Lasenby, 10.1093/mnrasl/slv047arXiv:1502.01856Mon. Not. Roy. Astron. Soc. 450L612015astro-ph.CO
+
+. J U Lange, 10.1093/mnras/stad2441arXiv:2306.16923Mon. Not. Roy. Astron. Soc. 52531812023astro-ph.IM
+
+. F Feroz, M P Hobson, M Bridges, 10.1111/j.1365-2966.2009.14548.xarXiv:0809.3437Mon. Not. Roy. Astron. Soc. 39816012009astro-ph
+
+. P Taylor, R Massey, M Jauzac, F Courbin, D Harvey, R Joseph, A Robertson, 10.1093/mnras/stx855arXiv:1701.04412Mon. Not. Roy. Astron. Soc. 4682017astro-ph.CO
+
+. P L Taylor, K Markovič, 10.1103/PhysRevD.106.063536arXiv:2205.14167Phys. Rev. D. 106635362022astro-ph.CO
+
+. T M C Abbott, 10.1103/PhysRevD.107.023531arXiv:2206.10824Phys. Rev. D. 107235312023astro-ph.CO
+
+. O H E Philcox, M M Ivanov, 10.1103/PhysRevD.105.043517arXiv:2112.04515Phys. Rev. D. 105435172022astro-ph.CO
+
+. J U Lange, A P Hearin, A Leauthaud, F C Van Den Bosch, E Xhakaj, H Guo, R H Wechsler, J Derose, 10.1093/mnras/stad473arXiv:2301.086922023astro-ph.CO
+
+. J A Kable, G Benevento, G E Addison, C L Bennett, 10.3847/1538-4357/acfed0arXiv:2307.12174Astrophys. J. 9592023astro-ph.CO
+
+. P Lemos, DES10.1093/mnras/stab1670arXiv:2012.09554Mon. Not. Roy. Astron. Soc. 50561792021astro-ph.CO
+
+. C.-H To, E Rozo, E Krause, H.-Y Wu, R H Wechsler, A N Salcedo, 10.1088/1475-7516/2023/01/016arXiv:2203.05583JCAP. 01162023astro-ph.CO
+
+. N.-M Nguyen, F Schmidt, B Tucci, M Reinecke, A Kostić, arXiv:2403.032202024astro-ph.CO
+
+. N Porqueres, A Heavens, D Mortlock, G Lavaux, 10.1093/mnras/stab3234arXiv:2108.04825Mon. Not. Roy. Astron. Soc. 5092021astro-ph.CO
+
+. J Hou, A Moradinezhad, C Dizgah, M Hahn, S Eickenberg, P Ho, E Lemos, C Massara, L Modi, B R Parker, -S Blancard, 10.1103/PhysRevD.109.103528arXiv:2401.15074Phys. Rev. D. 1091035282024astro-ph.CO
+
+. G Valogiannis, C Dvorkin, 10.1103/PhysRevD.106.103509arXiv:2204.13717Phys. Rev. D. 1061035092022astro-ph.CO
+
+. C Hahn, arXiv:2310.152462023
+
+. S Cheng, Y.-S Ting, B Ménard, J Bruna, 10.1093/mnras/staa3165arXiv:2006.08561Mon. Not. Roy. Astron. Soc. 4992020astro-ph.CO
+
+. M Gatti, DESarXiv:2405.108812024
+
+. N Jeffrey, DESarXiv:2403.023142024
+
+. R Srinivasan, M Crisostomi, R Trotta, E Barausse, M Breschi, arXiv:2404.122942024stat.ML
+
+. A Polanska, M A Price, D Piras, A Spurio Mancini, J D Mcewen, arXiv:2405.059692024astroph.IM
+
+. H Bevins, W Handley, P Lemos, P Sims, E D L Acedo, A Fialkov, 10.3390/psf2022005001arXiv:2207.114572022astro-ph.CO
+
+. H T J Bevins, W J Handley, P Lemos, P H Sims, E D L Acedo, A Fialkov, J Alsing, 10.1093/mnras/stad2997arXiv:2205.12841Mon. Not. Roy. Astron. Soc. 5262023astro-ph.IM
+
+. A Mootoovaloo, C García-García, D Alonso, J Ruiz-Zapatero, arXiv:2409.014072024astroph.CO
+
+JAX: composable transformations of Python+NumPy programs. J Bradbury, R Frostig, P Hawkins, M J Johnson, C Leary, D Maclaurin, G Necula, A Paszke, J Van-Derplas, S Wanderman-Milne, Q Zhang, 2018
+
+. S R Hinton, 10.21105/joss.00045The Journal of Open Source Software. 1452016
+
+. A Lewis, arXiv:1910.139702019astro-ph.IM
+
+. P Virtanen, 10.1038/s41592-019-0686-2Nature Methods. 172612020
+
+. C R Harris, K J Millman, S J Van Der Walt, R Gommers, P Virtanen, D Cournapeau, E Wieser, J Taylor, S Berg, N J Smith, Nature. 5853572020
+
+. J D Hunter, 10.1109/MCSE.2007.55Computing in Science & Engineering. 9902007
+
+. E Saraivanov, K Zhong, V Miranda, S S Boruah, T Eifler, E Krause, arXiv:2403.123372024astro-ph.CO
+
+. D Foreman-Mackey, D W Hogg, D Lang, J Goodman, Publications of the Astronomical Society of the Pacific. 1253062013
+
+. T Mcclintock, E Rozo, Mon Not, Roy, 10.1093/mnras/stz2426arXiv:1905.09299Astron. Soc. 48941552019astro-ph.CO

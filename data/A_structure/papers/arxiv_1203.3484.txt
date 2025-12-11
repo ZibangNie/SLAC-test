@@ -1,0 +1,193 @@
+Intracluster Moves for Constrained Discrete-Space MCMC
+
+
+Firas Hamze 
+Department of Computer Science
+University of British Columbia Vancouver
+D-Wave Systems Inc. 100-4401 Still Creek Drive BurnabyV5C 6G9B.C., B.CCanada, Canada
+
+Nando De Freitas 
+Department of Computer Science
+University of British Columbia Vancouver
+D-Wave Systems Inc. 100-4401 Still Creek Drive BurnabyV5C 6G9B.C., B.CCanada, Canada
+
+Intracluster Moves for Constrained Discrete-Space MCMC
+
+This paper addresses the problem of sampling from binary distributions with constraints. In particular, it proposes an MCMC method to draw samples from a distribution of the set of all states at a specified distance from some reference state. For example, when the reference state is the vector of zeros, the algorithm can draw samples from a binary distribution with a constraint on the number of active variables, say the number of 1's. We motivate the need for this algorithm with examples from statistical physics and probabilistic inference. Unlike previous algorithms proposed to sample from binary distributions with these constraints, the new algorithm allows for large moves in state space and tends to propose them such that they are energetically favourable. The algorithm is demonstrated on three Boltzmann machines of varying difficulty: A ferromagnetic Ising model (with positive potentials), a restricted Boltzmann machine with learned Gabor-like filters as potentials, and a challenging three-dimensional spin-glass (with positive and negative potentials).
+
+INTRODUCTION
+
+Sampling from binary distributions with constraints on the number of active variables is a problem of interest in statistical physics and probabilistic inference. In physics, the problem arises when adopting binary probabilistic graphical models, known as conservedorder-parameter Ising models, to study the properties of lattice gases (Newman & Barkema 1999, Chapter 5). Here, fixing the number of active variables has the physical meaning of holding the magnetization of the system constant.
+
+In probabilistic inference, constraints on the number of active binary hidden variables in a Boltzmann machine are often imposed to either control the complexity of the coding scheme, regularize the problem or simulate the effect of lateral inhibition in hierarchical models of perception (Kappen 1995). In the model adopted by Kappen the latent variables are independent of each other given the observed variables and, hence, the constraint on the latent variables introduces interaction among them. This type of restricted Boltzmann machine, albeit without this precise interaction term, has become a popular building block in deep architectures (Hinton & Salakhutdinov 2006).
+
+There is also a remarkably large number of other statistical inference problems, where one can apply Rao-Blackwellization (Hamze & de Freitas 2004) to integrate out all continuous variables and end up with a discrete distribution. Examples include topic modeling and Dirichlet processes (Blei, Ng & Jordan 2003), Bayesian variable selection (Tham, Doucet & Kotagiri 2002), mixture models (Liu, Zhang, Palumbo & Lawrence 2003) and multiple instance learning (Kück & de Freitas 2005). In these domains, it might sometimes be desirable to impose constraints on the number of active topics, clusters, variables or models. If such an avenue is pursued, then the MCMC method proposed in this paper would provide a reasonable inference engine for these constrained discrete sampling problems.
+
+This paper presents a specialized algorithm for equilibrium Monte Carlo sampling of binary-valued systems with constraints. In particular, the proposed MCMC method draws samples from a distribution defined on the set of all states at a specified distance from a reference state. The method allows for large moves in the state space. That is, many bits are flipped in a single MCMC step.
+
+Despite a great deal of interest on this problem in statistical physics, by far the most popular existing algorithms are based on single pair-wise bit ex-change moves. Examples include the Kawasaki algorithm and the improved Metropolis bit-swap algorithm (Kawasaki 1966, Newman & Barkema 1999 that we discuss in the next section. As stated in (Newman & Barkema 1999, Section 5.1), neither single-variable-flip algorithms nor cluster algorithms, such as Swendsen-Wang, can be easily applied to conserved-order-parameter Ising models because it is hard to ensure that the magnetization constraint is not violated. The MCMC moves proposed here will allow for many, as opposed to a single pair of, variables to change at each iteration without violating the magnetization constraint.
+
+We should also point out that sequential Monte Carlo (SMC) methods, such as hot coupling and annealed importance sampling, have been successfully used to sample from Boltzmann machines without constraints (Hamze & de Freitas 2005, Salakhutdinov & Murray 2008. Since such samplers often use an MCMC kernel as proposal distribution, the MCMC sampler proposed in this paper would be useful to extend the domain of application of these SMC methods to Boltzmann machines with constraints of the type considered here.
+
+
+PRELIMINARIES
+
+Consider a binary-valued system defined on the state space S {0, 1} M , i.e. consisting of M variables each of which can be 0 or 1. The probability of a state x is given by the Boltzmann distribution:
+π(x) = 1 Z(β) e −βE(x)
+where β is an inverse temperature. An instance of such a system is the ubiquitous Ising model of statistical physics, also called a Boltzmann machine by the machine learning community (Ackley, Hinton & Sejnowski 1985).
+
+Consider a particular state c, which for now can be considered arbitrary. We are interested in drawing samples from the set of all states at Hamming Distance n from c, which we call S n (c S and Z n are understood to always depend on c, so we can drop the explicit dependence in our notation. The restricted distribution we want to sample from is given by
+π n (x) 1 Zn e −βE(x) x ∈ S n 0 otherwise (1)
+In particular, when c is the vector of zeros, the distribution π n (x) has n variables set to 1. This corresponds to the constant magnetization constraint mentioned in the introduction, but it is clear that the proposed sampling method applies to more general constraints. Nonetheless, in all subsequent examples in the algorithm description, we will assume for notational simplicity that c is the vector of zeros.
+
+We define the sets of bits in state x that agree and disagree with those of c:
+let P(x) = {i|x i = c i } and N (x) = {i|x i = c i }. Thus, P(x) ∪ N (x) = {1, . . . M } and P(x) ∩ N (x) = ∅.
+Another useful definition is that of the flip operator, which simply inverts bit i in a state, F (x, i) (x 1 , . . . ,x i , . . . , x M ). We will rely heavily on this notation when defining the proposal moves.
+
+In order to sample from the distribution (1), a possible Metropolis-type algorithm is to propose to flip, with uniform probability, a bit from the set and unset bits respectively, and accept the move (swap) with the Metropolis accept rule. For example, if x = [1, 1, 1, 0, 0, 0, 0], we may propose state x ′ = [1, 1, 0, 0, 1, 0, 0], and accept it with probability:
+α = min(1, e −β(E(x ′ )−E(x)) )
+This is a popular sampling scheme for these models (Newman & Barkema 1999, Hadjiagapiou, Malakis & Martinos 2006. While in principle correct, it can easily suffer from the usual troubles that beset MCMC algorithms, namely the issue of local minima. The set of allowable moves from x define its state space neighbors, and if all such neighbors have a higher energy than that of x, then at low temperatures (large β) the sampler will remain at x for a long time. In the next section we detail a potential way around this issue.
+
+
+INTRACLUSTER MOVES
+
+We begin by describing our novel Monte Carlo move that allows for large changes of state and tends to propose them such that they are energetically favourable. Subsequently, we show that the resultant algorithm does in fact satisfy the theoretical requirements that ensure correct asymptotic sampling. We call the proposal the intracluster move (IM) as it generates states within the "cluster" S n . The name should not, however, generate confusion with "cluster-flipping" algorithms, such as that of Swendsen and Wang (Swendsen & Wang 1987, Gore & Jerrum 1997, which are unrelated.
+
+Suppose that we have a state x 0 on S n . It is possible to imagine taking special types of biased self-avoiding walk (SAW) of length k in the state space, in other  Figure 1: A visual illustration of the move process for up/down SAWs of length 3. The arrows represent the allowable moves from a state at that step; the red arrow shows the actual move taken in this example.
+
+From the system at state x 0 = [1, 1, 1, 1, 1, 0, 0] on S 5 , the upward SAW begins. Bit 4 of x 0 is flipped to yield state u 1 = [1, 1, 1, 0, 1, 0, 0]; the process is repeated until state y = [1, 0, 1, 0, 0, 0, 0] on S 2 is reached. From there, the downward SAW considers and selects sequences of states in an analogous manner (in this case, d 1 = [1, 0, 1, 0, 1, 0, 0] is visited from y, etc.) until the final state x 1 = [1, 1, 1, 0, 1, 0, 1] is reached. The sequence of states taken by the upward and downward SAWs are, respectively, σ = [4, 2, 5] and ρ = [5, 7, 2].
+
+words sequences of states such that no state recurs in the sequence. The first type we consider, where states on sets {S n−1 . . . S n−k } are visited consecutively, is referred to as an upward SAW; the analogous case, where the walk is set to visit states on {S n+1 . . . S n+k }, is called a downward SAW. In the ensuing description, we shall detail a joint move consisting of an upward SAW followed by a downward one; the case of a move with the two SAW types appearing in reverse order is straightforward once the principles are understood. From x 0 , the n single-flip neighbors on S n−1 are specified by the set P(x 0 ). We may select a bit to flip, which we call σ 1 , from this set in an energy-biased manner as follows:
+f up (σ 1 = i|x 0 ) = e −γE(F (x 0 ,i)) j∈P(x 0 ) e −γE(F (x 0 ,j)) i ∈ P(x 0 ) 0 otherwise (2)
+The larger the value of the simulation parameter γ, the more likely the proposal (2) is to sample the lowerenergy neighbors of x 0 ; conversely if it is zero, a neighbor on S n−1 is selected completely at random. In principle, the value of γ will be seen to be arbitrary; indeed it can even be different at each step of the SAW. This will be discussed further in Section 4, where we set γ to be close to the inverse temperature β.
+
+From the resultant state on S n−1 , the process can be repeated to yield a state on S n−2 and so on until some state y on set S n−k is visited via the sequence of bit flips σ (σ 1 , . . . σ k ). At that point the upward SAW is said to be terminated, and the downward SAW may begin. In a completely analogous manner to the upward case, we may select a neighbor of y on S n−k+1 by flipping bit ρ 1 of N (y) according to:
+f down (ρ 1 = i|y) = e −γE(F (y,i)) j∈N (y) e −γE(F (y,j)) i ∈ N (y) 0 otherwise
+and so forth to yield the point x 1 back on S n via the flip sequence ρ (ρ 1 , . . . ρ k ). Again the value of γ is tunable as it was in the upward case. The state y is said to be a bridge point on S n−k of x 0 and x 1 .
+
+The sequence of states visited in the up and down processes are denoted, respectively, by (u 0 , . . . , u k ) and
+(d 0 , . . . , d k ), with u 0 = x 0 , u k = d 0 = y, and d k = x 1 .
+The set of bits that can flip with nonzero probability are called the allowable moves at each step. A diagrammatic depiction of the up/down SAWs is shown in Figure 1. At this point it should be clear why the term "self-avoiding" aptly describes the up and down processes; by construction a state can never occur twice at any stage within each process, though of course in principle one that has been visited by the upward SAW can appear in the downward SAW.
+
+The motivation behind using such an energy-biased scheme is that it may allow for large changes of configuration and yet select final states that are "typical" of the system's target distribution. One can imagine, say, to uniformly perturb a large number of bits, but this is likely to yield states of high energy, and an MCMC algorithm will be extremely unlikely to accept the move at low temperatures. We will have more to say about the choice of the biasing parameter γ as well as the related issue of the SAW lengths in Section 4.
+
+Note that by multiplying the SAW flipping probabilities, we can straightforwardly obtain the probability of moving from state x 0 to x 1 along the two SAWs (σ, ρ), which we call f (x 1 , σ, ρ|x 0 ):
+f (x 1 , σ, ρ|x 0 ) δ x1 [F (x 0 , σ, ρ)] M i=1 f up (σ i |u i−1 ) × M i=1 f down (ρ i |d i−1 )(3)
+The delta function simply enforces the fact that the final state x 1 must result from the sequence of flips in (σ, ρ) from x 0 . The set of {σ, ρ} such that f (x 1 , σ, ρ|x 0 ) > 0 are termed the allowable SAWs between x 0 and x 1 .
+
+Ideally, to implement a Metropolis-Hastings (MH) algorithm using the SAW proposal, we would like to evaluate the marginal probability of proposing x 1 from x 0 , which we call f (x 1 |x 0 ), so that the move would be accepted with the usual MH ratio:
+α mar (x 0 , x 1 ) min 1, π n (x 1 )f (x 0 |x 1 ) π n (x 0 )f (x 1 |x 0 )
+Unfortunately, for all but small values of the walk lengths k, marginalization of the proposal is intractable due to the potentially massive number of allowable SAWs between the two states.
+
+To assist in illustrating our solution to this, we recall that a sufficient condition for a Markov transition kernel K to have target π n as its stationary distribution is detailed balance:
+π n (x 0 )K(x 1 |x 0 ) = π n (x 1 )K(x 0 |x 1 )(4)
+One special case is obtained if we use the marginalized proposal f (x 1 |x 0 ) followed by the MH accept rule,
+K mar (x 1 |x 0 ) f (x 1 |x 0 )α mar (x 0 , x 1 )(5)
+As we cannot compute f (x 1 |x 0 ), we shall use a kernel K(x 1 , σ, ρ|x 0 ) defined on the joint space of SAWs and states, and show that with some care, detailed balance (4) can still hold marginally. It will be clear, though that this does not mean that the resultant marginal kernel K(x 1 |x 0 ) is the same as that in (5) obtained using MH acceptance on the marginal proposal .
+
+Define the sequence reversal operator R(σ) to simply return a sequence consisting of the elements of σ in reverse order; for example R([2, 3, 1, 4]) = [4, 1, 3, 2]. One can straightforwardly observe that each allowable up/down SAW pair (σ, ρ) from x 0 to x 1 can be uniquely mapped to the two allowable SAWs (R(ρ), R(σ)) from x 1 to x 0 . For example in Figure  1, the SAWs (R(ρ) = [2, 7, 5], R(σ) = [5, 2, 4]) can be seen to be allowable from x 1 to x 0 . Next, we have the following somewhat more involved concept:
+
+Definition 1. Consider a Markov kernel K(x 1 , σ, ρ|x 0 ) whose support set coincides with that of (3). We say that pathwise detailed balance holds if π n (x 0 )K(x 1 , σ, ρ|x 0 ) = π n (x 1 )K(x 0 , R(ρ), R(σ)|x 1 ), for all σ, ρ, x 0 , x 1 .
+
+It turns out that pathwise detailed balance is a stronger condition than marginal detailed balance. In other words, Proposition 1. If the property in Definition 1 holds for a transition kernel K of the type described there, then π n (x 0 )K(x 1 |x 0 ) = π n (x 1 )K(x 0 |x 1 ) Proof. Suppose, for given x 0 , x 1 , we summed both sides of the equation enforcing pathwise detailed balance over all allowable SAWs
+{σ ′ , ρ ′ } from x 0 to x 1 , i.e. σ ′ ρ ′ πn(x0)K(x1, σ ′ , ρ ′ |x0)= σ ′ ρ ′ πn(x1)K(x0, R(ρ ′ ), R(σ ′ )|x1)
+The left-hand summation marginalizes the kernel over allowable SAWs and hence results in π n (x 0 )K(x 1 |x 0 ). The observation above that each allowable SAW pair from x 0 to x 1 can be reversed to yield an allowable pair from x 1 to x 0 implies that the right-hand side is simply a re-ordered summation over all allowable SAWs from x 1 to x 0 , and can thus be written as π n (x 1 )K(x 0 |x 1 ).
+
+We are now ready to state the final form of the algorithm, which can be seen to instantiate a Markov chain satisfying pathwise detailed balance. After proposing (x 1 , σ, ρ) using the up/down joint process, we accept the move with the ratio:
+α(x 0 , x 1 , σ, ρ) min 1, π n (x 1 )f (x 0 , R(ρ), R(σ)|x 1 ) π n (x 0 )f (x 1 , σ, ρ|x 0 )(6)
+The computational complexity of evaluating this accept ratio is of the same order as that required to sample the proposed SAWs/state; the only additional operations required are those needed to evaluate the reverse proposal appearing in the numerator, which are completely analogous to those involved in calculating the forward proposal.
+
+Before proceeding to the experimental validation, let us take a closer look at the marginal transition kernel K(x 1 |x 0 ). We can factor the joint proposal into:
+f (x 1 , σ, ρ|x 0 ) = f (x 1 |x 0 )f (σ, ρ|x 0 , x 1 )
+Of course, if we are assuming that f (x 1 |x 0 ) is intractable to evaluate, then the conditional f (σ, ρ|x 0 , x 1 ) must be so as well, but it is useful to consider. If we now summed both sides of the joint probability of moving from x 0 to x 1 over allowable paths, we would observe:
+σ ′ ρ ′ π n (x 0 )K(x 1 , σ ′ , ρ ′ |x 0 ) = π n (x 0 )f (x 1 |x 0 ) σ ′ ρ ′ f (σ ′ , ρ ′ |x 0 , x 1 )α(x 0 , x 1 , σ ′ , ρ ′ )
+The summation on the right-hand side is thus the conditional expectation of the accept rate given that we are attempting to move from x 0 to x 1 ; we call it
+α(x 0 , x 1 ) σ ′ ρ ′ f (σ ′ , ρ ′ |x 0 , x 1 )α(x 0 , x 1 , σ ′ , ρ ′ )
+and it defines an effective acceptance rate between x 0 and x 1 under the sampling regime described since
+K(x 1 |x 0 ) = f (x 1 |x 0 )α(x 0 , x 1 ). Clearly, α(x 0 , x 1 ) = α mar (x 0 , x 1 ), i.e.
+the marginal accept rate for the joint proposal is not the same as the one we get when using the marginalized proposal.
+
+Before proceeding to the experiments, we briefly touch on some implementation considerations; a detailed discussion will appear in a longer report. The bulk of the computational time of the IM algorithm is spent in generating states with the SAW proposal. At each step of the process, a component from a discrete probability vector, corresponding to the variable to flip, must be sampled. Naively, the time needed to do so scales linearly with the length l of the vector. In graphical models of sparse connectivity, however, it is possible to achieve a dramatic computational speedup by storing the vector in a binary heap. Sampling from a heap is of O(log l), but for sparsely connected models, updating the heap in response to a flip, which entails replacing the energy changes that would result if the flipped variable's neighboring variables were themselves to flip, is also of logarithmic complexity. In contrast, for a densely connected model, the heap update would be of O(M log l), while recomputing the vector in the naive method is O(M ). The simple method is thus cheaper for dense models.
+
+
+EXPERIMENTS
+
+Our experimental validation will consist of comparing the popular Metropolis algorithm defined on the restricted sets discussed in Section 2 to the IM sampler. Three types of binary-valued systems, all belonging to the general class of undirected graphical model called the Ising model, were used. The energy of a binary state s, where s i ∈ {−1, 1} is given by:
+E(s) = − (i,j) J ij s i s j − i h i s i (One can trivially map x i ∈ {0, 1} to s i ∈ {−1, 1}
+and vice-versa.) The interaction weights J ij between variables i and j are zero if they are topologically disconnected; positive (also called "ferromagnetic") if they tend to have the same value; and negative ("antiferromagnetic") if they tend to have opposite values. The presence of interactions of mixed sign, as routinely occurs in Boltzmann machines, restricted or otherwise, can significantly complicate Monte Carlo simulation due to the proliferation of local minima in the energy landscape. Interaction weights of different sign produce unsatisfiable constraints and cause the system to become "frustrated".
+
+The first set of experiments will consider the behavior of the two algorithms on a ferromagnetic Ising model on a planar, regular grid of size 60 × 60, where all J ij were 1 and all h i were 0. The target set S n was the collection of all states with exactly half of the {s i } having values of 1 and the remaining ones having values of −1. β was set to 1/2.27, corresponding to the so-called critical temperature, where many interesting phenomena arise (Newman & Barkema 1999) but where simulation also becomes quite difficult. It is worth mentioning that the set constraint makes it not at all obvious how to apply methods known do do well in the unconstrained ferromagnet case, such as variational inference and Swendsen-Wang.
+
+The second batch of experiments will compare the algorithms on an Ising model where the variables are topologically structured as a 9×9×9 three-dimensional cube, J ij are uniformly sampled from the set {−1, 1}, and the h i are zero. β was set to 1.0, corresponding to a lower temperature than the value of 0.9, at which it is known (Marinari, Parisi & Ruiz-Lorenzo 1997) that, roughly speaking, regions of the state space become very difficult to visit from one another via traditional Monte Carlo simulation. S n was specified to be the set of states with 364 of the 729 s i = 1.
+
+While the three-dimensional-cube spin-glass is a much harder problem than the ferromagnet, it represents a worst case scenario. One would hope that problems arising in practice will have structure in the potentials that would ease the problem of inference. For this reason, the final experimental set consisted of runs on a restricted Boltzmann machine (Smolensky 1986) with a constraint on the number of active units. RBMs are bipartite undirected probabilistic graphical models. The variables on one side are often referred to as "visible units", while the others are called "hidden units". Each visible unit is connected to all hidden units. However there are no connections among the hidden units and among the visible units. Therefore, given the visible units, the hidden units are conditionally independent and vice-versa. Our model consisted of 784 and 500 visible and hidden units respectively. We chose weights corresponding to local Gabor filters to purposely capture regularities corresponding to the natural statistics of many perceptual inputs, such as natural images (Hyvarinen, Hurri & Hoyer 2009). The parameter β was set to one, and S n was the set of states with 1/3 of the {s i } having value 1. The total number of variables and edges in the graph were thus 1484 and 392000 respectively. It is worth mentioning that the constraints prohibit us from using the standard blocked Gibbs samplers that exploit conditional independence for inference in standard RBMs.
+
+The experimental protocol was roughly the same for all models: For 10 independent trials, run the two samplers for a certain number of iterations, storing the sequence of energies visited. Using each trial's energy sequence, compute the autocorrelation function (ACF.) Comparison of the two algorithms consisted of analyzing the energy ACF averaged over the trials. Without going into detail, a more rapidly decreasing ACF is indicative of a faster-mixing Markov chain; see for example (Robert & Casella 2004).
+
+Before moving on to the results, it is crucial to discuss the issue of fairness in comparing the constantset Metropolis algorithm to the IM sampler. One concern is that the SAW proposal takes considerably more computational time to propose a candidate state than the Metropolis algorithm's method of uniformly flipping and "unflipping" a variable. In all our experiments, we systematically allowed Metropolis to have more iterations so that it consumed the same computational time as IM at a given set of parameters.
+
+To compute the energy ACF generated by Metropolis, however, we subsampled the energy sequence: For example, if a fair comparison necessitated that Metropolis be given ten times more iterations than those given to IM, every tenth sample from the Metropolis' output sequence was taken when computing the ACF. Thus, as a just comparison requires, we calculated the ACF as a function of computational time lag instead of as a function of Monte Carlo iteration lag, the latter which may unfairly inflate the correlation of the computationally cheaper Metropolis algorithm.
+
+For the first two models, which were of sparse connectivity, the SAW proposals were implemented using the efficient binary heap procedure discussed in Section 3. ture. For IM, the SAW length of the proposal was set to 90, and the up/down SAW biases γ were set to the system's value of β. 10 5 moves were attempted. To allow for computational parity, the Metropolis algorithm was given 5 × 10 6 move attempts. The progress of the energy generated by the two samplers is shown in Figure 2 (top); both samplers are exploring the same range of the energy space, but IM's energy trajectory is clearly less correlated than that of the Metropolis algorithm at a given point in computational time. The algorithms' ACFs shown below show a marked decrease in the mixing time when using IM.
+
+We now present the results on the more challenging case of the spin-glass. In fact this set of experiments illustrates some of the potential issues in using the IM algorithm (or any other algorithm) in this challenging problem. Unlike the case of the ferromagnetic model, we found that using a single SAW length for the duration of the simulation was not ideal; we uniformly sampled a SAW length in the range [1,25] prior to each move attempt. Additionally, the SAW bias parameter γ was set to 0.8β = 0.8. This latter choice, along with the shorter SAW lengths relative to those used in the ferromagnetic model, are consequences of the extremely rugged energy landscape of these spin glass models and merit some closer consideration. We recall that in IM, the move is accepted with probability given by Equation 6, which is a function of the difference in energies of the initial and final states, but crucially in this case, also of the ratio of the reverse to forward path proposal probabilities. It turns out that for spin glasses, if the SAW length is too long, it becomes exceedingly less likely that state s 0 is sampled from s 1 along the reverse SAW to the one that resulted in s 1 from s 0 . In other words, a SAW from s 1 would rather go elsewhere than back to s 0 . Unless the energy of s 1 is so low (relative to that of s 0 ) so as to overwhelm this effect, moves will then be mostly rejected. Setting γ to be too large has a similar effect for the same reason. Conversely, letting γ to be too low will yield high rejection due to the high energy of the final state. The SAW lengths we used and setting γ to be slightly below the one at which the state space becomes difficult to explore were a good trade-off that allowed the sampler to function satisfactorily.
+
+A total of 10 5 moves were attempted by IM, while 10 6 were given to Metropolis. Figure 3 shows the results. We can see once again from both the plots of the energy and of the ACF that IM mixes considerably faster than the Metropolis algorithm. Indeed from the energy plot one can see that the Metropolis algorithm has not settled into the same statistical ensemble as that of IM by the end of the simulation, while at least in the ferromagnet, despite the high sample correlation, the Metropolis algorithm appears to have equilibrated. Thus in the ferromagnet, due to the high correlation Metropolis is giving fewer "effective" samples from the target than IM, but correct ones, while in the spin glass, Metropolis is not yet even sampling the same distribution as the one reached by IM, which is a much more serious problem.
+
+Finally, Figure 4 shows the simulation results for the RBM. The SAW length for IM was uniformly sampled prior to each move attempt in the range [1, 20], γ = 0.8. 10 4 and 10 5 moves were attempted by the IM and Metropolis algorithms respectively. We can see again that the performance of IM is markedly superior to that of the Metropolis algorithm; as in the case of the spin glass, the ensemble sampled by Metropolis has not converged to the one that IM reached quite early in the simulation. The parameters we have chosen cause an especially rapid drop-off in the ACF of IM. Please note the vertical scale in the autocorrelation plots. In the RBM, it decreases quickly to 0 and not 0.1 as in the previous models. This seems to indicate that potentials corresponding to regularities in perceptual signals (e.g. natural image statistics) can be easier to treat during the inference process.
+
+
+CONCLUSION
+
+We presented a novel MCMC method for sampling from binary distributions with particular types of constraints. The experiments demonstrated, in three Ising models of varying difficulty, that the new sampler outperforms the popular algorithm in the literature by a significant margin. Energy and autocorrelation plots, showed that the new sampler converges faster to the stationary regime and that it produces more independent samples. Although we focused on Ising models for demonstration purposes, the algorithm applies to arbitrary binary distributions. Testing the algorithm in these other distributions is a good avenue for future work. We tuned the SAW length and the proposal parameter γ to obtain good acceptance rates. Although this is fairly easy to do, it would also be a good idea to do this automatically using standard adaptive MCMC tools.
+
+Figure 2 Figure 2 :
+22displays the results of the two samplers on the ferromagnetic Ising model at the critical tempera-(Color online) Energy trajectory (a) and autocorrelation function (b) of the IM and Metropolis algorithms on the 2D 60 × 60 ferromagnetic Ising model as a function of computational time. Bars show the variance of the samples over 10 trials and are to aid in visualizing the spread of the samples generated at the corresponding points, not as "errors." See text for discussion of results and on how a fair comparison was made.
+
+Figure 3 :
+3(Color online) Energy trajectory (a) and autocorrelation function (b) of the IM and Metropolis algorithms on the 3D 9 × 9 × 9 Ising spin-glass as a function of computational time. Bars show the variance of the samples over 10 trials and are to aid in visualizing the spread of the samples generated at the corresponding points, not as "errors." The Metropolis algorithm is clearly not converging to the same statistical ensemble as that reached by IM.
+
+Figure 4 :
+4(Color online) Energy trajectory (a) and energy autocorrelation function (b) of the IM and Metropolis algorithms on the RBM Ising model as a function of computational time. Bars show the variance of the samples over 10 trials and are to aid in visualizing the spread of the samples generated at the corresponding points, not as "errors." See text for discussion of results and on how a fair comparison was made.
+
+A learning algorithm for Boltzmann machines. D H Ackley, G Hinton, T Sejnowski, Cognitive Science. 9Ackley, D. H., Hinton, G. & Sejnowski, T. (1985). A learn- ing algorithm for Boltzmann machines, Cognitive Sci- ence 9: 147-169.
+
+Latent Dirichlet allocation. D M Blei, A Y Ng, M I Jordan, J. Mach. Learn. Res. 3Blei, D. M., Ng, A. Y. & Jordan, M. I. (2003). Latent Dirichlet allocation, J. Mach. Learn. Res. 3: 993- 1022.
+
+The Swendsen-Wang process does not always mix rapidly. V K Gore, M R Jerrum, ACM symposium on Theory of computing. Gore, V. K. & Jerrum, M. R. (1997). The Swendsen-Wang process does not always mix rapidly, ACM symposium on Theory of computing, pp. 674-681.
+
+. I Hadjiagapiou, A Malakis, S Martinos, Hadjiagapiou, I., Malakis, A. & Martinos, S. (2006).
+
+Monte Carlo study of the three-dimensional conserved-orderparameter Ising model via finite-size scaling analysis. Rev. Adv. Mater. Sci. 12Monte Carlo study of the three-dimensional conserved-order- parameter Ising model via finite-size scaling analysis, Rev. Adv. Mater. Sci. 12: 63-71.
+
+From fields to trees. F Hamze, N De Freitas, Uncertainty in Artificial Intelligence. Hamze, F. & de Freitas, N. (2004). From fields to trees, Uncertainty in Artificial Intelligence.
+
+Hot Coupling: a particle approach to inference and normalization on pairwise undirected graphs. F Hamze, N De Freitas, Advances in Neural Information Processing Systems. 18Hamze, F. & de Freitas, N. (2005). Hot Coupling: a parti- cle approach to inference and normalization on pair- wise undirected graphs, Advances in Neural Informa- tion Processing Systems 18: 491-498.
+
+Reducing the dimensionality of data with neural networks. G Hinton, R Salakhutdinov, Science. 3135786Hinton, G. & Salakhutdinov, R. (2006). Reducing the di- mensionality of data with neural networks, Science 313(5786): 504-507.
+
+A Hyvarinen, J Hurri, P Hoyer, Natural Image Statistics. SpringerHyvarinen, A., Hurri, J. & Hoyer, P. (2009). Natural Image Statistics, Springer.
+
+Deterministic learning rules for Boltzmann machines. H J Kappen, Neural Networks. 84Kappen, H. J. (1995). Deterministic learning rules for Boltzmann machines, Neural Networks 8(4): 537-548.
+
+Diffusion constants near the critical point for time-dependent Ising models. i. K Kawasaki, Phys. Rev. 1451Kawasaki, K. (1966). Diffusion constants near the critical point for time-dependent Ising models. i, Phys. Rev. 145(1): 224-230.
+
+Learning about individuals from group statistics. H Kück, N De Freitas, Uncertainty in Artificial Intelligence. Kück, H. & de Freitas, N. (2005). Learning about individ- uals from group statistics, Uncertainty in Artificial Intelligence.
+
+Bayesian clustering with variable and transformation selection. J Liu, J L Zhang, M J Palumbo, C E Lawrence, Bayesian Statistics. Liu, J., Zhang, J. L., Palumbo, M. J. & Lawrence, C. E. (2003). Bayesian clustering with variable and trans- formation selection, Bayesian Statistics, pp. 249-275.
+
+Numerical simulations of spin glass systems. E Marinari, G Parisi, J J Ruiz-Lorenzo, Spin Glasses and Random Fields. Marinari, E., Parisi, G. & Ruiz-Lorenzo, J. J. (1997). Nu- merical simulations of spin glass systems, Spin Glasses and Random Fields.
+
+. M Newman, G Barkema, Newman, M. & Barkema, G. (1999).
+
+. Monte Carlo Methods in Statistical Physics. Oxford Univ. PressMonte Carlo Methods in Statistical Physics, Oxford Univ. Press.
+
+Monte Carlo Statistical Methods. C P Robert, G Casella, Springer2nd ednRobert, C. P. & Casella, G. (2004). Monte Carlo Statistical Methods, 2nd edn, Springer.
+
+On the quantitative analysis of Deep Belief Networks. R Salakhutdinov, I Murray, International Conference on Machine Learning. Salakhutdinov, R. & Murray, I. (2008). On the quantita- tive analysis of Deep Belief Networks, International Conference on Machine Learning, pp. 872-879.
+
+Information processing in dynamical systems: Foundations of harmony theory, Parallel distributed processing: Explorations in the microstructure of cognition. P Smolensky, 1Smolensky, P. (1986). Information processing in dynami- cal systems: Foundations of harmony theory, Parallel distributed processing: Explorations in the microstruc- ture of cognition, vol. 1: foundations pp. 194-281.
+
+Nonuniversal critical dynamics in Monte Carlo simulations. R H Swendsen, J.-S Wang, Phys. Rev. Lett. 582Swendsen, R. H. & Wang, J.-S. (1987). Nonuniversal criti- cal dynamics in Monte Carlo simulations, Phys. Rev. Lett. 58(2): 86-88.
+
+Sparse Bayesian learning for regression and classification using Markov chain Monte Carlo, International Conference on Machine Learning. S S Tham, A Doucet, R Kotagiri, Tham, S. S., Doucet, A. & Kotagiri, R. (2002). Sparse Bayesian learning for regression and classification us- ing Markov chain Monte Carlo, International Confer- ence on Machine Learning, pp. 634-641.

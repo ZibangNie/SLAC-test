@@ -1,0 +1,536 @@
+Fully Automated Correlated Time Series Forecasting in Minutes
+6 Nov 2024
+
+Xinle Wu 
+Aalborg University
+Denmark
+
+Xingjian Wu 
+East China Normal University
+China
+
+Dalin Zhang 
+Aalborg University
+Denmark
+
+Miao Zhang zhangmiao@hit.edu.cn 
+Harbin Institute of Technology
+ShenzhenChina
+
+Chenjuan Guo 
+East China Normal University
+China
+
+Bin Yang byang@dase.ecnu.edu.cn 
+East China Normal University
+China
+
+Christian S Jensen 
+Aalborg University
+Denmark
+
+Xinle Wu 
+Xingjian Wu 
+Fully 
+Fully Automated Correlated Time Series Forecasting in Minutes
+6 Nov 2024E2013972F47FF1C0D5938EFBBA86A818arXiv:2411.05833v1[cs.LG]
+Societal and industrial infrastructures and systems increasingly leverage sensors that emit correlated time series.Forecasting of future values of such time series based on recorded historical values has important benefits.Automatically designed models achieve higher accuracy than manually designed models.Given a forecasting task, which includes a dataset and a forecasting horizon, automated design methods automatically search for an optimal forecasting model for the task in a manually designed search space, and then train the identified model using the dataset to enable the forecasting.Existing automated methods face three challenges.First, the search space is constructed by human experts, rending the methods only semi-automated and yielding search spaces prone to subjective biases.Second, it is time consuming to search for an optimal model.Third, training the identified model for a new task is also costly.These challenges limit the practicability of automated methods in real-world settings.To contend with the challenges, we propose a fully automated and highly efficient correlated time series forecasting framework where the search and training can be done in minutes.The framework includes a data-driven, iterative strategy to automatically prune a large search space to obtain a high-quality search space for a new forecasting task.It includes a zero-shot search strategy to efficiently identify the optimal model in the customized search space.And it includes a fast parameter adaptation strategy to accelerate the training of the identified model.Experiments on seven benchmark datasets offer evidence that the framework is capable of state-of-the-art accuracy and is much more efficient than existing methods.
+
+INTRODUCTION
+
+Many important societal and industrial infrastructures, including intelligent transportation systems, power grids, patient monitoring systems, and industrial control systems [3,4,6,24,25,35,37,39,42,54,56,57,62], involve sensors that record values that vary over time, resulting in multiple time series that are often correlated, known as correlated time series (CTS).Forecasting future CTS values based on historical values has important applications [2,17,53,60].For example, forecasting the future electricity consumption of users in an area based on their historical electricity consumption can help balance supply and demand in a power grid.
+
+Methods employing deep learning achieve state-of-the-art performance at CTS forecasting.Most of their model architectures are designed manually by human experts [1, 7, 10-13, 21, 23, 27, 36, 40, 45, 48, 49, 52, 53].The core components of such models are Spatio-Temporal blocks (ST-blocks), which are constructed by Spatial/Temporal (S/T) operators, such as convolution, graph convolution, and transformer, and capture both temporal dependencies among historical values and spatial correlations across time series.Although achieving promising results, even human experts struggle to design optimal ST-blocks for new tasks.
+
+As a more promising alternative approach, automated CTS forecasting aims to automatically identify optimal ST-blocks for different tasks and then uses them for forecasting [38,50,51,55].Figure 1 illustrates the pipeline of automated methods, which includes three phases: search space design, search for an optimal ST-block, and training the identified ST-block.A search space is first designed from S/T operators commonly used in existing manually designed models.These S/T operators are then combined using topological connection rules to obtain a set of ST-blocks that then form the search space.Next, search strategies, such as gradient-based, comparator-based, or random search, are applied to the search space to find an optimal ST-block for a given task.Finally, the identified ST-block is trained to enable the forecasting task.Despite achieving better performance than manually designed models, this approach still suffers from three major limitations that makes it challenging to use in practice.
+
+(1) Manually designed search space.The search space is still designed manually, which may yield suboptimal performance and also violates the goal of AutoML, namely to automate the entire process [18,28,34,43,66].Unlike search spaces constructed with a few homogeneous operators in computer vision and natural language processing, the many heterogeneous S/T operators and topological connections possible when forming ST-blocks yield a general search space that is difficult to explore.
+
+The state-of-the-art is to prune manually the general search space into a smaller, easier-to-explore search space.However, the pruned search spaces may be suboptimal for unseen tasks because of the manual pruning that relies on heuristic rules and statistical results from a few seen tasks.(2) High search cost.Existing automated methods employ search strategies such as gradient-based [30,31,50], comparator-based [5,51], or random search [55] to explore a search space to find the optimal ST-block, which are all very time-consuming.Gradient-based methods train a supernet that represents the search space, which is much larger and harder to train than a single ST-block.Comparatorbased methods train a large number of ST-blocks and obtain their validation accuracy to train a comparator.Random search methods sample a large number of ST-blocks and train them to obtain the optimal one.As a result, existing automated frameworks spending dozens of GPU hours searching for a high-performance ST-block.This high search cost makes these methods unattractive in realworld scenarios.
+
+(3) High training cost.Having found a high-performance STblock, existing methods train it from scratch on unseen CTS forecasting tasks.Thus usually takes hours [30,31,55], depending on the scale of the tasks.
+
+To address the above limitations, we propose FACTS, a Fully Automated and highly efficient CTS forecasting framework.(1) We propose an automated pruning strategy to generate a highquality search space for unseen forecasting tasks.Specifically, we construct a general search space using S/T operators and topological rules commonly used in existing CTS forecasting models.This search space is expected to contain optimal ST-blocks on unseen tasks.We then propose a strategy that partitions the general search space into disjoint subspaces that are distinguishable in terms of quality.Next, we iteratively prune the search space by removing low-quality subspaces in multiple passes on specific tasks, thereby generating customized high-quality search spaces for different unseen tasks, as shown in Figure 1 (lower left).
+
+(2) We propose a zero-shot search strategy that can find the optimal ST-block for unseen CTS forecasting tasks in minutes.Specifically, we build a task-aware architecture predictor (TAP) that takes as input the architecture of an ST-block and the task feature of a task and then predicts the accuracy of the ST-block on the task.In the pretraining phase, we collect training samples from numerous and diverse CTS forecasting tasks to pretrain TAP, enabling it to predict the accuracy of ST-blocks on an unseen task without having to be trained on that task.In the zero-shot search phase, we first employ the pretrained TAP to assist search space pruning on the target task, then traverse the ST-blocks in the pruned search space and pick the one with the highest prediction accuracy for deployment.Figure 1 (lower middle) shows that FACTS searches for a high-performance ST-block for each unseen task.Since the search on unseen tasks does not involve model training, it can be completed in minutes, which addresses the second limitation.
+
+(3) We propose a fast parameter adaptation strategy to accelerate the training of identified ST-blocks.Specifically, we introduce learnable coefficients to linearly combine the parameter weights of pretrained ST-blocks and use these as initial weights in the identified ST-block.This provides a good optimization starting point, allowing the training on the target task to complete quickly, thereby addressing the third limitation.Figure 1 (lower right) shows that FACTS inherits the parameter weights from pretrained ST-blocks to train identified ST-blocks, resulting in trained CTS models for forecasting.
+
+Our contributions are summarized as the follows.
+
+(1) We propose FACTS, a fully automated CTS forecasting framework.In particular, we propose an automated search space pruning strategy to automatically generate highquality search spaces for unseen CTS forecasting tasks.(2) We propose a zero-shot search strategy to search for an optimal ST-block on arbitrary unseen CTS forecasting tasks in minutes.(3) We propose a fast parameter adaptation strategy to accelerate the training of identified ST-blocks, reducing the training time by up to 66% on unseen CTS forecasting tasks.(4) Extensive experiments on seven benchmark datasets show that the proposed framework is capable of state-of-theart forecast accuracy while taking less time than existing manual and automated methods.
+
+
+PRELIMINARIES 2.1 Problem Setting
+
+Correlated Time Series (CTS).A correlated time series (CTS) X consists of  times series that each contains  timestamps and has an  -dimensional feature vector for each timestamp.Thus, X ∈ R  × × .Time series are correlated when the values in each time series not only depend on its historical values but also depend on values in other time series.Correlations between time series can be captured using a graph  = ( , , ).where  is a set of vertices representing time series,  is a set of edges, representing the correlations between two time series, such correlations are often derived from the physical distances between the sensors that produce the time series, but they can also be learned adaptively.A graph  can be captured using an adjacency matrix .Correlated Time Series Forecasting.We consider multi-step and single-step CTS forecasting, both of which have important applications.Given the feature values of a CTS X in the past  time steps, the goal of multi-step forecasting is to predict the feature values in  ( > 1) future time steps, formulated as follows.
+{ X𝑡+𝑃+1 , X𝑡+𝑃+2 , ..., X𝑡+𝑃+𝑄 } = F (𝑿 𝑡 +1 , 𝑿 𝑡 +2 , ..., 𝑿 𝑡 +𝑃 ; 𝐺),(1)
+where   ∈ R  × denotes the feature values of a CTS at time step , X denotes forecasted feature values, and F is a forecasting model.The goal of single-step forecasting is to forecast the feature values in the -th ( ≥ 1) future time step, formulated as follows.
+X𝑡+𝑃+𝑄 = F (𝑿 𝑡 +1 , 𝑿 𝑡 +2 , . . . , 𝑿 𝑡 +𝑃 ; 𝐺),(2)
+CTS Forecasting Task.We define a CTS forecasting task as T = (D, , , ), where D represents a CTS dataset,  and  represent the input and forecasting lengths, respectively, and  indicates whether the CTS forecasting task is single-step or multi-step.
+
+
+Existing Automated Forecasting Methods
+
+Existing methods focus on the automated design of ST-blocks, which form the backbone of CTS forecasting models.Specifically, automated CTS forecasting includes three phases: search space design, search for an optimal ST-block, and training of the identified ST-block, as shown in Figure 1.First, a search space is designed, which is a set of ST-blocks composed of S/T operators and topological connection rules used to assemble the operators.Figure 2 shows an example of a search space and two ST-blocks in it, which feature different S/T operator combinations and topologies.Next, they employ search strategies such as gradient-based, comparatorbased to explore the search space for the optimal ST-block.Finally, they train the identified ST-block for CTS forecasting.1D-CNN [44], LSTM [19], GRU [8], NLinear [61], GDCC [53], Inception [52], Transformer [47], Informer [64], and Convformer [16].Further, it includes 5 S-operators: DGCN [53], Mix-hop [52], Spatial-Transformer [47], Spatial-Informer [64], Masked-Transformer [20].
+
+Finally, it includes a skip operator.Thus, | | = 15.These operators are used to design a general search space that is expected to contain optimal ST-blocks for arbitrary unseen CTS forecasting tasks, but is too large to explore to find the optimal ST-block.Existing automated methods then prune the general search space manually, in two ways: by reducing the S/T operator set [30,31,38]or by removing bad ST-blocks based on sampling [41,55].Methods in the first category [30,38,50] compare the accuracy and efficiency of individual operators and select a subset of highperformance operators from the full operator set , thereby pruning the general search space.However, the pruned search space may be suboptimal.First, it compares the accuracy of S/T-operators on a few seen CTS forecasting tasks, which may not generalize to unseen tasks.For example, as shown in Table 1, NLinear performs better than a 1D-CNN on the ETTH dataset, but worse than the 1D-CNN on the PEMS04 and PEMS08 datasets.Therefore, it is unwise to remove the NLinear operator from the search space based on the results on PEMS04 and PEMS08, as it may exhibit high performance on other datasets.Second, S/T operators with high performance in isolation may not form high-performance ST-blocks.For example, as shown in Methods in the second category [41,55] adopt heuristic pruning strategies to divide architecture designs into disjoint angles and remove low-performance designs based on the accuracy of sampled ST-blocks, which is also performed on a few seen tasks and may not generalize to unseen tasks.
+
+To sum up, existing methods prune the general search space based on human designed heuristics to generate a task-agnostic and suboptimal search space.Instead, FACTS automatically prunes the general search space for the target task to generate a task-aware search space, which is expected to offer a higher potential for finding high-performance ST-blocks for the specific target task.[30,31,38], comparator-based [5,51], and random search [55].
+
+The gradient-based search strategy models the search space as a supernet, which is time-consuming to train.The comparator-based search strategy trains a comparator to identify the better of two ST-blocks, which requires training a large number of ST-blocks and is therefore also costly.The random search strategy samples a number of ST-blocks at random and trains them to obtain the one with the highest accuracy, thus having the highest search cost.
+
+
+Model Training.
+
+Existing automated methods train an identified ST-block from scratch [14,31,38,50,51,55], which typically takes hours, depending on the scale of the forecasting task.
+
+
+METHODOLOGY
+
+The proposed framework aims to find an ST-block that enables optimal prediction accuracy on unseen CTS forecasting tasks and to use it to obtain results in minutes.Figure 3 illustrates the framework.
+
+It includes an automated pruning strategy (Section 3.1) to prune the general search space to obtain a high-quality and relatively small search space suitable for unseen CTS forecasting tasks.Specifically, we first partition the general search space into disjoint subspaces, named .We define the quality of a  to be a function of the performance of all ST-blocks in it and measure the quality using the error empirical distribution function (EDF) [41].We then train a  predictor to predict the EDF of  and prune the search space by iteratively removing  with low EDF.
+
+To accelerate the search for optimal ST-blocks, the framework includes a highly efficient zero-shot search strategy (Section 3.2), which consists of pretraining and zero-shot search phases.Pretraining is a one-time task, and zero-shot search can be completed on unseen tasks in minutes.In the pretraining phase, we perform search space pruning on numerous and diverse CTS forecasting tasks, during which we collect training samples to pretrain a taskaware architecture predictor (TAP).In the zero-shot search phase, we first perform automated search space pruning on an unseen task, where we use the pseudo-EDF generated by the pretrained TAP to replace the real EDF.With the pruning completed, we use the pretrained TAP to predict the accuracy of all ST-blocks in the pruned search space on the unseen task and return the ST-block with the best predicted performance as the optimal ST-block.
+
+Finally, we train the identified ST-block on the unseen CTS forecasting task to enable forecasting.To accelerate the training, we propose a fast parameter adaptation strategy (Section 3.3) that introduces learnable coefficients to linearly combine the parameter weights of pretrained ST-blocks and serve as the initial parameter weights of the identified ST-block, which accelerates convergence and reduces the training time by up to 66%.
+
+
+Automated Search Space Pruning
+
+We propose an automated strategy to prune the general search space into a high-quality and relatively small search space for a specific CTS forecasting task.To achieve this, we first partition the general search space into subspaces that are distinguishable in quality and then remove lower-quality subspaces iteratively.Next, we introduce the search space partitioning method, the EDF metric used to evaluate the quality of search spaces, and the iterative search strategy.
+
+3.1.1Search Space Partitioning.Before introducing the search space partitioning method, we first introduce the general search space and define the notion of a .
+
+The general search space is a collection of a large number of ST-blocks, each of which is constructed by S/T-operators combined using topological connection rules.We use the S/T-operators introduced in Section 2.2.1 and follow commonly used topological connection rules [33,38,50] to assemble them into ST-blocks.
+skip CNN GCN INF-𝑇 INF-𝑆 GRU 𝐸𝐷𝐹 𝑐𝑜𝑚𝑏 1 0 2 2 0 1 2 0.16 𝑐𝑜𝑚𝑏 2 1 1 2 1 1 1 0.22 𝑐𝑜𝑚𝑏 3 1 2 1 2 0 1 0.54 𝑐𝑜𝑚𝑏 4 1 2 1 2 1 0 0.48 𝑐𝑜𝑚𝑏 5 1 2 2 2 0 0 0.69
+The partitioning method is based on the observation that the combination of S/T-operators largely determines the accuracy of the ST-blocks they compose, resulting in different  being distinguishable in quality, where the quality of a  refers to the overall performance of the ST-blocks in it and is measured using EDF (see Section 3.1.2).To illustrate this phenomenon, we select 5  and randomly sample 200 ST-blocks in each and calculate its EDF.As we can see in Table 2, the EDF of the different  are clearly distinguishable.In particular,  1 and  2 have significantly lower quality, indicating that we can remove the two  to prune the search space, resulting in a smaller and higherquality pruned search space.We thus propose to partition a search space into  and prune it by removing low-quality .
+
+3.1.2Search Space Quality Evaluation.The quality of a search space S aims to capture the overall performance of the ST-blocks in it.We thus define the quality of S as a function of the performance of all ST-blocks in it.
+𝑞𝑢𝑎𝑙𝑖𝑡𝑦 (S) = g(p(𝑏 1 ), p(𝑏 2 ), ..., p(𝑏 𝑛 )),(3)
+where p(  ) is the performance of ST-block   , which is evaluated using validation accuracy, and g is a function that aggregates the performance of the constituent blocks.Since it is impractical to train all ST-blocks to obtain their accuracy, we use uniform sampling to approximate.A simple metric to evaluate the quality of a search space is the average accuracy of the sampled ST-blocks, but this does not accurately reflect the quality of the search space.To illustrate this, we select   1 and  2 and randomly sample 200 ST-blocks in each and train these ST-blocks to obtain their validation accuracy.We show in Figure 4 the MAE of ST-blocks sampled from the two , where a lower MAE corresponds to a higher accuracy.We see that  2 has many more high-accuracy ST-blocks than  1 , indicating that  2 is of higher quality than  1 , as our goal is to find a single optimal ST-block in the search space.However, the average accuracy of sampled STblocks in  1 is higher than that in  2 .Thus, the average accuracy of sampled ST-blocks fails to reflect the quality of a search space.
+
+Instead, we use the error empirical distribution function (EDF) metric [41] to quantify the quality of a search space.EDF captures the quality of a search space by randomly sampling a set of STblocks and calculating the proportion of ST-blocks whose MAE error is below a given threshold : where   is the number of sampled ST-blocks and   is the validation MAE error of the -th ST-block.In the context of CTS forecasting, the intuition is that comparing the proportion of high-accuracy ST-blocks is more robust than using the average metric, as it reduces the impact of outliers.In the case of Figure 4, the EDF of  2 is significantly higher than that of  1 , reflecting the true quality difference between the two search spaces.With the -based search space partitioning method, and using the EDF metric to evaluate the quality of a , a naive idea to reduce the search space is to calculate the EDF of all  and remove low-quality .However, the number of  is huge, and uniformly sampling ST-blocks in each  to calculate its EDF is too costly.Instead, we only sample   and calculate their EDF values, and use the collected (, EDF) samples to train a  predictor to predict the EDF of all remaining .For efficiency, we employ a Gradient Boosting Decision Tree (GBDT) [15] model as the  predictor.
+𝐹 (𝑒) = 1 𝑛 𝑒 𝑛 𝑒 ∑︁ 𝑗=1 1 𝑒 𝑗 < 𝑒 ,(4)
+
+Iterative Search Space
+
+Pruning.Pruning the search space only once does not guarantee a high-quality pruned search space.This is because the threshold  in Equation 4 needs to be set manually, and an inappropriate  may cause EDF to fail to accurately compare the quality of different subspaces.To illustrate this, we select 3  and randomly sample 5 ST-blocks in each.We then train these STblocks to obtain their validation MAE error.As shown in Table 3, when  is set to the relatively large value of 16.00, we can easily identify  3 as the worst , but  1 and  2 have the same EDF, although ST-blocks in  1 perform significantly better than those in  2 .This demonstrates that a large  may cause EDF to be unable to distinguish between good and relatively good , which may cause us to remove high-quality subspaces, thereby reducing the potential of the pruned search space.In contrast, when  is set to the relatively small value of 14.70, the EDF labels of both  2 and  3 are 0, although the sampled ST-blocks from  2 have significantly higher accuracy than those from  3 .
+
+Further, since we need to collect (, EDF) samples to train a  predictor to predict the EDF of all remaining , too many 0 labels will cause the training samples to be unbalanced, resulting in an inaccurate  predictor.
+
+To solve this problem, we iteratively prune the search space, reducing  gradually.The intuition is that a larger  in the initial stage allows us to easily identify and remove bad .As  decreases, we can gradually distinguish good and relatively good , and since the quality of the remaining  gradually becomes higher, there will not be a large number of (, EDF) samples with EDF values equal to 0. Specifically, we first divide the general search space into  0 different .In the -th pruning stage, we randomly sample  , and for each , we randomly sample  ST-blocks to calculate its EDF.Then, we train a  predictor using the (, EDF) samples collected from iterations 0 to  and use it to predict the EDF values of all remaining .We end by pruning the search space by removing the 50% of  with the lowest EDF values.The pruning ends when the number of remaining  is below .We set the initial threshold  0 to be the median accuracy of the ST-blocks sampled in the 0-th iteration, and we set the final threshold  to be the ⌊/ 0 ⌋-th best accuracy of the ST-blocks sampled in the 0-th iteration.We then reduce the threshold linearly during the iterative pruning.The complete pruning procedure is shown in Algorithm 1.
+
+
+Zero-Shot Search
+
+We pretrain a TAP on numerous and diverse CTS forecasting tasks and then perform zero-shot search on unseen tasks to find optimal ST-blocks in minutes.We first introduce the structure of the TAP and then describe how to pretrain it and perform zero-shot search.
+
+3.2.1 Task-aware Architecture Predictor.We propose a Task-aware Architecture Predictor (TAP) that takes the architecture of an STblock and a task as input and outputs the prediction accuracy of the ST-block.Figure 5 shows the structure of the TAP, which consists of an Architecture Feature Learning (AFL) module, a Task Feature Learning (TFL) module, and an MLP regressor.
+
+AFL extracts features of the architecture of an ST-block.We regard the architecture of an ST-block as a directed acyclic graph (DAG) and represent it by an adjacency matrix   and a feature matrix   .We then use a graph convolution network (GCN) followed by a single-layer MLP to encode   and   as a feature vector   , formulated as follows.
+𝐻 𝑎 = 𝑀𝐿𝑃 1 (𝐺𝐶𝑁 (𝐴 𝑎 , 𝐹 𝑎 ))(5)
+TFL extracts features of a CTS forecasting task.We consider both semantic features and statistical features to learn an informative vector representation of a task.We use a 2-layer Set-Transformer [29] to extract the semantic feature vector of a task.The first layer, named IntraSetPool, consists of a Set Attention Block (SAB) [29] for capturing the relationship between different samples of a single Calculate the current threshold with
+𝑒 𝑖 = 𝑒 0 − 𝑒 0 −𝑒 𝑛 𝑝 −1 • 𝑖 8:
+Calculate EDF values for  in C using Equation 49:
+
+Train a GBDT model with (, EDF) pairs in C  C ← C ∪ C  17: end for 18: return The search space    formed by the remaining  time series and a Multi-head Attention (PMA) [29] for pooling the samples into a single representation of the time series.The second layer, named InterSetPool, also consists of an SAB and a PMA, where the former is to capture the relationship between different time series and the latter is to pool these time series into a single representation of the task.We refer to Set-Transformer [29] for the detailed architecture of SAB and PMA.Formally, we have
+{ D𝑖 } = IntraSetPool({𝐷 𝑖 },𝑊 1 )(6)𝐷 𝑎 = InterSetPool({ D𝑖 },𝑊 2 ),(7)
+where {  } is a CTS forecasting dataset,   is the learned semantic feature vector, and  1 and  2 are learnable parameters of the Set-Transformer.In addition, we use tsfresh [9] for extracting statistical features to construct a statistical feature vector   .We input the semantic and statistical feature vectors into different single-layer MLPs to achieve feature alignment, and then we concatenate the aligned feature vectors with the feature vector   and feed it into a two-layer MLP regressor to predict the accuracy of the ST-block on the CTS forecasting task, which is formulated as follows.
+𝐿 𝑎 = 𝑐𝑜𝑛𝑐𝑎𝑡𝑒𝑛𝑎𝑡𝑒 (𝑀𝐿𝑃 2 (𝐷 𝑎 ), 𝑀𝐿𝑃 3 (𝑇 𝑎 ), 𝐻 𝑎 )(8)𝑜𝑢𝑡𝑝𝑢𝑡 = 𝑀𝐿𝑃 4 (𝐿 𝑎 )(9)
+Finally, we optimize the parameters of TAP using the mean squared error (MSE) loss.
+
+
+TAP Pretraining.
+
+We pretrain TAP on numerous and diverse CTS forecasting tasks, enabling it to predict the accuracy of STblocks on arbitrary unseen tasks, thereby performing zero-shot search.The intuition is that we learn a combined embedding space of ST-blocks and tasks through pretraining, as well as a mapping from embeddings in the space to the accuracy of ST-blocks.When using the pretrained TAP to predict the accuracy of an ST-block on an unseen task, we first use AFL and TFL to obtain their combined embedding, and then we use the MLP regressor in the TAP to map the embedding to the accuracy of the ST-block.
+
+We collect training samples of the form (, , (, )) to pretrain the TAP, where (, ) represents the validation accuracy of STblock  on task  and is obtained by fully training  on .Given a fixed training sample budget, a naive idea is to collect training samples by uniformly sampling ST-blocks from the general search space.However, the general search space is so large that it is difficult to learn the mapping from the input  and  to accuracy with limited training samples.
+
+Considering that our goal is to find the optimal ST-block, we are more concerned with accurate prediction of high-performance STblocks than with accurate prediction of low-performance regions in the general search space.Therefore, we propose to collect training samples iteratively during the search space pruning process.As the search space is pruned iteratively, training samples are collected gradually from the pruned high-quality search space, so the TAP trained with these samples has more accurate prediction capabilities for high-quality regions of the search space, which is needed to identify the optimal ST-block.
+
+Specifically, we randomly sample   from the remaining search space in the -th pruning stage.For each , we randomly sample  ST-blocks and train the -th ST-block on the -th task,
+
+
+Zero-shot Search on Arbitrary Unseen CTS Forecasting Tasks.
+
+After the pretraining, we obtain a TAP that can perform zero-shot search on arbitrary unseen CTS forecasting tasks.Given an unseen task  ′ , we first perform the iterative pruning to reduce the general search space to a high-quality search space customized for task  ′ and then use the pretrained TAP to traverse the final pruned search space to find the optimal ST-block.Specifically, in the -th pruning stage, we first randomly sample  combs from the remaining search space.For each , we randomly sample  ST-blocks and train them on task  ′ , resulting in the
+training set 𝑆 ′ 𝑖 = 𝑐 𝑘=1 {(𝑡 ′ , 𝑏 𝑗 , 𝑅 ′ (𝑡 𝑗 , 𝑏 𝑗 ))} 𝑏 𝑗 ∈𝑐𝑜𝑚𝑏 𝑘 𝑗=1,••• ,𝑟
+, where  ′ (, ) is the prediction accuracy ( ) of ST-block  on task  generated by the pretrained TAP.We then use  ′  to calculate pseudo-EDF (  ) labels for the sampled  using Equation 4and train a  predictor to prune the search space.
+
+After the pruning is completed, we obtain a high-quality search space customized for task  ′ .We then use the pretrained TAP to predict the accuracy of all ST-blocks in the pruned search space and rank them according to prediction accuracy, where the top-1 ST-block is returned as the optimal ST-block.Since the zero-shot search phase does not involve any training, it is very fast and can be completed in minutes.
+
+
+Fast Training with Parameter Adaptation
+
+Having found a high-performance ST-block, we train its parameter weights to make forecasts on unseen tasks.Unlike existing automated methods that regard the training of different ST-blocks as independent processes and train the identified ST-block from scratch, we inherit the parameter weights of pretrained ST-blocks to accelerate the training of the identified ST-block.
+
+
+Motivation for Parameter Weights
+
+Inheritance.In the pretraining phase, we train a large number of ST-blocks to generate training samples for TAP.The parameter weights of these ST-blocks contain knowledge about how to capture general spatio-temporal patterns of CTS, which is shared across ST-blocks and tasks.Inheriting this knowledge when training identified ST-blocks may facilitate fast convergence because the identified ST-blocks are trained from a good starting point rather than from scratch.
+
+We inherit knowledge in pretrained ST-blocks by inheriting their parameter weights, unlike common transfer learning methods.Since pretrained ST-blocks differ in architecture from the identified ST-block and are trained on different tasks, it is not feasible to copy their parameter weights directly to the identified ST-block.However, the parameters of an ST-block come from multiple S/T operators that make up the ST-block, and the number of pretrained ST-blocks is sufficiently large to include all S/T operators in the search space, so we can inherit the parameter weights of each S/T operator in the identified ST-block separately.
+
+
+Fast Parameter Adaptation.
+
+We propose a fast parameter adaptation strategy to inherit the weights of pretrained ST-blocks in a learnable manner.Then we finetune the inherited weights on the target task for a few training steps to obtain optimal weights for the identified ST-block.Specifically, for each S/T-operator  in the identified ST-block, we first traverse the pretrained ST-blocks and select  ST-blocks that contain  and are most similar to the identified ST-block.Here, we consider two approaches to calculating the similarity between two ST-blocks.One is graph edit distance between DAGs corresponding to the two ST-blocks, which captures structural similarity.The other is the cosine similarity between the architectural feature vectors output by AFL (see Figure 5), which captures semantic similarity.We combine the two through voting.
+
+Then, for each S/T operator , we introduce  learnable vectors   = { 1  ,  2  , ...,    }, where    ∈ R   and   is the number of parameters in , to linearly transform the parameter weights of  that from  selected pretrained ST-blocks.Then we calculate the average of the transformed weights as the initial parameter weights of the identified ST-block, formulated as follows.
+𝑊 𝑖𝑛𝑖𝑡 𝑜 = (𝛼 1 𝑜 𝑊 1 𝑜 + 𝛼 2 𝑜 𝑊 2 𝑜 + ... + 𝛼 𝑘 𝑜 𝑊 𝑘 𝑜 )/𝑘,(10)
+where    is the -th parameter weight vector of ,  is the number of  contained in  selected pretrained ST-blocks, and  init  is the initial parameter weights of  of the identified ST-block.Figure 6 illustrates the proposed fast parameter adaptation strategy, where operator  2 in the identified ST-block inherits parameter weights  1  2 ,  2  2 , and  3  2 from ST-blocks  1 and  2 , and the corresponding coefficient vectors are  1  2 ,  2  2 and  3  2 , respectively.We further divide    into groups based on the neural modules they belong to, with the coefficients being shared within each group to reduce the number of learnable parameters in    .The coefficient  for all operators in the identified ST-block are learned through the following objective, enabling adaptive inheritance of knowledge from pretrained ST-blocks.
+
+argmin  E ∼ L (; init (, )), (11) where  contains the parameter weights of the pretrained STblocks,  is the target task, and L is the MAE loss metric.The idea behind this optimization objective is to learn a set of coefficients to linearly transform the pretrained weights to instantiate the weights of the identified ST-block such that it achieves the highest performance on the target dataset.After we obtain  init , we further finetune it on the target dataset to get the final weights  final of the identified ST-block as,
+𝑊 final = argmin 𝑊 𝑖𝑛𝑖𝑡 E 𝑥∼𝐷 L (𝑥;𝑊 𝑖𝑛𝑖𝑡 ) (12)
+Since we train the identified ST-block from a good starting point   , it converges much faster than when training it from scratch, thus achieving the goal of reducing the training time.
+
+
+EXPERIMENTS
+
+We conduct comprehensive experiments on seven public CTS forecasting datasets to assess the effectiveness and efficiency of FACTS.
+
+
+Experimental Setup
+
+4.1.1Tasks for Pretraining and Evaluating.We summarize the datasets used for pretraining and evaluation below.
+
+Datasets and tasks for pretraining: METR-LA [32], ETTh1 [65], ETTh2 [65], ETTm1 [65], ETTm2 [65], Solar-Energy [27], Exchang-eRate [27], PEMS03 [46], PEMS04 [46], PEMS07 [46], PEMS08 [46].We form 200 CTS forecasting tasks based on these datasets by splitting them along the temporal or spatial dimensions and considering the forecasting settings -12/-12 and -48/-48.
+
+Datasets and tasks for evaluation: Electricity [27], NYC-TAXI [58], NYC-BIKE [58], SZ-TAXI [63], Los-Loop [63], PEMS-BAY [32], PEMSD7(M) [59].We create 28 unseen tasks by considering the forecasting settings -12/-12, -24/-24, -48/-48, and -168/-1 (3rd) for each of these datasets. predictor.The  predictor is a GBDT model based on LightGBM [22] with 100 trees and 31 leaves per tree.Standard normalization is applied to normalize the EDF labels of .We train the  predictor with a learning rate of 0.05 and MSE loss.
+
+TAP.For the structure of TAP, we set the number of layers of the GCNs to 4, with 128 hidden units in each layer.To pretrain TAP, we use the Adam [26] optimizer with a learning rate of 0.001 and a weight decay of 0.0005.The batch size is set to 64.Moreover, the hidden dimensions of the two-layer set-transformer are set to 256 and 128, respectively.We extract 128 commonly-used statistical features.We apply min-max normalization to normalize the validation MAE of ST-blocks from the same task and train TAP for 100 epochs with an early stop patience of 5 epochs.
+
+Pruning.We randomly sample  = 100  at each pruning stage and collect  = 100 ST-blocks for each .The pruning ends when the number of  in the remaining search space is less than  = 2, 000.We then collect  = 10, 000 ST-blocks in the pruned search space.
+
+Parameter adaptation.We select  = 5 ST-blocks most similar to the identified ST-block for parameter adaptation.CTS forecasting models.We use MAE as the training objective to train CTS forecasting models, and use Adam with a learning rate of 0.001 and a weight decay of 0.0001 as the optimizer.We set the batch size to 64.For fair comparison, we train all CTS forecasting models for 100 epochs.
+
+
+Experimental Results
+
+
+Main Results
+
+. Tables 4 and 5 present the overall performance of FACTS and the baselines on the seven unseen CTS forecasting datasets with different forecasting settings.We run all evaluations three times with different random seeds and report the mean numbers.For ease of observation, we use bold and underline to highlight the best and second-best results, respectively.We observe that: 1) FACTS consistently outperforms the existing manual and automated methods, although we never pretrain on the -24/-24 and -168/-1 (3rd) forecasting settings and the seven datasets.This is evidence of the effectiveness of FACTS on arbitrary unseen CTS forecasting tasks.2) AutoCTS+ usually achieves the second best accuracy because it supports joint search of ST-block and accompanying hyperparameter values.However, FACTS still outperforms AutoCTS+, although it does not search for hyperparameter values.Additionally, joint search can easily be integrated into FACTS, which may further improve performance.
+
+
+Effectiveness of Automated Search Space
+
+Pruning.We design comparison experiments to assess the effectiveness of the automated search space pruning.
+
+Pruning improves the quality of the search space.First, we find that our pruning strategy can improve the quality of the search space.We consider 6 variants of FACTS that perform only 0 to 5 pruning stages, resulting in 6 pruned search spaces: space-0, space-1, space-2, space-3, space-4, and space-5.FACTS performs 6 pruning stages.We also consider the manually designed search spaces of AutoCTS and SimpleSTG.We randomly sample 200 ST-blocks from each of the above search spaces and train them to obtain their validation accuracy and EDF values.
+
+We draw a scatter plot to show the results on Electricity under the -12/-12 forecasting setting.Figure 7 shows that with the pruning of the search space, the sampled ST-blocks show increasingly higher accuracy, which is evidence that the proposed search space pruning strategy can remove low-quality regions of the search space, thereby improving the quality of the remaining search space.Further, the quality of the search spaces of AutoCTS and SimpleSTG are higher than that of FACTS in the early stages, but are surpassed after 4 iterations of the pruning, which indicates that the automated pruning strategy can generate search spaces that are better than the manually designed search spaces on unseen tasks.Pruning helps search for high-performance ST-blocks.Second, we demonstrate that our pruning strategy helps search for high-performance ST-blocks.We compare FACTS with the variants space-0 to space-5.For fair comparison, we randomly sample  ST-blocks in each search space above, where  is the size of the final pruned search space of FACTS, which in this case is equal to 28, 206, 080, and we predict them using the pretrained TAP to find the optimal ST-block, and then we train it to obtain the accuracy.
+
+We show the results on the Electricity dataset under the -12/-12 forecasting setting in Table 6.We see that the identified ST-blocks show increasingly higher accuracy as the search space is pruned, which indicates that the iterative pruning strategy gradually improves the quality of the pruned search space, making it easier to find high-performance ST-blocks.Iterative pruning v.s.one-time pruning.We offer evidence that iteratively pruning the search space yields better performance than pruning the search space only once (see Section 3.1.3).We design three variants --1, --2, --3, which prune the search space only once, and sample the same number of (, EDF) pairs as FACTS to train a  predictor, and prune the search space to  combs in one step.The EDF thresholds of the three variants are set to the initial, intermediate and final values of the EDF thresholds of FACTS, respectively.
+
+Table 7 shows that although we set different EDF thresholds for the three variants, they all perform worse than FACTS.This shows the effectiveness of the proposed iterative pruning strategy.Performance comparison between EDF and mean MAE.We compare FACTS and the variant that replaces EDF with the mean MAE metric.
+
+The results in Table 8 show that FACTS performs considerably better than the variant on all CTS forecasting tasks, indicating that EDF is the better metric when evaluating the quality of a .and the automated baselines on seven unseen datasets under the -24/-24 forecasting setting and report the results in Table 9.We see that FACTS finds high-performance ST-blocks in less than 10 minutes on all CTS forecasting tasks, which is negligible compared to the baselines.This indicates that FACTS is efficient enough for deployment in practice.We first randomly sample 100 ST-blocks from the general search space and train them to obtain validation accuracies.We then use the pretrained TAP from each variant and FACTS to predict these ST-blocks respectively to obtain the prediction accuracies.We use MAE and Spearman's rank correlation coefficient () to quantify the difference between the true validation accuracy and the prediction accuracy of the ST-blocks.We show results on three unseen datasets under the -24/-24 forecasting setting in Table 10.
+
+We observe that disabling the TFL module significantly reduces the accuracy of the pretrained TAP on unseen tasks, indicating that TFL is crucial for enabling TAP to generalize to unseen tasks.Next, enabling either the semantic feature extraction module or the statistical feature extraction module can improve the accuracy of TAP, and enabling both achieves the highest accuracy.This CTS forecasting tasks and are functionally complementary, so using both results in the best performance.The trade-off between pretraining time and accuracy.
+
+We study the trade-off between pretraining time and accuracy by varying the number of   sampled in each iteration.Specifically, we construct three variants of FACTS with  equal to 60, 80, and 120 and keep other settings as in FACTS.FACT uses  = 100.
+
+The results under the P-12/Q-12 forecasting setting are shown in Table 12.We see that the final accuracy generally improves gradually with an increase of the pretraining time, showing that collecting more  and ST-blocks to pretrain TAP can bring higher zero-shot search performance.However, when  exceeds 100, the performance improvement is very limited, indicating that using  = 100 strikes a good balance between pretraining efficiency and final accuracy.
+
+
+Effectiveness of Fast Parameter Adaptation.
+
+Training time comparison.We first compare the training time of the identified ST-blocks and and those of the baselines on seven unseen tasks.We also consider a variant of FACTS without fast parameter adaptation.Table 11 shows that takes the least time to train the identified ST-blocks, while still achieving the highest accuracy (see Tables 4 and 5).In particular, FACTS reduces training time by 62% to 66% compared to the variant w/o adapt on the seven unseen tasks, which is evidence of the effectiveness of the proposed fast parameter adaptation strategy.Furthermore, the total running time of FACTS, i.e., the sum of the search and training time (see Table 9) is lower than the training times of the baselines, which indicates that FACTS is efficient enough for deployment.Ablation studies on fast parameter adaptation.We compare the trend of the validation loss across increasing training epochs for FACTS and two variants on PEMSD7(M).For the variant w/o adapt, we disable fast parameter adaptation and train the identified ST-block from scratch.For the variant simple_average, we use simple averaging instead of fast parameter adaptation to inherit the weights from pretrained ST-blocks.Figure 8 shows that the proposed fast parameter adaptation strategy contributes to the fast convergence of the ST-block without reducing the accuracy, thus indicating the proposed fast parameter adaptation strategy is effective.Next, the variant simple_average converges faster than training from scratch, but significantly more slowly than FACTS, indicating that the simple parameter inheritance strategy is not as effective as the proposed fast parameter adaptation strategy.
+
+
+Case Study.
+
+We show the ST-blocks identified on Electricity and PEMS-BAY in Figure 9.We can see that there are notable differences in the architectures of the ST-blocks.In particular, the ST-block identified on the Electricity dataset contains three NLinear, which is because Electricity exhibits strong periodicity and weak correlation between time series and because NLinear is good at capturing such patterns [61].For comparison, the ST-block identified on the PEMS-BAY dataset contains four S-operators, i.e., two DGCN and two Spatial-Informer (INF_S).As PEMS-BAY is a traffic speed dataset with complex spatial correlations between time series, more S-operators are needed to capture the spatial correlations.Manually designed CTS forecasting methods [1, 10-13, 21, 27, 45, 48, 49, 52, 53] choose or design S/T operators, assemble them into STblocks, and then train the ST-blocks from scratch to make forecasts.MTGNN [52] stacks mix-hop GCNs and inception convolution operators sequentially to build an ST-block.AGCRN [1] replace the MLP layers in GRUs by GCNs to build an ST-block.PDFormer [20] combines semantic, geographic, and temporal self-attention operators in parallel to build an ST-block.We collect S/T operators and summarize connection rules from these proposals.
+
+
+Automated CTS Forecasting
+
+Existing automated methods manually design a search space.Au-toST (a) [31] and AutoSTG [38] empirically select a few S/T operators to construct a small search space.AutoCTS [50] compares the accuracy of S/T operators on several CTS forecasting datasets and selects a few S/T operators with the highest accuracy to construct a search space.AutoST (b) [30] manually designs three S/T operators that consider the order between spatial and temporal modules to construct a small search space.SimpleSTG [55] proposes three pruning strategies, and for each strategy, it manually removes poor design choices based on the accuracy of sampled ST-blocks.Considering search efficiency, AutoST (a), AutoSTG, AutoCTS, and AutoST (b) employ a gradient-based search strategy, which requires training a supernet.SimpleSTG employs random search to find the optimal ST-block from a set of randomly sampled ST-blocks through fully training.AutoCTS+ [51] proposes a comparator to compare the accuracy of different ST-blocks, which necessitates the training of many ST-blocks to obtain their validation accuracies.
+
+Considering training efficiency, existing automated methods train identified ST-blocks from scratch.
+
+
+CONCLUSION
+
+We propose FACTS, an efficient and fully automated CTS forecasting framework that can find an ST-block that offers high-performance accuracy on arbitrary unseen tasks and can make forecasts in minutes.Experimental results on seven commonly used CTS forecasting datasets show that the FACTS framework is capable of state-of-theart accuracy and efficiency.FACTS includes several hyperparameters, and methods exist that may reduce these hyperparameters, such as reinforcement learning.However, introducing the blackbox optimization algorithm may also bring limitations to FACTS, such as introducing additional complexity and requiring more computing resources and time.This thus requires further research and we leave it as future work.
+
+Figure 1 :
+1
+Figure 1: Existing automated methods v.s. the proposed method.
+
+
+Figure 2 :
+2
+Figure 2: Example of a search space and ST-blocks.
+
+
+2. 2 . 1
+21
+Search Space Design.Existing automated CTS forecasting methods employ commonly used S/T-operators to build ST-blocks.We use  to denote the S/T-operator set.It includes 9 T-operators:
+
+
+Definition 3 .
+3
+1.A  is a search space containing ST-blocks with the same S/T-operator combinations.It is represented as  = [  1 ,   2 , ...,    ], where    is the number of occurrences of S/Toperator   in each ST-block in the  and  is the number of S/T-operators used for constructing the search space.Note that 0 ≤    ≤   , where   is the number of S/T-operators contained in an ST-block.For example, consider a search space constructed with S/T operators skip, CNN , GCN , Informer-Temporal (INF- ), Informer-Spatial(INF-), and GRU .Then  = [0, 2, 2, 0, 1, 2] is a search space in which the ST-blocks contain 0 skip, 2 CNN , 2 GCN , 0 INF- , 1 INF- and 2 GRU , but with different topological connections.
+
+
+Figure 3 :
+3
+Figure 3: The FACTS framework.
+
+
+Figure 4 :
+4
+Figure 4: Search space quality metrics.
+
+
+Algorithm 1
+1
+Search Algorithm Input: CTS dataset D, general search space  0 Output: a pruned search space    1: Split D into D train , D val , and D test 2: Split S 0 into  0  and calculate the iteration number   with   = ⌈log 2  0 /⌉ 3: Randomly sample   to form a  set C; then randomly sample  ST-blocks from each  to form an ST-block set B 4: Train ST-blocks in B on D  and obtain their validation accuracy on D  5: Set the initial threshold  0 to the median accuracy of the STblocks in B and set the final threshold  to the ⌊/ 0 ⌋-th best accuracy of the ST-blocks in B 6: for i = 0, ...,   -1 do 7:
+
+
+break 14 :
+14
+Randomly sample   from  +1 to form a  set C  , then randomly sample  ST-blocks from each  in C  to form an ST-block set B  15: Train ST-blocks in B  on D  and obtain their validation accuracy on D  16:
+
+
+
+
+resulting in the training set   =  =1 {(  ,   , (  ,   ))}   ∈  =1,••• , , which is used to calculate EDF values for the sampled  using Equation 4 and is also used to pretrain the TAP.After the pruning is completed, we randomly sample  ST-blocks in the final pruned search space and train them on the  ( < ) tasks to construct a training set   = {(  ,   , (  ,   )} =1,••• , =1,••• , .Finally, we pretrain the TAP on the training set  =1   ∪   , where  is the number of pruning stages.
+
+
+Figure 5 :
+5
+Figure 5: Task-aware Architecture Predictor.
+
+
+Figure 6 :
+6
+Figure 6: Inheriting parameters from pretrained ST-blocks.
+
+
+4.1. 2
+2
+Baselines.We compare FACTS with three competitive manually designed and three automated baselines.We reproduce the baselines based on their released code.• MTGNN: employs mix-hop graph convolution and dilated inception convolution to build ST-blocks [52].• AGCRN: employs 1D GCNs and GRUs to build ST-blocks [1].• PDFormer: employs spatial and temporal transformers to build ST-blocks [20].• AutoCTS: A gradient-based automated CTS forecasting framework with a manually designed search space [50].• AutoCTS+: A comparator-based automated CTS foreacastingframework that jointly searches for ST-blocks and accompanying hyperparameter settings[51].• SimpleSTG: prunes the general search space manually using sampling to remove bad design choices and employs random search to find the optimal ST-block[55].
+
+
+4.1. 4
+4
+Implementation Details.
+
+
+Figure 7 :
+7
+Figure 7: Quality of the search spaces during pruning.
+
+
+Figure 8 :
+8
+Figure 8: Efficiency comparison of training strategies.
+
+
+24 Figure 9
+249
+Figure 9: Case study
+
+
+Table 1 ,
+1
+Convformer (ConvF) has higher accuracy than Informer (INF) on multiple datasets, but when we replace INF with ConvF in multiple ST-blocks, the accuracy decreases-see ST-block (INF) and ST-block (CovF) in Table 1 for an example, where ST-block (CovF) is a variant of ST-block (INF) with CovF replacing INF.
+
+
+Table 1 :
+1
+MAE of S/T operators.
+1D-CNN NLinear ConvFInFST-block (INF) ST-block (ConvF)ETTh10.5350.3770.5140.6350.2030.224PEMS0431.55636.48426.092 29.08418.95419.104PEMS0826.25730.44820.709 23.69314.69414.8702.2.2 Search Strategy. Existing search strategies include gradient-based
+
+Table 2 :
+2
+Comparison of different .
+
+
+Table 3 :
+3
+EDF values of different combinations.
+
+MAE MAE MAE MAE MAE EDF ( = 16.00)EDF ( = 14.70) 1 14.65 14.72 14.73 14.75 17.36 0.8 0.2 2 14.85 14.87 14.89 14.93 18.50 0.8 0.0 3 15.38 15.54 15.88 16.75 20.33 0.6 0.0
+
+
+10 :
+10
+Use the GBDT model to predict EDF values for  in   11: Remove the 50% of the  with the lowest EDF values; the remaining  form a new sub-search space  +1
+12:if i = 𝑛 𝑝 -113:
+
+Table 4 :
+4
+Performance of P-12/Q-12 and P-24/Q-24 forecasting.
+P-12/Q-12 forecastingP-24/Q-24 forecastingDataMetricFACTSAutoCTS AutoCTS+ SimpleSTG MTGNN AGCRN PDFormerFACTSAutoCTS AutoCTS+ SimpleSTG MTGNNAGCRNPDFormerMAE1.5171.7361.5721.8151.9601.6521.7421.7801.9111.8361.8771.8842.1241.843PEMS-BAYRMSE3.2873.9353.5314.2814.4613.8153.9203.9864.4354.0174.2914.3314.6124.112MAPE3.494%3.822%3.501%4.316%4.560%3.843%3.947%4.102%4.784%4.236%4.298%4.405%5.113%4.139%MAE225.814240.65238.513262.815306.331611.08247.982193.786204.333205.401207.185211.9131718.216202.571ElectricityRMSE 1943.750 2177.9102106.3072329.1542468.959 8288.9912178.5271676.211 1681.0301784.3131825.1641871.110 16364.7981724.646MAPE15.871%17.275%16.961%21.165%24.381%42.628%16.864%15.468%15.790%16.085%16.581%17.136%58.626%15.993%MAE2.5512.6042.6172.5922.6432.6972.6313.1673.2273.1913.2453.3278.8233.310PEMSD7MRMSE4.8635.1955.1665.0185.2175.4015.2616.0786.1716.2216.3166.31514.6746.208MAPE6.296%6.592%6.581%6.471%6.523%6.782%6.482%8.112%8.328%8.323%8.359%8.493%28.915%8.251%MAE5.3345.5765.5365.6255.8475.8186.2595.5505.6215.5915.7745.8895.7355.760NYC-TAXIRMSE9.4729.8469.79210.04811.91813.92411.2069.99510.83410.12710.83010.71011.51210.560MAPE37.780%39.985%41.235%42.011%40.271%43.027%43.194%38.338%38.452%40.174%42.915%39.914%44.264%43.709%MAE1.7961.8911.8111.8321.9421.8562.3681.8421.8871.9881.8952.2411.9762.049NYC-BIKERMSE2.7322.9922.7942.8153.2653.0193.6252.8673.1403.2323.2743.3103.1013.147MAPE49.951%52.389%52.214%52.281%53.322%56.128%54.161%50.675%50.915%51.313%50.781%54.015%57.315%52.648%MAE3.5783.6773.6523.6683.6408.9123.9804.1014.1794.2444.3754.2714.4524.282Los-LoopRMSE6.8417.0637.1197.1797.08415.1827.2867.5187.7757.9438.1437.9058.8318.014MAPE10.006%10.720%10.443%10.609%10.212%34.040%10.668%12.279%12.857%13.209%13.591%12.876%13.720%12.945%SZ-TAXIMAE RMSE3.178 4.2173.250 4.4843.254 4.4573.218 4.2913.229 4.7794.510 5.0023.719 4.9042.892 4.2603.171 4.4593.056 4.3473.154 4.4013.215 4.5282.905 4.4013.237 4.542
+
+Table 5 :
+5
+Performance of P-48/Q-48 and P-168/Q-1(3rd) forecasting.
+P-48/Q-48 forecastingP-168/Q-1(3rd) forecastingDataMetricFACTSAutoCTS AutoCTS+ SimpleSTG MTGNN AGCRN PDFormer Metric FACTS AutoCTS AutoCTS+ SimpleSTG MTGNN AGCRN PDFormerMAE1.9631.9881.9742.0112.1982.8312.064RRSE0.28870.29010.29310.30150.29470.47190.2940PEMS-BAYRMSE4.1754.1854.2534.2914.6845.1254.392CORR 0.93660.92750.92410.89060.91160.85860.9245MAPE4.708%4.715%4.856%4.913%5.330%5.013%4.928%MAE215.821247.256239.836254.150306.331611.08250.982RRSE0.06920.07410.07310.08150.07580.10330.0781ElectricityRMSE 1839.745 2144.3622038.1372249.1582468.959 8288.9912218.027CORR 0.97850.94390.95160.89110.94120.88540.9273MAPE16.438%16.845%16.761%16.853%24.381%42.628%16.864%MAE3.4543.5223.5103.4713.5853.6063.559RRSE0.28670.30560.28950.29810.31050.53140.2995PEMSD7MRMSE6.5826.7156.6716.6216.9077.1246.814CORR 0.93750.92980.93380.92820.92780.81860.9336MAPE8.767%9.236%9.114%8.991%9.322%9.375%9.201%MAE5.5445.9565.6225.8115.7676.0095.995RRSE0.20180.23240.21910.25710.22730.27090.2624NYC-TAXIRMSE9.93111.15410.17410.78110.56818.04911.963CORR 0.88740.86890.87140.84910.86970.84730.8417MAPE 37.964%39.156%38.235%38.681%39.011%49.629%39.894%MAE1.9901.9982.0262.1842.0972.1052.096RRSE0.74780.74920.75150.75900.75810.76010.7531NYC-BIKERMSE2.9963.0113.1783.5273.2563.3113.308CORR 0.78500.78050.77730.76850.76910.76310.7669MAPE 51.830%52.146%52.471%55.107%52.737%53.481%52.672%MAE4.5204.6434.5514.7504.6248.9624.767RRSE0.42580.43110.42980.43070.43921.75650.4493Los-LoopRMSE8.3278.7858.5368.6818.54914.9569.003CORR 0.79080.77970.78250.77830.76950.02030.7699MAPE14.873%15.394%15.015%15.491%17.417%34.184%15.961%SZ-TAXIMAE RMSE2.891 4.3943.106 4.4712.976 4.4033.015 4.4553.193 4.4862.980 4.3973.196 4.496RRSE CORR 0.5077 0.22880.4815 0.22060.4785 0.22000.4916 0.20030.4878 0.22161.2367 0.03450.4892 0.2236
+
+Table 6 :
+6
+Accuracy comparison in the pruning process.
+Metricspace-0space-1space-2space-3space-4space-5FACTSMAE258.540250.515242.858235.870231.231227.410225.814RMSE 2077.255 2050.231 2016.333 1990.970 1976.011 1955.121 1943.750MAPE 24.918%22.442%19.892%17.932%17.004%16.115%15.871%
+
+Table 7 :
+7
+Iterative pruning v.s.one-time pruning.
+variantmetric PEMS-BAY NYC-TAXI ElectricityMAE1.6375.615256.814One-time-1RMSE3.72510.3472279.015MAPE3.712%41.925%18.517%MAE1.5745.581245.618One-time-2RMSE3.5499.9912185.761MAPE3.682%41.034%16.880%MAE1.7625.704273.047One-time-3RMSE4.11310.6752365.225MAPE4.042%43.714%23.027%MAE1.5175.334225.814FACTSRMSE3.2879.4721943.750MAPE3.494%37.780%15.871%
+
+Table 8 :
+8
+Performance comparison of EDF vs. mean MAE.
+P-12/Q-12P-24/Q-24P-48/Q-48P-168/Q-1(3rd)DataMetricEDFMAEEDFMAEEDFMAEMetricEDFMAEMAE1.5171.5721.7801.8691.9631.976RRSE0.2887 0.2933PEMS-BAYRMSE3.2873.5573.9864.1154.1754.192CORR 0.9366 0.9244MAPE3.494%3.515%4.102%4.148%4.708%4.732%MAE225.814265.140193.786208.517215.821258.191RRSE0.0692 0.0744ElectricityRMSE 1943.750 2237.214 1676.211 1715.150 1839.745 2025.159 CORR 0.9785 0.9418MAPE15.871%16.965%15.468%16.005%16.438%17.002%MAE2.5512.6023.1673.3413.4543.498RRSE0.2867 0.2893PEMSD7MRMSE4.8635.0256.0786.3716.5826.628CORR 0.9375 0.9326MAPE6.296%6.482%8.112%8.419%8.767%8.994%MAE5.3345.5585.5505.7015.5445.629RRSE0.2018 0.2292NYC-TAXIRMSE9.4729.8019.99510.3329.93110.255CORR 0.8874 0.8709MAPE37.780%40.112%38.338%40.156%37.964%38.414%MAE1.7961.8211.8421.9081.9902.004RRSE0.7478 0.7554NYC-BIKERMSE2.7322.8352.8673.1852.9963.143CORR 0.7850 0.7785MAPE49.951%52.281%50.675%53.161%51.830%52.315%MAE3.5783.6374.1014.2984.5204.582RRSE0.4258 0.4302Los-LoopRMSE6.8417.0917.5187.8018.3278.522CORR 0.7908 0.7798MAPE10.006%10.285%12.279%13.055%14.873%15.296%SZ-TAXIMAE RMSE3.178 4.2173.229 4.3202.892 4.2603.161 4.3982.891 4.3943.115 4.477RRSE CORR 0.5077 0.2815 0.2288 0.4382
+4.2.3Effectiveness of Zero-shot Search Strategy.Search time comparison.We compare the search time of FACTS
+
+
+Table 9 :
+9
+Searching time in GPU hours (h) or minutes (m).Ablation studies on the TFL module.We conduct ablation studies on the TFL module of TAP.We compare FACTS with the following three variants.•w/o task features: removes the TFL module from TAP and keeps the rest unchanged.• w/o semantic features: removes the semantic feature extraction module from TAP and keeps the rest unchanged.• w/o statistical features: removes the statistical feature extraction module from TAP and keeps the rest unchanged.
+datasetAutoSTG AutoCTS AutoCTS+ SimpleSTG FACTSPEMS-BAY278.1 h405.7 h88.6 h324.5 h9.2 mElectricity144.2 h197.6 h43.8 h159.4 h7.9 mPEMSD7(M)81.2 h101.5 h22.2 h81.4 h6.5 mNYC-TAXI13.3 h20.2 h4.8 h16.8 h6.0 mNYC-BIKE12.7 h19.8 h4.3 h15.9 h5.7 mLos-Loop6.8 h11.2 h2.5 h7.6 h5.5 mSZ-TAXI6.6 h10.4 h2.5 h7.5 h5.4 m
+
+Table 12 :
+12
+Trade-off between pretraining time and accuracy, P-12/Q-12 forecasting.
+DataMetricc=120 (208.9h)c=100 (170.4h)c=80 (139.8h)c=60 (107.1h)MAE1.5091.5171.5841.654PEMS-BAY RMSE3.2873.2923.4883.891MAPE3.488%3.494%3.850%4.491%MAE219.951225.814259.963294.065ElectricityRMSE 1938.105 1943.750 2215.050 2494.129MAPE15.852%15.871%18.668%22.913%MAE2.5422.5512.6852.778PEMSD7M RMSE4.8584.8635.0225.481MAPE6.296%6.301%6.645%6.955%MAE5.3275.3345.5825.690NYC-TAXI RMSE9.4609.4729.78510.302MAPE37.788%37.780% 39.918%41.051%MAE1.7741.7961.9532.079NYC-BIKERMSE2.6672.7323.0033.184MAPE49.681%49.951%51.391%54.095%MAE3.5633.5784.1254.195Los-LoopRMSE6.8296.8417.1857.436MAPE9.993%10.006%10.496%10.920%MAE3.1683.1783.2193.552SZ-TAXIRMSE4.2014.2174.2944.785
+The source code, data, and/or other artifacts have been made available at https://github.com/ccloud0525/FACTS.
+MTGNN AGCRN PDFormer AutoCTS AutoCTS+ SimpleSTG w/o adapt FACTS PEMS-BAY. 
+
+Adaptive Graph Convolutional Recurrent Network for Traffic Forecasting. Lei Bai, Lina Yao, Can Li, Xianzhi Wang, Can Wang, In NeurIPS. 332020
+
+Unsupervised Time Series Outlier Detection with Diversity-Driven Convolutional Ensembles. David Campos, Tung Kieu, Chenjuan Guo, Feiteng Huang, Kai Zheng, Bin Yang, Christian S Jensen, Proc. VLDB Endow. VLDB Endow2022. 202215
+
+QCore: Data-Efficient, On-Device Continual Calibration for Quantized Models. David Campos, Bin Yang, Tung Kieu, Miao Zhang, Chenjuan Guo, Christian S Jensen, Proc. VLDB Endow. VLDB Endow2024. 202417
+
+LightTS: Lightweight Time Series Classification with Adaptive Ensemble Distillation. David Campos, Miao Zhang, Bin Yang, Tung Kieu, Chenjuan Guo, Christian S Jensen, Proc. ACM Manag. Data. 12272023. 2023. 2023
+
+Contrastive neural architecture search with neural architecture comparators. Yaofo Chen, Yong Guo, Qi Chen, Minli Li, Wei Zeng, Yaowei Wang, Mingkui Tan, Conference on Computer Vision and Pattern Recognition. 2021
+
+Weakly Guided Adaptation for Robust Time Series Forecasting. Yunyao Cheng, Peng Chen, Chenjuan Guo, Kai Zhao, Qingsong Wen, Bin Yang, Christian S Jensen, Proc. VLDB Endow. VLDB Endow2024. 2024
+
+A Memory Guided Transformer for Time Series Forecasting. Yunyao Cheng, Chenjuan Guo, Bin Yang, Haomin Yu, Kai Zhao, Christian S Jensen, Proc. VLDB Endow. VLDB Endow2024. 202418
+
+Learning phrase representations using RNN encoderdecoder for statistical machine translation. Kyunghyun Cho, arXiv:1406.10782014. 2014arXiv preprint
+
+Time series feature extraction on basis of scalable hypothesis tests (tsfresh-a python package). Maximilian Christ, Nils Braun, Julius Neuffer, Andreas W Kempa-Liehr, Neurocomputing. 3072018. 2018
+
+Triangular, Variable-Specific Attentions for Long Sequence Multivariate Time Series Forecasting. Razvan-Gabriel Cirstea, Chenjuan Guo, Bin Yang, Tung Kieu, Xuanyi Dong, Shirui Pan, IJCAI. 2022. 1994-2001
+
+Towards Spatio-Temporal Aware Traffic Time Series Forecasting. Razvan-Gabriel Cirstea, Bin Yang, Chenjuan Guo, Tung Kieu, Shirui Pan, ICDE. 2900-29132022
+
+EnhanceNet: Plugin Neural Networks for Enhancing Correlated Time Series Forecasting. Razvan-Gabriel Cirstea, Tung Kieu, Chenjuan Guo, ICDE. 1739-17502021Bin Yang, and Sinno Jialin Pan
+
+Graph Attention Recurrent Neural Networks for Correlated Time Series Forecasting. Razvan-Gabriel Cirstea, Bin Yang, Chenjuan Guo, MileTS19@KDD. 2019
+
+Xuanyi Dong, Mingxing Tan, Adams Wei Yu, Daiyi Peng, Bogdan Gabrys, Quoc V Le, arXiv:2006.03656AutoHAS: Efficient hyperparameter and architecture search. 2020. 2020arXiv preprint
+
+Greedy function approximation: a gradient boosting machine. Jerome H Friedman, Annals of statistics. 2001. 2001
+
+ConvFormer: Combining CNN and Transformer for Medical Image Segmentation. Pengfei Gu, Yejia Zhang, Chaoli Wang, Danny Z Chen, 2023 IEEE 20th International Symposium on Biomedical Imaging (ISBI). IEEE2023
+
+Context-aware, preference-based vehicle routing. Chenjuan Guo, Bin Yang, Jilin Hu, Christian S Jensen, Lu Chen, VLDB J. 292020. 2020
+
+AutoML: A survey of the state-of-the-art. Xin He, Kaiyong Zhao, Xiaowen Chu, Knowledge-based systems. 2121066222021. 2021
+
+Long Short-term Memory. Hochreiter, Neural Computation. 1997. 1997MIT-Press
+
+PDFormer: Propagation Delay-aware Dynamic Long-range Transformer for Traffic Flow Prediction. Jiawei Jiang, Chengkai Han, Wayne Xin Zhao, Jingyuan Wang, arXiv:2301.079452023. 2023arXiv preprint
+
+Bin Yang, and Shirui Pan. 2023. Multivariate Time Series Forecasting With Dynamic Graph Neural ODEs. Ming Jin, Yu Zheng, Yuan-Fang Li, Siheng Chen, IEEE Trans. Knowl. Data Eng. 352023
+
+Lightgbm: A highly efficient gradient boosting decision tree. Advances in neural information processing systems. Guolin Ke, Qi Meng, Thomas Finley, Taifeng Wang, Wei Chen, Weidong Ma, Qiwei Ye, Tie-Yan Liu, 2017. 201730
+
+TEAM: Topological Evolution-aware Framework for Traffic Forecasting. Duc Kieu, Tung Kieu, Peng Han, Bin Yang, Christian S Jensen, Bac Le, Proc. VLDB Endow. VLDB Endow2024. 202418
+
+Anomaly Detection in Time Series with Robust Variational Quasi-Recurrent Autoencoders. Tung Kieu, Bin Yang, Chenjuan Guo, Razvan-Gabriel Cirstea, Yan Zhao, Yale Song, Christian S Jensen, ICDE. 1342-13542022
+
+Robust and Explainable Autoencoders for Unsupervised Time Series Outlier Detection. Tung Kieu, Bin Yang, Chenjuan Guo, Christian S Jensen, Yan Zhao, Feiteng Huang, Kai Zheng, ICDE. 2022
+
+P Diederik, Jimmy Kingma, Ba, arXiv:1412.6980Adam: A method for stochastic optimization. 2014. 2014arXiv preprint
+
+Modeling long-and short-term temporal patterns with deep neural networks. Guokun Lai, Wei-Cheng Chang, Yiming Yang, Hanxiao Liu, SIGIR. 2018
+
+Rapid neural architecture search by learning to generate graphs from datasets. Hayeon Lee, Eunyoung Hyung, Sung Ju Hwang, arXiv:2107.008602021. 2021arXiv preprint
+
+Set transformer: A framework for attention-based permutation-invariant neural networks. Juho Lee, Yoonho Lee, Jungtaek Kim, Adam Kosiorek, Seungjin Choi, Yee Whye Teh, International conference on machine learning. 2019
+
+AutoST: Towards the universal modeling of spatio-temporal sequences. Jianxin Li, Shuai Zhang, Hui Xiong, Haoyi Zhou, Advances in Neural Information Processing Systems. 352022. 2022
+
+Autost: Efficient neural architecture search for spatio-temporal prediction. Ting Li, Junbo Zhang, Kainan Bao, Yuxuan Liang, Yexin Li, Yu Zheng, SIGKDD. 2020
+
+Diffusion Convolutional Recurrent Neural Network: Data-Driven Traffic Forecasting. Yaguang Li, Rose Yu, Cyrus Shahabi, Yan Liu, ICLR. 2018
+
+DARTS: Differentiable Architecture Search. Hanxiao Liu, Karen Simonyan, Yiming Yang, 2018In ICLR
+
+A survey on evolutionary neural architecture search. Yuqiao Liu, Yanan Sun, Bing Xue, Mengjie Zhang, Kay Gary G Yen, Tan Chen, 2021. 202134
+
+Less is More: Efficient Time Series Dataset Condensation via Two-fold Modal Matching. Hao Miao, Ziqiao Liu, Yan Zhao, Chenjuan Guo, Bin Yang, Kai Zheng, Christian S Jensen, Proc. VLDB Endow. VLDB Endow2024. 202418
+
+MBA-STNet: Bayes-enhanced Discriminative Multi-task Learning for Flow Prediction. Hao Miao, Jiaxing Shen, Jiannong Cao, Jiangnan Xia, Senzhang Wang, IEEE Transactions on Knowledge and Data Engineering. 2022. 2022
+
+A Unified Replay-based Continuous Learning Framework for Spatio-Temporal Prediction on Streaming Data. Hao Miao, Yan Zhao, Chenjuan Guo, Bin Yang, Zheng Kai, Feiteng Huang, Jiandong Xie, Christian S Jensen, ICDE. 2024. 2024
+
+AutoSTG: Neural Architecture Search for Predictions of Spatio-Temporal Graph. Zheyi Pan, Songyu Ke, Xiaodu Yang, Yuxuan Liang, Yong Yu, Junbo Zhang, Yu Zheng, Proceedings of the Web Conference 2021. the Web Conference 20212021
+
+Anytime Stochastic Routing with Hybrid Learning. Bin Simon Aagaard Pedersen, Christian S Yang, Jensen, Proc. VLDB Endow. VLDB Endow2020. 202013
+
+Xiangfei Qiu, Jilin Hu, Lekui Zhou, Xingjian Wu, Junyang Du, Buang Zhang, Chenjuan Guo, Aoying Zhou, Christian S Jensen, Zhenli Sheng, Bin Yang, TFB: Towards Comprehensive and Fair Benchmarking of Time Series Forecasting Methods. Proc. VLDB Endow. 2024. 202417
+
+Designing network design spaces. Ilija Radosavovic, Raj Prateek Kosaraju, Ross Girshick, Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. the IEEE/CVF conference on computer vision and pattern recognition2020Kaiming He, and Piotr Dollár
+
+Cyberphysical systems: the next computing revolution. Ragunathan Rajkumar, Insup Lee, Lui Sha, John Stankovic, Design automation conference. 2010
+
+A comprehensive survey of neural architecture search: Challenges and solutions. Pengzhen Ren, Yun Xiao, Xiaojun Chang, Po-Yao Huang, Zhihui Li, Xiaojiang Chen, Xin Wang, ACM Computing Surveys (CSUR). 542021. 2021
+
+Deep learning in neural networks: An overview. Jürgen Schmidhuber, Neural networks. 612015. 2015
+
+Temporal pattern attention for multivariate time series forecasting. Shun-Yao Shih, Fan-Keng Sun, Hung-Yi Lee, Machine Learning. 1082019. 2019
+
+Spatialtemporal synchronous graph convolutional networks: A new framework for spatial-temporal network data forecasting. Chao Song, Youfang Lin, Shengnan Guo, Huaiyu Wan, AAAI. 202034
+
+Attention is all you need. Advances in neural information processing systems. Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, Illia Polosukhin, 2017. 201730
+
+Multi-task adversarial spatial-temporal networks for crowd flow prediction. Senzhang Wang, Hao Miao, Hao Chen, Zhiqiu Huang, International Conference on Information & Knowledge Management. 2020
+
+Multivariate correlation-aware spatio-temporal graph convolutional networks for multi-scale traffic prediction. Senzhang Wang, Meiyue Zhang, Hao Miao, Zhaohui Peng, Philip S Yu, ACM Transactions on Intelligent Systems and Technology (TIST). 132022. 2022
+
+AutoCTS: Automated correlated time series forecasting. Xinle Wu, Dalin Zhang, Chenjuan Guo, Chaoyang He, Bin Yang, Christian S Jensen, Proc. VLDB Endow. VLDB Endow2022. 202215
+
+AutoCTS+: Joint Neural Architecture and Hyperparameter Search for Correlated Time Series Forecasting. Xinle Wu, Dalin Zhang, Miao Zhang, Chenjuan Guo, Bin Yang, Christian S Jensen, Proceedings of the ACM on Management of Data. 12023. 2023
+
+Connecting the dots: Multivariate time series forecasting with graph neural networks. Zonghan Wu, Shirui Pan, Guodong Long, Jing Jiang, Xiaojun Chang, Chengqi Zhang, SIGKDD. 2020
+
+Graph WaveNet for Deep Spatial-Temporal Graph Modeling. Zonghan Wu, Shirui Pan, Guodong Long, Jing Jiang, Chengqi Zhang, IJCAI. 2019
+
+PeFAD: A Parameter-Efficient Federated Framework for Time Series Anomaly Detection. Ronghui Xu, Hao Miao, Senzhang Wang, Philip S Yu, Jianxin Wang, SIGKDD. 2024
+
+Understanding and Simplifying Architecture Search in Spatio-Temporal Graph Neural Networks. Zhen Xu, Yong Li, Qiang Yang, Transactions on Machine Learning Research. 2022. 2022
+
+Weakly-supervised Temporal Path Representation Learning with Contrastive Curriculum Learning. Sean Bin, Yang , Chenjuan Guo, Jilin Hu, Bin Yang, Jian Tang, Christian S Jensen, ICDE. 2022
+
+Context-Aware Path Ranking in Road Networks. Sean Bin, Yang , Chenjuan Guo, Bin Yang, IEEE Trans. Knowl. Data Eng. 342022. 2022
+
+Coupled layer-wise graph convolution for transportation demand prediction. Junchen Ye, Leilei Sun, Bowen Du, Yanjie Fu, Hui Xiong, AAAI. 202135
+
+Spatio-temporal graph convolutional networks: a deep learning framework for traffic forecasting. Bing Yu, Haoteng Yin, Zhanxing Zhu, IJCAI. 3634-36402018
+
+CGF: A Category Guidance Based PM2.5 Sequence Forecasting Training Framework. Haomin Yu, Jilin Hu, Xinyuan Zhou, Chenjuan Guo, Bin Yang, Qingyong Li, IEEE Trans. Knowl. Data Eng. 352023. 2023
+
+Are transformers effective for time series forecasting. Ailing Zeng, Muxi Chen, Lei Zhang, Qiang Xu, Proceedings of the AAAI conference on artificial intelligence. the AAAI conference on artificial intelligence202337
+
+Multiple Time Series Forecasting with Dynamic Graph Modeling. Kai Zhao, Chenjuan Guo, Peng Han, Miao Zhang, Yunyao Cheng, Bin Yang, Proc. VLDB Endow. VLDB Endow2024. 2024
+
+T-gcn: A temporal graph convolutional network for traffic prediction. Ling Zhao, Yujiao Song, Chao Zhang, Yu Liu, Pu Wang, Tao Lin, Min Deng, Haifeng Li, IEEE transactions on intelligent transportation systems. 212019. 2019
+
+Informer: Beyond efficient transformer for long sequence time-series forecasting. Haoyi Zhou, Shanghang Zhang, Jieqi Peng, Shuai Zhang, Jianxin Li, Hui Xiong, Wancai Zhang, Proceedings of the AAAI conference on artificial intelligence. the AAAI conference on artificial intelligence202135
+
+Informer: Beyond Efficient Transformer for Long Sequence Time-Series Forecasting. Haoyi Zhou, Shanghang Zhang, Jieqi Peng, Shuai Zhang, Jianxin Li, Hui Xiong, Wancai Zhang, AAAI. 202135
+
+Neural Architecture Search with Reinforcement Learning. Barret Zoph, V Quoc, Le, ICLR. OpenReview.net2017

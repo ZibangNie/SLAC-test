@@ -1,0 +1,663 @@
+Exploiting Cross-session Information for Session-based Recommendation with Graph Neural Networks
+2020. May 2020
+
+Ruihong Qiu 
+Z I Huang huang@itee.uq.edu.au 
+Ruihong Qiu 
+Zi Huang 
+Jingjing Li 
+Hongzhi Yin 
+H Yin h.yin1@uq.edu.au 
+
+JINGJING LI
+The University of Queensland
+Australia
+
+
+HONGZHI YIN
+University of Electronic Science and Technology of China
+China
+
+
+The University of Queensland
+Australia
+
+
+The University of Queensland
+BrisbaneAustralia
+
+
+Science and Technology of China
+University of Electronic
+ChengduChina
+
+Exploiting Cross-session Information for Session-based Recommendation with Graph Neural Networks
+
+ACM Transactions on Information Systems
+3832020. May 202010.1145/338276422. Publication date: May 2020.22 Authors' addresses: R. Qiu, Z. Huang, and H. Yin (corresponding author), 1046-8188/2020/05-ART22 $15.00CCS Concepts: • Information systems → Recommender systems; Additional Key Words and Phrases: Recommender systemsession-based recommendationgraph neural net- works ACM Reference format:
+Different from the traditional recommender system, the session-based recommender system introduces the concept of the session, i.e., a sequence of interactions between a user and multiple items within a period, to preserve the user's recent interest. The existing work on the session-based recommender system mainly relies on mining sequential patterns within individual sessions, which are not expressive enough to capture more complicated dependency relationships among items. In addition, it does not consider the cross-session information due to the anonymity of the session data, where the linkage between different sessions is prevented. In this article, we solve these problems with the graph neural networks technique. First, each session is represented as a graph rather than a linear sequence structure, based on which a novel Full Graph Neural Network (FGNN) is proposed to learn complicated item dependency. To exploit and incorporate cross-session information in the individual session's representation learning, we further construct a Broadly Connected Session (BCS) graph to link different sessions and a novel Mask-Readout function to improve session embedding based on the BCS graph. Extensive experiments have been conducted on two e-commerce benchmark datasets, i.e., Yoochoose and Diginetica, and the experimental results demonstrate the superiority of our proposal through comparisons with state-of-the-art session-based recommender models.22:2 R. Qiu et al.INTRODUCTIONThe recommender system (RS) has achieved great success in various online commercial applications such as e-commerce and social media platforms. There are two widely studied branches of the RS, the content-based RS [31] and the collaborative filtering RS[13,40], both of which focus on learning the user's preference toward items from the user's historical interactions with items. Conventionally, these methods mainly aim to explore all the historical data rather than focus on the user's recent interactions with items. As a result, the shift of a user's preference along the time is always neglected.Recently, the session-based recommender system (SBRS) attracts more and more attention from both academia and industry. A session in SBRS refers to a sequence of interactions between a user and multiple items within a period. Compared with the traditional RS, SBRS focuses on learning the user's latest preference to recommend the next item based on the user's current ongoing session. How to predict a user's latest preference to recommend the next item is the core task of the SBRS.Because of the nature of SBRS, most existing approaches on SBRS, such as GRU4REC [15], NARM[24], and ATEM[52], only consider the current session and treat it as a short sequence. They mainly adopt a recurrent neural network (RNN) or its variants to learn sequential patterns of items from individual sessions and the representation of a user's short-term preferences. In the procedure of generating the session sequence representation, most recent work [28, 56] makes use of the attention mechanism to differentiate the long-term and short-term preference. However, these approaches encounter two limitations. First, the linear sequential structure adopted by these methods is not expressive enough to represent and model the complicated non-sequential dependency relationships of items. Second, these approaches do not take cross-session information into account. An individual session tends to be very short, and the data of interactions from other sessions has a great potential to alleviate the data sparsity issue and to improve the recommendation accuracy. As shown inFigure 1, the distribution of Pearson correlation coefficient between sessions sharing at least one item indicates there is a strong positive correlation of sessions on benchmark datasets, e.g., Diginetica. 1 In such situation, it is inspired that the cross-session information can be helpful to tackle the data sparsity issue. Although some more recent work[1,17,34,51,59]attempts to leverage the cross-session information to improve the performance of session-based recommendation, all of them assume that the user ID of each session is available so that they can link the sessions that belong to the same user. For example, BINN [27] studies long-term user preferences by applying bi-directional LSTMs (Bi-LSTMs) to the user's whole historical sessions. Unfortunately, they are inapplicable to the anonymous session data without user ID information.Due to the above limitations of existing session-based recommendation methods, we aim to address the following two problems in this work: (1) how to model the complicated item dependency relationships to improve the item embedding and session embedding; (2) how to exploit and incorporate the cross-session information into the current session in the setting of anonymous sessions.To address the first problem, we proposed the model Full Graph Neural Network (FGNN) in the previous work [33] to learn complicated dependency relationships in individual sessions. Specifically, we first represent each session by a graph, which is more expressive than a sequence structure, and then apply a graph neural network to a session graph to learn both item and session embeddings. FGNN consists of two modules: (1) a weighted graph attention layer (WGAT) is proposed to encode the information among the nodes in the session graph into the item embeddings;(2) after obtaining the item embeddings, a Readout function, which learns to determine an appropriate item dependency, is designed to aggregate these embeddings to generate a graph level 1
+
+Exploiting Cross-session Information for Session-based Recommendation representation, i.e., the session embedding. At the final stage, the FGNN outputs the ranked recommendation list according to the score by comparing the session embedding with the embeddings of all items in the item set.
+
+Although we have studied how to represent and model the complicated dependency relationships of items within individual sessions in our previous work [33], the cross-session information was not considered. In this article, we propose a new approach to expand the current session graph with other sessions, and the expanded session graph is named as the Broad Connected Session (BCS) graph, where the cross-session information is incorporated. To generate the effective embedding for each BCS graph, we propose a novel Mask-Readout function to aggregate the item embeddings with more attention on items from the original session graph, avoiding the learned session embedding being distracted by the cross-session information.
+
+To sum up, this article focuses on the session-based recommendation task. In the previous work [33], we have demonstrated our preliminary study of learning the complicated dependency relationships of items. This article extends the previous work by investigating the cross-session information with in-depth performance analysis. In detail, this article makes the following new contributions:
+
+• A BCS graph is introduced for converting a session into a graph with the cross-session information. • Based on the FGNN model, we propose Mask-Readout to generate the session embedding in the situation when cross-session information is incorporated. • More extensive experiments are conducted to evaluate the performance of the BCS graph and the Mask-Readout. • Comprehensive in-depth analysis is demonstrated along with a detailed review of related work.
+
+The remainder of the article is organized as follows: In Section 2, the related work is reviewed in detail, followed by the description of the preliminaries of GNN in Section 3. In Section 4, the detail of the proposed model is presented. At last, extensive experiments are conducted and analyzed to verify the efficacy of the proposed model in Section 5.
+
+
+RELATED WORK
+
+In this section, we first review some related work about the general recommender system (RS) in Section 2.1 and the session-based recommender system (SBRS) in Section 2.2. We will describe graph neural networks (GNN) for the node representation learning and graph classification problems in Section 2.3.
+
+
+General Recommender System
+
+The most popular method in recent years for the general recommender system is collaborative filtering (CF), which represents the user interest based on the whole history. For example, the famous shallow method, Matrix Factorization (MF) [21] factorizes the whole user-item interaction matrix with latent representation for every user and item. With the prevalence of deep learning, neural networks are widely used. Neural collaborative filtering (NCF) [4,13] proposes to use the multilayer perceptron to approximate the matrix factorization process. More subsequent work extends the incorporation of different deep learning tools, for instance, convolutional neural networks [12], knowledge graph [50], and zero-shot learning and domain adaptation [22,23]. To make use of the text information, Guan et al. [9] proposed to use the attention to learn the relative importance of the reviews. These methods all depend on the identification of users and the whole record of interactions for every user. However, for many modern commercial online systems, the user information is anonymous, which leads to the failure of these CF-based algorithms.
+
+
+Session-based Recommender System
+
+The research on the session-based recommender system (SBRS) is a sub-field of RS. Compared with RS, SBRS takes the user's recent user-item interactions into consideration rather than requiring all historical actions. SBRS is based on the assumption that the recent choice of items can be viewed as the recent preference of a user.
+
+Sequential recommendation is based on the Markov chain model [3,41,53,61], which learns the dependency of items of a sequence data to predict the next click. Using probabilistic decisiontree models, Zimdars et al. [61] proposed to encode the state of the dependency relationships of the item sequential dependency. Shani et al. [41] made use of a Markov Decision Process (MDP) to compute the probability of recommendation with the dependency probability between items.
+
+Deep learning models are popular recently with the boom of recurrent neural networks [2,5,16,42,43,54], which is naturally designed for processing sequential data. Hidasi et al. [15] proposed the GRU4REC, which applies a multi-layer GRU [5] to simply treat the data as time series. Based on the RNN model, some work makes improvements on the architectural choice and the objective function design [14,44]. In addition to RNN, Jannach and Ludewig [19] proposed to use the neighborhood-based method to capture co-occurrence signals. Incorporating content features of items, Tuan and Phuong [46] utilized 3D convolutional neural networks to learn more accurate representations. Wu et al. [55] propose a list-wise deep neural network model to train a ranking model. Some recent work uses the attention mechanism to avoid the time order. NARM [24] stacks GRU as the encoder to extract information and then a self-attention layer to assign a weight to each hidden state to sum up as the session embedding. To further alleviate the bias introduced by time series, STAMP [28] entirely replaces the recurrent encoder with an attention layer. SR-GNN [56] applies a gated graph network [26] as the item feature encoder and a self-attention layer to aggregate item features together as the session feature. FWSBR [18] is proposed to integrate the fashion feature to make sustainable session-based recommendation. SSRM [10] considers a specific user's historical sessions and applies the attention mechanism to combine them. Although the attention mechanism can proactively ignore the bias introduced by the time order of interactions, it considers the session as a totally random set.
+
+Cross-session information is considered in SBRS when the user ID is available [1,17,34,51,59]. All these methods require the identified user to build connections between sessions. Quadrana et al. [34] proposed HRNN to apply a recurrent architecture to aggregate the average feature of all sessions from the user's history. Bai et al. [1] proposed ANAM, which uses an attention model to combine different sessions. The user ID is the only linkage between different sessions in these methods. However, there is no record of user ID in many online systems, which makes it impossible to access to other sessions in this way.
+
+
+Graph Neural Networks
+
+In recent years, GNN attracts much interest in the deep learning community. Inspired by the embedding learning method Word2Vec [29], DeepWalk [32] learns node embeddings by randomly sampling neighboring nodes and predicting the joint probabilities of these neighbors. With different learning objective functions and sampling strategies, LINE [45] and Node2Vec [8] are the most representative algorithms of the unsupervised learning on the graph. Initially, GNN is applied to the simple situation on directed graphs [7,39]. In recent years, many GNN methods [11,20,26,48,57] work under the mechanism that is similar to message passing network [6] to compute the information flow between nodes via edges. Additionally, the graph level feature representation learning is essential for graph level tasks, for example, graph classification and graph isomorphism [25,57]. Set2Set [49] assigns each node in the graph a descriptor as the order feature and uses this re-defined order to process all nodes. SortPool [60] sorts the nodes based on their learned feature and uses a normal neural network layer to process the sorted nodes. DiffPool [58] designs two sets of GNN for every layer to learn a new dense adjacent matrix for a smaller size of the densely connected graph.
+
+
+PRELIMINARIES
+
+In this section, we introduce how GNN works on the graph data. Let G (V , E) denote a graph, where v ∈ V is the node set with node feature vectors X v and e ∈ E is the edge set. There are two commonly popular tasks, e.g., node classification and graph classification. In this work, we focus on graph classification, because our purpose is to learn a final embedding for the session rather than single items. For the graph classification, given a set of graphs {G 1 , . . . ,G N } ⊆ G and the corresponding labels {y 1 , . . . ,y N } ⊆ Y, we aim to learn a representation of the graph h G to predict the graph label, y G = д(h G ).
+
+GNN makes use of the structure of the graph and the feature vectors of nodes to learn the representation of nodes or graphs. In recent years, most GNN work by aggregating information from neighboring nodes iteratively. After k iterations of the update, the final representations of the nodes capture the structural information as well as the node information within k-hop neighbor. The procedure can be formed as
+a (k ) v = Agg h (k−1) u , u ∈ N (v) , h (k ) v = Map h (k−1) v , a (k ) v ,(1)
+where h (k ) v is the feature vector for node v in the kth layer. For the input h 0 v to the first layer, the feature vectors X v are passed in. Agg and Map are two functions that can be defined in different forms. Agg serves as the aggregator to aggregate features of neighboring nodes. A typical characteristic of Agg is permutation invariant. Map is a mapping to transform the self information and the neighboring information to a new feature vector.
+
+For the graph classification, a Readout function aggregates all node features from the final layer of the graph to generate a graph level representation h G :
+h G = Readout h (k ) v , v ∈ V ,(2)
+where the Readout function needs to be permutation invariant as well.
+
+
+METHOD
+
+In this section, we describe our Full Graph Neural Network (FGNN) model in detail. The overview of the FGNN model is shown in Figure 2. The input to the model is a BCS graph G BCS-n , which is converted from the input session S. x is the feature vector of nodes in G BCS-n . L layers of WGAT serve as the encoder of node features for G BCS-n . After being processed by WGAT, the session graph now contains different semantic node representations x L but with the same structure as the input session graph. The Mask-Readout function is applied to generate a session embedding based on the learned node features. Compared with other items in the item set V, a recommendation scoreŷ i is finally generated.
+
+
+Problem Definition and Notation
+
+The purpose of an SBRS is to predict the next item that matches the current anonymous user's preference based on the interactions within the session. In the following, we give out the definition of the SBRS problem.
+
+In an SBRS, there is an item set
+V = {v 1 , v 2 , v 3 , . . . ,v m },
+where all items are unique and m denotes the number of items. A session sequence from an anonymous user is defined as an order
+list S = [v s,1 , v s,2 , v s,3 , . . . ,v s,n ]
+, v s, * ∈ V. n is the length of the session S, which may contain duplicated items, v s,p = v s,q , p, q < n. The goal of our model is to take an anonymous session S and the cross-session information as input, and predict the next item v s,n+1 that matches the current anonymous user's preference.
+
+
+BCS Graph
+
+4.2.1 Basic Session Graph. As shown in Figure 2, at the first stage, the session sequence is converted into a session graph for the purpose to process each session via GNN. Because of the natural order of the session sequence, we transform it into a weighted directed graph, G s = (V s , E s ), G s ∈ G, where G is the set of all session graphs. In the session graph G s , the node set V s represents all nodes, which are items v s,n from S. For every node v, the input feature is the initial embedding vector x. The edge set E s represents all directed edges (v s,n−1 , v s,n , w s, (n−1)n ), where v s,n is the click of item after v s,n−1 in S, and w s, (n−1)n is the weight of the edge. The weight of the edge is defined as the frequency of the occurrence of the edge within the session. For convenience, in the following, we use the nodes in the session graph to stand for the items in the session sequence. For the self-attention used in WGAT introduced in Section 4.3, if a node does not contain a self loop, then it will be added with a self loop with a weight 1. Based on our observation of our daily life and the datasets, it is common for a user to click two consecutive items a few times within the session. After converting the session into a graph, the final embedding of S is based on the calculation on this session graph G s .
+
+
+BCS Graph.
+
+In this extension, the cross-session information extraction is another target. Instead of simply using the individual session to build a basic session graph, as we did in the previous version, we want to enable the session graph to represent more information from the dataset. Therefore, a Broadly Connected Session graph is built upon the base of a session graph introduced in Section 4.2.1 with more nodes and edges extracted from other sessions. The purpose of augmenting the session graph to a BCS graph is to incorporate cross-session information into the individual session representation learning procedure. In the original session graph, nodes and edges are items and dependency, respectively, occurring in the individual session. If we want to make use of the cross-session information, then we need to define the proper connection between different sessions. This is simply because only relevant sessions are meaningful for the recommendation task. In the traditional session sequence setting, it is difficult to define the relevance between sessions. Instead, for our session graph setting, it is straightforward to define the relevance without computing any similarity of different sessions.
+
+First of all, before building a single session graph for every session, we gather all sessions and build a large graph to unify all of them. We refer to this large graph, which contains all sessions, as global graph, G full = (V , E), where V contains all items appearing in the training sessions and E contains all dependency. The detailed generation procedure of the G full is presented in Figure 3. The weights of edges are defined as the way introduced in the basic session graph.
+
+When processing the individual session, 3 , . . . ,v s,n ], we need to sample a subgraph from the global graph according to the items in S. Without any modification, we can simply sample a basic session graph, G s = (V s , E s ), where V s = {v i ∈ S}, corresponding to S from the global graph G full . The sampled basic session graph here has the same structure as the one built with the method introduced in Section 4.2.1. But the same structure fails to provide crosssession information to the original session graph setting. It is worth noting that a typical GNN layer can be stacked to multiple layers, which compute the feature of nodes based on their n-hop neighbors, N v i . Therefore, we can sample a larger graph including n-hop neighbors of items in S from the global graph. We refer to this larger graph as the Broadly Connected Session graph,
+S = [v s,1 , v s,2 , v s,G BCS-n = (V BCS-n , E BCS-n ), where V BCS-n = {v i , N v i |v i ∈ S} and N v i is the n-hop neighbors of node v i .
+When n = 0, which means that the BCS graph G BCS-n does not include any neighbors of nodes appearing in the session. In this special case, G BCS-n = G s . The precise sampling process of a G BCS-n is shown in Figure 4. In the Figure 4(a), the global graph is exactly the one built with the way we describe above; in the Figure 4(b), the hierarchical structure of sampling different n-hop BCS graph is represented in different colors.
+
+A BCS graph sampled from the global graph is expected to contain much more cross-session information. However, for some popular items, they can appear in a great number of sessions. If we sample their whole neighboring nodes, then it will drastically increase the size of the BCS graph. Therefore, in the neighbor level, a sampling procedure performs random selection over neighboring nodes to control the scale of the BCS graph. The sampling is based on the edge weight, which indicates the popularity of the following node. . An example of how to sample a BCS graph with n-hop neighbors from a global graph generated in the way described in Figure 3. We omit the directed graph setting here to make the demonstration clearer. The actual sampling procedure for the directed situation is totally the same. (a) A part of the global graph is shown here. Green nodes are represented as the input session graph, which does not include any neighbors of the nodes appearing in the session. (b) The layer with green nodes are actually the G BCS-0 . Furthermore, if we want to sample the G BCS-1 of the input session, then the resulting graph is the layer circled with blue. G BCS-1 consists of G BCS-0 and the first order neighbors of nodes in the input session. Similarly, G BCS-2 , which is circled with yellow, consists of G BCS-0 and the first and second order neighbors of nodes in the input session.
+
+Compared to the basic session graph, the G BCS-n contains more nodes and edges based on the extra relationship between items from other sessions. Such extra information extracted from G complete actually provides cross-session information. There is no need to calculate the similarity between sessions for our method to determine what kind of information is relative.
+
+
+Weighted Graph Attentional Layer
+
+After obtaining the session graph, a GNN is needed to learn embeddings for nodes in a graph, which is the WGAT × L part in Figure 2. In recent years, some baseline methods on GNN, for example, GCN [20] and GAT [48], are demonstrated to be capable of extracting features of the graph. However, most of them are only well-suited for unweighted and undirected graphs. For the session graph, weighted and directed, these baseline methods cannot be directly applied without losing the information carried by the weighted directed edges. Therefore, a suitable graph convolutional layer is needed to effectively convey information between the nodes in the graph.
+
+In this article, we propose a weighted graph attentional layer (WGAT), which simultaneously incorporates the edge weight when performing the attention aggregation on neighboring nodes. We describe the forward propagation of WGAT in the following. The information propagation procedures are shown in Figure 5. Figure 5(b) shows an example of how a two-layer GNN calculates the final representation of the node v 6 .
+
+The input to a WGAT is a set of node initial features, the item embeddings,
+x = {x 0 , x 1 , x 2 , . . . x n−1 }, x i ∈ R d ,
+where n is the number of nodes in the graph, and d is the dimension of the embedding x i . After applying the WGAT, a new set of node features, x = {x 0 , x 1 , x 2 , . . . x n−1 }, x i ∈ R d , will be given out as the output. Specifically, the input feature vectors x 0 i of the first WGAT layer are generated from an embedding layer, whose input is the one-hot encoding of items,
+x 0 i = Embed(v i ),(3)
+where Embed is the embedding layer.  To learn the node representation via the complicated item dependency relationships within the graph structure, a self-attention mechanism for every node i is used to aggregate information from its neighboring nodes N (i), which is defined as the nodes with edges toward the node i (may contain i itself if there is a self-loop edge). Because the size of the session graph is not huge, we can take the entire neighborhood of a node into consideration without any sampling. At the first stage, a self-attention coefficient e i j to determine how importantly the node j will influence the node i is calculated based on x i , x j and w i j ,
+e i j = Att(W x i ,W x j , w i j ),(4)
+where Att is a mapping Att : R d × R d × R 1 → R 1 and W is a shared parameter that performs linear mapping across all nodes. As a matter of fact, the attention of a node i can extend to every node, which is a special case the same as how STAMP makes the attention of the last node of the sequence. Here, we restrict the range of the attention within the first order neighbors of the node i to make use of the inherent structure of the session graph S. To compare the importance of different nodes directly, a softmax function is applied to convert the coefficient into a probability form across the neighbors and itself,
+α i j = softmax j (e i j ) = exp(e i j ) k ∈N (i ) exp(e ik ) .(5)
+The choice of att can be diversified. In our experiments, we use an MLP layer with the parameter W at t ∈ R 2d +1 , followed by a LeakyRelu non-linearity unit with negative input slope α = 0.2,
+α i j = exp(LeakyRelu(W at t [W x i ||W x j ||w i j ])) k ∈N (i ) exp(LeakyRelu(W at t [W x i ||W x k ||w ik ])) ,(6)
+where || means concatenation of two vectors. For every node i in G s , in a WGAT layer, all attention coefficients of their neighbors can be computed as Equation (6). To utilize these attention coefficients, a linear combination for the corresponding neighbors is applied to update the features of the nodes,
+x i = σ j ∈N (i ) α i j W x j ,(7)
+where σ is a non-linearity unit and in our experiments, we use the ReLU [30].  As suggested in previous work [47,48], the multi-head attention can help to stabilize the training of the self-attention layers. Therefore, we apply the multi-head setting for our WGAT,
+x i = K k=1 σ j ∈N (i ) α k i j W k x j ,(8)
+where K is the number of heads and for every head, there is a different set of parameters. in Equation (8) stands for the concatenation of all heads. As a result, after the calculation of Equation (8),
+x i ∈ R Kd .
+Specifically, if we stack multiple WGAT layers, then the final nodes feature will be shaped as R Kd as well. However, what we expect is R d . Consequently, we calculate the mean over all the heads of the attention results,
+x i = σ 1 K K k=1 j ∈N (i ) α k i j W k x j .(9)
+Once the forward propagation of multiple WGAT layers has finished, we obtain the final feature vectors of all nodes, which is the item level embeddings. These embeddings will serve as the input of the session embedding computation stage that we detail below.
+
+
+Mask-Readout Function
+
+The purpose of the Mask-Readout function is to generate a representation of the updated BCS graph based on the node features after the forward computation of the GNN layers. The Mask-Readout needs to learn the description of the item dependency relationships to avoid the bias of the time order and the inaccuracy of the self-attention on the last input item. For the convenience, some algorithms use simple permutation invariant operations, for example, Mean, Max, or Sum over all node features. Although it is clear that these methods are simple and not going to violate the constraints of the permutation invariance, they can not provide a sufficient model capacity for learning a representative session embedding for the BCS graph. In contrast, Set2Set [49] is a graph level feature extractor that learns a query vector indicating the order of reading from the memory for an undirected graph. We develop our basic Readout function by modifying this method to suit the setting of the BCS graphs. The computation procedures are as follows:
+q t = GRU(q * t −1 ),(10)e i,t = f (x i , q t ),(11)a i,t = exp(e i,t ) j exp(e j,t ) ,(12)r t = i a i,t x i ,(13)q * t = q t r t ,(14)
+where i indexes node i in the session graph G s , q t , q t ∈ R d , is a query vector that can be seen as the order to read r t ∈ R d from the memory and GRU is the gated recurrent unit, which at the first step takes no inputs and at the following steps, takes the former output q * t −1 ∈ R 2d . f calculates the attention coefficient e i,t between the embedding of every node x i and the query vector q t . a i,t is the probabilistic form of e i,t after applying a softmax function over e i,t , which is then used to a linear combination on the node embeddings x i . The final output q * t of one forward computation of the Readout function is the concatenation of q t and r t . Based on all node embeddings for a session graph, we follow Equations (10)∼ (14) to obtain a graph level embedding that contains a query vector q t in addition to the semantic embedding vector r t . The query vector q t controls what to read from the node embeddings, which actually provides an order to process all nodes if we recursively apply the Readout function.
+
+Generally, there is no restriction for the Readout function to calculate over all nodes in the BCS graph. However, based on the purpose of the SBRS, the current session is delegated to reflect the user's most recent preference rather than sessions from previous time or other users. Therefore, it is necessary to preserve the original session information within the BCS graph when generating the graph embedding. To achieve this goal, the Mask-Readout masks out all nodes out of the range of G BCS-0 .
+
+As shown in Figure 6, the BCS session graph can vary in size with a different choice of the neighborhood. Under this situation, the basic Readout function calculates the session embedding based on all the nodes in the BCS graph, which fails to preserve the relative importance of the current session and other sessions. Therefore, the Mask-Readout function masks all the nodes out of the range of G BCS-0 in the BCS graph to generate a precise session embedding.
+
+
+Recommendation
+
+Once the graph level embedding q * t is obtained, we can use it to make a recommendation by computing a score vectorẑ for every item over the whole item set V with their initial embeddings in the matrix form,ẑ
+= (W out q * t ) T X 0 ,(15)
+where W out ∈ R d ×2d is a parameter that performs a linear mapping on the graph embedding q * t , the T means the transformation on a matrix, and X 0 is from the Equation (3).
+
+For every item in the item set V, we can calculate a recommendation score and combine them together, we obtain a score vectorẑ. Furthermore, we apply a softmax function overẑ to transform it into the probability distribution formŷ,
+y = softmax(ẑ).(16)
+For the top-K recommendation, it is simple to choose the highest K probabilities over all items based onŷ.
+
+
+Objective Function
+
+Since we already have the recommendation probability of a session, we can use the label item v label to train our model with the supervised learning method.
+
+As mentioned above, we formulate the recommendation as a graph level classification problem. Consequently, we apply the multi-class cross entropy loss betweenŷ and the one-hot encoding of v label as the objective function. For a batch of training sessions, we can have
+L = − l i=1 one-hot(v label,i )log(ŷ i ),(17)
+where l is the batch size we use in the optimizer.
+
+In the end, we use the Back-Propagation Through Time (BPTT) algorithm to train the whole FGNN model.
+
+
+EXPERIMENTS
+
+In this section, we conduct experiments with the purpose to prove the efficacy of our proposed FGNN model by answering the following research questions:
+
+• RQ1 Does the FGNN outperform other state-of-the-art SBRS methods? (in Section 5.5) • RQ2 How does the BCS graph help to make use of the cross-session information for anonymous sessions? (in Section 5.6) • RQ3 How does the WGAT work for the session-based recommendation problem? (in Section 5.7) • RQ4 How does the Readout function work differently from other graph level embedding methods? (in Section 5.8) • RQ5 How does the Mask-Readout function perform compared with the Readout function?
+
+(in Section 5.9)
+
+In addition to the previous version, we introduce the BCS graph module to our FGNN model. As a result, we also emphasize on proving the effect of the BCS graph module in Section 5.6 in this version. Besides, there will be additional experiments involving the BCS graph in other sections.
+
+In the following, we first describe the details of the basic setting of the experiments and afterwards, we answer the questions above by showing the results of the experiments.
+
+
+Datasets
+
+We follow the previous version to choose two representative real world e-commerce datasets, i.e., Yoochoose 2 and Diginetica, to evaluate our model.
+
+• Yoochoose is used as a challenge dataset for RecSys Challenge 2015. It is obtained by recording click-streams from an e-commerce website within 6 months. • Diginetica is used as a challenge dataset for CIKM cup 2016. It contains the transaction data that is suitable for session-based recommendation.
+
+For the fairness and the convenience of comparison, we follow References [24,28,56] to filter out sessions of length 1 and items that occur less than five times in each dataset, respectively. After the preprocessing step, there are 7,981,580 sessions and 37,483 items remaining in Yoochoose dataset, while 204,771 sessions and 43,097 items in Diginetica dataset. Similar to References [44,56], we split a session of length n into n − 1 partial sessions of length ranging from 2 to n to augment the datasets. For the partial session of length i in the session S, it is defined as [v s,0 , . . . ,v s,i−1 ] with the  [24,28,56], for Yoochoose dataset, the most recent portions 1/64 and 1/4 of the training sequence are used as two split datasets, respectively.
+
+
+Baselines
+
+To prove the advantage of our proposed FGNN model, we compare FGNN with the following representative methods:
+
+• POP always recommends the most popular items in the whole training set, which serves as a strong baseline in some situations although it is simple. • S-POP always recommends the most popular items for the individual session.
+
+• Item-KNN Reference [37] computes the similarity of items by the cosine distance of two item vectors in sessions. Regularization is also introduced to avoid the rare high similarities for unvisited items. • BPR-MF Reference [35] proposes a BPR objective function that utilizes a pairwise ranking loss to train the ranking model. Following Reference [24], Matrix Factorization is modified to session-based recommendation by using mean latent vectors of items in a session. • FPMC Reference [36] is a hybrid model for the next-basket recommendation and it achieves state-of-the-art results. For anonymous session-based recommendation, following Reference [24], we omit the user feature directly because of the unavailability. • GRU4REC Reference [15] stacks multiple GRU layers to encode the session sequence into a final state. It also applies a ranking loss to train the model. • NARM Reference [24] extends to use an attention layer to combine all of the encoded states of RNN, which enables the model to explicitly emphasize on the more important parts of the input. • STAMP Reference [28] uses attention layers to replace all RNN encoders in previous work to even make the model more powerful by fully relying on the self-attention of the last item in a sequence. • SR-GNN Reference [56] applies a gated graph convolutional layer [26] to obtain item embeddings, followed by a self-attention of the last item as STAMP does to compute the sequence level embeddings.
+
+
+Evaluation Metrics
+
+For each time, a recommender system can give out a few recommended items and a user would choose the first few of them. To keep the same setting as previous baselines, we mainly choose to use top-20 items to evaluate a recommender system and specifically, two metrics, i.e., R@20 and MRR@20. For more detailed comparison, top-5 and top-10 results are considered as well.
+
+• R@K (Recall calculated over top-K items). The R@K score is the metric that calculates the proportion of test cases that recommends the correct items in a top K position in a ranking list, where N represents the number of test sequences S test in the dataset and n hit counts the number that the desired items are in the top K position in the ranking list, which is named the hit. R@K is also known as the hit ratio. • MRR@K (Mean Reciprocal Rank calculated over top-K items). The reciprocal is set to 0 when the desired items are not in the top K position and the calculation is as follows:
+R@K = n hit N ,(18)MRR@K = 1 N v l abel ∈S t est 1 Rank (v label )
+.
+
+The MRR is a normalized ranking of hit, the higher the score, the better the quality of the recommendation, because it indicates a higher ranking position of the desired item.
+
+
+Experiments Setting
+
+In the experiments, there are two types of building methods of the session graph. For the basic session graph, we directly make use of all nodes in the session to build the corresponding session graph. However, for the BCS graph, we sample the neighboring nodes according to the edge weight by restricting the number of a node's neighbors to 5 in our default setting. The neighboring sample rate will be discussed in Section 5.6. We apply a three-layer WGAT and each with eight heads as our node representation encoder and three processing steps of our Readout function. The size of the feature vector of the item is set to 100 for every layer including the initial embedding layer. All parameters of the FGNN are initialized using a Gaussian distribution with a mean of 0 and a standard deviation of 0.1 except for the GRU unit in the Readout function, which is initialized using the orthogonal initialization [38] because of its performance on RNN-like units. We use the Adam optimizer with the initial learning rate 1e − 3 and the linear schedule decay rate 0.1 for every 3 epochs. The batch size for mini-batch optimization is 100, and we set an L2 regularization to 1e − 5 to avoid overfitting.
+
+
+Comparison with Baseline Methods (RQ1)
+
+To demonstrate the overall performance of FGNN, we compare it with the baseline methods mentioned in Section 5.2 by evaluating their scores of R@20 and MRR@20. The overall results are presented in Table 2 with respect to all baseline methods and our proposed FGNN model. Due to the insufficient memory of hardware, we cannot initialize FPMC on Yoochoose1/4 as Reference [24], which is not reported in Table 2. For more detailed comparisons, in Table 3, we present the results of the most recent state-of-the-art methods for the dataset Yoochoose1/64 when K = 5 and 10.
+
+
+General Comparison by P@20 and MRR@20
+
+. FGNN utilizes the multi layers of WGAT to easily convey the semantic and structural information between items within the session graph and applies the Readout function to decide the relative significance as the order of nodes in the graph to make the recommendation. According to the results reported in Table 2, it is obvious that the proposed FGNN model outperforms all the baseline methods on all three datasets for both metrics, R@20 and MRR@20. In the experiment, we compare the basic session graph (FGNN-SG) and the BCS graph (FGNN-BCS-n). Especially, for FGNN-SG and FGNN-BCS-0, although they have the same structure of the session graph without extra nodes, FGNN-BCS-0 still gains better performance than FGNN-SG, because the edge features also contain cross-session information for BCS graph. It is proved that our method achieves state-of-the-art performance on every dataset in both the methods of building session graphs. We also substitute the two key components, WGAT and the Readout function, with gated graph networks (FGNN-SG-Gated) and the self-attention (FGNN-SG-ATT) used by previous methods. Both of the variants gain improvements compared with previous models, which demonstrate the efficacy of the proposed WGAT and the Readout function, respectively. Compared with those traditional algorithms, e.g., POP and S-POP, which simply recommend items based on the frequencies of appearance, FGNN performs much better in overall. They tend to recommend fixed items, which leads to the failure of capturing the characteristics of different items and sessions. Taking BPR-MF and FPMC into consideration, which omit the session setting when recommending items, we can see that S-POP can defeat these methods as well, because S-POP makes use of the session context information. Item-KNN achieves the best results among the traditional methods, although it only calculates the similarity between items without considering sequential information. At the even worse situation when the dataset is large, methods relying on the whole item set undoubtedly fail to scale well. All methods above achieve relatively poor results compared with the recent neural-network-based methods, which fully model the user's preference in the session sequence. Different from the traditional methods mentioned above, all baselines using neural networks achieve a large performance margin. GRU4REC is the first to apply RNN-like units to encode the session sequence. It sets the baseline of neural-network-based methods. Although RNN is perfectly matched for sequence modeling, session-based recommendation problems are not merely a sequence modeling task, because the user's preference is even changing within the session. RNN takes every input item equally importantly, which introduces bias to the model during training. For the subsequent methods, NARM and STAMP, both of which incorporate a self-attention over the last input item of a session, they both outperform GRU4REC in a large margin. They both use the last input item as the representation of short-term user interest. It proves that assigning different attention to different inputs is a more accurate modeling method for session encoding. Looking into the comparison between NARM, combining RNN and attention mechanism, and STAMP, a complete attention setting, there is a conspicuous gap of performance that STAMP outperforms NARM. This further demonstrates that directly using RNN to encode the session sequence can inevitably introduce bias to the model, which the attention can completely avoid.
+
+SR-GNN uses a session graph to represent the session sequence, followed by a gated graph layer to encode items. In the final stage, it again uses a self-attention the same as STAMP to output a session embedding. It achieves the best result compared to all the methods mentioned above. The graph structure is shown to be more suitable than the sequence structure, the RNN modeling, or a set structure, the attention modeling.
+
+
+Higher Standard
+
+Recommendation with K = 5, 10. For more detailed results in Table 3, FGNN also achieves the best results with a higher standard of the top-5 and top-10 recommendations. The proposed FGNN model outperforms all baseline methods above. It has a more accurate node-level encoding tool, WGAT, to learn more representative features and a Readout function, to learn an inherent order of nodes in the graph to avoid the entire random order of items. According to the result, it is demonstrated that a more accurate session embedding is obtained by FGNN to make effective recommendations, which proves the efficacy of the proposed FGNN.
+
+
+Comparison with Different Session Graph Generation (RQ2)
+
+Different methods of generating a graph for model forward computation can result in different levels of cross-session information incorporation. Basically, we can build a session graph for each session graph without any cross-session information. We refer to this setting as FGNN-SG. For the BCS graph setting, we can obtain 0-hop neighbor situation G BCS-0 with the same structure as the basic session graph but different edge weights. We refer to this setting as FGNN-BCS-0. Similarly, we also have comparisons between different n-hop neighbors. Therefore, we conduct experiments with FGNN-BCS-1, FGNN-BCS-2 and FGNN-BCS-3 as well. Tables 2 and 3, it is clear that all BCS graph-based methods outperform the FGNN-SG method introduced by the previous version of this article in the aspect of both R@20 and MRR@20 for all datasets. Basic session graph setting shows worse results compared to all BCS graph methods, which means apparently that the cross-session information can be represented by the BCS graph and learned by the following GNN layers. Looking into the difference for the choice of the neighborhood, when it reaches the 3-hop, the performance does not increase as the nodes become more and more. This peak of the performance is because of the GNN layer can not go as deep as the convolutional layer. Meanwhile, the more nodes introduce more information and noise to learn by the model, which is the case being too difficult for the shallow GNN model.
+
+
+General Comparison. In
+
+
+Performance on Session with Different Lengths.
+
+In addition to the overall performance of the BCS graph module, we further conduct experiments to analyze the detailed performance for sessions with different lengths. Following the previous work [28,56], sessions in Yoochoose 1/64 are separated into two groups, i.e., short sessions and long sessions. Short sessions indicate that the length of sessions is less than or equal to 5, while sessions longer than 5 are categorized as long sessions. Length 5 is the closest to the average length of total sessions. 70.1% of Yoochoose1/64 are short sessions and 29.9% are long sessions.
+
+In Figure 7, the results of the performance on different sessions with the basic graph and the BCS graph are presented on the R@20 metric on Yoochoose 1/64 dataset. For the short session, FGNN-BCS-2 performs the best while for the long session, FGNN-BCS-3 shows its superiority on other methods. Compared with all BCS graph methods, FGNN-SG performs worse on both the long and short sessions. Therefore, we can draw a conclusion that incorporating the crosssession information enables the model to gain improvements from sessions of different lengths. For short sessions, the BCS graph with 2-hop neighbors achieves the best result due to the better representation learning ability for shallow GNN models. In contrast, the BCS graph with 3-hop neighbors performs better as the sessions grow longer. It may be because the Readout function can make use of a longer original session when more nodes are from other sessions. Since there are much shorter sessions in the datasets, the overall performance is dominated by the short sessions as shown in Tables 2 and 3.
+
+
+Performance with Different Sample Rates of BCS Graph.
+
+AS the choice of neighboring nodes goes more and more beyond from 0-hop to 3-hop, the session graph becomes larger and larger while the performance shown in the previous tables and graphs begins to decrease. According to the analysis above, the wider of the neighborhood is chosen, the noisier the session graph will be. And the depth of the GNN model does not grow as convolutional neural networks do. Our model is restricted to gain further better results due to the reasons above. As a result, in the larger BCS graph, we conduct random sampling on the neighboring nodes when building the BCS graph. For the BCS-2 and BCS-3 cases, we perform random sampling ranging in {1, 3, 5, 10} under the distribution based on the edge weight connected to the current node. For the BCS-0 situation, because there is no neighbor node included, the sampling procedure does not work here.
+
+In Figure 8, the results with different sampling rates of different neighboring choices are shown. When incorporating different neighboring nodes, the performance is best at the sampling rate at 5 for different choices of the BCS graph. When the sampling rate is 10, the performance decreases for every BCS graph. A large number of neighboring nodes can bring noisy data to the session  representation learning, which is harmful to the model. An adequate choice of the neighboring nodes can boost the performance with the cross-session information.
+
+
+Comparison with Other GNN Layers (RQ3)
+
+To efficiently convey information between items in a session graph, we propose to use WGAT, which suits the situation of the session better. As mentioned above, there are many different GNN layers that can be used to generate node embeddings, e.g., GCN [20], GAT [48], and gated graph networks [26,56]. To prove the usefulness of WGAT, we substitute all three WGAT layers with GCN, GAT and gated graph networks, respectively, in our model. For GCN and GAT, they both initially work for the unweighted and undirected graph, which is not the same setting as the proposed session graph. To make both of them work on the session graph, we directly convert the session graph into undirected by replacing the originally directed edges with undirected ones, i.e., reverse the source and target nodes of edges. And we simply omit the original weight of edges and set all connections between nodes with the same weight 1. For the other one, Gated graph networks, it can work with the session graph setting in its original form without any modification on the session graph. Figures 9(a) and 9(b), results of different GNN layers are shown with R@20 and MRR@20 indices. FGNN is the model proposed in this work, which achieves the best performance. WGAT is more powerful than other GNN layers in the session-based recommendation. GCN and GAT are not able to capture the direction and the explicit weight of edges, resulting in performing worse than WGAT and gated graph networks, which hold the ability to capture this information. Between WGAT and gated graph networks, WGAT performs better because of the stronger ability of representation learning. 
+
+
+General Comparison. In
+
+
+Performance of Different Numbers of Head and Layer.
+
+For the study of WGAT, we test how the number of layers and heads affect the R@20 index performance on Yooshoose1/64. In Figure 10, we report the experiment results of different number of layers ranging in {1, 2, 3, 4, 5} and heads ranging in {1, 2, 4, 8, 16}. It shows that stacking three WGAT layers with eight heads performs the best. Lower results are shown for smaller models for the reason that the capacity of them is too low to represent the complexity of the item dependency relationship. According to the tendency of results of larger models, it is too complicated to train the model and the overfitting does harm to the final performance.
+
+
+Comparison with Other Graph Embedding Methods (RQ4)
+
+Different approaches for generating the session embedding after obtaining the node embeddings stand for different emphasis of the input items. The Readout function proposed in this work learns an inherent order of the nodes by the query vector, which indicates the relatively different impact on the user's preference along with the item dependency. To prove the superiority of our Readout function, we replace the Readout function with other session embedding generators:
+
+• FGNN-SG-ATT. We apply the widely-used self-attention of the last input item. It directly considers the last input item as the short-term reference and all other items as the long-term reference. • FGNN-SG-GRU. To compare the inherent order learned by our Readout function, we use GRU to directly make use of the input session sequence order. • FGNN-SG-SortPool. SortPooling is introduced by Zhang et al. [60] to perform a pooling on graph level by sorting the features of nodes. This sorting can be viewed as a kind of order as well. Figures 11(a) and 11(b), results of different methods for graph level embedding generation are presented for all three datasets with the R@20 and MRR@20 indices. It is obvious that the proposed Readout function achieves the best result. For FGNN-GRU and FGNN-SortPool, they both contain an order but it is too simple to capture the item dependency relationship. FGNN-GRU uses GRU to encode the session sequence with the input order. Such a setting is similar to common RNN-based methods. As a consequence, it performs worse than the attention-based method FGNN-ATT-OUT, which takes both the short-term and the long-term preference into consideration. As for FGNN-SortPool, it sorts the nodes based on WL colors from previous multiple layers of computations. Although it does not simply rely on the input order of the session sequence, the order for the nodes is set according to the relative scale of the features. For the best performance, our Readout function learns the order of the item dependency relationship, which is different from using the time order or the hand-crafted split of long-term  and short-term preference. The results prove that there is a more accurate order for the model to make a more accurate recommendation.
+
+
+General Comparison. In
+
+
+Mask-Readout Compared with Readout
+
+In this section, we conduct experiments using the BCS graph setting and compare the experimental results with Mask-Readout or Readout. When the session is converted into a basic session graph or a BCS-0 graph, there will be no difference between Mask-Readout and Readout, because the choices of nodes are the same for both of them. Overall, the experiments are conducted on BCS-1,-2 and -3 graphs. We use FGNN-BCS-n-Readout (n indicates different neighbors) to denote the methods that use the previous Readout function and FGNN-BCS-n to denote the methods that use Mask-Readout. Figures 12(a) and 12(b) demonstrate the result of how different graph representation extraction methods perform on all three datasets with the metrics of R@20 and MRR@20. According to the results, it is clear that Mask-Readout outperforms the previous Readout in all situations, which means that Mask-Readout is more suitable for the BCS graph. Compared with Readout, Mask-Readout only cares about the nodes that are in the individual session rather than other sessions. Consequently, Cent-Read prevents the model from losing the session information, which becomes back to the simple dependency information when processing with Readout. Overall, Mask-Readout helps the model to balance the cross-session information and the individual session information.
+
+Take a deeper look at Figures 12(a) and 12(b), when the Readout is applied, as the neighbors in the BCS graph grow, the performance generally becomes worse. This situation indicates that the more cross-session information is incorporated, the more easily our model will be distracted from the individual session. But when Mask-Readout is used instead of Readout, this phenomenon weakens.
+
+
+CONCLUSION
+
+This article studied the problem of the session-based recommendation on anonymous sessions in the aspect of the complicated item dependency and the cross-session information. We found that a sequence or a random set of items are insufficient to capture the relation between items. To learn the complicated item dependency, we first represented each session as a graph and then proposed an FGNN model to perform graph convolution on the session graph. Furthermore, because of the data sparsity issue of the anonymous session, it is helpful to make use of the cross-session information. To exploit and incorporate the cross-session information, we further designed a BCS graph to connect different sessions and used a Mask-Readout function to generate a more expressive session embedding with the cross-session information. Empirically, the experimental results from two large-scale benchmark datasets validated the superiority of our solution compared with state-of-the-art techniques.
+
+Fig. 1 .
+1The distribution of Pearson correlation coefficient between sessions sharing at least one item on Diginetica dataset. The average Pearson correlation coefficient is 0.43.
+
+Fig. 2 .
+2The pipeline of FGNN.
+
+Fig. 3 .
+3Generation of the global graph. Every single session is first converted into basic session graphs. Based on the re-occurrence of items, different session graphs can be united as the global graph.
+
+Fig. 4
+4Fig. 4. An example of how to sample a BCS graph with n-hop neighbors from a global graph generated in the way described in Figure 3. We omit the directed graph setting here to make the demonstration clearer. The actual sampling procedure for the directed situation is totally the same. (a) A part of the global graph is shown here. Green nodes are represented as the input session graph, which does not include any neighbors of the nodes appearing in the session. (b) The layer with green nodes are actually the G BCS-0 . Furthermore, if we want to sample the G BCS-1 of the input session, then the resulting graph is the layer circled with blue. G BCS-1 consists of G BCS-0 and the first order neighbors of nodes in the input session. Similarly, G BCS-2 , which is circled with yellow, consists of G BCS-0 and the first and second order neighbors of nodes in the input session.
+
+Fig. 5 .
+5An example of how to compute a node representation of a two-layer GNN. The original session sequence is the same as the input inFigure 2. (a) The session graph is added with self-loop to every node. x i is the input feature for the corresponding node v i . (b) The computation of the second-layer feature x6 is based on all the first and second order neighboring nodes of v 6 . The first order neighbors are v 7 and v 6 itself. The second order neighbors of v 6 are the first order neighbors of v 7 and v 6 , i.e., v 3 , v 7 , and v 6 for v 7 , and v 7 and v 6 for v 6 .
+
+Fig. 6 .
+6Mask-Readout. In the generation process of the graph embedding, Mask-Readout masks out all nodes (in gray) out of the range of G BCS-0 (in green).
+
+Fig. 7 .
+7R@20 for Short and Long sessions with different methods to build the session graph. The blue bars stand for short sessions and the orange ones for long sessions.
+
+Fig. 8 .
+8R@20 index for different sampling rate ranging in {1, 3, 5, 10} and neighboring hop for BCS graph.
+
+Fig. 9 .
+9Results with different GNN layers.
+
+Fig. 10 .
+10R@20 index for different number of layers and heads for WGAT.
+
+Fig. 11 .
+11Results with different aggregation functions.
+
+Fig. 12 .
+12Results with FGNN using Mask-Readout or Readout.
+
+
+ACM Transactions on Information Systems, Vol. 38, No. 3, Article 22. Publication date: May 2020.
+
+
+ACM Transactions on Information Systems, Vol. 38, No. 3, Article 22. Publication date: May 2020.
+
+Table 1 .
+1Statistic Details of DatasetsDataset 
+Clicks 
+Train sessions Test sessions Items Avg. length 
+Yoochoose1/64 
+557,248 
+369,859 
+55,898 
+16,766 
+6.16 
+Yoochoose1/4 
+8,326,407 
+5,917,746 
+55,898 
+29,618 
+5.71 
+Diginetica 
+982,961 
+719,470 
+60,858 
+43,097 
+5.12 
+
+last item v s,i−1 as v label . Following References 
+
+Table 2 .
+2Performance Compared with Other BaselinesMethod 
+Yoochoose1/64 
+Yoochoose1/4 
+Diginetica 
+R@20 MRR@20 R@20 MRR@20 R@20 MRR@20 
+POP 
+6.71 
+1.65 
+1.33 
+0.30 
+0.89 
+0.20 
+S-POP 
+30.44 
+18.35 
+27.08 
+17.75 
+21.06 
+13.68 
+Item-KNN 
+51.60 
+21.81 
+52.31 
+21.70 
+35.75 
+11.57 
+BPR-MF 
+31.31 
+12.08 
+3.40 
+1.57 
+5.24 
+1.98 
+FPMC 
+45.62 
+15.01 
+-
+-
+26.53 
+6.95 
+GRU4REC 
+60.64 
+22.89 
+59.53 
+22.60 
+29.45 
+8.33 
+NARM 
+68.32 
+28.63 
+69.73 
+29.23 
+49.70 
+16.17 
+STAMP 
+68.74 
+29.67 
+70.44 
+30.00 
+45.64 
+14.32 
+SR-GNN 
+70.57 
+30.94 
+71.36 
+31.89 
+50.73 
+17.59 
+(basic session graph) 
+FGNN-SG-Gated 
+70.85 
+31.05 
+71.50 
+32.17 
+51.03 
+17.86 
+FGNN-SG-ATT 
+70.74 
+31.16 
+71.68 
+32.26 
+50.97 
+18.02 
+FGNN-SG 
+71.12 
+31.68 
+71.97 
+32.54 
+51.36 
+18.47 
+(BCS graph) 
+FGNN-BCS-0 
+71.43 
+31.97 
+72.21 
+32.66 
+51.45 
+18.57 
+FGNN-BCS-1 
+71.68 
+32.34 
+72.53 
+32.80 
+51.59 
+18.72 
+FGNN-BCS-2 
+71.75 
+32.45 
+72.48 
+32.71 
+51.67 
+18.69 
+FGNN-BCS-3 
+71.52 
+32.31 
+72.33 
+32.68 
+51.63 
+18.74 
+
+Table 3. Performance When K = 5 and 10 for Yoochoose1/64 
+
+Method 
+Yoochoose1/64 
+R@5 MRR@5 R@10 MRR@10 
+NARM 
+44.34 
+26.21 
+57.50 
+27.97 
+STAMP 
+45.69 
+27.26 
+58.07 
+28.92 
+SR-GNN 
+47.42 
+28.41 
+60.21 
+30.13 
+FGNN-SG 
+48.23 
+29.16 
+60.97 
+30.85 
+FGNN-BCS-0 
+48.30 
+29.41 
+61.07 
+30.94 
+FGNN-BCS-1 48.41 
+29.48 
+61.14 
+31.12 
+FGNN-BCS-2 
+48.36 
+29.50 
+61.19 
+31.09 
+FGNN-BCS-3 
+48.32 
+29.45 
+61.15 
+31.06 
+
+
+ACM Transactions on Information Systems, Vol. 38, No. 3, Article 22. Publication date: May 2020.
+https://2015.recsyschallenge.com/challenge.html. ACM Transactions on Information Systems, Vol. 38, No. 3, Article 22. Publication date: May 2020.
+
+An attribute-aware neural attentive model for next basket recommendation. Ting Bai, Jian-Yun Nie, Wayne Xin Zhao, Yutao Zhu, Pan Du, Ji-Rong Wen, Proceedings of the 41st International ACM SIGIR Conference on Research & Development in Information Retrieval (SIGIR'18. the 41st International ACM SIGIR Conference on Research & Development in Information Retrieval (SIGIR'18Ting Bai, Jian-Yun Nie, Wayne Xin Zhao, Yutao Zhu, Pan Du, and Ji-Rong Wen. 2018. An attribute-aware neural attentive model for next basket recommendation. In Proceedings of the 41st International ACM SIGIR Conference on Research & Development in Information Retrieval (SIGIR'18). 1201-1204.
+
+AIR: Attentional intention-aware recommender systems. Tong Chen, Hongzhi Yin, Hongxu Chen, Rui Yan, Proceedings of the 35th IEEE International Conference on Data Engineering (ICDE'19. the 35th IEEE International Conference on Data Engineering (ICDE'19Quoc Viet Hung Nguyen, and Xue LiTong Chen, Hongzhi Yin, Hongxu Chen, Rui Yan, Quoc Viet Hung Nguyen, and Xue Li. 2019. AIR: Attentional intention-aware recommender systems. In Proceedings of the 35th IEEE International Conference on Data Engineer- ing (ICDE'19). 304-315.
+
+Sequenceaware factorization machines for temporal predictive analytics. Tong Chen, Hongzhi Yin, Quoc Viet Hung, Wen-Chih Nguyen, Xue Peng, Xiaofang Li, Zhou, Proceedings of the 36th IEEE International Conference on Data Engineering (ICDE'20). the 36th IEEE International Conference on Data Engineering (ICDE'20)Tong Chen, Hongzhi Yin, Quoc Viet Hung Nguyen, Wen-Chih Peng, Xue Li, and Xiaofang Zhou. 2020. Sequence- aware factorization machines for temporal predictive analytics. In Proceedings of the 36th IEEE International Confer- ence on Data Engineering (ICDE'20).
+
+Joint neural collaborative filtering for recommender systems. Wanyu Chen, Fei Cai, Honghui Chen, Maarten De Rijke, ACM Trans. Info. Syst. 3730Wanyu Chen, Fei Cai, Honghui Chen, and Maarten de Rijke. 2019. Joint neural collaborative filtering for recommender systems. ACM Trans. Info. Syst. 37, 4 (2019), 39:1-39:30.
+
+Empirical evaluation of gated recurrent neural networks on sequence modeling. Junyoung Chung, Caglar Gulcehre, Kyunghyun Cho, Yoshua Bengio, Proceedings of the Advances in Neural Information Processing Systems 27: Annual Conference on Neural Information Processing Systems Workshop on Deep Learning (NIPS'14). the Advances in Neural Information Processing Systems 27: Annual Conference on Neural Information Processing Systems Workshop on Deep Learning (NIPS'14)Junyoung Chung, Caglar Gulcehre, Kyunghyun Cho, and Yoshua Bengio. 2014. Empirical evaluation of gated recur- rent neural networks on sequence modeling. In Proceedings of the Advances in Neural Information Processing Systems 27: Annual Conference on Neural Information Processing Systems Workshop on Deep Learning (NIPS'14).
+
+Neural message passing for quantum chemistry. Justin Gilmer, Samuel S Schoenholz, Patrick F Riley, Oriol Vinyals, George E Dahl, Proceedings of the 34th International Conference on Machine Learning (ICML'17. the 34th International Conference on Machine Learning (ICML'17Justin Gilmer, Samuel S. Schoenholz, Patrick F. Riley, Oriol Vinyals, and George E. Dahl. 2017. Neural message passing for quantum chemistry. In Proceedings of the 34th International Conference on Machine Learning (ICML'17). 1263-1272.
+
+A new model for learning in graph domains. Marco Gori, Gabriele Monfardini, Franco Scarselli, Proceedings of the IEEE International Joint Conference on Neural Networks. the IEEE International Joint Conference on Neural NetworksIEEE2Marco Gori, Gabriele Monfardini, and Franco Scarselli. 2005. A new model for learning in graph domains. In Proceed- ings of the IEEE International Joint Conference on Neural Networks. Vol. 2. IEEE, 729-734.
+
+2016. node2vec: Scalable feature learning for networks. Aditya Grover, Jure Leskovec, Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery & Data Mining (KDD'16. the 22nd ACM SIGKDD International Conference on Knowledge Discovery & Data Mining (KDD'16Aditya Grover and Jure Leskovec. 2016. node2vec: Scalable feature learning for networks. In Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery & Data Mining (KDD'16). 855-864.
+
+Attentive aspect modeling for review-aware recommendation. Xinyu Guan, Zhiyong Cheng, Xiangnan He, Yongfeng Zhang, Zhibo Zhu, Qinke Peng, Tat-Seng Chua, ACM Trans. Info. Syst. 3727Xinyu Guan, Zhiyong Cheng, Xiangnan He, Yongfeng Zhang, Zhibo Zhu, Qinke Peng, and Tat-Seng Chua. 2019. Attentive aspect modeling for review-aware recommendation. ACM Trans. Info. Syst. 37, 3 (2019), 28:1-28:27.
+
+Streaming session-based recommendation. Lei Guo, Hongzhi Yin, Qinyong Wang, Tong Chen, Alexander Zhou, Nguyen Quoc Viet Hung, Proceedings of the 25th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining (KDD'19). the 25th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining (KDD'19)ACMLei Guo, Hongzhi Yin, Qinyong Wang, Tong Chen, Alexander Zhou, and Nguyen Quoc Viet Hung. 2019. Stream- ing session-based recommendation. In Proceedings of the 25th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining (KDD'19). ACM.
+
+Inductive representation learning on large graphs. William L Hamilton, Zhitao Ying, Jure Leskovec, Proceedings of the Advances in Neural Information Processing Systems 30: Annual Conference on Neural Information Processing Systems (NIPS'17. the Advances in Neural Information Processing Systems 30: Annual Conference on Neural Information Processing Systems (NIPS'17William L. Hamilton, Zhitao Ying, and Jure Leskovec. 2017. Inductive representation learning on large graphs. In Proceedings of the Advances in Neural Information Processing Systems 30: Annual Conference on Neural Information Processing Systems (NIPS'17). 1025-1035.
+
+Outer product-based neural collaborative filtering. Xiangnan He, Xiaoyu Du, Xiang Wang, Feng Tian, Jinhui Tang, Tat-Seng Chua, Proceedings of the 27th International Joint Conference on Artificial Intelligence (IJCAI'18. the 27th International Joint Conference on Artificial Intelligence (IJCAI'18Xiangnan He, Xiaoyu Du, Xiang Wang, Feng Tian, Jinhui Tang, and Tat-Seng Chua. 2018. Outer product-based neural collaborative filtering. In Proceedings of the 27th International Joint Conference on Artificial Intelligence (IJCAI'18). 2227-2233.
+
+Neural collaborative filtering. Xiangnan He, Lizi Liao, Hanwang Zhang, Liqiang Nie, Xia Hu, Tat-Seng Chua, Proceedings of the 26th International Conference on World Wide Web (WWW'17. the 26th International Conference on World Wide Web (WWW'17Xiangnan He, Lizi Liao, Hanwang Zhang, Liqiang Nie, Xia Hu, and Tat-Seng Chua. 2017. Neural collaborative filtering. In Proceedings of the 26th International Conference on World Wide Web (WWW'17). 173-182.
+
+Recurrent neural networks with top-k gains for session-based recommendations. Balázs Hidasi, Alexandros Karatzoglou, Proceedings of the 27th ACM International Conference on Information and Knowledge Management (CIKM'18. the 27th ACM International Conference on Information and Knowledge Management (CIKM'18Balázs Hidasi and Alexandros Karatzoglou. 2018. Recurrent neural networks with top-k gains for session-based rec- ommendations. In Proceedings of the 27th ACM International Conference on Information and Knowledge Management (CIKM'18). 843-852.
+
+Session-based recommendations with recurrent neural networks. Balázs Hidasi, Alexandros Karatzoglou, Proceedings of the 4th International Conference on Learning Representations (ICLR'16). the 4th International Conference on Learning Representations (ICLR'16)Linas Baltrunas, and Domonkos TikkBalázs Hidasi, Alexandros Karatzoglou, Linas Baltrunas, and Domonkos Tikk. 2016. Session-based recommenda- tions with recurrent neural networks. In Proceedings of the 4th International Conference on Learning Representations (ICLR'16).
+
+Long short-term memory. Sepp Hochreiter, Jürgen Schmidhuber, Neural Comput. 9Sepp Hochreiter and Jürgen Schmidhuber. 1997. Long short-term memory. Neural Comput. 9, 8 (1997), 1735-1780.
+
+Neural cross-session filtering: Next-item prediction under intra-and inter-session context. Liang Hu, Qingkui Chen, Haiyan Zhao, Songlei Jian, IEEE Intell. Syst. 33Longbing Cao, and Jian CaoLiang Hu, Qingkui Chen, Haiyan Zhao, Songlei Jian, Longbing Cao, and Jian Cao. 2018. Neural cross-session filtering: Next-item prediction under intra-and inter-session context. IEEE Intell. Syst. 33, 6 (2018), 57-67.
+
+Session-based recommender system for sustainable digital marketing. Hyunwoo Hwangbo, Yangsok Kim, Sustainability. 113336Hyunwoo Hwangbo and Yangsok Kim. 2019. Session-based recommender system for sustainable digital marketing. Sustainability 11, 12 (2019), 3336.
+
+When recurrent neural networks meet the neighborhood for sessionbased recommendation. Dietmar Jannach, Malte Ludewig, Proceedings of the 11nth ACM Conference on Recommender Systems (RecSys'17. the 11nth ACM Conference on Recommender Systems (RecSys'17Dietmar Jannach and Malte Ludewig. 2017. When recurrent neural networks meet the neighborhood for session- based recommendation. In Proceedings of the 11nth ACM Conference on Recommender Systems (RecSys'17). 306-310.
+
+Semi-supervised classification with graph convolutional networks. N Thomas, Max Kipf, Welling, Proceedings of the 5th International Conference on Learning Representations (ICLR'17). the 5th International Conference on Learning Representations (ICLR'17)Thomas N. Kipf and Max Welling. 2017. Semi-supervised classification with graph convolutional networks. In Pro- ceedings of the 5th International Conference on Learning Representations (ICLR'17).
+
+Matrix factorization techniques for recommender systems. Yehuda Koren, Robert M Bell, Chris Volinsky, IEEE Comput. 42Yehuda Koren, Robert M. Bell, and Chris Volinsky. 2009. Matrix factorization techniques for recommender systems. IEEE Comput. 42, 8 (2009), 30-37.
+
+From zero-shot learning to cold-start recommendation. Jingjing Li, Mengmeng Jing, Ke Lu, Lei Zhu, Yang Yang, Zi Huang, Proceedings of the 33rd AAAI Conference on Artificial Intelligence (AAAI'19. the 33rd AAAI Conference on Artificial Intelligence (AAAI'19Jingjing Li, Mengmeng Jing, Ke Lu, Lei Zhu, Yang Yang, and Zi Huang. 2019. From zero-shot learning to cold-start recommendation. In Proceedings of the 33rd AAAI Conference on Artificial Intelligence (AAAI'19). 4189-4196.
+
+On both cold-start and long-tail recommendation with social data. Jingjing Li, Ke Lu, Zi Huang, Heng Tao Shen, 10.1109/TKDE.2019.2924656IEEE Trans. Knowl. Data Eng. Jingjing Li, Ke Lu, Zi Huang, and Heng Tao Shen. 2019. On both cold-start and long-tail recommendation with social data. IEEE Trans. Knowl. Data Eng. (2019). DOI:10.1109/TKDE.2019.2924656
+
+Neural attentive session-based recommendation. Jing Li, Pengjie Ren, Zhumin Chen, Zhaochun Ren, Tao Lian, Jun Ma, Proceedings of the ACM Conference on Information and Knowledge Management (CIKM'17. the ACM Conference on Information and Knowledge Management (CIKM'17Jing Li, Pengjie Ren, Zhumin Chen, Zhaochun Ren, Tao Lian, and Jun Ma. 2017. Neural attentive session-based recom- mendation. In Proceedings of the ACM Conference on Information and Knowledge Management (CIKM'17). 1419-1428.
+
+Graph matching networks for learning the similarity of graph structured objects. Yujia Li, Chenjie Gu, Thomas Dullien, Oriol Vinyals, Pushmeet Kohli, Proceedings of the 36th International Conference on Machine Learning (ICML'19. the 36th International Conference on Machine Learning (ICML'19Yujia Li, Chenjie Gu, Thomas Dullien, Oriol Vinyals, and Pushmeet Kohli. 2019. Graph matching networks for learning the similarity of graph structured objects. In Proceedings of the 36th International Conference on Machine Learning (ICML'19). 3835-3845.
+
+Gated graph sequence neural networks. Yujia Li, Daniel Tarlow, Marc Brockschmidt, Richard S Zemel, Proceedings of the 4th International Conference on Learning Representations (ICLR'16). the 4th International Conference on Learning Representations (ICLR'16)Yujia Li, Daniel Tarlow, Marc Brockschmidt, and Richard S. Zemel. 2016. Gated graph sequence neural networks. In Proceedings of the 4th International Conference on Learning Representations (ICLR'16).
+
+Learning from history and present: Next-item recommendation via discriminatively exploiting user behaviors. Zhi Li, Hongke Zhao, Qi Liu, Zhenya Huang, Tao Mei, Enhong Chen, Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining (KDD'18. the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining (KDD'18Zhi Li, Hongke Zhao, Qi Liu, Zhenya Huang, Tao Mei, and Enhong Chen. 2018. Learning from history and present: Next-item recommendation via discriminatively exploiting user behaviors. In Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining (KDD'18). 1734-1743.
+
+STAMP: Short-term attention/memory priority model for session-based recommendation. Qiao Liu, Yifu Zeng, Refuoe Mokhosi, Haibin Zhang, Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining (KDD'18. the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining (KDD'18Qiao Liu, Yifu Zeng, Refuoe Mokhosi, and Haibin Zhang. 2018. STAMP: Short-term attention/memory priority model for session-based recommendation. In Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining (KDD'18). 1831-1839.
+
+Distributed representations of words and phrases and their compositionality. Tomas Mikolov, Ilya Sutskever, Kai Chen, Gregory S Corrado, Jeffrey Dean, Proceedings of the Advances in Neural Information Processing Systems 26: 27th Annual Conference on Neural Information Processing Systems (NIPS'13. the Advances in Neural Information Processing Systems 26: 27th Annual Conference on Neural Information Processing Systems (NIPS'13Tomas Mikolov, Ilya Sutskever, Kai Chen, Gregory S. Corrado, and Jeffrey Dean. 2013. Distributed representations of words and phrases and their compositionality. In Proceedings of the Advances in Neural Information Processing Systems 26: 27th Annual Conference on Neural Information Processing Systems (NIPS'13).3111-3119.
+
+Rectified linear units improve restricted boltzmann machines. Vinod Nair, Geoffrey E Hinton, Proceedings of the 27th International Conference on Machine Learning (ICML'10. the 27th International Conference on Machine Learning (ICML'10Vinod Nair and Geoffrey E. Hinton. 2010. Rectified linear units improve restricted boltzmann machines. In Proceedings of the 27th International Conference on Machine Learning (ICML'10). 807-814.
+
+Content-based recommendation systems. J Michael, Daniel Pazzani, Billsus, The Adaptive Web, Methods, and Strategies of Web Personalization. SpringerMichael J. Pazzani and Daniel Billsus. 2007. Content-based recommendation systems. In The Adaptive Web, Methods, and Strategies of Web Personalization. Springer, 325-341.
+
+DeepWalk: Online learning of social representations. Bryan Perozzi, Rami Al-Rfou, Steven Skiena, Proceedings of the 20th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining (KDD'14. the 20th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining (KDD'14Bryan Perozzi, Rami Al-Rfou, and Steven Skiena. 2014. DeepWalk: Online learning of social representations. In Pro- ceedings of the 20th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining (KDD'14). 701-710.
+
+Rethinking the item order in session-based recommendation with graph neural networks. Ruihong Qiu, Jingjing Li, Zi Huang, Hongzhi Yin, Proceedings of the ACM Conference on Information and Knowledge Management, (CIKM'19). the ACM Conference on Information and Knowledge Management, (CIKM'19)Ruihong Qiu, Jingjing Li, Zi Huang, and Hongzhi Yin. 2019. Rethinking the item order in session-based recommenda- tion with graph neural networks. In Proceedings of the ACM Conference on Information and Knowledge Management, (CIKM'19).
+
+Personalizing session-based recommendations with hierarchical recurrent neural networks. Massimo Quadrana, Alexandros Karatzoglou, Balázs Hidasi, Paolo Cremonesi, Proceedings of the 11th ACM Conference on Recommender Systems (RecSys'17. the 11th ACM Conference on Recommender Systems (RecSys'17Massimo Quadrana, Alexandros Karatzoglou, Balázs Hidasi, and Paolo Cremonesi. 2017. Personalizing session-based recommendations with hierarchical recurrent neural networks. In Proceedings of the 11th ACM Conference on Recom- mender Systems (RecSys'17). 130-137.
+
+BPR: Bayesian personalized ranking from implicit feedback. Steffen Rendle, Christoph Freudenthaler, Zeno Gantner, Lars Schmidt-Thieme, Proceedings of the 25th Conference on Uncertainty in Artificial Intelligence (UAI'09. the 25th Conference on Uncertainty in Artificial Intelligence (UAI'09Steffen Rendle, Christoph Freudenthaler, Zeno Gantner, and Lars Schmidt-Thieme. 2009. BPR: Bayesian personalized ranking from implicit feedback. In Proceedings of the 25th Conference on Uncertainty in Artificial Intelligence (UAI'09). 452-461.
+
+Factorizing personalized Markov chains for next-basket recommendation. Steffen Rendle, Christoph Freudenthaler, Lars Schmidt-Thieme, Proceedings of the 19th International Conference on World Wide Web (WWW'10. the 19th International Conference on World Wide Web (WWW'10Steffen Rendle, Christoph Freudenthaler, and Lars Schmidt-Thieme. 2010. Factorizing personalized Markov chains for next-basket recommendation. In Proceedings of the 19th International Conference on World Wide Web (WWW'10). 811-820.
+
+Item-based collaborative filtering recommendation algorithms. George Badrul Munir Sarwar, Joseph A Karypis, John Konstan, Riedl, Proceedings of the 10th International World Wide Web Conference (WWW'10. the 10th International World Wide Web Conference (WWW'10Badrul Munir Sarwar, George Karypis, Joseph A. Konstan, and John Riedl. 2001. Item-based collaborative filtering recommendation algorithms. In Proceedings of the 10th International World Wide Web Conference (WWW'10). 285-295.
+
+Exact solutions to the nonlinear dynamics of learning in deep linear neural networks. Andrew M Saxe, James L Mcclelland, Surya Ganguli, Proceedings of the 2nd International Conference on Learning Representations (ICLR'14). the 2nd International Conference on Learning Representations (ICLR'14)Andrew M. Saxe, James L. McClelland, and Surya Ganguli. 2014. Exact solutions to the nonlinear dynamics of learn- ing in deep linear neural networks. In Proceedings of the 2nd International Conference on Learning Representations (ICLR'14).
+
+The graph neural network model. Franco Scarselli, Marco Gori, Ah Chung Tsoi, Markus Hagenbuchner, Gabriele Monfardini, IEEE Trans. Neural Netw. 20Franco Scarselli, Marco Gori, Ah Chung Tsoi, Markus Hagenbuchner, and Gabriele Monfardini. 2009. The graph neural network model. IEEE Trans. Neural Netw. 20, 1 (2009), 61-80.
+
+Collaborative filtering recommender systems. J , Ben Schafer, Dan Frankowski, Jonathan L Herlocker, Shilad Sen, The Adaptive Web, Methods, and Strategies of Web Personalization. SpringerJ. Ben Schafer, Dan Frankowski, Jonathan L. Herlocker, and Shilad Sen. 2007. Collaborative filtering recommender systems. In The Adaptive Web, Methods, and Strategies of Web Personalization. Springer, 291-324.
+
+An MDP-based recommender system. Guy Shani, Ronen I Brafman, David Heckerman, Proceedings of the 18th Conference in Uncertainty in Artificial Intelligence (UAI'02. the 18th Conference in Uncertainty in Artificial Intelligence (UAI'02Guy Shani, Ronen I. Brafman, and David Heckerman. 2002. An MDP-based recommender system. In Proceedings of the 18th Conference in Uncertainty in Artificial Intelligence (UAI'02). 453-460.
+
+Where to go next: Modeling long and short term user preferences for point-of-interest recommendation. Ke Sun, Tieyun Qian, Tong Chen, Yile Liang, Proceedings of the 34th AAAI Conference on Artificial Intelligence (AAAI'20). the 34th AAAI Conference on Artificial Intelligence (AAAI'20)Quoc Viet Hung Nguyen, and Hongzhi YinKe Sun, Tieyun Qian, Tong Chen, Yile Liang, Quoc Viet Hung Nguyen, and Hongzhi Yin. 2020. Where to go next: Modeling long and short term user preferences for point-of-interest recommendation. In Proceedings of the 34th AAAI Conference on Artificial Intelligence (AAAI'20).
+
+What can history tell us? Identifying relevant sessions for next-item recommendation. Ke Sun, Tieyun Qian, Hongzhi Yin, Tong Chen, Yiqi Chen, Ling Chen, Proceedings of the ACM Conference on Information and Knowledge Management (CIKM'19). the ACM Conference on Information and Knowledge Management (CIKM'19)Ke Sun, Tieyun Qian, Hongzhi Yin, Tong Chen, Yiqi Chen, and Ling Chen. 2019. What can history tell us? Identifying relevant sessions for next-item recommendation. In Proceedings of the ACM Conference on Information and Knowledge Management (CIKM'19).
+
+Improved recurrent neural networks for session-based recommendations. Xinxing Yong Kiam Tan, Yong Xu, Liu, Proceedings of the 1st Workshop on Deep Learning for Recommender Systems (DLRS@RecSys'16. the 1st Workshop on Deep Learning for Recommender Systems (DLRS@RecSys'16Yong Kiam Tan, Xinxing Xu, and Yong Liu. 2016. Improved recurrent neural networks for session-based recommen- dations. In Proceedings of the 1st Workshop on Deep Learning for Recommender Systems (DLRS@RecSys'16). 17-22.
+
+LINE: Large-scale information network embedding. Jian Tang, Meng Qu, Mingzhe Wang, Ming Zhang, Jun Yan, Qiaozhu Mei, Proceedings of the 24th International Conference on World Wide Web (WWW'15. the 24th International Conference on World Wide Web (WWW'15Jian Tang, Meng Qu, Mingzhe Wang, Ming Zhang, Jun Yan, and Qiaozhu Mei. 2015. LINE: Large-scale information network embedding. In Proceedings of the 24th International Conference on World Wide Web (WWW'15). 1067-1077.
+
+3D convolutional networks for session-based recommendation with content features. Xuan Trinh, Tu Minh Tuan, Phuong, Proceedings of the 11th ACM Conference on Recommender Systems (RecSys'17. the 11th ACM Conference on Recommender Systems (RecSys'17Trinh Xuan Tuan and Tu Minh Phuong. 2017. 3D convolutional networks for session-based recommendation with content features. In Proceedings of the 11th ACM Conference on Recommender Systems (RecSys'17). 138-146.
+
+Attention is all you need. Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Lukasz Kaiser, Illia Polosukhin, Proceedings of the Advances in Neural Information Processing Systems 30: Annual Conference on Neural Information Processing Systems (NIPS'17. the Advances in Neural Information Processing Systems 30: Annual Conference on Neural Information Processing Systems (NIPS'17Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, and Illia Polosukhin. 2017. Attention is all you need. In Proceedings of the Advances in Neural Information Processing Systems 30: Annual Conference on Neural Information Processing Systems (NIPS'17). 6000-6010.
+
+Graph attention networks. Petar Velickovic, Guillem Cucurull, Arantxa Casanova, Adriana Romero, Pietro Liò, Yoshua Bengio, Proceedings of the 6th International Conference on Learning Representations (ICLR'18). the 6th International Conference on Learning Representations (ICLR'18)Petar Velickovic, Guillem Cucurull, Arantxa Casanova, Adriana Romero, Pietro Liò, and Yoshua Bengio. 2018. Graph attention networks. In Proceedings of the 6th International Conference on Learning Representations (ICLR'18).
+
+Order matters: Sequence to sequence for sets. Oriol Vinyals, Samy Bengio, Manjunath Kudlur, Proceedings of the 4th International Conference on Learning Representations (ICLR'16). the 4th International Conference on Learning Representations (ICLR'16)Oriol Vinyals, Samy Bengio, and Manjunath Kudlur. 2016. Order matters: Sequence to sequence for sets. In Proceedings of the 4th International Conference on Learning Representations (ICLR'16).
+
+Exploring high-order user preference on the knowledge graph for recommender systems. Hongwei Wang, Fuzheng Zhang, Jialin Wang, Miao Zhao, Wenjie Li, Xing Xie, Minyi Guo, ACM Trans. Info. Syst. 3726Hongwei Wang, Fuzheng Zhang, Jialin Wang, Miao Zhao, Wenjie Li, Xing Xie, and Minyi Guo. 2019. Exploring high-order user preference on the knowledge graph for recommender systems. ACM Trans. Info. Syst. 37, 3 (2019), 32:1-32:26.
+
+Learning hierarchical representation model for NextBasket recommendation. Pengfei Wang, Jiafeng Guo, Yanyan Lan, Jun Xu, Shengxian Wan, Xueqi Cheng, Proceedings of the 38th International ACM SIGIR Conference on Research and Development in Information Retrieval (SIGIR'15. the 38th International ACM SIGIR Conference on Research and Development in Information Retrieval (SIGIR'15Pengfei Wang, Jiafeng Guo, Yanyan Lan, Jun Xu, Shengxian Wan, and Xueqi Cheng. 2015. Learning hierarchical representation model for NextBasket recommendation. In Proceedings of the 38th International ACM SIGIR Conference on Research and Development in Information Retrieval (SIGIR'15). 403-412.
+
+Attention-based transactional context embedding for next-item recommendation. Shoujin Wang, Liang Hu, Longbing Cao, Xiaoshui Huang, Defu Lian, Wei Liu, Proceedings of the 32nd AAAI Conference on Artificial Intelligence (AAAI'18. the 32nd AAAI Conference on Artificial Intelligence (AAAI'18Shoujin Wang, Liang Hu, Longbing Cao, Xiaoshui Huang, Defu Lian, and Wei Liu. 2018. Attention-based transactional context embedding for next-item recommendation. In Proceedings of the 32nd AAAI Conference on Artificial Intelligence (AAAI'18). 2532-2539.
+
+TPM: A temporal personalized model for spatial item recommendation. Weiqing Wang, Hongzhi Yin, Xingzhong Du, Quoc Viet Hung Nguyen, and Xiaofang Zhou. 925Weiqing Wang, Hongzhi Yin, Xingzhong Du, Quoc Viet Hung Nguyen, and Xiaofang Zhou. 2018. TPM: A temporal personalized model for spatial item recommendation. ACM Trans. Intell. Syst. Technol. 9, 6 (2018), 61:1-61:25.
+
+SPORE: A sequential personalized spatial item recommender system. Weiqing Wang, Hongzhi Yin, Wasim Shazia, Ling Sadiq, Min Chen, Xiaofang Xie, Zhou, Proceedings of the 32nd IEEE International Conference on Data Engineering (ICDE'16. the 32nd IEEE International Conference on Data Engineering (ICDE'16Weiqing Wang, Hongzhi Yin, Shazia Wasim Sadiq, Ling Chen, Min Xie, and Xiaofang Zhou. 2016. SPORE: A sequential personalized spatial item recommender system. In Proceedings of the 32nd IEEE International Conference on Data Engineering (ICDE'16). 954-965.
+
+Session-aware information embedding for e-commerce product recommendation. Chen Wu, Ming Yan, Proceedings of the ACM Conference on Information and Knowledge Management (CIKM'17. the ACM Conference on Information and Knowledge Management (CIKM'17Chen Wu and Ming Yan. 2017. Session-aware information embedding for e-commerce product recommendation. In Proceedings of the ACM Conference on Information and Knowledge Management (CIKM'17). 2379-2382.
+
+Session-based recommendation with graph neural networks. Shu Wu, Yuyuan Tang, Yanqiao Zhu, Liang Wang, Xing Xie, Tieniu Tan, Proceedings of the 33rd AAAI Conference on Artificial Intelligence (AAAI'19). the 33rd AAAI Conference on Artificial Intelligence (AAAI'19)Shu Wu, Yuyuan Tang, Yanqiao Zhu, Liang Wang, Xing Xie, and Tieniu Tan. 2019. Session-based recommendation with graph neural networks. In Proceedings of the 33rd AAAI Conference on Artificial Intelligence (AAAI'19).
+
+How powerful are graph neural networks?. Keyulu Xu, Weihua Hu, Jure Leskovec, Stefanie Jegelka, Proceedings of the 5th International Conference on Learning Representations (ICLR'19). the 5th International Conference on Learning Representations (ICLR'19)Keyulu Xu, Weihua Hu, Jure Leskovec, and Stefanie Jegelka. 2019. How powerful are graph neural networks? In Proceedings of the 5th International Conference on Learning Representations (ICLR'19).
+
+Hierarchical graph representation learning with differentiable pooling. Zhitao Ying, Jiaxuan You, Christopher Morris, Xiang Ren, William L Hamilton, Jure Leskovec, Proceedings of the Advances in Neural Information Processing Systems 31: Annual Conference on Neural Information Processing Systems (NeurIPS'18. the Advances in Neural Information Processing Systems 31: Annual Conference on Neural Information Processing Systems (NeurIPS'18Zhitao Ying, Jiaxuan You, Christopher Morris, Xiang Ren, William L. Hamilton, and Jure Leskovec. 2018. Hierarchi- cal graph representation learning with differentiable pooling. In Proceedings of the Advances in Neural Information Processing Systems 31: Annual Conference on Neural Information Processing Systems (NeurIPS'18). 4805-4815.
+
+A dynamic recurrent model for next basket recommendation. Feng Yu, Qiang Liu, Shu Wu, Liang Wang, Tieniu Tan, Proceedings of the 39th International ACM SIGIR conference on Research and Development in Information Retrieval (SIGIR'16. the 39th International ACM SIGIR conference on Research and Development in Information Retrieval (SIGIR'16Feng Yu, Qiang Liu, Shu Wu, Liang Wang, and Tieniu Tan. 2016. A dynamic recurrent model for next basket recom- mendation. In Proceedings of the 39th International ACM SIGIR conference on Research and Development in Information Retrieval (SIGIR'16). 729-732.
+
+An end-to-end deep learning architecture for graph classification. Muhan Zhang, Zhicheng Cui, Marion Neumann, Yixin Chen, Proceedings of the 32nd AAAI Conference on Artificial Intelligence (AAAI'18. the 32nd AAAI Conference on Artificial Intelligence (AAAI'18Muhan Zhang, Zhicheng Cui, Marion Neumann, and Yixin Chen. 2018. An end-to-end deep learning architecture for graph classification. In Proceedings of the 32nd AAAI Conference on Artificial Intelligence (AAAI'18). 4438-4445.
+
+Using temporal data for making recommendations. Andrew Zimdars, David Maxwell Chickering, Christopher Meek, Proceedings of the 17th Conference in Uncertainty in Artificial Intelligence (UAI'01. the 17th Conference in Uncertainty in Artificial Intelligence (UAI'01Andrew Zimdars, David Maxwell Chickering, and Christopher Meek. 2001. Using temporal data for making recom- mendations. In Proceedings of the 17th Conference in Uncertainty in Artificial Intelligence (UAI'01). 580-588.

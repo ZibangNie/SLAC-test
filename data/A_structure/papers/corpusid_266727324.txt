@@ -1,0 +1,271 @@
+RT-Ranked: Towards Network Resiliency by Anticipating Demand in TSCH/RPL Communication Environments
+3 January 2024
+
+Ivanilson França ivanilson.junior@ifrn.edu.br 
+Vieira Junior 0000-0002-3439-5173
+Jorge Granjal jgranjal@dei.uc.pt 0000-0001-6714-1164
+Marilia Curado marilia@dei.uc.pt 0000-0001-6760-4675
+
+* Ivanilson França Vieira Junior
+Coimbra, Portugal Natal, RN, Brazil
+
+
+1 Department of Informatics Engineering, Centre for Informatics and Systems of the University of Coimbra, University of Coimbra,
+
+
+
+2 DIATINF, Instituto Federal do RN,
+
+
+RT-Ranked: Towards Network Resiliency by Anticipating Demand in TSCH/RPL Communication Environments
+3 January 2024B75377FA16AEEC787814025B31EDB04310.1007/s10922-023-09796-3Received: 4 October 2023 / Revised: 23 November 2023 / Accepted: 24 November 2023 /
+Time-slotted Channel Hopping (TSCH) Media Access Control (MAC) was specified to target the Industrial Internet of Things needs.This MAC balances energy, bandwidth, and latency for deterministic communications in unreliable wireless environments.Building a distributed or autonomous TSCH schedule is arduous because the node negotiates cells with its neighbours based on queue occupancy, latency, and consumption metrics.The Minimal TSCH Configuration defined by RFC 8180 was specified for bootstrapping a 6TiSCH network and detailed configurations necessary to be supported.In particular, it adopts Routing Protocol for Low Power and Lossy networks (RPL) Non-Storing mode, which reduces the node's network awareness.Dealing with unpredicted traffic far from the forwarding node is difficult due to limited network information.Anticipating this unexpected flow from multiple network regions is essential because it can turn the forwarding node into a network bottleneck leading to high latency, packet discard or disconnection rates, forcing RPL to change the topology.To cope with that, this work proposes a new mechanism that implements an RPL control message option for passing forward the node's cell demand, allowing the node to anticipate the proper cell allocation for supporting the traffic originating by nodes far from the forwarding point embedded in Destination-Oriented Directed Acyclic Graph (DODAG) Information Object (DIO) and Destination Advertisement Object (DAO) RPL control messages.Implementing this mechanism in a distributed TSCH Scheduling developed in Contiki-NG yielded promising results in supporting unforeseen traffic bursts and has the potential to significantly improve the performance and reliability of TSCH schedules in challenging network environments.
+
+Introduction
+
+The academy and industry have been developing new methods and technologies to provide an efficient infrastructure for interconnection among various components.The Institute of Electrical and Electronics Engineers (IEEE) and Internet Engineering Task Force (IETF) have established Working Groups (WGs) to discuss the directions of standards development.The IETF working group, denominated IPv6 over the TSCH mode of IEEE 802.15.4e (TSCH), is one such initiative.This group is motivated by the need to integrate Internet Protocol (IP) with industrial communication technologies for ingressing in the Internet of Things (IoT) world.The WG aims to create an open standard architecture using best practices and standardised specifications, allowing integration between IETF/IP and industrial communication technologies, which demand strict latency and reliability assurances for working properly.
+
+This architecture manages and orchestrates a Time-slotted Channel Hopping (TSCH) network using the IPv6 control plane [1].However, the IEEE 802.15.4-2015TSCH standard does not indicate how to create and manage this schedule since each application demands different network performance resources, which is why many TSCH scheduling proposals have been developed.This situation has presented an opportunity for the scheduling to adapt and meet the specific requirements of industrial applications.
+
+A TSCH scheduling is responsible for computing and allocating the cells to support the network traffic.The literature has classified the TSCH scheduling approaches as centralised, distributed, autonomous, and hybrid.Whereas centralised approaches use a Point Coordination Element (PCE) to effectively collect network information, compute schedules, and spread throughout the network, distributed and autonomous approaches calculate the cell demand using metrics and negotiate the cells with their neighbourhood.
+
+For building and managing a TSCH scheduling, policies play a fundamental role.RFC 8180 specified a minimal mode for building a TSCH network [2], which defines a single shared timeslot per slotframe and allows the implementation of schedule solutions using unallocated cells.This strategy enables TSCH schedules to be built according to application requirements using unallocated cells.
+
+Employing the previously noted minimal mode implies setting the Routing Protocol for Low power and Lossy networks (RPL) mode to non-storing, which means network nodes do not store routing information for the entire network.Instead, the routing decisions are made hop-by-hop, i.e., the complete awareness of Destination-Oriented Directed Acyclic Graph (DODAG) is only located in the root node.This RPL mode increases challenges for building the TSCH schedule; the lack of network path awareness makes it complicated for forwarding nodes to deal with traffic generated from unknown network areas.
+
+Concerning distributed scheduling approaches, nodes use information from neighbouring nodes to implement the scheduling algorithm locally.The lack of full network awareness and its position in the DODAG, may make it difficult for forwarding nodes to handle unpredicted traffic that can originate from deeplocated nodes.Some solutions use the RPL rank and the premise that the nearer the node's sink, the higher the probability it is a forwarding node.This premise might be true if the tree generated by RPL is balanced.Still, there is no guarantee that the path tree generated will be balanced.In an industrial deployment, nodes are implanted and spread along the plant; the generated RPL path may create a branch covering dense sensor areas against others.
+
+In this context, using a pure RPL ranking metric, which solely considers the node's position, is inadequate to utilise provisioned cells effectively.This approach may result in allocating cells that will not be utilised, leading to unnecessary energy consumption and additional overhead during the negotiation process.Conversely, if the allocated cells are insufficient to handle traffic bursts, it may result in network performance degradation.It is important to note that scheduling and leaving cells unused increases Radio Duty Cycle (RDC) and adversely affects energy consumption.If the node knows which resources are allocated by other network levels, it can help the node's TSCH scheduling algorithm to anticipate and compute a cell demand that can handle additional traffic efficiently.
+
+This work proposes a solution to address potential network disruptions caused by unexpected traffic from deep-located nodes, in which we consider nodes far from the forwarding point.Specifically, supplying the schedule function with the number of allocated resources (TSCH cells) to assist it in computing a forwarding node's schedule to support unpredicted bursts traffic.To provide this means, this proposal suggests embedding an RPL control message option that contains the number of reception cells allocated by the node.This option will be disseminated downwards via DODAG Information Object (DIO) messages and upwards via Destination Advertisement Object (DAO) messages to the network.By providing this information, the scheduling function can better predict traffic patterns and prevent issues such as disconnections, energy waste, latency fluctuations, and dropped packets, ultimately contributing to improved network stability and energy efficiency.
+
+This paper is organised as follows: in Sect.2, a background about TSCH, scheduling and RPL is presented.Next, in Sect.3, the proposed ranking mechanism is presented.After that, in Sect.4, the proposed strategy is compared to RFC 8180 (Minimal Configuration) and the Orchestra schedule.Finally, Sect. 5 concludes this paper and discusses future work.
+
+
+Background
+
+The Industrial Internet of Things (IIoT) is a vital enabler of the fourth industrial revolution, also known as Industry 4.0, which aims to transform production processes and cyber-physical systems with the help of big data and analytics.As Goel et al. noted [3], IEEE 802.15.4 is a well-known connecting technology for IPv6 over Low-Power Wireless Personal Area Network (6LoWPANs) and comes with all the challenges that must be addressed.Using mesh topology, data is delivered using intermediate relay nodes and sensed information reaches the sink node.In this context, the TSCH and RPL protocols are commonly used to provide reliable and energy-efficient communication between nodes in Wireless Sensor Network (WSN) used by IoT systems.In this field, the TSCH and the Routing Protocol for RPL have emerged as popular protocols for enabling reliable and energy-efficient communication between nodes.Reliability is a critical requirement for many industrial applications.It ensures that messages are delivered correctly and on time.The required reliability level is typically measured by three metrics: latency (the time it takes for a message to be delivered from the source to the destination), Packet Delivery Ratio (PDR) (the ratio of the number of messages that are delivered successfully to the total number of messages that are sent), and the application threshold (the maximum number of messages that are allowed to be delivered outside of the desired time window).By ensuring these metrics are met, industrial applications can be confident that their messages will be delivered reliably, even in harsh environments.Through the use of TSCH, nodes can achieve synchronised transmission and reception of data during defined time slots.RPL delivers a scalable and robust routing mechanism for Lowpower and Lossy Network (LLN).This section will provide a background of TSCH and RPL, highlighting their key features and how they work together to enable reliable and energy-efficient communication in IoT.
+
+
+Time-Slotted Channel Hopping
+
+The TSCH protocol enables wireless networks to coordinate access to a shared medium via the time-slotted channel hopping technique.The network is divided into time slots, and the nodes schedule their transmissions in these time slots on different channels.This Media Access Control (MAC) allows predictable node communication; it is deterministic, low-latency, and low-overhead.Focused on industry applications, IEEE 802.15.4 standard evolution [4] makes low-cost, low-power communications possible.It is part of the IEEE 802.15.4e standard for Wireless Personal Area Networks (WPAN).
+
+The IETF has established a WG called 6TiSCH, driven by the need to incorporate industrial communication technologies with IP.The group aims to construct an architecture that follows best practices using open standards to standardise the missing components required to meet IETF/IP industrial performance standards.As a result, this architecture consists of a group of specifications that define the IPv6 control plane for managing and orchestrating a TSCH network [1,5].
+
+The TSCH MAC protocol enables nodes to communicate by dividing time into 10ms timeslots.Each timeslot includes transmission and acknowledgement of data and is organised into slotframes, which are repetitive structures over time.The channel number changes according to the standard-defined channel hopping schema during each slotframe cycle.The release of RFC 7554 [6] prompted the 6TiSCH initiative to enhance communication over IEEE 802.15.4.As part of this effort, RFC 8480 [7] specified 6TiSCH Operation Sublayer (6top) Protocol (6top), and more recently, RFC 9033 [8] was released, which included the Minimal Scheduling Function (MSF) specification.MSF was specified to cover all the requirements as detailed in RFC 8480.Using autonomous cells and a set of three slotframes for autonomous cell allocation, cell negotiation and 6p messages.It establishes guidelines for adding and removing cells from the schedule, adapting to traffic, switching parents and handling schedule conflicts.
+
+As mentioned previously, scheduling is critical in IIoT networking, and applications should use a schedule that prevents retransmissions due to interferences from simultaneous transmissions.However, developing a scheduling function can be challenging, balancing several factors, such as energy, bandwidth, and latency.In addition, cell assignments must strike a balance between these previous factors.
+
+
+IETF 6TiSCH Architecture
+
+The IETF 6TiSCH architecture is an initiative that aims to enhance communication over IEEE 802.15.4 wireless networks using the TSCH mode.The architecture is designed to meet the requirements of IIoT applications, which require low latency, high reliability, and energy-efficient communication.
+
+At its core, the 6TiSCH architecture is built on top of IPv6.The architecture uses TSCH to divide time into timeslots and organise them into slotframes, which repeat over time.Each slotframe consists of a series of timeslots used for communication between nodes.As cited before, slotframes provide a predictable, time-synchronised communication mechanism, ideal for industrial applications to achieve reliability levels as discussed in [9].
+
+6TiSCH is an architecture designed for reliable and deterministic communication in LLNs.It uses TSCH for reliable transmission, IPv6 for interoperability, UDP as a lightweight transport protocol, and Constrained Application Protocol (CoAP) for applications.A scheduling function allocates time slots to network nodes.6TiSCH is scalable and compatible with other IPv6 networks, making it a potential facilitator for the future of LLNs.
+
+The architecture encompasses several essential components, including the 6top sublayer, responsible for scheduling functions and behaviour, depicted grey in Fig. 1.The IETF 6top sublayer plays a vital role in managing transmission scheduling and collision handling.Additionally, the 6top sublayer acts as an interface between the 6TiSCH network and higher-layer protocols.
+
+The architecture is designed to be flexible and can support various applications, including deterministic control, monitoring, and actuation.To support these applications, the 6TiSCH architecture defines a set of protocols and interfaces used to manage and control the network.These protocols and interfaces are based on open standards and are designed to be interoperable with other network protocols and technologies.
+
+
+Scheduling
+
+Scheduling is critical in IIoT networking, and applications need a schedule that prevents simultaneous interference between transmissions.Schedule collisions make that information has to be queued and wait for another opportunity to be sent.Schedule collisions can lead to packet loss, increased latency, degraded performance, and even catastrophic failure.This parameter's lack of control may lead the application to a disastrous state.It is important to note that a higher retransmission rate significantly impacts latency and energy consumption.The MAC TSCH specification employs Time Division Multiple Access (TDMA) and channel hopping techniques to provide deterministic behaviour, reliability, and energy efficiency.
+
+The standard did not define the TSCH schedule, but the informational RFC 7554 [6] highlights issues and goals that serve as guidelines for research and improvements.Since then, the 6TiSCH has been the focus of numerous enhancements, with the scheduling schema receiving much attention.While RFC 8180 [2] defined an IPv6 minimal working mode over TSCH, the minimal schema is insufficient to meet some critical requirements but is a baseline for keeping the retro compatibility.
+
+In our previous work [11,12], the TSCH minimal schema was evaluated to identify performance issues and discuss the consequences of using a single shared slot.Among the issues we discovered, the lack of transmission opportunities from forwarding nodes results in disconnections due to missing Enhanced Beacon (EB) frames and RPL control messages.Consequently, the absence of network topology awareness can lead to congestion since there is no way to allocate and share network resources effectively.
+
+Many efforts have been made to elaborate the ideal TSCH Scheduling Function (SF).Although the RFC 9030 [10] defined four scheduling strategies (Static, Neighbor-to-Neighbor, Centralised and Hop-by-Hop), the TSCH schedules have been classified in the literature as centralised, distributed and autonomous scheduling.Regarding centralised scheduling strategy, Righetti et al. [13] defined that a node acts as PCE and is responsible for collecting information about the network, computing the scheduling and distributing the schedule throughout the network.Mohamadi and Senoci [14] state that distributed approaches are characterised by negotiation between nodes and their neighbours.Rekik et al. [15] pointed out that the overhead is high for both centralised and distributed approaches.As a result, autonomous scheduling has been proposed.Elsts et al. [16] define an approach in which each node typically constructs the schedule based on the information available locally on the node.
+
+
+IPv6 Routing Protocol for LLN
+
+The RPL routing protocol has emerged as the preferred choice for IOT and IIOT applications thanks to its unparalleled capability to handle unicast and multicast traffic.It is especially well-suited for scenarios involving many sensors and devices.It is particularly well-suited for scenarios involving many sensors and devices.Conceived by the IETF 6LoWPANs WG, RPL [17] presents a versatile and scalable routing solution for low-power networks, making it the go-to option for IoT and Machine-to-Machine (M2M) communication in industrial automation.It is especially valuable in networks using devices with constrained processing power, memory, and battery life, where it can intelligently optimise routing paths and conserve energy.
+
+In brief, RPL guarantees reliable and efficient communication between devices in IIoT systems.It serves as a framework that adapts to the specific requirements of applications, ensuring their smooth functioning.By utilising RPL, IIoT systems can achieve improved dependability, optimised energy efficiency, and seamless scalability.RPL establishes reliable communication paths, maximises resource utilisation, and effectively adapts to varying network conditions.Consequently, RPL serves as a vital enabler, effectively empowering IIoT systems to meet industrial applications' demanding requirements and complexities.
+
+RPL provides a mechanism for building and maintaining a DODAG, a collection of Directed Acyclic Graph (DAG).They are graphs with directed edges that do not have cycles because all edges are oriented in the same direction.RPL uses a set of ICMPv6 RPL Control Messages to build and maintain the network's topology.A specific code identifies each RPL control message and consists of a base, which varies depending on the code and optional fields.Please refer to Table 1 for an overview of RPL control messages and their corresponding codes.
+
+Concerning the node's behaviour for ingressing, it starts by sending a DODAG Information Solicitation (DIS) message to the root node, requesting information about how to ingress to the DODAG.The root node responds with a DIO, which contains information about the DODAG, including the Objective Function (OF) and the rank of the root node.Ingressing nodes use the information received in the DIO message to build the DODAG by choosing their preferred parent and computing their rank, which is utilised to determine their position in the DODAG.It is possible to send DIO messages via multicast or unicast, such as in response to an explicit request.The trickle algorithm [18] defines the periodicity of sending DIO messages.DODAG-attached nodes send DAO messages to inform their path on the network.
+
+Lastly, regarding how the DODAG is maintained, network consistency is assessed by DIO messages.As cited before, these messages are managed by the trickle algorithm, which is used as a consistence indicator.In case of changes, this timer is reset, and RPL reliability adaptation countermeasures are triggered to cope with the new network state.
+
+
+A Ranking Mechanism for TSCH-RPL-based Networks
+
+A mesh network is a type of network architecture in which multiple devices, referred to as nodes, are interconnected to form a decentralised and self-configuring network.These networks rely on forwarding nodes to maintain network stability by managing traffic, handling network maintenance, and processing application messages.Mesh networks have extensive applications in industrial environments, where their distinctive features can be effectively utilised.
+
+Nodes within a mesh network are responsible for managing the traffic of their local processes and the traffic generated by their child nodes.They are also tasked with handling network maintenance and application messages.It is important to note that in a TSCH network, the minimal operation mode defined by RFC 8180 allows a node to transmit once per slotframe, which is sufficient for bootstrapping the network.However, it is essential to acknowledge that this single slot may be inadequate to handle high transmission demand.Therefore, the TSCH scheduling function can be customised to allocate additional cells based on the specific needs of the applications involved.
+
+When using a distributed scheduling strategy, the amount of information available is limited, making TSCH scheduling challenging.It is important to note that the minimal operation mode defined by RFC 8180 is for RPL in the non-storing mode, which limits the downward routes awareness.This adds additional complexity because, even when using RPL for deployment, there is no guarantee that the generated paths will result in a balanced tree with the sink node at the centre; from the application point of view, this may inject complexities since the network topology impacts the latency.Moreover, in a TSCH network, each node negotiates cells according to its demand, so there is no guarantee that a branch with more nodes will demand more resources than another.Balancing latency, bandwidth, and energy consumption is critical in such networks.Even though allocating more transmission cells may seem like a solution, it is essential to focus on resource management to avoid waste and shortages.
+
+To address this issue, we propose a mechanism that enables forwarding nodes to be aware of the demand from their child nodes, allowing them to effectively manage traffic from the farthest reaches of the network.This new method, integrated into RPL control messages, requires only two bytes of payload and eliminates the need for additional message exchanges.Retro-compatibility is ensured, as specified in the RPL RFC.If the receiver does not recognise the Option Type value for an RPL option in an RPL message, it silently ignores the unrecognised option and continues processing the following option.The TSCH scheduling function can use the demand as a topological policy, independently or in combination with the node's rank.By utilising control messages to transmit demand information, we avoid introducing new message types or protocols that could potentially increase overhead.
+
+The proposed procedure handles incoming RPL control messages, allowing the extraction of the cell allocation information and calculation of the demand from neighbouring nodes.As exemplified in Algorithm 1, our mechanism consists of two procedures: ProcessIncomingDAO and ProcessIncomingDIO.These procedures utilise option type 0x10 to retrieve the demand value from the control messages and store it using the neighbour abstraction.The scheduling function then uses the ProcessRTDemand procedure to obtain the demanded cells in the downward and upward directions.This cell allocation awareness assists in calculating the correct number of cells, e.g., in applications where the flow from the root to the nodes is crucial (e.g., handling actuators), where the upward value becomes the most critical parameter.Conversely, the downward value is utilised in monitoring systems where the nodes primarily function as sensors transmitting information outside the LLN.The proposed approach is depicted in Algorithm 1.
+
+Algorithm 1 RT-Ranked RPL control messages are identified by the codes presented in Table 1.At this point, the focus is on the behaviour of DIO and DAO messages.As noted in Sect.2.2 and pointed out in Fig. 3, DIO messages are generated by a period managed by the trickle timer and contain information about the network; DIO messages flow from the sink node to the leaf nodes.In turn, DAO messages are generated by the node to advertise destination information upward along the DODAG.
+
+These control messages have the option field, which is used to pass information regarding the network.Table 2 shows options defined in RFC 6550 and the proposed new option in bold.The main goal is to create a new option representing the amount The proposed method enables forwarding nodes to be aware of the demand from their child nodes.It can be transmitted in RPL control messages as two-byte suboptions without introducing or generating additional messages.TSCH scheduling can optimise the allocation of network resources, such as bandwidth, power, and time slots, based on information received from deep-location nodes.By utilising demand information obtained from deep-location nodes, TSCH scheduling can significantly improve the overall performance and efficiency of the wireless communication network, facilitating reliable communication and connectivity even in strenuous circumstances caused by harsh network topologies.
+
+
+Experimental evaluation
+
+This section discusses our experimental evaluation of the proposed strategy we have previously presented.
+
+This study assesses by comparing the proposed solution, implemented using the schedule presented in [19], with two existing approaches: the 6TiSCH minimal mode defined in RFC 8180 [2] and Orchestra [20].The minimal mode serves as a baseline for benchmarking scheduler performance, while Orchestra is presently the most commonly used scheduler that autonomously allocates slots for multiple traffic planes.In the proposed method, RT-Ranked, the implemented topological rank policy is replaced by utilising information from RPL Control Messages to compute cell demand.
+
+The experiment was designed to stress the network and reach a congestion point.A congestion point is characterised by a lack of scheduled cells to sustain application and control traffic, resulting in potential latency disturbances, high retransmission rates, and node disconnections.All nodes transmit data to the sink node in a specified time interval.The assessment is done by latency, PDR, number of RPL messages and generated messages metrics.
+
+
+Setup
+
+In this section, we evaluate the performance of our method in a network under load by gradually increasing the data generated by the application.Two grid architecture scenarios are employed, where nodes are evenly spaced, and the sink node is positioned at one of the vertices.This assessment aims to provide insights into the method's behaviour and efficiency under varying data loads, offering a comprehensive understanding of its capabilities in realistic network conditions.The scenario arrangement is presented in Fig. 4.
+
+The experimental setup is designed to simulate a system application with characteristics defined by the The International Society of Automation (ISA), which establishes application usage classes as outlined by the ISA100 committee [21].The European Network and Information Security Agency (ENISA) report [22] draws a connection between ISA levels and related technologies, incorporating LLN technologies into the ISA classes.In 2009, the informational RFC 5673 [23] initiated efforts to define a set of requirements for WSN.
+
+Additionally, the report from National Institute of Standards and Technology (NIST) [24] outlines wireless user requirements for the factory workcell, drawing correlations with ISA Classes.Noteworthy is the report's provision of typical, maximum, and minimum values for crucial metrics, including latency, reliability, scale, range, payload, and update rate.The designated setup is tailored for a comprehensive analysis aligned with these requirements.
+
+The slotframe length was set to 19 as a 10 ms timeslot to provide a latency of nearly 100 ms per hop even when using minimal behaviour.Contiki-NG Operational System (OS) [25] is used, and its simulator (Cooja) was configured to generate data at intervals of 5, 4, 3, 2, and 1 s (corresponding to rates of 12, 15, 20, 30, and 60 Packet per Minute (PPM), respectively).These values were chosen to increase the Fig. 4 Scenarios with 9 (left) and 16 (right) nodes network load and assess the variation of the considered metrics under different traffic conditions.The application traffic is upstream (from nodes to sink).
+
+The nodes were positioned 20 ms apart, each with a transmission range of 25 ms and an interference range of 30 ms.This allowed us to control interference by adjusting the number of neighbouring nodes.In the grid arrangement, internal nodes have four neighbours, thereby interfering with the other four nodes within the interference range.The TSCH EB interval is set to 16.The warm-up is determined following the assessment of network formation time.We conducted a series of runs at 0 PPM, without application data, to establish the median value of network formation time, which is then used as the warm-up time.We set the upper limit at 250 s for all runs and applied a 50 s margin, resulting in a 300 s warm-up value.
+
+The RT-Ranked schedule parameters employ thresholds for determining policies based on network freshness, node position in the DODAG, and traffic.The traffic policy is defined by the QueueThreshold and MaxTrickleThreshold parameters, with values of 8 and 20, respectively.The network freshness policy is determined by the MinTrickleThreshold parameter, which is set to 16.The topological policy is also governed by the MidTrickleThreshold parameter, with a value of 18.The used parameters are presented in Table 3.
+
+
+Results and Discussion
+
+In this experiment, we assessed the end-to-end Latency, Application pdr, the number of packets generated by the application, and the total number of RPL messages.All reported values in the results are calculated as the median of 30 individual runs to provide a robust and representative measure.The error bars accompanying these values depict the standard deviation, offering insights into the variability or spread of the data points.Using medians for latency, averages for other metrics and standard deviations from multiple runs enhances the reliability of our findings, capturing the inherent variability in the experimental conditions and providing a more comprehensive perspective on the performance metrics.These parameters are crucial to understanding the system's overall performance and can help identify any bottlenecks or areas for improvement.In this section, we will provide a detailed analysis of the results obtained from the experiments, highlighting the essential findings and their implications for the system's performance.
+
+
+Latency and PDR
+
+Figure 5 graphically illustrates the steady increase in latency as packet rates rise.
+
+For enhanced clarity, we have omitted values exceeding 1000ms.Our prior research [11,12] uncovered a limitation in the RFC 8180 specification, restricting it to a single timeslot per slotframe.This constraint proved inadequate to meet the demand, resulting in elevated latency levels.The Orchestra scheduling algorithm demonstrated a remarkable capability in maintaining consistent latency levels.While generally consistent, minor discrepancies were noted at 60 PPM in the 4x4 configuration.Our proposed mechanism, RT-Ranked, outperformed Orchestra in achieving lower latency values.It is worth noting that some variability was observed at 60 PPM in the 3x3 scenario and at 20 and 30 PPM in the 4x4 case.It is essential to emphasise that statistical analysis deemed these variations statistically equivalent.Figure 6 presents the application PDR, an essential metric for evaluating the reliability of wireless communication protocols.In the context of TSCH scheduling, PDR analysis provides insights into the scheduling scheme's performance in successfully delivering packets between network nodes.In this section, we present a PDR analysis of a TSCH scheduling scheme to evaluate its effectiveness in ensuring Fig. 5 Application latency reliable communication in a wireless network.Regarding RFC 8180, the expected behaviour is noted; the PDR metric degrades as the packet rate increases.The RT-Ranked had the best delivery rate, and in the 4x4 scenario at 60 PPM, RT-Ranked's delivery rate performance appears statistically similar to RFC 8180.However, the capability of RT-Ranked to maintain nodes MAC synchronised and DODAG attached results in more packages reaching the sink.Section 4.2.2 discusses this important qualitative capability.
+
+
+Application Generated Messages
+
+The number of generated application messages is an important metric to consider when evaluating the effectiveness of a scheduling scheme.While the PDR measures the number of packets reaching their intended destination, generating and sending more packets is also essential to allow the application to transmit data with fewer interruptions.Interruptions can occur due to node disconnection or lack of resources, leading to decreased network performance.
+
+To generate application packets, TSCH nodes must meet three main prerequisites.First, the node must be synchronised in the TSCH MAC.This means that the node must follow the same timeslot and channel hopping schedule as the other nodes in the network to ensure that packets are sent and received at the correct times.If a node is not synchronised, it may miss its assigned time slots, resulting in disconnection and the bootstrap process.
+
+Second, the node must join the RPL DODAG.The tree-like structure which the RPL protocol uses to establish routes between nodes in the network.Nodes must join the DODAG to participate in the network and send packets to other nodes.Without joining the DODAG, the node will not be able to generate or send packets to other nodes, leading to interruptions in communication.Third, the node must have enough resources to generate application packets.This includes having enough space in the sending queue to hold packets before they are sent.If a node's sending queue is full, it cannot generate new packets until space becomes available.Additionally, nodes may require other resources, such as memory or processing power, to create packets.If a node lacks these resources, it may not be able to generate packets at the desired rate, leading to decreased application performance.
+
+When analysing Fig. 7, the red dots represent the theoretically expected maximum number of application messages over an 1800-second simulation time.After a warm-up period, nodes generate and send messages periodically until the simulation concludes.Therefore, at the end of the simulation, the total number of generated messages can be obtained by dividing the simulation duration (excluding the warm-up time) by the duration of each message transmission interval.This resulting value is multiplied by the number of sending nodes to obtain the theoretical total count of generated messages.It can be observed that RFC 8180 cannot handle the nodes' traffic and achieves less than one-third of the expected result.On the other hand, the Orchestra schedule performs better than RFC 8180 and is comparable to RT-Ranked with a low packet rate.However, RT-Ranked supports the application in generating more packages.
+
+It is important to note that the method for generating data should depend on the application's specific needs.For example, in the case of the 4x4 scenario with 20 PPM, RFC 8180 yielded an average of 1370.83 packets, while the Orchestra generated 2486.87 packets.However, the Orchestra schedule allowed more packets to reach the sink within the same slotframe.This point raises an interesting discussion about how to evaluate a TSCH schedule.A good schedule should minimise disconnections and loss of control messages to enable more efficient Fig. 7 Application generated messages application data generation.In assessing by PDR metric, we obtained 1206.05 from RFC 8180 and 1586.87 from Orchestra.
+
+
+Number of RPL Messages
+
+When assessing the effectiveness of a TSCH schedule in RPL networks, it is essential to consider the number of control messages exchanged during network formation and maintenance.Excessive control messages can cause or at least contribute to network congestion, increased energy usage, and slower response times, ultimately harming the network's stability and efficiency.To optimise performance, it is advisable to use a TSCH schedule that reduces the number of control messages necessary for establishing and maintaining the network.This will help to alleviate network congestion, lower energy consumption, and improve response times, leading to a more efficient and stable network.
+
+Figure 8 shows the total number of RPL messages, which is essential to evaluate the impact of control messages on the network.The graph shows that RT-Ranked outperformed other schedules regarding message efficiency, requiring the fewest number of messages for network maintenance.This implies that RT-Ranked is the most stable, leading to better network performance.
+
+
+Conclusions and Future Work
+
+This work presented a novel approach for communicating the number of TSCH-allocated cells throughout the network by embedding a new option in RPL control messages.The method avoids additional control messages and piggybacks on existing ones, enabling forwarding nodes to effectively manage traffic and improve resource management regarding latency, bandwidth, and energy consumption.By representing the amount of transmitting cells allocated by the TSCH MAC layer in RPL control messages, our proposed method allows for the computation of the correct amount of cells based on the target application.Overall, this approach can potentially enhance the performance and stability of mesh networks.
+
+By utilising this method, TSCH schedules can proactively prepare the network to handle traffic bursts from deep-location nodes, particularly in DODAGs with dense allocation branches.The ability to predict the number of allocated cells allows for implementing countermeasures to prevent traffic-related issues.
+
+The proposed mechanism has some limitations.For example, it does not consider the traffic patterns of the network.In future work, we plan to address this limitation by developing a more sophisticated mechanism to consider the network's traffic patterns.Overall, we believe that the proposed mechanism significantly contributes to the TSCH scheduling field.It has the potential to significantly improve the performance and reliability of TSCH schedules in challenging network environments.
+
+Fig. 1
+1
+Fig.16TiSCH Protocol Stack by RFC 9030[10]
+
+
+
+
+Figure 2 presents the structure of the ICMPv6 RPL Control Message, comprising an ICMPv6 header (Type, Code, and Checksum), along with the addition of Base and Options fields.Concerning the last one, Options fields in RPL control messages can carry additional information not included in the basic message format.The option field can be used to configure the RPL protocol, provide information about the network topology, or carry application-specific data.The option field can be used as a powerful tool for extending the functionality of the RPL protocol.
+
+
+Fig. 2
+2
+Fig. 2 RPL Control Message
+
+
+Fig. 3
+3
+Fig. 3 RPL DAO and DIO direction
+
+
+Fig. 6
+6
+Fig. 6 Application PDR
+
+
+Fig. 8
+8
+Fig. 8 Total RPL control messages
+
+
+Table 1
+1RPL control messagesMessageCodeDODAG Information Solicitation (DIS)0x00DODAG Information Object (DIO)0x01Destination Advertisement Object (DAO)0x02DAO Acknowledgment (DAO-ACK)0x03Secure DODAG Information Solicitation0x80Secure DODAG Information Object0x81Secure DAO0x82Secure DAO Acknowledgment0x83Consistency Check0x8A
+
+Table 2
+2optionsRPL control messageCodeOption0x00Pad10x01PadN0x02DAG metric container0x03Routing information0x04DODAG configuration0x05RPL target0x06Transit information0x07Solicited information0x08Prefix information0x09Target descriptor0x10TSCH cells demanded
+
+Table 3
+3Simulation ParametersParametersValueNumber of nodes (Topology)9 and 16 (grid)Spacing between nodes (m)20slotframe length19Application PPM0, 12, 15, 20, 30 and 60Timeslot duration (ms)10Traffic patternUpstreamWarm-up Time (s)300Simulation Time (s)1800Simulations per scenario30Total Runs1080RoutingRPL LiteTSCH EB Period16 sMinTrickleThreshold16MidTrickleThreshold18MaxTrickleThreshold20QueueThreshold
+Page 10 of 21
+Acknowledgements This work is funded by the project POWER (grant number POCI-01-0247-FEDER-070365), co-financed by the European Regional Development Fund (FEDER), through Portugal 2020 (PT2020), and by the Competitiveness and Internationalisation Operational Programme (COM-PETE 2020).This work is funded by national funds through the FCT-Foundation for Science and Technology, I.P., within the scope of the project CISUC-UID/CEC/00326/2020 and by European Social Fund, through the Regional Operational Program Centro 2020.Data AvailabilityFollowing the open science concepts, all the systems used for running and collecting data are available online without any restrictions, and the proposed solution implementation is available in[26].All data regarding the proposed mechanism, Minimal IPv6 over the TSCH and Orchestra, was created and processed using the system developed in[27], which can be used for replicating all steps.Author Contributions All authors contributed equally to this work.Funding Open access funding provided by FCT|FCCN (b-on).This work is funded by the project POWER (Grant Number POCI-01-0247-FEDER-070365), co-financed by the European Regional Development Fund (FEDER), through Portugal 2020 (PT2020), and by the Competitiveness and Internationalisation Operational Programme (COMPETE 2020).DeclarationsConflict of interestThe authors have no conflict of interest to declare.Ethical Approval Not applicable.Open Access This article is licensed under a Creative Commons Attribution 4.0 International License, which permits use, sharing, adaptation, distribution and reproduction in any medium or format, as long as you give appropriate credit to the original author(s) and the source, provide a link to the Creative Commons licence, and indicate if changes were made.The images or other third party material in this article are included in the article's Creative Commons licence, unless indicated otherwise in a credit line to the material.If material is not included in the article's Creative Commons licence and your intended use is not permitted by statutory regulation or exceeds the permitted use, you will need to obtain permission directly from the copyright holder.To view a copy of this licence, visit http://creativecommons.org/ licenses/by/4.0/.Publisher's NoteAuthors and Affiliations
+IETF 6TiSCH: a tutorial. X Vilajosana, T Watteyne, T Chang, M Vučinić, S Duquennoy, P Thubert, 10.1109/COMST.2019.2939407IEEE Commun. Surv. Tutor. 22172020
+
+Minimal IPv6 over the TSCH mode of IEEE 802.15.4e (6TiSCH) configuration. Request for comments RFC 8180. X Vilajosana, K Pister, T Watteyne, 10.17487/RFC8180Internet Engineering Task Force. 28May 2017. 5 Oct 2021
+
+A review of Internet of Things: qualifying technologies and boundless horizon. S S Goel, A Goel, M Kumar, G Moltó, 10.1007/s40860-020-00127-wJ. Reliable Intell. Environ. 712021
+
+10.1109/IEEESTD.2020.9144691Revision of IEEE Std 802.15.4-2015) 1(1). 202080291
+
+6TiSCH: industrial performance for IPv6 Internet-of-Things networks. X Vilajosana, T Watteyne, M Vučinić, T Chang, K S J Pister, 10.1109/JPROC.2019.2906404Proc. IEEE. IEEE20191074
+
+Using IEEE 802.15.4e time-slotted channel hopping (TSCH) in the Internet of Things (IoT): problem statement. Request for comments RFC 7554, Internet Engineering Task Force. T Watteyne, M R Palattella, L A Grieco, 10.17487/RFC7554May 2015. 5 April 202223
+
+6TiSCH operation sublayer (6top) protocol (6P). Q Wang, X Vilajosana, T Watteyne, 10.17487/RFC8480Internet Engineering Task Force. 50Nov2018. 5 Oct 2021Request for comments RFC 8480
+
+6TiSCH Minimal Scheduling Function (MSF). T Chang, M Vučinić, X Vilajosana, S Duquennoy, D R Dujovne, 10.17487/RFC9033Internet Engineering Task Force. 20May 2021. 5 Oct 2021Request for comments RFC 9033
+
+The future of industrial communication: automation networks in the era of the Internet of Things and industry 4.0. M Wollschlaeger, T Sauter, J Jasperneite, 10.1109/MIE.2017.2649104IEEE Ind. Electron. Mag. 11142017
+
+An architecture for IPv6 over the time-slotted channel hopping mode of IEEE 802.15.4 (6TiSCH). P Thubert, 10.17487/RFC9030Internet Engineering Task Force. 2357May 2021. Sept 2021Request for comments RFC 9030
+
+TSCH network health: identifying the breaking point. I F Vieira Junior, J Granjal, M Curado, Workshop 18th Int. 202231
+
+Towards the support of industrial IoT applications with TSCH. I F Vieira Junior, J Granjal, M Curado, 10.1145/3555776.3577752Proceedings of the 38th ACM/SIGAPP Symposium on Applied Computing: SAC '23. the 38th ACM/SIGAPP Symposium on Applied Computing: SAC '23New YorkAssociation for Computing Machinery2023
+
+Analysis of distributed and autonomous scheduling functions for 6TiSCH networks. F Righetti, C Vallati, S K Das, G Anastasi, 10.1109/ACCESS.2020.3020153IEEE Access. 8532020
+
+Scheduling algorithms for IEEE 802. M Mohamadi, M R Senouci, Advances in Computing Systems and Applications: Lecture Notes in Networks and Systems. O Demigha, B Djamaa, A Amamra, ChamSpringer2019TSCH networks: a survey
+
+Autonomous and traffic-aware scheduling for TSCH networks. S Rekik, N Baccour, M Jmaiel, K Drira, L A Grieco, 10.1016/j.comnet.2018.02.023Comput. Netw. 1352018
+
+An empirical survey of autonomous scheduling methods for TSCH. A Elsts, S Kim, H.-S Kim, C Kim, 10.1109/ACCESS.2020.2980119IEEE Access. 8192020
+
+RPL: IPv6 routing protocol for low-power and lossy networks. Request for comments RFC 6550. R Alexander, A Brandt, J P Vasseur, J Hui, K Pister, P Thubert, P Levis, R Struik, R Kelsey, T Winter, 10.17487/RFC6550Internet Engineering Task Force. 2021March 2012. 28 April 2022 19
+
+The Trickle Algorithm. Request for Comments RFC 6206. P Levis, T H Clausen, O Gnawali, J Hui, J Ko, 10.17487/RFC6206Internet Engineering Task Force. March 2011. 1 May 2022
+
+A distributed network-aware TSCH scheduling. I F Vieira Junior, J Granjal, M Curado, 10.1109/DRCN57075.2023.101081932023 19th International Conference on the Design of Reliable Communication Networks (DRCN). 2023. 10108193
+
+Orchestra: Robust mesh networks through autonomously scheduled TSCH. S Duquennoy, B Al Nahas, O Landsiedel, T Watteyne, 10.1145/2809695.2809714Proceedings of the 13th ACM Conference on Embedded Networked Sensor Systems. SenSys '15. the 13th ACM Conference on Embedded Networked Sensor Systems. SenSys '15New YorkAssociation for Computing Machinery2015. 13 Dec 2021
+
+Industrial wireless standardization-scope and implementation of ISA SP100 standard. T Hasegawa, H Hayashi, T Kitai, H Sasajima, SICE Annual Conference. 2011. 2011
+
+ENISA: Communication network dependencies for ICS/SCADA systems. 2016. June 202114
+
+Industrial Routing Requirements in low-power and lossy networks. K Pister, T Phinney, P Thubert, S Dwars, 10.17487/RFC5673Internet Engineering Task Force. 27October 2009. 12 Oct 2021Request for comments RFC 5673
+
+Wireless user requirements for the factory workcell. K Montgomery, R Candell, Y Liu, M Hany, 10.6028/NIST.AMS.300-8NIST AMS 300-8June 2020. 17 Aug 2020Gaithersburg, MDNational Institute of Standards and TechnologyTechnical report
+
+The Contiki-NG open source operating system for next generation IoT devices. G Oikonomou, S Duquennoy, A Elsts, J Eriksson, Y Tanaka, N Tsiftes, 10.1016/j.softx.2022.101089SoftwareX. 182022
+
+I F Vieira Junior, RippleTrickle-ranking metric. 2 Jan 2023
+
+I F Vieira Junior, GIT. original-date: 2021-07-23T17:44:16ZCooja log Parser. 2022. Feb Accessed 2022

@@ -1,0 +1,218 @@
+Spatio-Temporal Graph Structure Learning for Earthquake Detection
+14 Mar 2025
+
+ErcanSuchanun Piriyasatit 
+Engin Kuruoglu kuruoglu@sz.tsinghua.edu.cn 
+Sinan Mehmet 
+Ozeren ozerens@itu.edu.tr 
+
+Data Science and Information Technology Research Center
+Tsinghua-Berkeley Shenzhen Institute Shenzhen
+China
+
+
+Eurasia Earth Sciences Institute Istanbul Technical University Istanbul
+Turkey
+
+Spatio-Temporal Graph Structure Learning for Earthquake Detection
+14 Mar 20250102D71EF202B2EFBD01913F0CF6E15CarXiv:2503.11215v1[cs.LG]Earthquake DetectionGraph Neural NetworksSpatio-Temporal ModelingDynamic Graph Learning
+Earthquake detection is essential for earthquake early warning (EEW) systems.Traditional methods struggle with low signal-to-noise ratios and single-station reliance, limiting their effectiveness.We propose a Spatio-Temporal Graph Convolutional Network (GCN) using Spectral Structure Learning Convolution (Spectral SLC) to model static and dynamic relationships across seismic stations.Our approach processes multistation waveform data and generates station-specific detection probabilities.Experiments show superior performance over a conventional GCN baseline in terms of true positive rate (TPR) and false positive rate (FPR), highlighting its potential for robust multi-station earthquake detection.The code repository for this study is available at 1 .
+
+I. INTRODUCTION
+
+Earthquake detection is a task to distinguish earthquake signals from various non-earthquake signals and noise recorded by a seismic sensor.This task relies on a network of seismic stations and plays a critical role in earthquake early warning (EEW) systems [1].Unlike earthquake prediction, which seeks to forecast the time, location, and magnitude of future earthquakes-a goal that remains elusive [2]- [4]-earthquake detection provides an immediate and practical means to mitigate the impacts of earthquakes [5].
+
+Methods for earthquake detection include the classic STA/LTA thresholding [6], which is a straightforward calculation of a short-term average over a long-term average, in which a detection is declared when this ratio exceeds a predefined threshold.This technique, despite its simplicity, is not effective to detect low signal-to-noise ratio seismic signals and is susceptible to time-varying background noise.
+
+Other methods include template matching method [7]- [9], which computes normalized cross-correlations (CC) of an event template waveform with candidate windows.A detection is declared if this value exceeds a predefined threshold.Since a priori waveform template is required, this method has low general applicability.
+
+Given massive seismological data being generated everyday, many researchers are paying more attention to deep learning methods.Recent deep learning approaches [10]- [16] are shown to outperform existing traditional algorithms, however these methods use only single-station waveforms to detect single-station earthquake signals and do not utilize graph structure of a seismic network, despite evidence that waveform data from multiple seismic sensors improves event detection [17].
+
+In this context, graphs provide a powerful means of modeling irregular relationships between multi-station data.Unlike Euclidean-based representations such as grids or matrices, which assume regular, fixed structures, graphs can represent spatial information flexibly, capturing complex and nonuniform relationships between variables.By encoding seismic stations as nodes and inter-station relationships as edges, graph structures enable the incorporation of spatial dependencies that are not restricted to predefined grids.Additionally, edge attributes and graph topology provide a framework for modeling both local and global interdependencies, making graphs well-suited for capturing the relationships inherent in seismic networks.
+
+In deep learning, Graph Neural Networks (GNNs) [18] have emerged as powerful tools for modeling data with complex relationships, where entities (nodes) are interconnected via underlying relationships (edges).Unlike traditional neural networks, which assume a Euclidean structure of data, GNNs operate on graphs, making them well-suited for a wide range of applications, including social networks [19], molecular chemistry [20], and traffic prediction [21].
+
+Among the various architectures of GNNs, Graph Convolutional Networks (GCNs), introduced by Kipf and Welling [22], have gained significant popularity due to their ability to generalize the convolution operation to graph-structured data.This architecture enables GCNs to aggregate node features effectively while incorporating both local and global graph structures.A key subclass of GCNs is spectral GCNs, which are grounded in graph signal processing [23] and focus on designing spectral graph convolutions in the Laplacian spectral domain [24].These methods utilize the eigenvalues and eigen-vectors of the Laplacian to define convolutional operations in the graph Fourier domain.This approach allows for the extraction of high-order dependencies in the graph, capturing both global and local structures.To improve computational efficiency, Chebyshev polynomial expansions [25] approximate spectral convolutions, reducing the need for explicitly computing eigenvectors.
+
+Related study [26] employs a general spatial GCN to classify natural earthquakes, artificial earthquakes, and noise in the Korean region.However, it does not explicitly model temporal dependencies over time windows and focuses primarily on offline classification tasks aimed at categorizing past seismic events, not earthquake event detection.Another study [27] integrates graph theory into CNNs to identify earthquake signals within a seismic network but does not incorporate GCNs.Additionally, the model's output is a single detection probability for the entire seismic network in a time window, not a detection time series for each station in a network.
+
+In our work, we adapt the Structure Learning Convolution (SLC) framework [21] to incorporate learnable structural information directly into the convolutional process of GCNs for spatial modeling, while employing a Gated Recurrent Unit (GRU) [28] for temporal modeling.Our approach is designed to detect earthquake signals from multi-station seismic networks, capturing both static and dynamic relationships between stations, rather than relying solely on predefined connections.Unlike a previous method [27], where the model produces a detection time series per a network of seismic stations, our model generates a detection time series for each seismic station in a network, a feature particularly beneficial for earthquake early warning (EEW) systems, as earthquake signals typically reach different stations at varying times [29].Moreover, unlike the previous method, our proposed method outputs a detection probability per time step rather than per a time window.This captures the probability variation over time, and is helpful to understand signal progression within the window.Additionally, our method can be adapted for real-time detection by processing data in a sliding window manner.
+
+
+II. WAVEFORM DATA
+
+The seismic data used in this study were obtained from the Metropolitan Seismic Observation network (MeSO-net) [30], [31], a regional seismograph network in the Tokyo metropolitan area, Japan.A portion of the data, covering the period from September 4th to 16th, 2011, was utilized from Yano et al. [27], where P-and S-wave arrival times were visually picked.P-waves, the fastest seismic waves, arrive first and provide initial earthquake information, while the slower S-waves cause more significant ground motion and follow the P-waves.The remaining waveform data covering earthquake waveform data from year 2011-2018, were directly sourced from the National Research Institute for Earth Science and Disaster Resilience (NIED) MeSO-net database [32], and then visually picked P-and S-wave arrival times.The waveform data is in three components (North-South, East-West, and Up-Down).The physical values of the waveform are in m/s 2 unit.To showcase our proposed method, we selected 13 stations located at the eastern part of MeSO-net in the same manner as Yano et al. [27], because these stations are distributed around the center of seismically active area and around Kanto district.
+
+To preprocess waveform data for training and evaluation, for the waveform of each component of each station, we subtracted from it the mean value (with an exception for the Up-Down component of the data directly sourced from NIED, which stated that the offset has already been subtracted).We then applied a 2-8 Hz bandpass filter to remove background noises [33], and normalize the resulting waveform by dividing by the median of the absolute maximum of the resulting waveform.Finally, we downsampled the waveform from 200 Hz to 25 Hz.
+
+Only the data from 13th to 16th September, 2011 was used for evaluation.The rest was used for training.
+
+The dataset is labeled with earthquake probabilities, where each label is assigned as follows: a probability of 1 (indicating an earthquake) is assigned from the time of the first P-wave arrival up to a time equal to the first P-wave arrival plus 1.4 times the duration between the S-wave and P-wave arrivals.Beyond this interval, the probability is set to 0. This labeling scheme is designed to capture the key time frame associated with earthquake signal detection.
+
+Due to limited data samples, we augmented data by shifting the training windows and adding noises.The augmentation noises are Gaussian distributed with a zero mean and a standard deviation drawn from an exponential distribution with mean 0.001.
+
+
+III. METHODOLOGY A. Problem Statement
+
+In this study, we represent the seismic network as a graph G = (V, E), where V is the set of N seismic stations (nodes), and E is the set of edges representing the spatial relationships between stations, note that E is not necessarily given but can be learned.Each node v i ∈ V is associated with a waveform signal D i ∈ R P ×3 , where P is the number of time steps, and 3 corresponds to the North-South, East-West, and Up-Down components of the waveform data.
+
+The task of earthquake detection is to learn a mapping function h(•), which takes waveform signals D on a graph G as input and determines probabilistic values of whether the input waveform signal at each time step was caused by an earthquake event:
+D = h(D, G, ψ),(1)
+where D ∈ [0, 1] P is the detection result and ψ represents the learnable parameters.
+
+
+B. Spatial Module: Spectral Structure Learning Convolution (Spectral SLC)
+
+To leverage the spatial relationships in the seismic network, we adapted the spectral component Structure Learning Convolution proposed in [21], originally used in traffic prediction.The Spectral SLC captures graph structures by combining Chebyshev polynomial-based spectral convolutions and learnable adjacency matrices, which model both static long-term and dynamic input-driven spatial relationships.
+
+Recall that Chebyshev polynomials approximate the graph convolution operation in the spectral domain by indirectly leveraging the eigenvalues of the graph Laplacian, enabling efficient spectral filtering without explicitly computing the eigenvalues or eigenvectors [34].
+
+For a given adjacency matrix A and input feature matrix X ∈ R N ×Cin (where N is the number of nodes and C in is the input feature dimension), the k-th order Chebyshev polynomial T k (A) is recursively computed as:
+T k (A) = 2AT k−1 (A) − T k−2 (A),(2)
+with T 0 (A) = I (identity matrix) and T 1 (A) = A.
+
+We will explain the adapt the Spectral SLC layer [21], which learns both static and dynamic components of the graph structure.The static component W s captures long-term spatial relationships, while the dynamic component W d is not a learnable parameter but rather computed dynamically based on the input features as:
+W d = ϕ (x, W ϕ ) = X ⊤ W ϕ X,(3)
+where X ∈ R N ×Cin is the input of the layer and W ϕ is a learnable parameter matrix.These components are combined with Chebyshev polynomials to produce the static and dynamic filters:
+F s = K−1 k=0 θ s k T k (W s ), F d = K−1 k=0 θ d k T k (W d ),(4)
+where K denotes the maximum orders of the Chebyshev polynomials and θ s k , θ d k ∈ R Cin×Cout are learnable parameters.The output features are obtained by aggregating the static and dynamic filters using a non-linear activation function:
+H = ReLU(F s ) + ReLU(F d ),(5)
+where H ∈ R N ×Cout is the output feature matrix, and C out is the output feature dimension.Note that the output in Eq. 5 represents the learned spatial relationships.
+
+
+C. Temporal Module: a Gated Recurrent Unit (GRU)
+
+To account for the temporal dynamics of the waveform data, the features extracted by the spatial static and dynamic filters in Eq. 5 are passed through a recurrent layer, specifically a Gated Recurrent Unit (GRU) [28].The GRU processes the sequence of features for each station over time, capturing temporal dependencies for earthquake detection, resulting in the final output of a Spectral SLC layer, which is shown in Fig. 2b.
+
+We selected the GRU over alternative temporal modeling approaches, such as Long Short-Term Memory (LSTM) [35] or Pseudo three Dimensional convolution (P3D) [36], due to its reduced parameter count.This makes GRUs more robust against overfitting, particularly in scenarios with limited earthquake waveform data, while still effectively modeling temporal dynamics.
+
+
+D. Network Architecture
+
+The overall architecture is illustrated in Fig. 2, comprising multiple Spectral SLC layers.To reduce overfitting and improve generalization, a dropout layer with a rate of 0.2 is applied after each Spectral SLC layer.The output tensor is then passed through a fully connected layer, followed by a Sigmoid activation function, to produce the final output: probability time-series indicating the probability of an earthquake event at each seismic station.
+
+We train our GCN using the Adam optimizer [37], with the objective of minimizing the binary cross-entropy loss between the predicted probability time series and the ground truth labels.To optimize the model's performance, we employed Optuna [38] to tune several hyper-parameters, including the number of SLC layers, the hidden dimension of intermediate feature representations, the maximum Chebyshev polynomial order, the learning rate, and the batch size.Hyper-parameter tuning was conducted using 5-fold cross-validation on the training dataset.
+
+
+IV. RESULT AND DISCUSSION
+
+In this study, we use a conventional GCN as a baseline model, which employs a predefined static adjacency matrix representing a fully connected graph with all nodes equally connected.The GCN aggregates spatial features using a fixed graph structure and models temporal dependencies using a Gated Recurrent Unit (GRU).In contrast, our proposed method learns both static and dynamic (input-driven) relationships between seismic stations.We refer the "minimum detection probability (MDP)" as the threshold above which the model's output probability classifies the signal at a time step as an earthquake.A true positive occurs when the model correctly classifies an earthquake signal at a time step, while a false positive occurs when it incorrectly classifies noise as an earthquake signal at a time step.
+
+To evaluate the performance of our model in detecting earthquake signals, we analyzed its Receiver-operating characteristic (ROC) curve.The ROC curve provides a graphical representation of the trade-off between the true positive rate (TPR) and false positive rate (FPR) across various detection thresholds.The ROC curves were generated using the detection probabilities produced by our model and the baseline's on the test dataset.Fig. 3 shows the ROC curves for our model and baseline (Conventional GCN) model.Our model demonstrates superior performance as its ROC curve reaches closer to the top-left corner of the plot compared to the conventional GCN.This indicates that our model achieves a higher true positive rate (TPR) at a given false positive rate (FPR), reflecting its ability to detect earthquake signals more accurately while minimizing false alarms.The steeper rise and the shift of the curve towards the optimal region highlight the enhanced capability of our approach in distinguishing earthquake signals from noise.For an example, the performance of our method by three different minimum detection probabilities (MDP: 0.55, 0.6, 0.71) is shown in Table I.The model is able to detect earthquake signals with these three threshold probabilities, however the false positive rate increases as the threshold is set lower.Notes.A true positive occurs when the model correctly classifies an earthquake signal at a time step, while a false positive occurs when it incorrectly classifies noise as an earthquake signal at a time step.
+
+An example of the results from unseen waveform data as input is shown in Fig. 4. The blue lines represent the waveform data of 13 seismic stations in the North-South component, recorded over a 20-second time window from September 4, 2011, 00:20:14 (Japan time) at a 25 Hz sampling rate.Below each waveform, the detection results of our model (dashed brown) and the baseline model (dotted green) and the groundtruth labels (solid orange) are displayed to demonstrate how our proposed method and the baseline model perform relative to the ground-truth labels.Notably, the detection probabilities output by our method more consistently align with the groundtruth labels with less fluctuations compared to the baseline.
+
+Our results demonstrate that the proposed Spectral GCN with structural learning significantly outperforms the conventional GCN baseline in terms of true positive rate (TPR) and false positive rate (FPR).By incorporating multi-station data and dynamically modeling both static and input-driven relationships between seismic stations, our approach enhances the detection of earthquake signals while minimizing false alarms.Additionally, the ability to generate detection probability time series for each station provides finer granularity, making the method particularly suitable for real-time applications in earthquake early warning (EEW) systems.Future work includes applying our model to longer waveform data using sliding windows for real-time detection.
+
+Our future work will aim to make the method more adaptive to changing nature of data by replacing GRU with adaptive graph signal processing methods [39].We will also consider modeling seismological noise [40], [41] and apply more eficient joint filtering and detection [42].
+
+Fig. 1 :
+1
+Fig. 1: (a) Map of the Kanto district relative to Japan.(b) Locations of the MeSO-net stations (gray and blue dots) in the Kanto district.(c) The 13 seismic stations (blue dots) used in this study.
+
+
+Fig. 2 :
+2
+Fig. 2: (a) The architecture of our GCN.The input comprises three-component waveform data from each of the 13 seismic stations, while the output is a detection probability time series for each station.The GCN consists of a spatial-temporal feature extraction module and an output module.The spatial-temporal feature extraction module contains 5 Spectral SLC layers.The output module includes a fully connected layer followed by a sigmoid layer.(b) The Spectral SLC layer integrates a spatial component to capture static and dynamic graph structures, and a temporal component to model temporal dependencies in the signals.
+
+
+Fig. 3 :
+3
+Fig. 3: ROC curves of our proposed method and the baseline (Conventional GCN) model, evaluated on the test dataset.The ROC curves illustrate the trade-off between the true positive rate (TPR) and false positive rate (FPR) at various minimum detection probabilities (MDP).The color bar represents the corresponding MDP values.Our method demonstrates superior performance, achieving a higher TPR and lower FPR.The optimal MDP, representing the FPR-TPR point nearest to the upper-left corner, is indicated by an arrow for each model.
+
+
+
+
+
+
+
+TABLE I :
+I
+Resultant True Positives and False Positives of Our Method for Three Different MDPs (Minimum Detection Probabilities).
+MDP0.550.60.71True positive rate (TPR)0.95 0.94 0.90False positive rate (FPR) 0.20 0.16 0.09
+This work is supported by Tsinghua Shenzhen International Graduate School Start-up fund under Grant QD2022024C, Shenzhen Science and Technology Innovation Commission under Grant JCYJ20220530143002005 and Shenzhen Ubiquitous Data Enabling Key Lab under Grant ZDSYS20220527171406015. * Corresponding author 1 https://github.com/SuchanunP/eqdetector
+Earthquake early warning: Concepts, methods and physical grounds. C Satriano, Y.-M Wu, A Zollo, H Kanamori, prospects and applications of earthquake early warning, real-time risk management, rapid response and loss mitigation. 201131
+
+Cannot earthquakes be predicted. M Wyss, R Aceves, S Park, R Geller, D Jackson, Y Kagan, F Mulargia, Science. 27848710 1997
+
+Radon earthquake precursor: A short review. H Woith, The European Physical Journal Special Topics. 22405 2015
+
+Recent progress in radon-based monitoring as seismic and volcanic precursor: A critical review. N Morales-Simfors, R Wyss, J Bundschuh, Critical Reviews in Environmental Science and Technology. 50
+
+Y Kodera, N Hayashimoto, K Tamaribuchi, K Noguchi, K Moriwaki, R Takahashi, M Morimoto, K Okamoto, M Hoshiba, Developments of the nationwide earthquake early warning system in japan after the 2011 mw9.0 tohoku-oki earthquake. 20219
+
+A comparison of select trigger algorithms for automated global seismic phase and event detection. M Withers, R Aster, C Young, J Beiriger, M Harris, S Moore, J Trujillo, Bulletin of the Seismological Society of America. 881998
+
+The detection of low magnitude seismic events using array-based waveform correlation. S J Gibbons, F , Geophysical Journal International. 1652006
+
+An autocorrelation method to detect low frequency earthquakes within tremor. J R Brown, G C Beroza, D R Shelly, Geophysical Research Letters. 35162008
+
+Earthquake detection through computationally efficient similarity search. C E Yoon, O O'reilly, K J Bergen, G C Beroza, Science Advances. 111e15010572015
+
+Generalized seismic phase detection with deep learning. Z E Ross, M.-A Meier, E Hauksson, T H Heaton, Bulletin of the Seismological Society of America. 1085A2018
+
+Convolutional neural network for earthquake detection and location. T Perol, M Gharbi, M Denolle, Science Advances. 42e17005782018
+
+Bayesian-deep-learning estimation of earthquake location from single-station observations. S M Mousavi, G C Beroza, IEEE Transactions on Geoscience and Remote Sensing. 58112020
+
+Phasenet: a deep-neural-network-based seismic arrival-time picking method. W Zhu, G C Beroza, Geophysical Journal International. 21612019
+
+Attention-based lstm-fcn for earthquake detection and location. T Bai, P Tahmasebi, Geophysical Journal International. 22832021
+
+An end-to-end earthquake detection method for joint phase picking and association using deep learning. W Zhu, K S Tai, S M Mousavi, P Bailis, G C Beroza, 10.1029/2021JB023283Journal of Geophysical Research: Solid Earth. 1273Mar. 2022
+
+Realtime earthquake detection and magnitude estimation using vision transformer. O M Saad, Y Chen, A Savvaidis, S Fomel, Y Chen, Journal of Geophysical Research: Solid Earth. 1272022
+
+Automated seismic waveform location using multichannel coherency migration (MCM)-I: theory. P Shi, D Angus, S Rost, A Nowacki, S Yuan, 10.1093/gji/ggy132Geophysical Journal International. 21632018
+
+Graph neural networks: A review of methods and applications. J Zhou, G Cui, S Hu, Z Zhang, C Yang, Z Liu, L Wang, C Li, M Sun, AI Open. 12020
+
+A survey of graph neural network based recommendation in social networks. X Li, L Sun, M Ling, Y Peng, Neurocomputing. 5491264412023
+
+Graph neural networks for molecules. Y Wang, Z Li, A Barati, Farimani, Machine Learning in Molecular Sciences. Springer2023
+
+Spatio-temporal graph structure learning for traffic forecasting. Q Zhang, J Chang, G Meng, S Xiang, C Pan, Proceedings of the AAAI Conference on Artificial Intelligence. the AAAI Conference on Artificial IntelligenceApr. 202034
+
+Semi-supervised classification with graph convolutional networks. T N Kipf, M Welling, International Conference on Learning Representations (ICLR). 2017
+
+The emerging field of signal processing on graphs: Extending high-dimensional data analysis to networks and other irregular domains. D I Shuman, S K Narang, P Frossard, A Ortega, P Vandergheynst, IEEE Signal Processing Magazine. 3032013
+
+Bridging the gap between spatial and spectral domains: A unified framework for graph neural networks. Z Chen, F Chen, L Zhang, T Ji, K Fu, L Zhao, F Chen, L Wu, C Aggarwal, C.-T Lu, ACM Comput. Surv. 565dec 2023
+
+The top panel of each subplot shows the waveform (blue), while the bottom panel compares detection probabilities from our method (dashed brown), the baseline model (dotted green), and the ground-truth labels (solid orange). M Defferrard, X Bresson, P Vandergheynst, 00:20:14 to 00:20:34Advances Fig. 4: Detection results for 13 seismic stations using unseen waveform data from the North-South component. D Lee, M Sugiyama, U Luxburg, I Guyon, R Garnett, Curran Associates, IncSeptember 4, 2011. 201629Neural Information Processing Systems
+
+Graph convolution networks for seismic events classification using raw waveform data from multiple stations. G Kim, B Ku, J.-K Ahn, H Ko, IEEE Geoscience and Remote Sensing Letters. 192021
+
+Graph-partitioning based convolutional neural network for earthquake detection using a seismic array. K Yano, T Shiina, S Kurata, A Kato, F Komaki, S Sakai, N Hirata, Journal of Geophysical Research: Solid Earth. 12652021
+
+On the properties of neural machine translation: Encoder-decoder approaches. K Cho, B Van Merriënboer, D Bahdanau, Y Bengio, Proceedings of SSST-8, Eighth Workshop on Syntax, Semantics and Structure in Statistical Translation. D Wu, M Carpuat, X Carreras, E M Vecchi, SSST-8, Eighth Workshop on Syntax, Semantics and Structure in Statistical TranslationDoha, QatarAssociation for Computational LinguisticsOct. 2014
+
+Earthquake early warning: Concepts, methods and physical grounds. C Satriano, Y Wu, A Zollo, H Kanamori, Soil Dynamics and Earthquake Engineering. 3102 2011
+
+Distribution of the metropolitan seismic observation network. S Sakai, N Hirata, Bull. Earthq. Res. Inst. Univ. Tokyo. 842009
+
+Multi-data integration system to capture detailed strong ground motion in the tokyo metropolitan area. S Aoi, T Kimura, T Ueno, S Senna, H Azuma, Journal of Disaster Research. 1642021
+
+Meso-net. N R I For Earth, D Science, T U O T Earthquake Resilience, H S R I Research Institute, Of Kanagawa Prefecture, 2021
+
+Three-dimensional crustal s wave velocity structure in japan using microseismic data recorded by hi-net tiltmeters. K Nishida, H Kawakatsu, K Obara, Journal of Geophysical Research: Solid Earth. 113B102008
+
+Convolutional neural networks on graphs with fast localized spectral filtering. M Defferrard, X Bresson, P Vandergheynst, Advances in Neural Information Processing Systems. 201629
+
+Long short-term memory. S Hochreiter, J Schmidhuber, 10.1162/neco.1997.9.8.1735Neural Comput. 98Nov. 1997
+
+Learning spatio-temporal representation with pseudo-3d residual networks. Z Qiu, T Yao, T Mei, proceedings of the IEEE International Conference on Computer Vision. the IEEE International Conference on Computer Vision2017
+
+Adam: A method for stochastic optimization. D P Kingma, J Ba, CoRR. 698066281062014
+
+Optuna: A nextgeneration hyperparameter optimization framework. T Akiba, S Sano, T Yanase, T Ohta, M Koyama, Proceedings of the 25th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining, ser. KDD '19. the 25th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining, ser. KDD '19New York, NY, USAAssociation for Computing Machinery2019
+
+. 10.1145/3292500.3330701
+
+Adaptive sign algorithm for graph signal processing. Y Yan, E E Kuruoglu, M A Altinkaya, 10.1016/j.sigpro.2022.108662Nov. 2022200Signal Process
+
+A new analytic representation for the alpha-stable probability density function. E Kuruoglu, C Molina, S Godsill, W Fitzgerald, The Fifth World Meeting of the ISBA. 1997
+
+Analytical representation for positive alpha-stable densities. E Kuruoglu, 2003 IEEE International Conference on Acoustics, Speech, and Signal Processing. 2003. 20036729Proceedings. (ICASSP '03)
+
+Image separation using particle filters. M Costagli, E E Kuruoglu, Digital Signal Processing. 1752007

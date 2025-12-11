@@ -1,0 +1,250 @@
+MREC: A FAST AND VERSATILE FRAMEWORK FOR ALIGNING AND MATCHING POINT CLOUDS WITH APPLICATIONS TO SINGLE CELL MOLECULAR DATA
+20 Feb 2020
+
+MATHIEUAndrew J Blumberg 
+Carri Ère 
+Michael A Mandell 
+R A Úl 
+Rabad Án 
+Soledad Villar 
+MREC: A FAST AND VERSATILE FRAMEWORK FOR ALIGNING AND MATCHING POINT CLOUDS WITH APPLICATIONS TO SINGLE CELL MOLECULAR DATA
+20 Feb 202012E21DCB5B7F78039FE2C331652C5B8DarXiv:2001.01666v3[stat.ML]
+Comparing and aligning large datasets is a pervasive problem occurring across many different knowledge domains.We introduce and study MREC, a recursive decomposition algorithm for computing matchings between datasets.The basic idea is to partition the data, match the partitions, and then recursively match the points within each pair of identified partitions.The matching itself is done using black box matching procedures that are too expensive to run on the entire dataset.Using an absolute measure of the quality of a matching, the framework supports optimization over parameters including partitioning procedures and matching algorithms.By design, MREC can be applied to extremely large datasets.We analyze the procedure to describe when we can expect it to work well and demonstrate its flexibility and power by applying it to a number of alignment problems arising in the analysis of single cell molecular data.
+
+Introduction
+
+Computing alignments, or matchings, between two point clouds is a basic problem in data analysis.Notable applications include aligning points between images (sometimes referred to as the "point registration" problem) [EK03,MS05], measuring distances between images or histograms [RTG00], finding independent edge sets in bipartite graphs [BGB17], matching the shape of primate teeth to determine species relationships [BLC + 11], removing batch effect in single-cell data [FHN + 19], and studying stem cell differentiation [FHN + 19, SST + 19].In the setting where the point clouds correspond to 3D shapes or low-dimensional manifolds, there exist techniques that successfully exploit the geometric structure of the point clouds [LD11, GYD + 18, BGH + 18].In this work, we focus on arbitrary metric spaces, where the matching problem is typically formalized as an optimization problem: for each matching of datasets X and Y , by which we mean a pair of maps f : X → Y and g : Y → X, we assign a cost c(f, g).The goal is then to find a matching that minimizes the cost.The cost of the optimal matching provides a measure of some kind of distance between X and Y ; in this formulation, there is a tight connection between matchings and distances between datasets.
+
+Matchings and distances between metric spaces: A standard way of assigning costs to the matching is to assume that the two point clouds X and Y are equipped with distance functions ∂ X and ∂ Y respectively, i.e., they are metric spaces.Then the cost of a matching can be defined in terms of relationships between the interpoint distances.This approach to matching is closely related to notions of distances between metric spaces known as the Hausdorff and Gromov-Hausdorff distances [Gro81,Gro01].A distinct advantage of cost measures that depend only on the distance matrices for each dataset is that the resulting alignment procedures are invariant with respect to rotations and more generally arbitrary distance-preserving transformations of the point clouds.This is clearly an essential feature when working with images, for example.Unfortunately, computing these distances in practice is infeasible.
+
+A closely related viewpoint is to study matching questions from the perspective of "earthmover distances", which arise from an area of mathematics known as optimal transport [Vil08].Here the idea is that matchings can be probabilistic or fuzzy, which is encoded by representing the datasets as having probability distributions.The costs of the matchings are then computed by adding up the amounts of probability mass required to transform one distribution into another, weighted by the distances.The resulting distances between metric spaces are known as the Wasserstein and Gromov-Wasserstein distance [Mém11,Stu06].This approach is related to the approach above insofar as the Gromov-Wasserstein distance is a relaxation of the Gromov-Hausdorff distance.Although there is a substantial and beautiful theoretical literature on optimal transport, the Gromov-Wasserstein distance has until recently been too expensive to use in practice, limited to at most a few hundred points.A related relaxation in terms of semidefinite programming yields a distance and matching procedure that has attractive theoretical properties but is also expensive to use in practice [RPDB12, SJ08, KKBL15, VBBW16]; again, it is limited to hundreds of points.
+
+Quite recently, there has been exciting progress in the area based on a relaxation of the Gromov-Wasserstein distance that involves regularizing the optimal transport problem by adding an entropy term [Cut13].Roughly speaking, this adds a penalty based on the complexity of the matching.This refinement to the minimization objective (see Section 2.2) turns the problem into one that can be solved comparatively efficiently with Sinkhorn's fixed-point algorithm [Sin74].However, applying this approximation to datasets with more than a few thousand points is only feasible in low dimensions.
+
+The limitations on the applicable size of datasets is a significant issue for many potential applications, including single-cell characterization of biological systems.Recent technological breakthroughs have allowed characterization of gene expression, chromatin accessibility, and structure at the single-cell level, allowing biologists to generate datasets with tens of thousands of cells (data points) in a very high-dimensional space (each dimension represents a gene of interest).These technical limitations are unfortunate since optimal transport has been shown in recent work to have significant potential applications, e.g., for removing batch effects [FHN + 19], or for a better understanding of the temporal evolution and differentiation in development [SST + 19].
+
+Contributions.Our goal in this article is to introduce and study a general framework for applying matching algorithms to very large datasets by recursive decomposition.The basic idea is to partition the dataset into (possibly overlapping) subsets, match representative points from the subsets using any matching algorithm as a subroutine, and then recursively match the partitions.We refer to the recursive approximation scheme as MREC (see Algorithm 3.1).By selecting parameters appropriately, we can work with datasets of tens of thousands of points.A particularly attractive features of this framework is that, since there is an external measure of the quality of a matching, we can efficiently search over the parameter space, including selection of matching algorithms as well as methods for partitioning.
+
+After introducing the algorithm, we do a simple theoretical analysis that explains situations when we can guarantee that this approximation will work well (see Section 3.2).The conclusions are reassuring but unsurprising: the algorithm can be expected to work well either when the matching itself admits a recursive decomposition (e.g., the data is produced by well-separated Gaussians) or the partitions produce an approximation that is close to the original metric space.
+
+Finally, we explore a number of applications of MREC to datasets coming from single-cell characterization of different biological systems, showcasing the usefulness of MREC for various problems in this field (see Section 4).The results we obtain outperform or are comparable to alternative algorithms on small datasets, and produce interesting results on datasets too large to be amenable to any other techniques.
+
+
+Matchings and Gromov-type distances
+
+In this section, we recall the definitions of matchings and various matching distances between metric spaces.We first review the Gromov-Hausdorff distance in Section 2.1.We present its probabilistic (and entropy-regularized) relaxation, the Gromov-Wasserstein distance, in Section 2.2, and we discuss the semidefinite relaxation in Section 2.3.
+
+Problem.We can formulate the basic problem of interest as follows.We are given two datasets X and Y , each equipped with a distance function.That is, we have functions ∂ X : X × X → R and ∂ Y : Y × Y → R that satisfy the metric axioms.The problem is to find a matching that best preserves the distances.There are of course many ways to make this precise, depending on the notion of "best".Our point of departure is the solution that comes from the idea of the Gromov-Hausdorff distance [Gro81,Gro01].
+
+2.1.The Gromov-Hausdorff distance.The Gromov-Hausdorff distance is a metric on the set of compact metric spaces up to isometry, which generalizes the Hausdorff distance.The Hausdorff distance depends on the embedding of A and B, and for instance is not translation or rotation invariant for A and B separately.As a consequence, it is useful to consider a refinement which is invariant to distance-preserving transformations.
+
+Correspondences.Let R be a correspondence between X and Y , i.e., a subset R ⊂ X × Y such that the projections are surjective onto X and Y .A correspondence is a kind of matching where multiple points can be associated with each other.Then, the distortion of R is defined to be: dis(R) = sup |∂ X (x, x ) − ∂ Y (y, y )|, where the supremum is over all (x, y) ∈ R and (x , y ) ∈ R. The distortion can be thought of as the cost of the correspondence: the quality of the matching is assessed by how well distances between matched points are preserved.
+
+Gromov-Hausdorff distance.The Gromov-Hausdorff distance is defined as:
+d GH ((X, ∂ X ), (Y, ∂ Y )) = 1 2 inf R dis(R),
+where the infimum varies over all correspondences.That is, in principle, if we compute the Gromov-Hausdorff distance, we also obtain a correspondence which realizes it.Unfortunately, it is infeasible to directly compute the Gromov-Hausdorff distance.The optimization problem above is an example of an integer programming problem, and is well-known to be NP-hard, even for linear spaces such as metric trees [AFN + 18].Instead, a standard approach is to turn to various kinds of relaxations.
+
+2.2.The Gromov-Wasserstein distance.A first kind of relaxation is to allow probabilistic matchings; each point x ∈ X is matched to a point y ∈ Y with a probability p xy , subject to the constraint that yi∈Y p xyi = 1.It turns out that a way to study this is via the consideration of metric spaces equipped with a probability measure.
+
+Metric probability space.We will temporarily broaden consideration from metric spaces to metric measure spaces; these are metric spaces (X, ∂ X ) equipped with a Borel measure P X .In fact, we restrict attention to metric probability spaces, i.e., metric measure spaces where the total measure is 1.Any metric space can be regarded as a metric measure space equipped with the uniform measure, where each point is assigned equal probability.To construct a metric in this setting which is analogous to the Gromov-Hausdorff distance, we need to introduce a probabilistic analogue of a correspondence.The correct notion here is that of a coupling of P X and P Y ; this is a probability measure P on X × Y such that P(•, Y ) = P X and P(X, •) = P Y .We can now define the Gromov-Wasserstein distance [Mém11,Stu06,LV09].
+Gromov-Wasserstein distance. Let Γ x,x ,y,y denote |∂ X (x, x ) − ∂ Y (y, y )|. Definition 2.2. Let p ∈ N, p > 0. The p-th Gromov-Wasserstein distance GW p (X, Y ) computed between two metric probability spaces (X, ∂ X , P X ) and (Y, ∂ Y , P Y ) is defined as: inf P Γ p
+x,x ,y,y P(dx, dy) P(dx , dy )
+1/p
+, where P ranges over couplings of P X and P Y .If we replace Γ x,x ,y,y by ∂ Z (x, y) when X, Y ⊂ Z, the distance is called the Wasserstein distance; this is analogous to the Hausdorff distance.
+
+Intuitively, the Gromov-Wasserstein distance is computed by testing every probabilistic matching P between X and Y .Each such matching assigns, for a given x ∈ X, a probability distribution of matching over Y , and vice-versa.The matching that best minimizes the so-called metric distortion score between the spaces is picked and its score is used as the distance value.By rounding, one can extract an absolute (non-probabilistic) matching.
+
+Unfortunately, the Gromov-Wasserstein is again very hard to compute in general; this is a quadratic assignment problem (QAP), which are in general known to be hard to solve or even provably approximate [PW + 94].
+
+Entropic regularization.Since the Gromov-Wasserstein distance is still expensive to compute, attention has been focused recently on a further relaxation, which adjusts the cost function to add a penalty term in terms of the entropy of the couplings [Cut13], where the entropy of a coupling P is H(P) = − X×Y ln(P(x, y))P(dx, dy).Definition 2.3.For a fixed > 0, the entropy-regularized Gromov-Wasserstein distance GW p (X, Y ) is:
+inf P Γ p
+x,x ,y,y P(dx, dy) P(dx , dy )
+1/p + H(P).
+Adding the entropy term turns out to result in a problem that can be efficiently approximated with, e.g., Sinkhorn's fixed-point algorithm [Sin74].However, solving this problem on thousands of points is feasible only in very low dimensions.
+
+
+Relaxation of Gromov-Hausdorff distance.
+
+A different relaxation of the Gromov-Hausdorff distance is given by semidefinite programming [VBBW16].This has the advantage that the resulting optimization problem is convex, comes with a certificate of optimality, and yields a pseudometric that satisfies the triangle inequality.On the other hand, the result is a semidefinite program in n 4 variables.A further relaxation reduces its complexity by introducing sparsity assumptions [FKS18], but it is still infeasible for large datasets.
+
+Let n and m be the number of points of X and Y respectively.For the semidefinite relaxation, we optimize over a matrix Ẑ ∈ R nm×nm .In fact, we work with an augmented matrix Z ∈ R nm+1×nm+1 , with entries of Z indexed by pairs (ij, i j ),(ij, nm + 1), (nm + 1, i j ) and (nm + 1, nm + 1) with i, i = 1, . . .n and j, j = 1, . . ., m,
+(1) Z = Ẑ z z 1 .
+Definition 2.4.The SDP relaxation of the Gromov-Hausdorff distance is the solution to the following semidefinite programming problem:
+dA,p (X, Y ) = 1 2 1 n 2 min Z Trace(Γ (p) Ẑ) 1/p
+subject to Z ∈ A, where A denotes the set of matrices satisfying the constraints:
+i Z ij,nm+1 ≥ 1, j Z ij,nm+1 ≥ 1, i,i Z ij,i j ≥ 1, j,j Z ij,i j ≥ 1, Ẑ1 = max{n, m}z, 0 ≤ Z ≤ 1,
+and Z is symmetric and positive semidefinite.
+
+As noted above, one of the most interesting properties of the SDP relaxation is that it yields a distance that also satisfies the triangle inequality; this is somewhat surprising, as there is not an obvious geometric interpretation as with the optimal transport framework.
+
+
+A recursive approximation scheme
+
+In this section, we define and study a recursive approximation scheme for computing matchings between datasets.This algorithm, that we call MREC and define in Algorithm 3.1, requires a black box matching function (such as the entropy-regularized Gromov-Wasserstein distance or the SDP relaxation presented in Section 2.2) and a black box clustering function (such as K-means++, [AV07]) as parameters, and uses them recursively to scale and approximate the matching computation.
+
+3.1.Definition.Setup.We are given a clustering algorithm C whose input is a finite metric space X with |X| > C and whose output is a finite metric space X together with a surjective (point-set) function p X : X → X , satisfying, for all x ∈ X:
+1. |X | = C ∈ N * . 2. |p −1 X (x)
+| is roughly constant.Recursive scheme.We now present our recursive decomposition algorithm, that we call MREC and detail in Algorithm 3.1, for producing a matching between X and Y .
+
+At the conclusion of this algorithm, we obtain a matching Γ between X and Y ; this is the output of the algorithm, along with the induced approximation of the Gromov-type distances.In practice, MREC is stochastic since it depends both on the specifics of the clustering algorithm C and on random properties of the optimization solvers for the matching algorithm M. As a consequence, the correct way to proceed is perform a search over the parameter space, possibly even searching over different clustering algorithms-each matching comes with a score, which is the associated distortion measure, allowing us to automatically hill-climb to find the best matching.
+
+Associated code.Our code is publicly available1 .It contains K-means and Voronoi partitions (with randomly sampled germs) for the black box clustering function C, as well as entropyregularized [Cut13] (based on the POT Python package2 ) and the semidefinite relaxation [VBBW16] of the Gromov-Hausdorff distance for the potential black box matching function M.Moreover,
+Algorithm 1 MREC Input: dataset X, dataset Y Output: matching Γ : X → Y Parameters: (black box) clustering algorithm C, number of clusters C |X|, |Y |, threshold T |X|, |Y |, (black box) matching algorithm M if |X| or |Y | less than T then Γ[X, Y ] ← M(X, Y ); else X , p X ← C(X); Y , p Y ← C(Y ); { Use C to compute centroids X , Y with |X | = |Y | = C, as well as maps p X : X → X , p Y : Y → Y } f ← M(X , Y ); {Use M to match X and Y } X ← {x 1 , • • • , x C }; Y ← {y 1 , • • • , y C };
+{Enumerate the elements of X and use consistent enumeration (under the match f ) for Y .Let {x i } and {y i } denote these enumerations.
+} for i in 1, • • • , C do return MREC(p −1 X (x i ), p −1 Y (y i )); end for end if
+it has been designed so that incorporating new clustering and matching functions is as easy as possible.
+
+3.2.Theoretical properties.We begin by giving some generic properties of MREC.If we let α(T ) denote the time required for the black box matching algorithm to compute a matching on metric spaces of size smaller than T , then when using C clusters the time to execute MREC on datasets with N points is α(T ) log C N T .That is, the running time is basically determined by α(T ).Next, we turn to the question of how good an approximation we can expect to get from MREC.Recall that X ⊂ X is an -net if for every point x ∈ X there is a point x ∈ X such that ∂ X (x, x ) < .A basic observation is that if X is an -net of X, the evident induced matching that assigns each point of X to a point of X within distance has discrepancy bounded above by 2 .The triangle inequality then implies that if X ⊂ X is an 1 -net and Y ⊂ Y is an 2 -net, then the optimal matching of X and Y induces a matching of X and Y that has distortion within 2( 1 + 2 ) of the optimal.
+
+It is helpful to reformulate this in terms of clustering algorithms.Let C be a clustering algorithm, and r > 0. Say that a finite metric space X is r-clustered if the output of C on X satisfies the condition that for all clusters, all elements in the cluster are within distance r of each other.Notice that this in particular means that choosing a point in each partition produces an r-net.
+Proposition 3.1. Suppose X ⊂ X, Y ⊂ Y . Given a relation R ⊂ X × Y and retractions f : X → X and g : Y → Y , consider the derived relation R ⊂ X × Y defined by {(x, y) : (f (x), g(y)) ∈ R }. Suppose that for all x ∈ X, ∂ X (x, f (x)) < r and likewise for Y . Then dis(R) < dis(R ) + 4r.
+Proof.For (x 1 , y 1 ), (x 2 , y 2 ) ∈ R, we have (f (x 1 ), g(y 1 )), (f (x 2 ), g(y 2 )) ∈ R .Thus, we have, using the triangle inequality:
+∂ X (x 1 , x 2 ) ≤ ∂ X (x 1 , f (x 1 )) + ∂ X (f (x 1 ), f (x 2 )) + ∂ X (f (x 2 ), x 2 ) and ∂ Y (y 1 , y 2 ) ≥ −∂ Y (y 1 , g(y 1 )) + ∂ Y (g(y 1 ), g(y 2 )) − ∂ Y (g(y 2 ), y 2 ).
+This leads to:
+|∂ X (x 1 , x 2 ) − ∂ X (y 1 , y 2 )| < |∂ X (f (x 1 ), f (x 2 )) − ∂ Y (g(y 1 ), g(y 2 ))| + 4r.
+This immediately implies the following corollary.
+
+Corollary 3.2.Let X and Y be r-clustered for C with the number of C-clusters ≤ C, and let X and Y denote the metric spaces of clusters generated by C. Then MREC (computed with the exact Gromov-Hausdorff distance as the matching function M) produces a matching between X and Y with distortion at most dis(R)+4r, where R is the correspondence realizing d GH ((X , ∂ X ), (Y , ∂ Y )).Now, a very natural question to ask is for a metric space with some kind of dimension restriction, how many clusters are needed to obtain an r-clustering.A standard way of encoding the dimension of a metric space is via doubling dimension.Recall that a metric space (X, ∂ X ) has doubling dimension d if every ball of radius can be covered by 2 d balls of radius /2.For example, Euclidean space R n has doubling dimension O(n).The following standard result now follows from an easy counting argument.Proposition 3.3.Let (X, ∂ X ) be a metric space with doubling dimension d.Then there exists an r-clustering with approximately M r d clusters, where M = diam(X).
+
+Here the approximation in the statement comes from issues of rounding logarithms.These results give quite pessimistic estimates, but they are useful for providing a sense of lower bounds on the performance to expect from MREC and its recursive decomposition.
+
+The analyses above focus on the situation in which the coarse approximation of the data that we get from partitioning is close in the Gromov-Hausdorff metric to the original data.(Analogous analyses can be performed using other metrics.)We now explain a situation in which we can expect the algorithm to work well even when the partition approximation is in this sense far from the original data.
+
+Consider the toy model where X and Y are both finite samples from a metric space Z with the property that Z can be partitioned into K clusters {C i } such that the minimum Hausdorff distance δ between any pair of clusters C i and C j is substantially larger than the maximum diameter of the clusters.Specifically, assume that
+δ = min i,j d H (C i , C j ) > 2 max i diam(C i ) = η.
+First off, note that in this case, the optimal clustering can be found by the K-means algorithm; each point in a cluster is closer to the centroid than to any point outside the cluster.In addition, we know that the expected number of samples required to to obtain a point in each cluster is bounded above by (min i (#C i ))
+
+−1 ln(K); this follows from a generalized coupon-collector analysis.Let us assume that we have chosen enough points so that with high probability we indeed have at least one sample from each cluster.In this situation, the optimal matching between X and Y is realized by a matching of the clusters.Proposition 3.4.Under the hypotheses above, the optimal matching of X and Y permutes the clusters.
+
+Proof.Any matching that separates points within a cluster (i.e., assigns points x 1 , x 2 ∈ C i ⊂ X to distinct clusters of Y ) or merges clusters will have discrepancy bounded below by δ − η > η, whereas a matching that permutes the clusters will have discrepancy bounded above by η.
+
+An immediate corollary is that MREC will find the optimal matching of the top-level clusters with high probability.Since we are only using metric information, our matchings are non-unique up to symmetry in the data; if we assume that the inter-cluster distances are unique, the matching returned is the unique matching that identifies clusters to themselves.3.3.Discussion.One of the most useful features of the MREC framework is that because matchings can be evaluated in terms of their distortion, we can search over parameter space to find the minimal distortion embedding.For example, it is reasonable to try a variety of clustering algorithms and numbers of centers in order to ascertain which parameters lead to the best approximation of the optimal matching.Moreover, we can even try different matching procedures.This in particular means that the algorithm can tolerate a substantial amount of uncertainty about the decomposition of the best matching, as long as there exists a partition and allowable resolution for which there is a good matching.
+
+Another useful aspect of this is that we can easily make MREC robust to outliers by subsampling cross-validation; specifically, we can repeatedly subsample the two metrics spaces X and Y , perform the matchings on the subsamples, and identify points that result in high distortion matchings.
+
+Finally, although we have discussed the matching algorithm in terms of a partition of the dataset, instead it is entirely reasonable to imagine an overlapping cover of the datasets used for matchings.We only mention this refinement here; we intend to return to this in future work.
+
+
+Applications
+
+In this section, we demonstrate the use of MREC by applying it on synthetic and real biological single-cell datasets with ground-truth labels.Overall, we show that the recursion procedure used in MREC is highly efficient, in the sense that the computed matchings are on par, or slightly better (as measured by the accuracy of label transfer under the computed matchings), than the ones obtained without doing any recursion, with significantly smaller running times.We first provide proof-ofconcepts of MREC for synthetic and real data in Sections 4.1 and 4.2.Then, we present applications of MREC for correcting batch effects on a single-cell datasets in Section 4.3 and aligning across different measurement modalities in Sections 4.4 and 4.5.Whereas the datasets in Sections 4.3 and 4.4 can be handled directly the dataset presented in Section 4.5 is too large to be handled with usual matching algorithms, making MREC as far as we know the only algorithm suitable for working at scale with the recent breakthroughs in single-cell data generation.
+
+Single-cell datasets.Single-cell RNA sequencing has been a major event in the fine characterization of many biological systems at the molecular level, since it allows biologists to study the gene expression levels of thousands of individual cells, leading to a clearer understanding of many biological processes.For instance, clustering the expression of single-cell data identifies sets of cells with common properties and function, and the relation between these clusters can reflect transitional states.In these datasets, each cell is represented as a point in Euclidean space, in which every dimension is associated to the expression of a gene of interest, and each single cell coordinate contains the expression of the corresponding gene in that cell (that is, how often is this gene transcribed in the cell, as measured with the number of transcript fragments that are detected in the cell).Hence, raw single-cell datasets are usually given as integer matrices.They often require preprocessing; we will use the Python packages Scanpy [WAT18] and Randomly [ABBR18].
+
+Batch effects.Single-cell RNA sequencing has resulted in a huge increase in data availability.However, many methodological issues with using these datasets remain.Notably, datasets computed in different labs or with different protocols usually exhibit unwanted biases, often referred to as batch effects [HLMM18].Matching, or aligning, these datasets in order to integrate them together in a robust way is thus a problem of major importance, and optimal transport with the Gromov-Wasserstein distances has recently been shown to be a promising solution in this application [FHN + 19].In Section 4.3, we present an example of batch effect correction with MREC.
+
+Different measure modalities.Another class of alignment problems comes from situations where we have measurements of the same dataset coming from different kinds of technologies; for example, measuring expression and chromatin accessibility.Understanding the amount of alignment that can be expected between these two kinds of measurements is an extremely interesting problem.In Sections 4.4 and 4.5, we describe applications to two such datasets.
+
+Parameters and results.Each of the datasets in Sections 4.1, 4.2, 4.3 and 4.5 presented below is comprised of two groups with the same list of associated ground-truth labels (except for BDTNP; see the details in Section 4.4 below).On each of these datasets, we use a Voronoi partition computed with randomly sampled centroids3 as the clustering algorithm C, a threshold T = 10, and we searched over 20 runs with matchings coming from both the entropy-regularized Gromov-Wasserstein distance (with ranging from 10 to 10 −4 in a log-scale) and the SDP relaxation as the matching algorithm M for MREC.Note that, for all datasets except BDTNP in Section 4.4 and BRAIN in Section 4.5, the two groups belong to the same common space, so we can use the Wasserstein distance as well.We also compute matchings for an increasing number C of clusters (see Algorithm 3.1) ranging from 10 to 10 3 in a log-scale.For each computed matching, we measure three quantities: the running time of MREC, the distortion of MREC (see Section 2), and its accuracy, given by computing the fraction of points in the first group whose associated points under the matching given by MREC share the same label (in the second group).We show in Figure 1 the evolution of accuracy and distortion w.r.t. the number of centroids for all datasets (see Appendix, Figure 2, for running times).We finally provide in Table 1 an overall comparison with directly computing the matchings (i.e., without doing any recursion).In this table, we provide the accuracies of the matchings with lowest distortion.All computations were performed on an AWS machine with a Xeon Platinum 8175 processor.See also Appendix, Figures 4 and 5, for more illustrations and examples of parameter tuning.
+
+4.1.Matching of simulated datasets Synth(+).We first apply MREC on a synthetic dataset sampled from a mixture of three Gaussian probability distributions located at different positions in the Euclidean plane R 2 .More specifically, we drew 6, 000 samples that we eventually split into two groups.Accuracy is then measured as the ability of MREC to match points sampled from the same Gaussian probability distributions together.We also run an experiment with 60, 000 samples (called Synth+), 4.2.Matching of subsampled datasets PBMC.In our second example, we test the performance of MREC on a single-cell transcriptional dataset.We collected the data presented in [KST + 18], which is comprised of single peripheral blood mononuclear cells (PBMC), with eight different cell types (CD4, CD8, B-cell, NK-cell, dendritic cells (Ddr), CD14, monocytes (Mnc) and megakaryocytes (Mgk)).We preprocessed the cells with Randomly [ABBR18] to create a dataset of 6, 573 cells in 1, 581 dimensions (each of which representing a highly variable gene of interest).We then split the data into two groups and measured the ability of MREC to match together cells with the same types coming from different groups.4.3.Matching of different protocols HEMA.In our third application, we study an example of batch effects in single-cell transcriptional data for which optimal transport has already proved useful [FHN + 19].The data is comprised of two groups of 2, 729 and 813 single hematopoietic cells respectively, with 3, 467 associated genes and three different cell types (common myeloid progenitors (CMP), granulocyte-monocyte progenitors (GMP) and megakaryocyte-erythrocyte progenitors (MEP)).These groups were generated with the SMART and MARS protocols respectively, as explained in [HLMM18].As mentioned above, even though the dimensions are in correspondence, the fact that different protocols have been used introduces a bias, or batch effect, in the data, We preprocessed the data using the method presented in [ZTB + 17] and available in the Python package Scanpy and then reduced the number of dimensions to 50 with PCA.4.4.Matching of different modalities BDTNP.In this section, we study 3,039 single cells coming from Drosophila embryos, as presented in [NKFR18].Spatial coordinates in the 2D tissues were obtained with fluorescence in situ hybridization (FISH), as well as the expression of 84 marker genes, leading to spaces with different dimensions.This means that usual Wasserstein distance cannot be used here.We followed the exact same procedure as in [NKFR18], i.e., pairwise distances in both spaces were computed with nearest-neighbor graph, so as to approximate the geodesics from the manifolds on which the datasets have been sampled (following the manifold assumption made in [NKFR18]).Finally, the ground truth is here given by the true correspondence between the cells.Hence, we chose to measure accuracy with the (normalized) area under the curve that shows, for each radius r > 0, the fraction of cells α(r) (in expression space) whose corresponding cell (in tissue space) under the computed matching is at distance at most r from the true corresponding cell (which is a common practice in computer graphics [COO15]).4.5.Matching of different modalities BRAIN.In our last example, we focus on a dataset of single cells sampled from the human brain with eight different cell types (astrocytes (Ast), endothelial cells (End), excitatory neurons (Ex), inhibitory neurons (In), microglia (Mic), oligodendrocytes (Oli) and their precursor cells (OPC)), presented in [LCS + 17].The challenge of this dataset is two-fold.First, the dimensions of the two groups are not in correspondence (as in Section 4.4): the gene expressions were measured in the first group, while the second group contains the DNA region accessibilities (that is, whether given regions in the DNA of the cell nucleus are open, i.e., accessible for transcription, or not).Second, the datasets are too large to be handled with usual matching techniques: the first group contains 34, 079 cells, while the second one contains 27, 906 cells.We preprocessed the first group with the method presented in [ZTB + 17] and available in the Python package Scanpy, and the second one with TF-IDF.Then, we applied PCA on each group separately to reduce the number of dimensions to 50.Note that since the dimensions are not in correspondence anymore, we have to use the Gromov-Wasserstein distance.We also added a standard Wasserstein cost by using a binary cost matrix containing the correspondence between the genes and the DNA regions (that is, the (i, j) entry of the matrix is one if the genomic coordinates of gene i intersects DNA region j).4.6.Results and comparison with no recursion.It can be seen from Figure 1 that, as expected, accuracy generally tends to increase while distortion decreases with the number of centroids.Note also that, for the BRAIN dataset, the variance of the distortion is pretty large, and its decrease is not obvious.This large variance is also the reason why the mean accuracy (observed on the plot) is actually much smaller than the one corresponding to the matching with lowest distortion (shown in Table 1)-note that this is actually true (to a certain extent) for all datasets.Note also that there is clear gap in Figure 1 between the accuracy of matchings computed with MREC on BDTNP and the baseline.This suggests that convergence has not occurred yet and more centroids are needed.Indeed, the accuracy and running times provided in Table 1 were obtained by allowing the number of centroids to go up to 3,000 (see Appendix, Figure 3).
+
+Finally, it can be seen from Table 1 that recursion is mandatory on Synth+ and BRAIN for the matching computation to end in a reasonable amount of time.Moreover, the results are generally on par (or slightly better) than the baseline with substantially lower running times.In the case of HEMA, the accuracy is more significantly better4 .This suggests that for some datasets it may be the case that the recursive procedure may lead to better approximations than the "absolute" algorithms.
+
+
+Conclusion
+
+In this article, we introduced MREC: a fast and versatile tool for computing matchings on largescale datasets.It can use any black box matching or clustering function defined by the user, and scale it with a recursive scheme so as to be able to process datasets with very large numbers of points in an efficient way.Theoretical analysis shows that the algorithm can in principle perform well.We validated its use with several applications in single-cell molecular analysis, achieving comparable or better performance than the state-of-the-art on smaller datasets and providing novel results on datasets too large to be aligned efficiently by any other means.MREC prediction (with 1,000 centroids) for each dot, that is, the weighted average of the second dataset computed with the probabilities given by MREC, is represented with a star.Upper right: Application of MREC on a data set of PBM cells.The two input datasets are represented with their first two principal components with dots and crosses, and MREC prediction (with 1,000 centroids) for each dot, that is, the weighted average of the second dataset computed with the probabilities given by MREC, is represented with a star.Lower left: Application of MREC on a data set of hematopoietic cells generated with the SMART and MARS protocols.The two input datasets are represented with their first two principal components with dots and crosses, and MREC prediction (with 1,000 centroids) for each dot, that is, the weighted average of the second dataset computed with the probabilities given by MREC, is represented with a star.Lower right: Application of MREC on a data set of human brain cells.Gene expression groups are visualized with the first two principal components.
+
+
+
+Definition 2.1.Let A and B be subsets of a metric space X.The Hausdorff distance between A and B is defined as d H (A, B) = max {max a d(a, B), max b d(b, A)}, where d(a, B) = min b d(a, b) and d(b, A) = min a d(a, b).
+
+
+Figure 1 .
+1
+Figure 1.Mean and variance of the accuracy and distortion of the matchings computed by MREC (for the parameters inducing the best matching) w.r.t. the number of centroids used for Synth (upper left), Synth+ (upper middle), PBMC (upper right), HEMA (lower left), BDTNP (lower middle) and BRAIN (lower right).The dashed line corresponds to the accuracy obtained without doing recursion.
+
+
+Figure 2 .
+2
+Figure 2. Mean and variance of the running time of the matchings computed by MREC (for the parameters inducing the best matching) w.r.t. the number of centroids used for Synth (upper left), Synth+ (upper middle), PBMC (upper right), HEMA (lower left), BDTNP (lower middle) and BRAIN (lower right).
+
+
+Figure 3 .
+3
+Figure 3. Mean and variance of the accuracy, distortion (left) and running time (right) of the matchings computed by MREC (for the parameters inducing the best matching) w.r.t. the number of centroids used for BDTNP.
+
+
+Figure 4 .
+4
+Figure 4. Example of parameter tuning for the entropy parameter for Synth (upper left), Synth+ (upper middle), PBMC (upper right), HEMA (lower left), BDTNP (lower middle) and BRAIN (lower right.
+
+
+Figure 5 .
+5
+Figure5.Upper left: Application of MREC on a synthetic data set of a mixture of Gaussians.The two input datasets are represented with dots and crosses, and MREC prediction (with 1,000 centroids) for each dot, that is, the weighted average of the second dataset computed with the probabilities given by MREC, is represented with a star.Upper right: Application of MREC on a data set of PBM cells.The two input datasets are represented with their first two principal components with dots and crosses, and MREC prediction (with 1,000 centroids) for each dot, that is, the weighted average of the second dataset computed with the probabilities given by MREC, is represented with a star.Lower left: Application of MREC on a data set of hematopoietic cells generated with the SMART and MARS protocols.The two input datasets are represented with their first two principal components with dots and crosses, and MREC prediction (with 1,000 centroids) for each dot, that is, the weighted average of the second dataset computed with the probabilities given by MREC, is represented with a star.Lower right: Application of MREC on a data set of human brain cells.Gene expression groups are visualized with the first two principal components.
+
+
+Table 1 .
+1
+Results of MREC and its counterpart with no recursion.
+Accuracy (%)Time (s)Dataset MREC No rec. MREC No rec.Synth10010014.1505.8Synth+ 100100126.7 14,325.6PBMC89.989.529.177.3HEMA84.979.520.5119.0BDTNP 99.299.173.2508.5BRAIN 59.658.6125.1 15,580.5
+https://github.com/MathieuCarriere/mrec
+https://pot.readthedocs.io/en/stable/
+We also tried using K-means. However, we did not observe noticeable changes in accuracy, but substantially longer running times, so we stick to randomly sampled centroids.
+The accuracies for HEMA provided in this work are different from the ones presented in [FHN + 19] on the same dataset due to the following reason: in [FHN + 19] the authors provide the average of the accuracies associated to several random samples of 300 cells in each group, whereas we measure the accuracy on the whole dataset.
+AppendixAdditional figures.In this appendix, we provide various additional plots.• In Figure2, we display the running times of our experiments w.r.t. the number of centroids.Unsurprisingly, it increases with the number of centroids, with a rate that depends on the experiment.• In Figure3, we confirm that MREC converges on the BDTNP experiment by showing the accuracy and distortion for a larger number of centroids than presented in the main article.• In Figure4, we present the dependency of accuracy, distortion and running times w.r.t.both entropy and number of centroids.Note that for small entropy values on HEMA, numerical errors occurred, leading to missing values for the distortion.• In Figure5, we provide illustrations of the datasets and computed matchings.Code.We provide the code and data that we used to run the experiments (except for BRAIN and Synth+ which are too large, although we provide a way to generate the data for Synth+ in the synth+ matrix.pyfile-just run python synth+ matrix.py in a terminal) in the experiments folder available on this link:The experiments can be reproduced by running ./launchS.shand ./launchnonS.sh in a terminal.Since it is (very) long to run all experiments, we also provide a notebook Example.ipynb at the following url: https://github.com/MathieuCarriere/mrec.This notebook illustrates the use of MREC on the dataset synth.Dependencies for running both codes are numpy, scipy, POT, scikit-learn, cvxopt, matplotlib and (optionally) the Matlab engine API for Python.
+Quasi-universality in single-cell sequencing data. Luis Aparicio, Mykola Bordyuh, Andrew Blumberg, Raul Rabadan, arXivoct 2018
+
+Computing the Gromov-Hausdorff distance for metric trees. Pankaj Agarwal, Kyle Fox, Abhinandan Nath, Anastasios Sidiropoulos, Yusu Wang, AFN + 18. April 20181420
+
+k-means++: The advantages of careful seeding. David Arthur, Sergei Vassilvitskii, Proceedings of the eighteenth annual ACM-SIAM symposium on Discrete algorithms. the eighteenth annual ACM-SIAM symposium on Discrete algorithmsSociety for Industrial and Applied Mathematics2007
+
+A hungarian algorithm for error-correcting graph matching. Sébastien Bougleux, Benoit Gaüzère, Luc Brun, Graph-Based Representations in Pattern Recognition. ChamSpringer International Publishing2017
+
+Smac: simultaneous mapping and clustering using spectral decompositions. Chandrajit Bajaj, Tingran Gao, Zihang He, Qixing Huang, Zhenxiao Liang, International Conference on Machine Learning. 2018BGH + 18
+
+Algorithms to automatically quantify the geometric similarity of anatomical surfaces. Doug M Boyer, Yaron Lipman, Elizabeth St Clair, Jesus Puente, Biren A Patel, Thomas Funkhouser, Jukka Jernvall, Ingrid Daubechies, BLC + 11. 2011108
+
+Stable Topological Signatures for Points on 3D Shapes. Steve Y Mathieu Carrière, Maks Oudot, Ovsjanikov, Computer Graphics Forum. 3452015
+
+Sinkhorn distances: lightspeed computation of optimal transport. Marco Cuturi, Advances in Neural Information Processing Systems. 2013
+
+On bending invariant signatures for surfaces. Asi Elad, Ron Kimmel, IEEE Trans. Pattern Anal. Mach. Intell. 25102003
+
+Statistical optimal transport via factored couplings. Aden Forrow, Jan-Christian Hütter, Mor Nitzan, Philippe Rigollet, Geoffrey Schiebinger, Jonathan Weed, International Conference on Artificial Intelligence and Statistics. apr 2019FHN + 19
+
+Semidefinite programming approach for the quadratic assignment problem with a sparse graph. José Fs Bravo Ferreira, Yuehaw Khoo, Amit Singer, Computational Optimization and Applications. 6932018
+
+Groups of polynomial growth and expanding maps. Mikhail Gromov, Inst. Hautes Études Sci. Publ. Math. 531981
+
+Metric Structures for Riemannian and Non-Riemannian Spaces. Mikhail Gromov, Progress in Mathematics. Birkhäuser. 2001
+
+Development and assessment of fully automated and globally transitive geometric morphometric methods, with application to a biological comparative dataset with high interspecific variation. Tingran Gao, Ingrid Gabriel S Yapuncich, Sayan Daubechies, Doug M Mukherjee, Boyer, GYD + 18. 2018301
+
+Batch effects in single-cell RNAsequencing data are corrected by matching mutual nearest neighbors. Laleh Haghverdi, Aaron Lun, Michael Morgan, John Marioni, Nature Biotechnology. 365apr 2018
+
+Tight relaxation of quadratic matching. Itay Kezurer, Z Shahar, Ronen Kovalsky, Yaron Basri, Lipman, Computer Graphics Forum. Wiley Online Library201534
+
+Integrative single-cell analysis of transcriptional and epigenetic states in the human adult brain. Min Hyun, Meena Kang, Sasha Subramaniam, Michelle Targ, Lenka Nguyen, Elizabeth Maliskova, Eunice Mc-Carthy, Simon Wan, Lauren Wong, Cristina Byrnes, Rachel Lanata, Sara Gate, Alexander Mostafavi, Noah Marson, Lindsey Zaitlen, Chun Jimmie Ye ; Blue Criswell, Song Lake, Brandon Chen, Jean Sos, Gwendolyn Fan, Yun Kaeser, Thu Yung, Derek Duong, Jerold Gao, Peter Chun, Kun Kharchenko, Zhang, KST + 18. jan 2018. dec 201736Nature Biotechnology
+
+Conformal Wasserstein distances: Comparing surfaces in polynomial time. Yaron Lipman, Ingrid Daubechies, Advances in Mathematics. 22732011
+
+Ricci curvature for metric-measure spaces via optimal transport. John Lott, Cédric Villani, Ann. of Math. 16922009
+
+Gromov-Wasserstein distances and the metric approach to object matching. Facundo Mémoli, 10.1007/s10208-011-9093-5Foundations of Computational Mathematics. 2011
+
+A theoretical and computational framework for isometry invariant recognition of point cloud data. Facundo Mémoli, Guillermo Sapiro, Found. Comput. Math. 532005
+
+Charting a tissue from single-cell transcriptomes. Mor Nitzan, Nikos Karaiskos, Nir Friedman, Nikolaus Rajewsky, bioRxiv. oct 2018
+
+Quadratic Assignment and Related Problems: DIMACS Workshop. Henry Panos M Pardalos, Wolkowicz, PW + 94. American Mathematical SocMay 20-21, 1993. 199416
+
+Wasserstein barycenter and its application to texture mixing. Julien Rabin, Gabriel Peyré, Julie Delon, Marc Bernot, Proceedings of the Third International Conference on Scale Space and Variational Methods in Computer Vision. the Third International Conference on Scale Space and Variational Methods in Computer Vision2012
+
+The earth mover's distance as a metric for image retrieval. Yossi Rubner, Carlo Tomasi, Leonidas Guibas, International Journal of Computer Vision. 402November 2000
+
+Diagonal equivalence to matrices with prescribed row and column sums. ii. Richard Sinkhorn, Proceedings of the American Mathematical Society. the American Mathematical Society197445
+
+Optimal-transport analysis of single-cell gene expression identifies developmental trajectories in reprogramming. Sameer Shirdhonkar, David Jacobs, Geoffrey Schiebinger, Jian Shu, Marcin Tabaka, Brian Cleary, Vidya Subramanian, Aryeh Solomon, Joshua Gould, Siyan Liu, Stacie Lin, Peter Berube, Lia Lee, Jenny Chen, Justin Brumbaugh, Computer Vision and Pattern Recognition. Philippe Rigollet, Konrad Hochedlinger, Rudolf Jaenisch, Aviv Regev, Eric Lander, 2008. jun. 2008 2008. feb 2019176Approximate earth mover's distance in linear time
+
+On the geometry of metric measure spaces. Karl-Theodor Sturm, I. Acta Math. 19612006
+
+Soledad Villar, Afonso Bandeira, Andrew Blumberg, Rachel Ward, arXivA polynomial-time relaxation of the Gromov-Hausdorff distance. oct 2016
+
+Optimal Transport: Old and New. C Villani, 2008SpringerBerlin Heidelberg
+
+Scanpy: large-scale single-cell gene expression data analysis. Alexander Wolf, Philipp Angerer, Fabian Theis, Genome Biology. 192018
+
+Massively parallel digital transcriptional profiling of single cells. Grace Zheng, Jessica Terry, Phillip Belgrader, Paul Ryvkin, Zachary Bent, Ryan Wilson, Solongo Ziraldo, Tobias Wheeler, Geoff Mcdermott, Junjie Zhu, Mark Gregory, Joe Shuga, Luz Montesclaros, Jason Underwood, Donald Masquelier, Stefanie Nishimura, Michael Schnall-Levin, Paul Wyatt, Christopher Hindson, Rajiv Bharadwaj, Alexander Wong, Kevin Ness, Lan Beppu, Joachim Deeg, Christopher Mc-Farland, Keith Loeb, William Valente, Nolan Ericson, Emily Stevens, Jerald Radich, Tarjei Mikkelsen, Benjamin Hindson, Jason Bielas, Nature Communications. 8jan 2017

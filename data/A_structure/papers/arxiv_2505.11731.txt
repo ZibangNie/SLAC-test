@@ -1,0 +1,374 @@
+Efficient Uncertainty Estimation via Distillation of Bayesian Large Language Models
+23 May 2025
+
+Harshil Vejendla 
+Rutgers University
+
+
+Haizhou Shi <haizhou.shi@rutgers.edu> 
+Yibin Wang 
+Rutgers University
+
+
+University of Illinois Urbana-Champaign (UIUC)
+
+
+Tunyu Zhang 
+Rutgers University
+
+
+Ligong Han 
+Huan Zhang 
+University of Illinois Urbana-Champaign (UIUC)
+
+
+Hao Wang 
+Rutgers University
+
+
+
+Red Hat AI Innovation
+
+
+
+Fordham University
+
+
+
+Hao Wang
+
+Efficient Uncertainty Estimation via Distillation of Bayesian Large Language Models
+23 May 2025D086E09CC86274F6649064551F891BFEarXiv:2505.11731v2[cs.LG]
+Recent advances in uncertainty estimation for Large Language Models (LLMs) during downstream adaptation have addressed key challenges of reliability and simplicity.However, existing Bayesian methods typically require multiple sampling iterations during inference, creating significant efficiency issues that limit practical deployment.In this paper, we investigate the possibility of eliminating the need for test-time sampling for LLM uncertainty estimation.Specifically, when given an off-the-shelf Bayesian LLM, we distill its aligned confidence into a non-Bayesian student LLM by minimizing the divergence between their predictive distributions.Unlike typical calibration methods, our distillation is carried out solely on the training dataset without the need of an additional validation dataset.This simple yet effective approach achieves N -times more efficient uncertainty estimation during testing, where N is the number of samples traditionally required by Bayesian LLMs.Our extensive experiments demonstrate that uncertainty estimation capabilities on training data can successfully generalize to unseen test data through our distillation technique, consistently producing results comparable to (or even better than) stateof-the-art Bayesian LLMs.
+
+Introduction
+
+Large Language Models (LLMs) have demonstrated impressive capabilities across various tasks [4,48,47,30,40,41,2,52,14], but they often struggle with providing reliable uncertainty estimates for their predictions [50,38,21,21,53,46].This limitation becomes critical in high-stakes applications where overconfident incorrect predictions can lead to harmful consequences.Bayesian methods for LLMs have emerged as a promising approach to address this challenge by modeling parameter distributions rather than point estimates [33,17,12,6,43,25].These Bayesian LLMs can quantify predictive uncertainty by approximating the posterior distribution of model parameters, enabling more robust decision-making and improved confidence calibration.Recent advances have made significant progress in applying Bayesian principles to LLMs through low-rank adaptation techniques [53,3,45,46,36], which maintain parameter efficiency while enhancing uncertainty quantification capabilities.Despite these theoretical advantages, deploying Bayesian LLMs in real-world applications faces a substantial challenge: computational inefficiency at test time.Current Bayesian approaches require multiple sampling operations during inference to approximate the predictive distribution through Bayesian Model Averaging (BMA).This process involves drawing numerous samples from the approximate parameter posterior and averaging the resulting predictions, which multiplies the inference time by the number of samples required.For instance, methods like Laplace LoRA [53], Point estimation (e.g., LoRA [19]) overfits to limited data, causing unreliable responses.b.Bayesian Low-Rank Adaptation (BLoB) [46] uses variational Gaussian distributions for better generalization and confidence alignment.c.Training-Free Bayesianization (TFB) [36] enables direct conversion to Bayesian LLMs without complex training.d.Efficient Uncertainty Estimation via Distillation (EUD) distills uncertainty estimation to point estimation.Our approach serves as an important puzzle of test-time efficient deployment for Bayesian LLMs.
+
+predictions and distributional information from an ensemble of networks into a single model using Prior Networks, enabling the estimation of data and model uncertainties for a point estimation.The efficacy of these approaches has mainly been validated on small-scale models and datasets.Our paper, to the best of our knowledge, is the first work investigating the feasibility of deploying a Bayesian LLM by distilling it into a deterministic one, demonstrating substantial gains in test-time efficiency.
+
+
+Methodology
+
+This section introduces our distillation-based method which compresses a trained Bayesian LLM (Teacher) into a single deterministic model (Student).Sec.3.1 reviews relevant preliminaries.Sec.3.2 details our main methodology, Efficient Uncertainty Estimation via Distillation (EUD), including loss of distillation and annealing schedule of different losses during training.
+
+Notations.In our notation, lowercase letters represent scalars, lowercase boldface letters represent vectors, and uppercase boldface letters represent matrices.For a matrix
+X = [x 1 , • • • , x n ] ∈ R m×n , its vectorized form vec(X) = [x ⊤ 1 , x ⊤ 2 , • • • , x ⊤ n ] ⊤ ∈ R (mn)×1
+stacks all columns into a single vector.We use ⊗ for the Kronecker product and • for the element-wise product.
+
+
+Preliminaries
+
+Bayesian Neural Networks.Bayesian Neural Networks (BNNs) aim to approximate the posterior of the network parameters P (θ|D) [39,44].Common techniques include Variational Inference [6,42,22], Dropout [12], Laplace Approximation [39,27,5], and techniques of Markov-Chain Monte-Carlo [49,1,20].By marginalizing the approximate distribution to the weight posterior, one can estimate the predictive distribution, which in practice is usually done by Bayesian Model Averaging (BMA):
+P (y|x, D) = P (y|x, θ)P (θ|D)dθ ≈ 1 N N n=1 P (y|x, θ n ), θ n ∼ P (θ|D).(1)
+(Bayesian) Low-Rank Adaptation.Given a pre-trained layer with weight W 0 , Low-Rank Adaptation (LoRA) [19] constrains weight updates to a low-rank subspace during fine-tuning.This update is represented as ∆W = BA, where ∆W ∈ R m×n , B ∈ R m×r , and A ∈ R r×n with rank r ≪ min(m, n).For an input vector h ∈ R n×1 passing through the LoRA layer, the output z ∈ R m×1 is computed as:
+z = (W 0 + ∆W )h = W 0 h + ∆W h = W 0 h + BAh.(2)
+Bayesian Low-Rank Adaptation [53,46,36] combines benefits from both approaches by modeling LoRA's weights as approximate distributions, preserving LoRA's parameter-efficiency while gaining BNNs' ability to estimate predictive uncertainty.For example, BLoB [46] and TFB [36] demonstrate that modeling A's elements with independent Gaussian variables and keeping B deterministic is sufficient for effective uncertainty estimation in LoRA.Specifically,
+q(A|{M , Ω}) = ij q(A ij |M ij , Ω ij ) = ij N (A ij |M ij , Ω 2 ij ),(3)
+where M and Ω, having the same shape as A, denote the mean and standard deviation of the Gaussian random variable A, respectively.These approaches demonstrate that this formulation is equivalent to approximating the Bayesianized low-rank adapter's posterior in the full-weight space of W with some low-rank degenerate Gaussian distribution.
+
+Despite its proven effectiveness and significantly improved memory-efficiency compared to other fullweight BNNs, deploying such Bayesian LLMs remains challenging, as multiple sampling iterations are still required by Eqn. 1, with empirical evidence showing a positive correlation between the number of samples and calibration quality [46].Sec.3.2 addresses this prominent challenge by distilling a Bayesian teacher LLM into a single deterministic student model.
+
+
+Improving Test-Time Efficiency of Bayesian LLMs via Uncertainty Distillation
+
+Simple Distillation Loss.Our approach transforms a Bayesian LLM that requires N sampling iterations for uncertainty estimation into a single deterministic model that delivers equivalent predictive capabilities in just one forward pass, significantly reducing inference costs.Let q(•|ϕ) denote the approximate posterior of the teacher Bayesian LLM, where ϕ represents the underlying parameters of weight distribution.For instance, in a Bayesian teacher with an ensemble of N point estimates, we have
+ϕ = {θ 1 , θ 2 , • • • , θ N }.
+Meanwhile, let θ represent the parameterization of our deterministic student model.The knowledge distillation loss L KD between the Bayesian teacher and the deterministic student network can be formulated as:
+L KD (θ; ϕ) = E x∼D [KL[P (y|x, ϕ)|P (y|x, θ)]] ,(4)
+where P (y|x, ϕ) ≜ E θ∼q(•|ϕ) [P (y|x, θ)] represents the marginalized predictive distribution over the approximate posterior.
+
+Similar to standard Bayesian Model Averaging (BMA) at test time, we employ Monte Carlo sampling to estimate the marginalization.However, unlike direct inference-time sampling, we can leverage a larger number of samples during training since this is a one-time process with negligible computational cost relative to our objective.The impact of sample size for the teacher model is analyzed in Sec.4.3.
+
+In this work, we utilize the standard KL-divergence loss between the teacher's target distribution and the student model's predictions.This formulation can be readily extended to any function l(P (y|x, ϕ), P (y|x, θ)) that quantifies the discrepancy between two predictive distributions.We explore alternative formulations in Sec.4.3.
+
+
+Simple Loss Scheduling.
+
+Directly training the student model with soft targets from the Bayesian teacher can lead to instability.This occurs because finding a single point estimate that matches the representational capacity of an entire approximate distribution q(•|ϕ) is challenging.To stabilize training, we introduce a loss scheduling scheme that initially focuses on learning the mode prediction (highest probability output) before gradually transitioning to full distribution matching.This progressive approach ensures more reliable convergence while maintaining fidelity to the teacher's uncertainty characteristics.Denote the cross-entropy loss over the true label y * as
+L CE (θ) = E (x,y * )∼D [KL[δ(y|y * )|P (y|x, θ)]] ,(5)
+where δ(y|y * ) is the dirac-delta function assigning full probability to the ground-truth answer y * .
+
+At training step t, the student model's training loss L t is formulated as a weighted combination of the distillation loss and the cross-entropy loss:
+L t (θ; ϕ) = α t L KD (θ; ϕ) + (1 − α t )L CE (θ),(6)
+where α t = min( t Tα , 1) and T α =1,000 is the maximum number of iterations for loss scheduling across all our experiments.The rationale for setting T α lower than the total training steps is to ensure the student model's final convergence to the Bayesian teacher's characteristics.With excessively long training at fixed weights, the point estimation (student) would risk overfitting and becoming overconfident about its responses.For a detailed description of EUD, please refer to Algorithm 1.
+
+Dataset Augmentation.Dataset size significantly impacts distillation effectiveness.As demonstrated in Sec. 2, larger uncertainty distillation datasets substantially improve ECE and NLL metrics, enhancing EUD's uncertainty estimation capabilities.To address this, we implement dataset augmentation for smaller datasets (WG-S, ARC-C, ARC-E, and WG-M), effectively doubling their size with artificially generated data.We create these additional examples by prompting GPT-4o-mini [34] with:
+
+"Write a question with the exact same meaning as the one attached, just with different words."
+
+We then integrate these paraphrased questions into our complete training pipeline, first having the Bayesian teacher model generate inference outputs on this expanded dataset, then training the student model on this larger collection of teacher outputs.
+
+Importantly, for these synthetic examples, we exclusively use the teacher model's responses for training EUD, avoiding any unfair advantage that might come from exposing our method to additional correctly labeled data compared to the teacher model and other baselines.
+
+Remark on Simplicity of Methodology.It is worth emphasizing that the main contribution of our work does not lie in proposing novel algorithmic techniques or complex methodological innovations, but rather in validating the effectiveness of a straightforward distillation-based approach to uncertainty quantification in LLMs.While the concept of knowledge distillation is well-established, our research demonstrates that this simple method, i.e., combining standard KL-divergence loss with a basic scheduling scheme, can successfully transfer the uncertainty estimation ability of complex Bayesian LLMs to a deterministic model with remarkable fidelity.This validation of simplicity has profound implications for making uncertainty-aware language models practically deployable in resource-constrained environments.
+
+
+Algorithm 1 Efficient Uncertainty Estimation via Distillation of Bayesian LLMs (EUD)
+input D train = {(x i , y i )} M i=1 : Training dataset. q(•for i = 1, • • • , M do 2: p T (y|x i ) ← 1 N N n=1 p(y|x i , θ n ), θ n ∼ q(•|ϕ). ▷ Teacher model's predictive distributions. 3: end for 4: D train ← {(x i , y i , p T (y|x i ))} M i=1 . 5: θ S ← θ (0) S . ▷ Student model initialization. 6: for t = 1, • • • , T do 7: (X t , Y t , P t ) ∼ D train .
+▷ Sample a mini-batch of data.
+
+8:
+α t ← min(α init + t( αfinal−αinit Tα ), α final ).
+▷ Distillation loss scheduling.9:
+P t ← p(y|X t , θ S ).
+▷ Student model's predictive distribution.
+
+10:
+L t ← α t L KD ( P t , P t ) + (1 − α t )L CE ( P t , Y t ). ▷ Eqn. 6. 11: θ S ← θ S − η ∂Lt ∂θ S .
+▷ Gradient update.12: end for output Trained student parameters θ S .
+
+
+Experiments
+
+In this section, we evaluate our proposed EUD through comprehensive experiments on various settings.Sec.4.1 details our experimental setup, including backbone models, datasets, baselines, and evaluation protocols.We then present our main results on in-and out-of-distribution performance in Sec.4.2, followed by studies on various key components of uncertainty distillation in Sec.4.3.
+
+
+Settings
+
+Models.We use the latest open-source Meta-Llama-3.1-8B[10] as our primary LLM backbone.
+
+Datasets.For in-distribution experiments, we evaluate model performance on six commonsense reasoning tasks: Winogrande-Small (WG-S) and Winogrande-Medium (WG-M) [35], ARC-Challenge (ARC-C) and ARC-Easy (ARC-E) [8], Open Book Question Answering (OBQA) [29], and BoolQ [7].For out-of-distribution experiments, we use models trained on OBQA [29] to evaluate their generalization ability on other datasets that are considered out-of-distribution: college-level chemistry (Chem) and physics (Phy) subsets of MMLU [16].
+
+Evaluation.To evaluate the uncertainty estimation quality of different methods, we measure Expected Calibration Error (ECE [32]) and Negative Log-Likelihood (NLL).We also report Accuracy (ACC) to ensure models maintain strong performance.
+
+Baselines.We compare EUD with state-of-the-art Bayesian LLMs with LoRA adapters, including ensemble-based method: Deep Ensemble (ENS) [25,3,45], variational inference methods: Monte-Carlo Dropout (MCD) [12], Bayesian LoRA by Backprop (BLoB) [46], and post-training method: Laplace-LoRA (LAP) [53] and Training-Free Bayesianization (TFB) [36].We also include three non-Bayesian methods (point estimation of the model weights), including two standard PEFT baselines: Maximum Likelihood Estimation (MLE) [19] and Maximum A Posteriori (MAP), and the weight mean of BLoB (BLoB-M).All baselines are implemented following the protocols established in BLoB and TFB [46,36].
+
+
+Implementation of EUD. EUD is composed of two stages: (i) generating the predictive distributions of the Bayesian teacher on the training data
+D = {(x i , y i )} M i=1
+, where y i ≜ E θ∼q(•|ϕ) [P (y|x i , θ)] is the predictive distribution by marginalization over the approximate posterior of the teacher model q(•|ϕ); (ii) using these predictive distributions as targets for our uncertainty distillation EUD.
+
+In practice, we use BLoB [46] as the Bayesian teacher model and sample N = 100 times for estimating its predictive distributions, as a larger number of samples during inference improves uncertainty estimation [46].To maintain parameter efficiency during both training and testing, the student model is implemented using LoRA [19] with rank r = 8 (matching the baselines).We optimize EUD with AdamW [26] with η = 2.75 × 10 −4 , batch size 16, for 10,000 steps.We conduct our experiments on an NVIDIA A100 GPU server.
+
+
+In-Distribution Performance and Out-of-Distribution Generalization
+
+In-Distribution Performance.On six in-distribution datasets, EUD demonstrates a strong ability to capture the teacher's predictive accuracy and uncertainty estimation quality.In terms of accuracy, EUD is highly competitive with its teacher, BLoB [46].For example, on OBQA, EUD achieves an ACC of 88.17% compared to BLoB's 87.57%, and on BoolQ, EUD (90.06%) is slightly ahead of BLoB (89.65%).While there are minor variations on other datasets (e.g., ARC-E: EUD 89.52% vs. BLoB 91.14%), the overall accuracy is well-preserved, often outperforming other sampling-free methods like MLE [19] and MAP, and even some sampling-based methods on certain tasks.
+
+More importantly, EUD exhibits excellent uncertainty estimation capability, demonstrated by the alignment between confidence and actual prediction accuracy.Our model is able to outperform all of the other sampling-free approaches significantly, almost cutting ECE in half in some cases and having NLL decrease by up to 0.1.All of the in-distribution datasets we test on, our model has the best ECE and NLL in every single dataset.While methods like TFB [36] or LAP [53] might show lower ECE on specific datasets (e.g., TFB on ARC-E with 2.44%), EUD consistently delivers strong calibration across multiple datasets, particularly when compared to its direct sampling-free counterparts, demonstrating the effectiveness of the distillation process for uncertainty estimation.
+
+Out-of-Distribution Generalization.The capacity of EUD to generalize uncertainty estimation is evaluated by fine-tuning on OBQA and testing on related but distinct datasets (ARC-C, ARC-E for small shifts) and more distant datasets (Chemistry and Physics subsets of MMLU for large shifts).
+
+Under small distributional shifts (OBQA → ARC-C/ARC-E), EUD maintains robust performance.Its accuracy on ARC-C (78.36%) and ARC-E (84.76%) is maintained reasonably well compared to its in-distribution performance on OBQA (88.17%), though slightly lower than the teacher BLoB [46] (79.75% and 87.13% respectively).In terms of ECE, EUD on ARC-C (5.51%) is better than BLoB Table 1: Performance of different methods applied to LoRA on Llama3.1-8Bpre-trained weights, where Accuracy (ACC) and Expected Calibration Error (ECE) are reported in percentages."SF?" stands for whether a method is sampling-free during inference, and we use N = 10 samples in all sampling-based baseline methods.EUD uses BLoB [46] as the teacher model and is trained for 10,000 iterations."↑" and "↓" indicate that higher and lower values are preferred, respectively.Boldface and underlining denote the best and the second-best performance, respectively.Remark on EUD's Efficiency.As highlighted in Table 1, a major strength of EUD is its Sampling-Free (SF?=✓) nature: it achieves strong uncertainty quantification and competitive accuracy using only a single forward pass at inference.This stands in contrast to sampling-based methods like MCD [12], ENS, LAP [53], BLoB [46], and TFB [36], which require N = 10 samples during inference, leading to a 10x increase in test-time computation.EUD also consistently outperforms other sampling-free baselines such as MLE [19], MAP, and BLoB-M [46] (the mean of the BLoB teacher) in ECE, NLL, and ACC, demonstrating the advantage of distilling the full predictive distribution rather than relying on point estimates.Dataset Size (%)
+
+
+Ablation Study
+
+In this section, we conduct ablation studies to understand the impact of two key factors on our uncertainty distillation approach: (i) the size of the dataset for uncertainty distillation (Sec.4.3.1),which later inspires the adoption of dataset augmentation, and (ii) the choice of various distillation loss functions (Sec.4.3.2).
+
+
+Impact of Dataset Size and Augmentation
+
+Dataset Size.We first investigate the influence of training data quantity on the performance of EUD.We base our study on BoolQ [7], as it is the largest among the six datasets we use in this work, and can represent a wider spectrum of the impact of dataset size.We randomly sub-sample BoolQ's training data with smaller proportions (5%, 10%, 25%, 50%, 75%, and 100%) and evaluate the distilled student model on these subsets.
+
+As illustrated in Figure 2, reducing the dataset size tends to negatively impact uncertainty metrics.Specifically, Figure 2b and Figure 2c show a clear trend where ECE and NLL increase (worsen) as the dataset size decreases from 100% down to 10%.Accuracy (Figure 2a) also generally shows a decline with smaller dataset sizes, though with more variance.This suggests that sufficient training data is crucial for the student model to effectively learn the uncertainty estimation capability from the Bayesian teacher model.Our primary methodology utilizes the standard KL-divergence loss as a natural extension of the cross-entropy for knowledge distillation [18,37,51].To assess the sensitivity of our approach to these choices, we experimented with alternative distillation loss functions: Reverse KL-divergence (RKL) [31] and Total Variation Distance (TVD) [13].
+
+We evaluate these loss functions on the OBQA [29] and WG-S [35] datasets, with the results detailed in Table 3.
+
+On OBQA, our standard KL-divergence yields the best ECE (2.55) and NLL (0.33), while TV-Distance achieves slightly higher accuracy (88.71 vs. 88.17 for KL).Reverse-KL shows comparable performance to KL (Ours) on ECE and NLL, with slightly lower accuracy.On the WG-S dataset, our KL-divergence provides the best ECE (13.00) and NLL (0.62), as well as accuracy.TV-Distance has some interesting results, as the model quickly diverges and gets to an accuracy of 51.2, with might higher ECE and NLL.During this time, the training accuracy, ECE, and NLL continued to drop in the model.TV-Distance is prone to these kinds of divergences and so is not an effective candidate for use as a distillation loss.
+
+Overall, while there are minor variations in performance depending on the specific dataset and metric, no single alternative loss function consistently or significantly outperforms the standard KL-divergence across multiple datasets.The differences are generally small, suggesting that our distillation framework is robust to the precise formulation of the distribution matching loss, as long as it effectively encourages the student to mimic the teacher's predictive distribution.The simplicity and widespread use of KL-divergence make it a suitable default choice for our method.
+
+
+Conclusion
+
+This paper introduced EUD, an method for distilling uncertainty estimation abilities from Bayesian LLMs into deterministic LoRA-adapted student models, for efficient deployment.Using a simple KLdivergence loss and an annealing schedule, EUD transfers the teacher's uncertainty estimation, enabling the student to achieve comparable (or even superior) accuracy and uncertainty calibration with a single inference pass.This results in a significant N -times reduction in time complexity compared to sampling-based Bayesian methods.Our extensive empirical evaluations on Meta-Llama-3.1-8Bacross various in-distribution and out-of-distribution tasks validates this approach, demonstrating the feasibility of creating practical, uncertainty-aware LLMs without sacrificing performance.EUD highlights the power of knowledge distillation to solve key efficiency challenges, paving the way for widespread deployment of Bayesian LLMs.
+
+Future Work.Future work will explore extending EUD to broader classes of model architectures and tasks beyond language modeling, such as vision-language models and structured prediction tasks, where uncertainty estimation is equally critical.In addition, we aim to investigate more principled distillation objectives that better align higher-order uncertainty metrics, such as epistemic-aleatoric decomposition or risk-sensitive calibration.Another important direction involves online or continual distillation settings, enabling student models to update their uncertainty estimates dynamically as new data becomes available.Finally, we plan to examine the implications of EUD in downstream applications such as decision-making under uncertainty, safe reinforcement learning, and clinical risk prediction, thereby further validating its practical utility in real-world, high-stakes scenarios.
+
+Limitations.Despite its effectiveness, EUD faces several important limitations.First, student performance is inherently capped by the teacher's quality, with the potential for inheriting flaws and incurring initial teacher model costs.Additionally, the student model, being a single deterministic model, may not capture all nuances of the teacher's full posterior, though our experiments indicate the results are remarkably close.Furthermore, current validation is primarily focused on multiplechoice tasks, leaving performance on open-ended generation requiring further study.Lastly, the distillation process can be resource-intensive, requiring training data, computational resources, and generated outputs from the teacher model.Addressing these points will further strengthen the utility of distillation for efficient uncertainty-aware LLMs.Bayesian-Torch and bayesian-peft library [24,46], applying Bayesianization only to the A matrix.During training, the number of samples is set to K = 1.When getting the teacher's inference outputs, we use N = 10 samples.For TFB, we follow its original configuration of using BLoB-M as the given off-the-shelf LoRA adapter, and perform 5-round binary search of the optimal σ * q with the initial search range of [0.001, 0.015].
+
+EUD Configuration.The Bayesian teacher model for EUD is BLoB [46].To generate its predictive distributions, which serve as targets for our EUD student, we draw N = 100 Monte Carlo samples from the trained BLoB teacher for each training instance.The student model is a standard LoRA adapter with r = 8 and α = 16, as described in shared configuration.
+
+For the experiment on each dataset, EUD is trained for 10, 000 steps with batch size 16, AdamW optimizer [26], and learning rate scheduler (linear decay with a warmup ratio of 0.1 and a maximum value of 2.75e − 4).For smaller datasets (WG-S [35], ARC-C [8], ARC-E [8], and WG-M [35]), we perform dataset augmentation as detailed in Sec.3.2.
+
+
+B Additional Experimental Results
+
+
+B.1 Ablation Study of Different Distillation Losses
+
+Our proposed training framework, EUD, can be generalized as a distillation-based training algorithm parameterized by a generic distillation loss L:
+L KD (θ; ϕ) = E x∼D [L (P (y|x, ϕ), P (y|x, θ))] ,(9)
+where P (y|x, ϕ) ≜ E θ∼q(•|ϕ) [P (y|x, θ)] denotes the predictive distribution marginalized over the approximate posterior.For brevity and clarity, we denote the teacher's predictive distribution as p and the student's as q.As described in Sec.3.2, EUD employs the standard KL divergence as the distillation loss, comparing soft labels from the Bayesian teacher to the student's output:
+L KL (p, q) ≜ KL(p∥q) = − y∈Y p(y) log q(y) p(y) .(10)
+In Sec.4.3.2,we compare EUD against two alternative distillation losses aimed at transferring uncertainty estimation capabilities to a single deterministic model: Importantly, this sampling is performed only once during training and incurs no additional cost at test time, making EUD highly practical for real-world deployment of Bayesian models.
+
+• Reverse KL (RKL): By reversing the arguments of KL divergence, RKL places greater penalty on underestimating the support of the target distribution, i.e., assigning low probability where the teacher assigns high mass [31]:
+L RKL (p, q) ≜ KL(q∥p) = y∈Y q(y) log q(y) p(y) .(11)
+• Total Variation Distance (TVD): TVD [13] quantifies the maximum discrepancy in probability assigned to outcomes by two distributions, thus reflecting their distinguishability.As it is equivalent to half the L1-distance between the distributions, we compute it accordingly:
+L TVD (p, q) ≜ TVD(q∥p) = 1 2 L 1 (q∥p) = 1 2 y∈Y |p(y) − q(y)|.(12)
+We report the additional results comparing EUD with other distillation losses (RKL and TVD) in Table 5.In most cases, KL emerges as the top-performing distillation loss, with RKL closely following and occasionally surpassing KL, such as on ARC-E and ARC-C, where both perform equally well.Across nearly all datasets, KL consistently ranks first for ECE and NLL, while RKL typically takes second place.In contrast, TVD performs poorly; it often leads to training instability, occasionally diverging and causing sharp drops in performance metrics for certain random seeds, which in turn inflates the standard deviations.This instability is particularly evident in datasets like WG-S (where divergence occurs in all three seeds) and ARC-E (where it diverges in one seed).
+
+Overall, while all methods exhibit comparable accuracy, aside from occasional divergence with TVD, KL remains the most reliable choice for EUD, especially in terms of ECE and NLL.
+
+
+B.2 Ablation Study of Different Sampling Sizes of the Bayesian Teacher
+
+Additional results on the effect of Bayesian teacher model sample size are shown in Fig. 3.As illustrated in Fig. 3, increasing the number of samples from the Bayesian teacher leads to improved uncertainty estimation, reflected in lower ECE and NLL, while ACC remains nearly unchanged.Importantly, this sampling is a one-time cost incurred during training of EUD, meaning performance gains can be achieved without any increase in inference-time overhead, making EUD highly practical for real-world deployment of Bayesian models.
+
+
+B.3 Training Trajectories
+
+In Fig.
+
+Figure 1 :
+1
+Figure 1: Overview of Bayesian LLMs.a. Point estimation (e.g., LoRA[19]) overfits to limited data, causing unreliable responses.b.Bayesian Low-Rank Adaptation (BLoB)[46] uses variational Gaussian distributions for better generalization and confidence alignment.c.Training-Free Bayesianization (TFB)[36] enables direct conversion to Bayesian LLMs without complex training.d.Efficient Uncertainty Estimation via Distillation (EUD) distills uncertainty estimation to point estimation.Our approach serves as an important puzzle of test-time efficient deployment for Bayesian LLMs.
+
+
+
+
+|ϕ): Bayesian teacher model's approximate weight posterior.N : Number of samples for estimation of the teacher model's prediction.θ (0) S : Initial student model weights.η: Learning rate; B s : Batch size; T max : Number of max training steps.L KD : Distillation loss function.▷ E.g., KL as in Eqn. 4. α init , α final : Initial and final weights for distillation loss.T α : Number of annealing steps for α t .1:
+
+
+Figure 3 :
+3
+Figure 3: Effect of Teacher Model Sample Size on EUD, evaluated on WG-S [35].Increasing the number of samples from the Bayesian teacher model during training significantly enhances the uncertainty estimation performance of the distilled deterministic student model of our EUD.Importantly, this sampling is performed only once during training and incurs no additional cost at test time, making EUD highly practical for real-world deployment of Bayesian models.
+
+
+Figure 4 :
+4
+Figure 4: Training dynamics of EUD on OBQA [29].
+
+
+Figure 5 :
+5
+Figure 5: Training dynamics of EUD on WG-S [35].
+
+
+
+
+✗ 77.81±0.3683.33±0.1991.76±0.4883.81±0.3987.80±0.1690.11±0.2882.93±1.5487.64±0.5139.67±7.3237.33±6.65MLE ✓ 77.87±0.5481.08±0.4891.67±0.3682.30±0.5387.90±0.8789.58±0.2681.48±2.4186.83±0.8745.83±0.8542.36±1.77MAP ✓ 76.90±0.9781.08±2.4891.61±0.44 82.59±0.2885.73±0.1990.09±0.2879.98±0.8786.58±0.7943.40±4.9838.54±3.40BLoB-M [46] ✓ 77.72±0.1282.60±0.60 91.64±0.5583.92±0.4888.00±0.8089.86±0.0582.06±1.1588.54±0.3139.93±5.20 39.93±4.02EUD (Ours) ✓ 77.58±1.3982.75±0.1691.37±0.33 83.25±0.4788.17±0.67 90.06±0.0978.36±0.8784.76±0.5539.58±1.70 39.58±4.50✗ 14.72±0.1713.45±1.196.59±0.4511.17±0.928.17±0.867.35±0.5511.37±1.827.21±1.1318.92±6.0326.80±3.23LAP [53] ✗ 4.18±0.119.26±3.085.27±0.513.50±0.788.93±0.341.93±0.227.83±1.497.80±1.9914.49±0.5713.17±2.14BLoB [46] ✗ 9.93±0.225.41±1.172.70±0.874.28±0.642.91±0.922.58±0.25 5.61±0.402.48±0.4316.67±0.8712.78±4.18TFB [36] ✗ 8.16±0.486.48±0.362.44±0.503.83±0.432.67±0.183.10±0.596.69±1.633.61±0.8718.45±6.7520.53±6.27MLE ✓ 17.02±0.4616.35±0.687.00±0.5313.83±0.659.77±0.818.69±0.2114.45±2.1910.78±0.5032.46±2.6038.41±4.44MAP ✓ 18.71±0.7415.77±1.606.62±0.6414.26±0.9212.19±0.558.40±0.25 16.46±0.4411.36±0.5834.79±3.7638.50±2.18BLoB-M [46] ✓ 15.43±0.1512.41±1.524.91±0.289.37±1.336.44±0.156.26±0.29 11.22±0.386.34±0.7126.65±3.0625.40±5.40EUD (Ours) ✓ 9.24±1.164.76±0.584.49±0.562.37±0.692.55±0.122.34±0.285.51±0.244.88±0.65 13.74±2.8015.66±4.60
+Metric MethodSF?In-Distribution DatasetsOut-of-Distribution Datasets (OBQA→X) Small Shift Large ShiftWG-SARC-C ARC-EWG-MOBQABoolQARC-C ARC-EChemPhyMCD [12]✗ 78.03±0.61 81.64±1.79 91.37±0.38 83.18±0.84 87.20±1.02 89.93±0.16 81.42±1.38 87.27±0.84 47.92±2.25 46.53±0.49ENS [45]✗ 78.82±0.52 82.55±0.42 91.84±0.36 83.99±0.74 87.37±0.67 90.50±0.14 79.62±0.57 86.56±0.60 49.65±3.22 44.44±1.96LAP [53]✗ 76.05±0.92 79.95±0.42 90.73±0.08 82.83±0.85 87.90±0.20 89.36±0.52 81.08±1.20 87.21±1.20 48.26±3.93 46.18±1.30BLoB [46]✗ 76.45±0.37 82.32±1.15 91.14±0.54 82.01±0.56 87.57±0.21 89.65±0.15 79.75±0.43 87.13±0.00 42.71±3.71 44.79±6.64ACC (↑)TFB [36]MCD [12]✗ 16.13±0.54 13.69±1.11 6.73±0.71 13.05±0.99 9.76±0.71 7.95±0.17 13.63±1.18 9.27±0.60 30.91±3.57 33.08±1.40ENS [45]ECE (↓)MCD [12]✗ 0.83±0.01 0.99±0.10 0.45±0.06 0.64±0.03 0.62±0.08 0.49±0.01 1.03±0.02 0.61±0.03 1.91±0.18 2.02±0.15ENS [45]✗ 0.75±0.02 0.80±0.11 0.38±0.03 0.55±0.02 0.45±0.05 0.42±0.05 0.72±0.07 0.44±0.03 1.40±0.18 1.50±0.13LAP [53]✗ 0.56±0.00 1.18±0.02 1.04±0.01 0.51±0.00 0.94±0.00 0.43±0.00 1.17±0.01 1.11±0.00 1.27±0.01 1.28±0.00BLoB [46]✗ 0.58±0.00 0.51±0.03 0.23±0.01 0.43±0.01 0.34±0.01 0.26±0.01 0.56±0.02 0.35±0.02 1.34±0.04 1.35±0.10NLL (↓)TFB [36]✗ 0.55±0.01 0.53±0.04 0.23±0.02 0.40±0.01 0.33±0.02 0.27±0.01 0.52±0.05 0.35±0.02 1.36±0.13 1.46±0.11MLE✓ 0.88±0.04 1.20±0.11 0.46±0.04 0.68±0.01 0.61±0.06 0.52±0.01 1.07±0.06 0.72±0.06 1.91±0.16 2.25±0.21MAP✓ 0.99±0.07 1.12±0.23 0.46±0.03 0.74±0.07 0.79±0.02 0.52±0.01 1.19±0.04 0.83±0.06 1.97±0.13 2.32±0.10BLoB-M [46] ✓ 0.74±0.02 0.73±0.04 0.29±0.03 0.47±0.03 0.37±0.02 0.32±0.02 0.67±0.07 0.39±0.03 1.53±0.13 1.54±0.15EUD (Ours)✓ 0.55±0.03 0.52±0.03 0.24±0.01 0.41±0.02 0.33±0.02 0.24±0.00 0.61±0.01 0.40±0.00 1.32±0.06 1.34±0.0293%,Phy: 39.93%) and slightly below BLoB, its ECE on the Chem dataset (13.74%) is notably betterthan its teacher BLoB (16.67%) and other sampling-based methods like TFB [36] (18.45%) andENS (18.92%). On the Phy dataset, EUD's ECE (15.66%) is competitive, with BLoB at 12.78% andLAP [53] at 13.17% being the best, but EUD still outperforms TFB (20.53%) and MCD [12] (33.08%),which are sampling-based methods. Impressively, for NLL under these large shifts, EUD achieves thesecond-best scores across all methods, including all sampling-based approaches. If we consider onlysampling-free methods, our approach is once again the best by far. This highlights that the distilledstudent model effectively learns to represent uncertainty even when faced with significant domainchanges.
+[46]1%) and once again outperforms the rest of the sampling-free methods.On ARC-E, its ECE (4.88%) is competitive although BLoB shows a lower ECE (2.48%).Once again, the other samplingfree methods are significantly worse than our approach.TheNLL scores for EUD (ARC-C: 0.61, ARC-E: 0.40) are also strong, placing it among the best-performing methods, including samplingbased ones, and once again surpasses all other sampling-free methods.Under large distributional shifts (OBQA → Chem/Phy), where a significant drop in accuracy is observed for all methods, EUD demonstrates remarkable resilience in its uncertainty calibration.While accuracy for EUD (Chem: 39.58%, Phy: 39.58%) is comparable to BLoB-M[46](Chem: 39.
+
+
+
+
+[7]act of Dataset Size on Student Model Performance on BoolQ[7].Reducing the size of training data leads to higher ECE and NLL, and generally lower ACC, highlighting the importance of sufficient data for effective uncertainty distillation for EUD.
+919190907770.36 0.360.36Accuracy (%) 87 88 89 Accuracy (%)87 88 89ECE (%) 4 6 5 ECE (%)ECE (%) 4 5 64 5 6NLL 0.28 0.30 0.32 0.34 0.34 NLL 0.28 0.32 0.30 NLL0.28 0.30 0.32 0.343330.26 0.260.2686860.24 0.240.245 10 5 102525 Dataset Size (%) 50 Dataset Size (%) 75 50 751001005 10 5 102525 Dataset Size (%) 50 Dataset Size (%) 75 50 751001005 10 5 105 10 25 25 Dataset Size (%) 25 50 Dataset Size (%) 75 50 75 Dataset Size (%) 50 75100 100100(a) Accuracy(b) ECE(c) NLLFigure 2:
+
+Table 2 :
+2
+Study of Dataset Augmentation."−DA" represents EUD w/o Data Augmentation.
+DatasetMethodACC (↑)ECE (↓)NLL (↓)BLoB [46]76.45±0.379.93±0.220.58±0.00WG-SEUD (Ours)77.58±0.439.24±0.350.55±0.01−DA76.87±1.3913.00±1.160.62±0.03BLoB [46]82.32±1.155.41±1.170.51±0.03ARC-CEUD (Ours)82.75±0.434.76±0.240.52±0.01−DA82.87±0.169.01±0.580.58±0.03BLoB [46]91.14±0.542.70±0.870.23±0.01ARC-EEUD (Ours)91.37±0.144.49±0.500.24±0.00−DA89.52±0.334.86±0.560.29±0.01BLoB [46]82.01±0.564.28±0.640.43±0.01WG-MEUD (Ours)83.25±0.312.37±0.280.41±0.00−DA82.65±0.475.27±0.690.42±0.02
+
+Table 3 :
+3
+Study of Different Distillation Losses.
+Dataset LossACC (↑) ECE (↓) NLL (↓)BLoB [46]87.57±0.21 2.91±0.92 0.34±0.01OBQAEUD-KL (Ours) 88.17±0.67 2.55±0.12 0.33±0.02 EUD-RKL 87.63±1.24 2.70±0.73 0.34±0.02EUD-TVD88.71±0.59 3.21±0.44 0.34±0.01BLoB [46]76.45±0.37 9.93±0.22 0.58±0.00WG-SEUD-KL (Ours) 77.58±1.39 9.24±1.16 0.55±0.03 EUD-RKL 75.16±1.43 13.23±0.60 0.63±0.02EUD-TVD51.42±0.91 28.52±0.57 1.07±0.02
+
+Table 5 :
+5
+[46]ormance of different methods applied to LoRA on Llama3.1-8Bpre-trainedweights,where Accuracy (ACC) and Expected Calibration Error (ECE) are reported in percentages."SF?" stands for whether a method is sampling-free during inference, and we use N = 10 samples in all sampling-based baseline methods.EUD uses BLoB[46]as the teacher model and is trained for 10,000 iterations."↑" and "↓" indicate that higher and lower values are preferred, respectively.Boldface and underlining denote the best and the second-best performance, respectively.
+Metric MethodSF?WG-SARC-CDataset ARC-E WG-MOBQABoolQBLoB [46]✗76.45±0.37 82.32±1.15 91.14±0.54 82.01±0.56 87.57±0.21 89.65±0.15ACC (↑)BLoB-M [46] EUD-KL (Ours)✓ ✓77.72±0.12 82.60±0.60 91.64±0.55 83.92±0.48 88.00±0.80 89.86±0.05 77.58±1.39 82.75±0.16 91.37±0.33 83.25±0.47 88.17±0.67 90.06±0.09EUD-RKL✓75.16±1.43 83.22±1.43 90.43±0.44 83.60±0.79 87.63±1.24 90.28±0.19EUD-TVD✓51.42±0.91 83.45±0.91 69.60±29.67 83.12±0.54 88.71±0.59 80.69±13.12BLoB [46]✗9.93±0.225.41±1.172.70±0.874.28±0.642.91±0.922.58±0.25ECE (↓)BLoB-M [46] EUD-KL (Ours)✓ ✓15.43±0.15 12.41±1.52 9.24±1.16 4.76±0.584.91±0.28 4.49±0.569.37±1.33 2.37±0.696.44±0.15 2.55±0.126.26±0.29 2.34±0.28EUD-RKL✓13.23±0.60 5.10±0.602.38±0.203.52±0.432.70±0.732.78±0.05EUD-TVD✓28.52±0.57 7.43±0.57 26.15±32.68 4.64±0.473.21±0.44 14.77±16.34BLoB [46]✗0.58±0.000.51±0.030.23±0.010.43±0.010.34±0.010.26±0.01NLL (↓)BLoB-M [46] EUD-KL (Ours)✓ ✓0.74±0.02 0.55±0.030.73±0.04 0.52±0.030.29±0.03 0.24±0.010.47±0.03 0.41±0.020.37±0.02 0.33±0.020.32±0.02 0.24±0.00EUD-RKL✓0.63±0.020.52±0.020.26±0.010.41±0.010.34±0.020.25±0.00EUD-TVD✓1.07±0.020.55±0.024.83±6.400.42±0.010.34±0.012.30±2.88
+AppendixIn Appendix A, we present more implementation details of our proposed EUD algorithm and the baseline methods shown in the experiments, and in Appendix B, we present additional empirical results, including:A Implementation DetailsA.1 DatasetsWe provide details of the datasets used in this work, as shown in Table4.A.2 Evaluation MetricsNegative Log-Likelihood (NLL) and Expected Calibration Error (ECE)[32]are widely used metrics for evaluating uncertainty estimation quality in predictive models.Given a model P θ and a test set {x n , y n } N n=1 , NLL assesses how well the model predicts true labels by penalizing low probability assignments to the correct classes.It is computed as:ECE quantifies the calibration of a model by comparing predicted confidence to actual accuracy across bins of predictions:where acc(B m ) = 1 /|Bm| i∈Bm 1( y i = y i ) denotes the average accuracy, and conf(B m ) =1 /|Bm| i∈Bm P ( y i ) represents the average predicted confidence within bin B m .Throughout this paper, we use a fixed bin size of |B m | = 15.A.3 Bayesianization (Training)Shared Configuration.We report the mean and standard deviation of all experimental results calculated over three random seeds.For all training processes in our experiments, we employ the AdamW optimizer[26].The learning rate follows a linear decay schedule with a warmup ratio of 0.1 and a maximum value of 2.75e − 4. The batch size is set to 8, and the maximum sentence length is limited to 300 tokens.The LoRA configuration includes LoRA α = 16 and LoRA r = 8.Baseline Configuration.The baseline configuration mainly follows BLoB[46].MLE follows the standard LoRA implementation.For MAP, we implement it with a weight decay rate of 1e − 5.MCDconsists of an ensemble of 10 LoRAs with a dropout rate of p = 0.1.For ENS, we finetune 3 LoRAs independently and combine them by averaging their logits during evaluation.We implement LAP and apply it to the MAP checkpoints.For BLoB, we use the default settings from
+Bayesian posterior sampling via stochastic gradient fisher scoring. S Ahn, A Korattikara, M Welling, arXiv:1206.63802012arXiv preprint
+
+. J Bai, S Bai, Y Chu, Z Cui, K Dang, X Deng, Y Fan, W Ge, Y Han, F Huang, arXiv:2309.166092023Qwen technical report. arXiv preprint
+
+Uncertainty quantification in fine-tuned llms using lora ensembles. O Balabanov, H Linander, arXiv:2402.122642024arXiv preprint
+
+Pythia: A suite for analyzing large language models across training and scaling. S Biderman, H Schoelkopf, Q G Anthony, H Bradley, K O'brien, E Hallahan, M A Khan, S Purohit, U S Prashanth, E Raff, International Conference on Machine Learning. PMLR2023
+
+Pattern recognition and machine learning. C M Bishop, Springer google schola. 20062
+
+Weight uncertainty in neural network. C Blundell, J Cornebise, K Kavukcuoglu, D Wierstra, International conference on machine learning. PMLR2015
+
+BoolQ: Exploring the surprising difficulty of natural yes/no questions. C Clark, K Lee, M.-W Chang, T Kwiatkowski, M Collins, K Toutanova, Proceedings of the 2019 Conference of the North American Chapter. Long and Short Papers. J Burstein, C Doran, T Solorio, the 2019 Conference of the North American ChapterMinneapolis, MinnesotaAssociation for Computational LinguisticsJune 20191
+
+Think you have solved question answering? try arc, the ai2 reasoning challenge. P Clark, I Cowhey, O Etzioni, T Khot, A Sabharwal, C Schoenick, O Tafjord, 2018
+
+R Deo, S Sisson, J M Webster, R Chandra, arXiv:2501.06962Compact bayesian neural networks via pruned mcmc sampling. 2025arXiv preprint
+
+The llama 3 herd of models. A Dubey, A Jauhri, A Pandey, A Kadian, A Al-Dahle, A Letman, A Mathur, A Schelten, A Yang, A Fan, arXiv:2407.217832024arXiv preprint
+
+Efficient evaluation-time uncertainty estimation by improved distillation. E Englesson, H Azizpour, arXiv:1906.054192019arXiv preprint
+
+Dropout as a bayesian approximation: Representing model uncertainty in deep learning. Y Gal, Z Ghahramani, international conference on machine learning. PMLR2016
+
+On choosing and bounding probability metrics. A L Gibbs, F E Su, International statistical review. 7032002
+
+D Guo, D Yang, H Zhang, J Song, R Zhang, R Xu, Q Zhu, S Ma, P Wang, X Bi, arXiv:2501.12948Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. 2025arXiv preprint
+
+Variational bayesian last layers. J Harrison, J Willes, J Snoek, The Twelfth International Conference on Learning Representations. 2024
+
+Measuring massive multitask language understanding. D Hendrycks, C Burns, S Basart, A Zou, M Mazeika, D Song, J Steinhardt, Proceedings of the International Conference on Learning Representations (ICLR). the International Conference on Learning Representations (ICLR)2021
+
+Probabilistic backpropagation for scalable learning of bayesian neural networks. J M Hernández-Lobato, R Adams, International conference on machine learning. PMLR2015
+
+G Hinton, O Vinyals, J Dean, arXiv:1503.02531Distilling the knowledge in a neural network. 2015arXiv preprint
+
+LoRA: Low-rank adaptation of large language models. E J Hu, Y Shen, P Wallis, Z Allen-Zhu, Y Li, S Wang, L Wang, W Chen, International Conference on Learning Representations. 2022
+
+What are bayesian neural network posteriors really like. P Izmailov, S Vikram, M D Hoffman, A G G Wilson, International conference on machine learning. PMLR2021
+
+Large language models must be taught to know what they don't know. S Kapoor, N Gruver, M Roberts, K Collins, A Pal, U Bhatt, A Weller, S Dooley, M Goldblum, A G Wilson, arXiv:2406.083912024arXiv preprint
+
+Variational dropout and the local reparameterization trick. D P Kingma, T Salimans, M Welling, Advances in neural information processing systems. 282015
+
+Bayesian dark knowledge. A Korattikara Balan, V Rathod, K P Murphy, M Welling, Advances in neural information processing systems. 282015
+
+Bayesian-torch: Bayesian neural network layers for uncertainty estimation. R Krishnan, P Esposito, M Subedar, Jan. 2022
+
+Simple and scalable predictive uncertainty estimation using deep ensembles. Advances in neural information processing systems. B Lakshminarayanan, A Pritzel, C Blundell, 201730
+
+I Loshchilov, F Hutter, arXiv:1711.05101Decoupled weight decay regularization. 2017arXiv preprint
+
+A practical bayesian framework for backpropagation networks. D J Mackay, Neural computation. 19924
+
+. A Malinin, B Mlodozeniec, M Gales, arXiv:1905.000762019Ensemble distribution distillation. arXiv preprint
+
+Can a suit of armor conduct electricity? a new dataset for open book question answering. T Mihaylov, P Clark, T Khot, A Sabharwal, Proceedings of the 2018 Conference on Empirical Methods in Natural Language Processing. E Riloff, D Chiang, J Hockenmaier, J Tsujii, the 2018 Conference on Empirical Methods in Natural Language ProcessingBrussels, BelgiumAssociation for Computational LinguisticsOct.-Nov. 2018
+
+S Min, X Lyu, A Holtzman, M Artetxe, M Lewis, H Hajishirzi, L Zettlemoyer, arXiv:2202.12837Rethinking the role of demonstrations: What makes in-context learning work?. 2022arXiv preprint
+
+Divergence measures and message passing. T Minka, 2005
+
+Obtaining well calibrated probabilities using bayesian binning. M P Naeini, G Cooper, M Hauskrecht, Proceedings of the AAAI conference on artificial intelligence. the AAAI conference on artificial intelligence201529
+
+Bayesian learning for neural networks. R M Neal, 2012Springer Science & Business Media118
+
+Gpt-4o-mini. OpenAI
+
+Winogrande: an adversarial winograd schema challenge at scale. K Sakaguchi, R L Bras, C Bhagavatula, Y Choi, Commun. ACM. 649aug 2021
+
+Training-free bayesianization for low-rank adapters of large language models. H Shi, Y Wang, L Han, H Zhang, H Wang, arXiv:2412.057232024arXiv preprint
+
+On the efficacy of small self-supervised contrastive models without distillation signals. H Shi, Y Zhang, S Tang, W Zhu, Y Li, Y Guo, Y Zhuang, Proceedings of the AAAI conference on artificial intelligence. the AAAI conference on artificial intelligence202236
+
+Just ask for calibration: Strategies for eliciting calibrated confidence scores from language models fine-tuned with human feedback. K Tian, E Mitchell, A Zhou, A Sharma, R Rafailov, H Yao, C Finn, C Manning, Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing. H Bouamor, J Pino, K Bali, the 2023 Conference on Empirical Methods in Natural Language ProcessingSingaporeAssociation for Computational LinguisticsDec. 2023
+
+Accurate approximations for posterior moments and marginal densities. L Tierney, J B Kadane, Journal of the american statistical association. 813931986
+
+H Touvron, T Lavril, G Izacard, X Martinet, M.-A Lachaux, T Lacroix, B Rozière, N Goyal, E F Azhar, arXiv:2302.13971Open and efficient foundation language models. 2023arXiv preprint
+
+Llama 2: Open foundation and fine-tuned chat models. H Touvron, L Martin, K Stone, P Albert, A Almahairi, Y Babaei, N Bashlykov, S Batra, P Bhargava, S Bhosale, arXiv:2307.092882023arXiv preprint
+
+Natural-parameter networks: A class of probabilistic neural networks. H Wang, X Shi, D.-Y Yeung, Advances in neural information processing systems. 292016
+
+Towards bayesian deep learning: A framework and some existing methods. H Wang, D.-Y Yeung, IEEE Transactions on Knowledge and Data Engineering. 28122016
+
+A survey on bayesian deep learning. H Wang, D.-Y Yeung, ACM computing surveys (csur). 202053
+
+X Wang, L Aitchison, M Rudolph, Lora ensembles for large language model fine-tuning. 2023
+
+Blob: Bayesian low-rank adaptation by backpropagation for large language models. Y Wang, H Shi, L Han, D Metaxas, H Wang, arXiv:2406.116752024arXiv preprint
+
+J Wei, M Bosma, V Y Zhao, K Guu, A W Yu, B Lester, N Du, A M Dai, Q V Le, arXiv:2109.01652Finetuned language models are zero-shot learners. 2021arXiv preprint
+
+J Wei, Y Tay, R Bommasani, C Raffel, B Zoph, S Borgeaud, D Yogatama, M Bosma, D Zhou, D Metzler, arXiv:2206.07682Emergent abilities of large language models. 2022arXiv preprint
+
+Bayesian learning via stochastic gradient langevin dynamics. M Welling, Y W Teh, Proceedings of the 28th international conference on machine learning (ICML-11). the 28th international conference on machine learning (ICML-11)Citeseer2011
+
+Can llms express their uncertainty? an empirical evaluation of confidence elicitation in llms. M Xiong, Z Hu, X Lu, Y Li, J Fu, J He, B Hooi, arXiv:2306.130632023arXiv preprint
+
+X Xu, M Li, C Tao, T Shen, R Cheng, J Li, C Xu, D Tao, T Zhou, arXiv:2402.13116A survey on knowledge distillation of large language models. 2024arXiv preprint
+
+. A Yang, B Yang, B Zhang, B Hui, B Zheng, B Yu, C Li, D Liu, F Huang, H Wei, arXiv:2412.1511520245 technical report. arXiv preprint
+
+Bayesian low-rank adaptation for large language models. A X Yang, M Robeyns, X Wang, L Aitchison, arXiv:2308.131112023arXiv preprint
+
+Collapsed inference for bayesian deep learning. Z Zeng, G Van Den Broeck, Advances in Neural Information Processing Systems. 202336

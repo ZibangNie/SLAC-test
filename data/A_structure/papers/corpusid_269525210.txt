@@ -1,0 +1,515 @@
+Dynamic CBCT imaging using prior model-free spatiotemporal implicit neural representation (PMF-STINR)
+23 May 2024
+
+Hua-Chieh Shao 
+Department of Radiation Oncology
+The Medical Artificial Intelligence and Automation (MAIA) Laboratory
+University of Texas Southwestern Medical Center
+75390DallasTXUnited States of America
+
+Tielige Mengke 0009-0003-7664-7257
+Department of Radiation Oncology
+The Medical Artificial Intelligence and Automation (MAIA) Laboratory
+University of Texas Southwestern Medical Center
+75390DallasTXUnited States of America
+
+Tinsu Pan 0000-0003-1836-9829
+Department of Imaging Physics
+University of Texas MD Anderson Cancer Center
+77030HoustonTXUnited States of America
+
+You Zhang you.zhang@utsouthwestern.edu 
+Department of Radiation Oncology
+The Medical Artificial Intelligence and Automation (MAIA) Laboratory
+University of Texas Southwestern Medical Center
+75390DallasTXUnited States of America
+
+Dynamic CBCT imaging using prior model-free spatiotemporal implicit neural representation (PMF-STINR)
+23 May 20247ABD0DB8A4073558C26352D9BF59723E10.1088/1361-6560/ad46dcRECEIVED 1 December 2023 REVISED 12 April 2024 ACCEPTED FOR PUBLICATION 1 May 2024dynamic CBCTimage reconstructiondeformable registrationimplicit neural representationdata-driven motion modeling
+Objective.Dynamic cone-beam computed tomography (CBCT) can capture high-spatial-resolution, time-varying images for motion monitoring, patient setup, and adaptive planning of radiotherapy.However, dynamic CBCT reconstruction is an extremely ill-posed spatiotemporal inverse problem, as each CBCT volume in the dynamic sequence is only captured by one or a few x-ray projections, due to the slow gantry rotation speed and the fast anatomical motion (e.g.breathing).Approach.We developed a machine learning-based technique, prior-model-free spatiotemporal implicit neural representation (PMF-STINR), to reconstruct dynamic CBCTs from sequentially acquired x-ray projections.PMF-STINR employs a joint image reconstruction and registration approach to address the under-sampling challenge, enabling dynamic CBCT reconstruction from singular x-ray projections.Specifically, PMF-STINR uses spatial implicit neural representations to reconstruct a reference CBCT volume, and it applies temporal INR to represent the intra-scan dynamic motion of the reference CBCT to yield dynamic CBCTs.PMF-STINR couples the temporal INR with a learningbased B-spline motion model to capture time-varying deformable motion during the reconstruction.Compared with the previous methods, the spatial INR, the temporal INR, and the B-spline model of PMF-STINR are all learned on the fly during reconstruction in a one-shot fashion, without using any patient-specific prior knowledge or motion sorting/binning.Main results.PMF-STINR was evaluated via digital phantom simulations, physical phantom measurements, and a multi-institutional patient dataset featuring various imaging protocols (half-fan/full-fan, full sampling/sparse sampling, different energy and mAs settings, etc).The results showed that the one-shot learning-based PMF-STINR can accurately and robustly reconstruct dynamic CBCTs and capture highly irregular motion with high temporal (∼ 0.1 s) resolution and sub-millimeter accuracy.Significance.PMF-STINR can reconstruct dynamic CBCTs and solve the intra-scan motion from conventional 3D CBCT scans without using any prior anatomical/motion model or motion sorting/binning.It can be a promising tool for motion management by offering richer motion information than traditional 4D-CBCTs.
+
+1. Introduction 1.1.Background and study overview Cone-beam computed tomography (CBCT) is widely used in clinical practice.In radiotherapy, CBCT provides high-spatial-resolution volumetric imaging guidance for treatment setup, dose verification, and adaptive therapy (Jaffray et al 2002, Oldham et al 2005).For CBCT imaging, cone-beam projections are acquired by a source-detector pair that rotates around the patient.The acquisition efficiency is limited by the rotation speed which is generally restricted to ∼6°/second (s) for patient safety.Accordingly, it takes ∼1 minute (min) or more to acquire a 360°scan.Due to the long acquisition time, patient anatomical motion, mostly respiration (3-5 s per breathing cycle), results in artifacts and blurriness in the reconstructed CBCTs (Rit et al 2011).To address the artifacts and resolve the underlying motion, four-dimensional (4D)-CBCT was developed as the current clinical state-of-the-art (Sonke et al 2005, Zhang et al 2013, Abulimiti et al 2023).4D-CBCT sorts the projections into a pre-defined set of motion bins and stacks semi-static CBCTs reconstructed from each bin to represent an averaged motion pattern.The motion sorting assumes that the underlying anatomical motion is periodic and regular, which is in general false (Yasue et al 2022).Correspondingly, 4D-CBCT cannot capture time-resolved irregular motion which may significantly impact patient setup and dose delivery accuracy (Vergalasova et al 2011, Clements et al 2013, Li et al 2018).Moreover, 4D motion sorting is usually based on surrogates (e.g.surface reflective markers), and can be inaccurate due to limited surrogate-anatomy motion correlation (Yan et al 2008).
+
+A fundamental solution to the limitations of 4D-CBCT is to reconstruct a dynamic sequence of CBCTs (one CBCT for one projection), which eliminates the uncertainties from motion sorting to capture both regular and irregular motion.Dynamic CBCTs can reveal patient anatomy variations with the utmost spatial and temporal resolutions.For radiotherapy, in the pre-treatment stage, dynamic CBCTs can be used to capture the true range of motion to optimize the treatment margin and select the most appropriate motion management technique.During the treatment, the dynamic CBCT can be coupled with the dose delivery sequence to reconstruct dynamic doses and reveal true 'accumulated' dosage (Zou et al 2014).Such information can then be applied to guide the adaptation of future treatments to preserve the dose delivery precision (Brock 2019).However, dynamic CBCT is not yet clinically available, mostly due to the lack of a robust technique to reconstruct CBCTs from singular x-ray projections.The information captured by a single 2D projection is extremely limited for CBCT reconstruction, as conventional reconstruction methods require hundreds of projections (Feldkamp et al 1984).Although there are numerous studies on 4D-CBCT imaging and reconstruction (Bergner et al 2009, Brehm et al 2011, 2012a, 2012b, 2013, Wang and Gu 2013, Zhang et al 2013, Brehm et al 2014, Yan et al 2014, Brehm et al 2015, Sauppe et al 2016, Zhang et al 2016, Sauppe et al 2018, Star-Lack et al 2018, Shieh et al 2019, Huang et al 2020, Zhi et al 2020), the corresponding studies on dynamic CBCT reconstruction are very scarce (Cai et al 2014, Gao et al 2018, Jailin et al 2021, Zhang et al 2023, Huang et al 2024).The few available methods are either limited to preliminary studies based on simplified non-cone-beam geometries; or relying on specifically crafted, prior anatomical/motion models that are susceptible to differing CBCT acquisition conditions and patient anatomy/motion variations.Most of the studies are evaluated on simulated data rather than real clinical cone-beam projections, which did not fully demonstrate their clinical applicability and translation potential.
+
+Our proposed study marks the first general, prior model-free dynamic CBCT reconstruction approach to address the above-mentioned challenges.Specifically, we have made the following contributions:
+
+• We developed a one-shot, implicit neural representation (INR) learning-based dynamic CBCT reconstruction technique that can reconstruct hundreds of motion-resolved CBCT volumes from a conventional 3D CBCT scan, without using any prior modeling or motion binning/sorting.The developed technique offers a clear advantage over the current 4D-CBCT approach and can reveal both regular and irregular volumetric motion to better inform treatment strategies and decisions.
+
+• To the best of our knowledge, our study marks the first comprehensive evaluation and validation of a dynamic CBCT reconstruction technique.We evaluated our approach using a digital phantom simulation study, a dynamic thorax phantom measurement study, and a patient study using multi-institutional clinical conebeam projections featuring combined anatomical, motion, and imaging variations.
+
+
+Related works
+
+Dynamic CBCT reconstruction has been a challenging problem with few reported studies.Cai et al (2014) proposed a low-rank reconstruction approach, assuming the dynamic CBCTs can be approximated as a linearlyweighted sequence of 20 basis images derived from the projection data.The proof-of-concept study showed encouraging results for time-resolved image reconstruction, but the algorithm was only evaluated for the 2D fan-beam geometry, using simulated data from a digital phantom under regular motion.Gao et al (2018) proposed to use a motion model learned from a fixed-angle fluoroscopy sequence to inform the reconstruction of semi-dynamic CBCTs via a low-rank approach.The method does not reconstruct a CBCT per x-ray projection and requires additional projection sorting/binning, and is susceptible to the uncertainties of the prior motion model learned from the fluoroscopy sequence.Its evaluation set is limited to digital and physical phantoms as well.In comparison to these reconstruction-based approaches, a series of studies based on deformation-driven approaches also attempted 4D or dynamic CBCT reconstruction by infusing prior knowledge of the patient anatomy (anatomical model) and/or the motion (motion model).With prior knowledge of the patient anatomy (e.g. a prior CT), techniques were developed to use under-sampled projections to deform the prior CT to 4D-CBCTs, assuming the underlying anatomical model does not change (Zhang et al 2013, Dang et al 2015).To enable single projection-based dynamic CBCT reconstruction, a principal component analysis (PCA)-based motion model derived from patient-specific prior 4D-CTs was introduced, to achieve further dimension reduction to satisfy the extreme under-sampling scenario (Li et al 2011, Wei et al 2020).However, the assumption of an invariant anatomical model may be invalidated by nondeformation-related anatomical changes over time, for instance, contrast enhancement, normal tissue inflammation, and disease progression (Zhang et al 2017).The use of an anatomical model derived from a different machine rather than the same CBCT device also poses additional challenges caused by differing energy/scatter/noise conditions and image intensity variations (Zhang et al 2015).The assumption of an invariant motion model, on the other hand, may not account for inter-fractional deformation and motion pattern variations (Zhang et al 2013).The venue to generate such a motion model (e.g.prior 4D-CTs), may contain motion sorting artifacts or not exist for some patients.To use the prior motion model, a co-registration is usually needed to align the prior and new imaging coordinate systems, which can introduce additional errors.
+
+Besides the above-mentioned pure reconstruction-driven or deformation-driven approaches, In recent years, deep learning (DL)-based approaches were also investigated for severely under-sampled CT/ CBCT reconstruction.Shen et al (2019) developed a patient-specific encoder-decoder network to map an x-ray projection to a 3D volume directly.However, the projection-to-CBCT inverse mapping can be extremely illconditioned, as such models heavily rely on the comprehensiveness of the training dataset.A small out-ofdistribution variation, for instance the anatomy/motion change or the imaging parameter change, may result in large instabilities from these models.In addition to direct reconstruction, deformable registration-based DL methods were also developed (Wei et al 2019, Wei et al 2020, Shao et al 2022).Similar to traditional pure deformable registration-based methods, these techniques are susceptible to uncertainties from nondeformation-induced anatomy changes and imaging system mismatches.These models also need to be trained with a large dataset with simulated motion scenarios, where the comprehensiveness of the training dataset determines their accuracy.In addition, the reconstruction-or registration-based DL models are usually trained and may only work under a specific gantry angle, although recent studies have successfully achieved angleagnostic inference with additional geometry priors and ancillary information like optical imaging (Shao et al 2023a(Shao et al , 2023b)).
+
+Recently, a machine learning technique named implicit neural representation (INR) has emerged for imaging applications (Mildenhall et al 2021).INR uses the non-parametric representation capability of neural networks to learn implicit mappings of complex 3D scenes (e.g.CBCTs) from sparse 2D views (e.g.cone-beam projections) (Mildenhall et al 2022).Acting as a universal function approximator, INR takes geometric coordinates of a scene as inputs and maps them to queried physical features at the coordinates (e.g.linear attenuation coefficients of CBCTs).Compared with conventional voxel-grid-based representation, INR can take non-integer coordinates as inputs for continuous mapping, allowing resolution-agnostic representation of the underlying scene.The continuous, differentiable, and implicit nature of INR allows it to map highly complex medical images in a compact format and promotes image reconstruction from under-sampled signals.Neuralnetwork-based INR also provides a significant degree of flexibility in representing complex, time-varying motion fields, compared with traditional motion models that usually parametrize the motion fields with simple, pre-defined mathematical models.Furthermore, INR can directly utilize the well-developed deep learningbased optimization framework to perform image reconstruction.Shen et al (2022) developed a novel framework that applies the INR to encode a prior anatomical image, and then uses sparsely-sampled on-board projections to update the INR to achieve limited-sampling-based reconstruction.Such a technique, using a prior anatomical model, can be affected by the imaging system/protocol mismatches between the prior and new acquisitions.Another study by Zha et al (2022) introduced a sparse-view CBCT reconstruction approach that parametrized an attenuation coefficient field using an INR.They augmented the INR with a learning-based position encoder to enhance the learning efficiency of fine anatomical structures.Their method was evaluated on datasets comprising phantoms and human organs, and they demonstrated high-quality reconstructions with 50 projections spanning a 180°scan angle.However, this method reconstructed static volumes without motion correction and likely would fail when applied to dynamic CBCT reconstructions which yield one CBCT volume per projection.Lin et al (2023) developed a neural network called DIF-Net for sparse-view reconstruction.DIF-Net formulated a CBCT volume as a continuous field parametrized by an INR, and then estimated the CBCT intensity distribution by projecting corresponding 3D points to 2D cone-beam projections for view-specific feature extraction.DIF-Net was evaluated on a knee CBCT dataset and showed high-quality reconstructions from six 2D projections.However, the scan angle had to cover 180°with the 2D projections acquired at predefined angles.Another recent study, by Reed et al (2021), used INR and polynomial-based temporal motion fields fitting to reconstruct limited-angle dynamic CT images for the parallel-beam geometry (INR-poly).INRpoly assumes the intra-scan motion of CT imaging can be approximated by polynomial-fitted motion fields.However, the polynomial fitting limits the potential of INR-poly to describe complex motion, and the motion has to be slower than the scan speed so that the subject/anatomy remains static within each limited-angle CT scan.The imaging arm of CBCT for radiotherapy rotates much slower than a diagnostic CT, and such an assumption will not stand.Inspired by the potential of INR, we recently developed an INR-based joint deformation and reconstruction framework, spatial and temporal implicit neural representation (STINR), for dynamic CBCT reconstruction (Zhang et al 2023).Compared with previous DL-based approaches that require a large training dataset, STINR reconstructs dynamic CBCTs through directly learning from scan-specific conebeam projections ('one-shot'), avoiding potential issues of overfitting and domain shift.By STINR, we decoupled the spatiotemporal dynamic CBCT inverse problem into reconstructing a reference CBCT volume (spatial INR) and the intra-scan motion (temporal INR) related to the reference CBCT, with the help of a prior patient-specific motion model derived from a separate 4D-CT scan.STINR has shown improved dynamic CBCT and motion reconstruction accuracy than the INR-poly method and a single-projection-based 2D-3D registration method, as the combination of patient-specific motion modeling and the temporal INR allows the description of highly irregular and complex motion patterns.However, STINR suffers from two major disadvantages: (1) it requires a pre-acquired high-quality 4D imaging set to extract a motion model, which may not be always available; and the motion model learned from it can be outdated and error-prone for following dynamic CBCT reconstruction; and (2) prior to the one-shot reconstruction by STINR, a 4D sorting/binning procedure is still required to reconstruct a phase-specific, initial CBCT volume to fit the prior motion model.In addition, the evaluation of the STINR study is limited to a digital phantom study and a patient simulation study.The patient simulation study uses a patient 4D-CBCT set and its derivative PCA motion model to simulate dynamic CBCTs and corresponding cone-beam projections for dynamic reconstruction.Thus the same motion model is shared between the dynamic CBCT simulation and the STINR reconstruction, which is overly ideal in real clinical scenarios.The projections were simulated large enough to cover the full anatomy in the field-ofview, beyond what can be achieved by the majority of current clinical systems.Actual clinical acquisitions, using realistic projection sizes and a diverse set of imaging protocols, are warranted to evaluate the dynamic CBCT imaging framework in capturing clinically observed motion.
+
+Built on the foundation of STINR (Zhang et al 2023), in this study we developed a prior model-free STINR (PMF-STINR) framework to solve the above-mentioned challenges in dynamic CBCT imaging and address the disadvantages of STINR.Compared with the original STINR, PMF-STINR does not use any prior anatomical or motion model and thus is not prone to the limitations of strong a priori assumptions.Instead, it uses a datadriven motion model directly learned on the fly from the acquired cone-beam projections.Moreover, PMF-STINR does not require any motion sorting/binning of the cone-beam projections, in contrast to the original STINR framework which still needed motion binning in the early stages of reconstruction.Compared with the original STINR framework, PMF-STINR also introduced multi-resolution hash encoding and spatiotemporal regularizations to further improve the reconstruction speed and accuracy, and refined the training strategy to address the spatiotemporal ambiguity and under-sampling challenges.PMF-STINR was evaluated via combined phantom simulation, phantom measurement, and patient measurement studies to comprehensively assess its clinical translation potential.For the patient study, a motion evaluation strategy using semi-automatically or automatically-tracked anatomical landmarks on the 2D projection domain was employed under the lack of 'ground-truth' 3D reference.
+
+
+Materials and methods
+I x t t , 2 l = - + { ˆ( )} (‖ { ( )} { }‖ ) ( ) { ( )}
+
+P
+
+where P denotes the projection matrix, and λ is the weighting factor for a regularization term R. The first term of equation (1) enforces the projection-domain data fidelity, while R regularizes the image/motion in a transformed domain to avoid overfitting and sub-optimal solutions, e.g. total variation regularization (Zhang et al 2017).
+
+Solving the optimization problem of equation (1) can be extremely challenging.A whole dynamic sequence
+I x t , t N 0 1 p = - { ( )} contains 10 8 ( ) O
+or more voxels to solve, while the volumetric information at each moment t is only captured by a single 2D projection p .
+
+t However, assuming the underlying anatomy remains unchanged during the scan (which is generally valid under physiological motion), we could use a joint reconstruction and deformable registration approach to simplify the inverse problem.The joint approach de-couples the spatiotemporal inverse problem into reconstructing a reference-frame CBCT I x ref ( ) and solving the intra-scan motion with respect to I x , ref ( ) which can be described as a sequence of time-dependent deformation vector fields (DVF) d x t , .
+t N 0 1 p = - { ( )} I x I x d x t t , , . 2 ref = + { ( )} ( { ( )}) ( )
+To reduce the dimensionality of the solution space for d x t , ,
+t N 0 1 p = - { ( )}
+the inherent redundancy of anatomical motion could be further leveraged to yield a low-rank representation of d x t , .
+t N 0 1 p = - { ( )} Each time-dependent motion field d x t , (
+)is approximately separable (Zhao et al 2012) as a summation of products of spatial (e x i ( )) and temporal (w t i ( )) components:
+d x w e x t t , . 3 i L i i 1 å = = ( ) ( ) ( ) ( )
+
+These spatial components e x
+
+i i L 1 = { ( )} maximally capture the motion variations, and compose a basis set (motion basis components, MBCs) to explain the motion space.Previous studies, including STINR, use prior 4D images like 4D-CTs to extract principal motion components by PCA, and those principal motion components are conceptually-equivalent to the MBCs here.However, the PMF-STINR approach of this study directly learned MBCs from the acquired projection data, without using any prior information.Considering equations (1)-(3), dynamic CBCT imaging is equivalent to reconstructing a reference CBCT I , ref while finding time-varying linear weightings ( w
+t i t i N L 0, 1 1, p = = - { ( )} ) of MBCs e x i i L 1 =
+({ ( )} ) that maximally account for the underlying anatomical motion.The dimension reduction of unknowns achieved by the joint reconstruction and deformation (equations ( 1) and (2)), and the further spatiotemporal decoupling of the DVFs (equation ( 3)), render the dynamic CBCT reconstruction a significantly more tractable problem.In addition, for PMF-STINR, we also employed a B-spline-based parametrization of e x i i L 1 = { ( )} to further reduce the number of unknowns to 10 4 ( ) O (section 2.2.3).The value of L in equation (3) determines the dimension of the motion space and the complexity of the motion field it can model.Previous studies have demonstrated that three motion components for each Cartesian direction adequately represent complex breathing motion (Li et al 2011).Therefore, in PMF-STINR we also used three MBCs (i.e.L 3 = ) for each Cartesian direction (i.e.x e i k , ( ) where k = x, y, z directions), yielding e x .
+i i 1 3 = { ( )}
+
+The PMF-STINR method
+
+Below we introduced the details of PMF-STINR, including the general framework and each of its components.ref ( ) Correspondingly, the temporal INR captures the time-varying temporal coefficients to represent intra-scan motion.Its input is a frame index t, and the outputs are the time-dependent coefficients w t i ( ) (i = 1-3) of the MBCs.Before inputting into the INRs, the voxel coordinate x or the frame index t is rescaled to [−1, 1].By the spatial INR, the whole reference CBCT can be queried by traversing all voxel coordinates.Similarly, the whole temporal sequence of motion coefficients can be obtained from the temporal INR by traversing all frame indices of the acquisition.
+
+
+Overview of PMF-STINR
+
+
+Spatiotemporal implicit neural representation
+
+The spatial INR comprises a learnable multiresolution hash encoding step and a multilayer perceptron (MLP) that acts as a non-parametric universal function approximator.In contrast, the temporal INR comprises a hash encoding step and nine MLPs.Each of the nine MLPs corresponds to a Cartesian component (x, y, z) of the three MBCs e x i i 1 3 = { ( )} (i.e.nine MLPs = three MBCs × three Cartesian directions), and all MLPs use the same network architecture.For the temporal INR, we used nine MLPs (with one output each) instead of one MLP (with nine outputs) to allow the network to better map the motion correlations and variations among different directions/scales.As MLP alone is ineffective in learning high-frequency details (Tancik et al 2020), the added hash encoding step of the spatial or the temporal INR helps to facilitate the fine detail learning (Muller et al 2022).The hash encoding maps a queried input (x or t) to a high-dimensional feature vector, via a multilevel encoding.At each level, a uniform grid of points is set up (denser grids for higher levels), and a predefined hash function (Muller et al 2022) maps the neighboring grid points of the queried input (x or t) to the indices of a hash table to retrieve their corresponding feature vectors.Based on the feature vectors of neighboring grids, the feature vector of the queried input is derived by bi-and tri-linear interpolations for the temporal and spatial INRs, respectively.Finally, the feature vectors of the queried input at all resolution levels are concatenated and fed into the following MLP.The hash table entries are learnable parameters to handle hash collisions and extract the most important feature values (Muller et al 2022).Compared with the Fourier frequency encoding used in the original STINR framework (Zhang et al 2023), the hash encoding improves the learning efficiency and reduces the needed complexity of the subsequent MLP to map subjects/motion.We used 8 and 12 levels for the spatial and temporal hash encoders, respectively.The maximum size of the spatial and temporal hash tables was set to 2 23 and 2 19 , respectively.The other hyper-parameters of the hash encoding were the same as those recommended by Muller et al (2022).
+
+With hash encoding, the MLP of the spatial INR only used three fully connected layers.The feature numbers of the input, hidden, and output layers were 32, 32, and 1, respectively.The periodic activation function, SIREN (Sitzmann et al 2020), was used to capture fine details of CBCT.Correspondingly, the MLPs of the temporal INR comprised one input and one output layer, and two hidden layers.The feature numbers were 32 for the input and hidden layers, and 1 for the output layer.
+
+
+Data-driven motion modeling
+
+Coupled with the temporal INR (section 2.2.2), the data-driven motion model of PMF-STINR learns the MBCs e x i i 1 3 = { ( )} of the dynamic DVFs directly from the cone-beam projections, without using any patient-specific prior knowledge.As mentioned in section 2.1, e x
+i i 1 3 =
+{ ( )} of PMF-STINR are represented by cubic B-spline interpolants, which parametrize the 3D Cartesian space via B-spline interpolations between a uniform 3D grid of control points.The interpolant takes the form of cubic polynomials, and the first derivative of the interpolant is smooth across the joints of the cubic splines.Global continuity and smoothness are considered desired properties of DVFs, preventing the self-folding of soft tissues and preserving topology.The grid parametrization is computationally efficient and allows dimension reduction from the original voxel representations, while maintaining flexibility with local control of the DVFs.In addition, the B-spline-based interpolants are numerically stable.
+
+Anatomical motion, especially respiration, usually involves deformations across multiple scales.For example, the tissue deformation caused by diaphragm contraction is typically bulky and large-scale, while the lung nodule motion is more local.To better account for the complexity of motion, PMF-STINR applies a hierarchical multiresolution strategy to represent the motion fields, with similar approaches demonstrated effective in deformable registration to avoid sub-optimal solutions (Lester and Arridge 1999).By the multiresolution strategy (figure 1), the three MBCs for each Cartesian direction are deliberately assigned to three different spatial resolutions and motion scales, with each represented by a B-spline interpolant of a different grid resolution., ( ) at a queried point x y z , , (
+
+) is performed via sequential 1D interpolations across the x, y, and z directions.For instance, when the B-spline interpolation was performed in the x-direction, e i k , was written as a linear superposition of cubic B-spline basis functions:
+e x s s P l l l B x , ,, , , 4 ik i l y i l z l i k i l , ,, , , , 3 å= ¢  ¢  ( ) ( ) () ()
+where l denotes all grid points along the x direction, and l′ and l″ are the neighboring grid points of queried y and z.P l l l , ,
+i k , ¢  (
+)denotes the value of the control point at grid point s s s , , ,
+i l x i l y i l z , , , ¢  ( ) and B x i l
+, ,3 ( ) is the cubic basis function which can be derived by the Cox-de Boor recursion formula:
+⎧ ⎨ ⎩  B x s x s 1 if 0 otherwise 5 i l i l x i l x , ,0 , , 1 = < + ( ) ( ) B x x s s s B x s x s s B x. 6 i l p i l x i l p x i l x i l p i l p x i l p x i l x i l p , ,, , , , , 1 , 1 , 1 , 1 , 1, 1 =- - + - - + - + + + + + + - ( ) ( ) ( ) ( )
+Here p denotes the B-spline order.After the x-direction interpolation, the y and z-direction interpolations were performed sequentially in a similar manner.By PMF-STINR, the values of the control points P l k , { } in equation (4) are learnable parameters that characterize the underlying motion.In this study, we adopted the B-spline interpolant model from (Tegunov and Cramer 2019).The input into the B-spline interpolant model was the voxel coordinates (normalized to [0, 1]), and the model output the vector fields e x i ( ) at the queried coordinates.
+
+With the MBCs e x i ( ) of each specific resolution level learned by PMF-STINR, the MBCs of all three resolution levels were weighted and summed by the related coefficients w t i ( ) that are simultaneously learned by the temporal INR (section 2.2.2), to capture both global and local motion.The resulting temporal motion fields, dynamic DVFs, can deform the reference CBCT volume I x ref ( ) obtained from the spatial INR (section 2.2.2) to yield dynamic CBCT volumes.While different strategies have been introduced to mitigate the ill-posed spatiotemporal reconstruction problem, training the spatial and temporal INRs and the data-driven, B-splinebased motion model simultaneously can be challenging, due to the spatiotemporal ambiguity and the projection under-sampling.To address this issue, a five-staged, multi-resolution, and progressive training strategy was developed for PMF-STINR and is introduced below.
+
+
+The progressive training strategy of PMF-STINR
+
+Built on the foundation of the prior STINR framework (Zhang et al 2023), PMF-STINR uses a progressive fivestaged training strategy to initialize different components before the simultaneous training (figure 3).The strategy progressively increases the learning complexity through five stages with low-and high-spatial resolutions to help avoid local optima during the training and improve the learning efficiency.Starting from a low-resolution scale, Stages I-III first reconstruct a low-resolution reference CBCT and the corresponding motion model.The learned motion model and the reference CBCT were further fine-tuned at the targeted highresolution scale in Stages IV and V.We used two resolution scales in this study, and the high-resolution scale doubles the resolution from the lower scale.More scales or larger inter-scale resolution differences can be readily incorporated into the framework, which however was not evaluated in this study due to graphic card memory limitations.
+
+In Stage I, the spatial INR was initialized by a motion-averaged CBCT reconstructed from all available projections p .
+t t N 0 1 p = -
+
+{ }
+
+The approximate reference CBCT I x approx ( ) was reconstructed using the Feldkamp-Davis-Kress (FDK) algorithm (Feldkamp et al 1984).The fidelity loss of this step (L img ) was thus defined in the image domain:
+x I x L N 1 INR , 7 i N i i img voxel 1 spa approx 2 voxel å = - = ‖ ( ) ( )‖ ( )
+where N voxel is the total number of voxels in the reference-frame CBCT, and INR spa denotes the spatial INR.As the full-projection reconstruction contains FDK-related artifacts, in the second step of Stage I, INR spa was instead optimized through a fidelity loss (L a prj ) defined in the projection domain, similar to the conventional iterative forward-backward projection:
+x p L N 1 INR , 8 a t j N t prj pixel 1 spa 2 pixel å å = - = ‖ () ‖ () P
+where N pixel is the number of projection pixels.In addition to the fidelity loss, an image-domain L-1 regularization loss (total variation, TV) was also introduced in this step to promote the sparsity of the reference CBCT in its gradient domain:
+I x L N 1 , 9 i i TV voxel ref å =  | ( )| ( )
+where ∇ denotes the gradient operator implemented by a grid-based finite difference method.The overall loss function for the second step of Stage I is then:
+L L L . 1 0 I a tot prj TV TV l = + ( )
+The value of TV l was set to 4 × 10 −4 via empirical searching on a digital phantom simulation dataset (see section 1 in supplementary materials for details), and the same value was used throughout the following Stages.The TV weighting factor for the dynamic thorax phantom and patient studies (sections 2.3.2 and 2.3.3) was chosen to maintain a similar ratio between the data fidelity loss and the TV loss, as that of the XCAT study.Correspondingly, we used 1 10
+
+TV 4 l = ´-for the thorax phantom and patient studies.The training epochs of the first and second steps of Stage I were 600 and 700, respectively.
+
+In Stage II, the temporal INR and the data-driven B-spline motion model were initialized, for the referenceframe CBCT INR spa obtained from Stage I.The spatial INR was frozen at Stage II to prevent the interplay between the spatial and temporal INRs.For the multiresolution motion model, the three MBCs of increasing resolutions were learned progressively.The B-spline control points were initialized with zero values, and the temporal INR was initialized according to a default PyTorch initialization.Specifically, the learnable parameters of the linear layers of the MLPs were initialized from a uniform distribution
+k k , , - ( ) U
+where k is the reciprocal of the input channel number.The learnable parameters of the multi-resolution hash encoding were also initialized from a uniform distribution 10 , 10 .
+4 4 -- - ( ) U
+The motion model starts with learning only the coarsest-resolution MBC per direction, and the other two MBCs of higher resolutions were progressively added into the learning process.When a finer-scale MBC was introduced into the learning, the coarse-scale MBCs were frozen without updating.The training on each scale used 100 epochs.The learning of Stage II used the projection-domain fidelity loss (L b prj ):
+x x p L N R t e 1 INR IN , 11 b t j N i k i k i k t prj pixel 1 spa , 1 3 tem , , 2 pixel å å å = + - = = ) ( () () ( ) P where t INR i k tem ,(
+) denotes the temporal INR output for the ith MBC along the kth Cartesian direction, at queried time frame t.Besides the fidelity loss, a regularization loss was applied to the MBCs to remove the ambiguity in the partial separation shown in equation (3).The loss enforced the orthonormal condition on e x :
+i i 1 3 = { ( )} ⎛ ⎝ ⎜ ⎞ ⎠ ⎟ L e ee 1 9 1 , 1 2 k x y zi i k j i i k j k MBC , ,13 , 2 2 1 3 , ,2å å å = - + = = =+ |‖ ‖ | | • | ( )
+where e i k , represents the kth Cartesian component of the ith-level MBC.The inner products in equation (12) were calculated on the image grid (instead of the control point grid) to harmonize the resolution of MBCs from different scales.Specifically, the MBCs were gridded to the image voxels using B-spline-based interpolations from control point grids of different resolutions.Then the inner product between two MBCs was calculated by
+
+x
+
+x e e e e , 1 3
+i k j k l N i k l j k l , ,1 , , voxel å= = • ( ) ( ) ( )
+where N voxel denotes the number of image voxels.After initializing the finest-scale MBCs, the multi-resolution MBCs were unfrozen and trained for an additional 50 epochs for fine-tuning before entering the next Stage (III).
+
+No TV regularization loss was applied in this stage.The overall loss function of Stage II was defined as
+L L L 14 b tot II prj MBC MBC l = + ( )
+The value of MBC l was set to 1 via empirical searching, and the same value was used throughout Stages II and III.15)).In Stage V, we noted that the L2 norm ‖ • ‖of the MBCs in the first term of equation (12) changed due to the differences in voxel numbers rendered in the low-and high-resolution scales.Accordingly, the L2 norm was scaled (by a ratio of the voxel numbers in the two resolutions, which equals to 1/8 for this study) to maintain a consistent normalization through the training.
+
+PMF-STINR was implemented via the PyTorch library and trained on a graphic processing unit (GPU) card (NVIDIA Tesla V100).We used the Adam optimizer for the five-staged training, and the learning rates were reset when the fidelity loss changed from the image domain to the projection domain in Stage I, and when entering the following stages.The learning rates of the spatial INR were respectively 4 × 10 −4 and 4 × 10 −5 for the two steps of Stage I and 1 × 10 −5 for Stage III.At the high-resolution scale, the learning rates were 1 × 10 −3 and 4 × 10 −4 for the first and second steps of Stage IV, respectively, and the learning rate was reduced to 1 × 10 −4 at Stage V.The temporal INR and the B-spline motion model used the same learning rates, which were 2 × 10 −3 for Stages II and III at the low-resolution scale, and 1 × 10 −4 for Stage V at the high-resolution scale.For Stages II-V, we used a batch size of 32 when the motion model was involved to sample random projections and dynamic CBCTs during the optimization, as sampling all dynamics will be prohibited by the GPU memory limitation.
+
+
+Evaluation datasets and schemes
+
+We evaluated PMF-STINR using three datasets: a simulation study using the extended cardiac torso (XCAT) digital phantom (Segars et al 2010), a measurement study using the dynamic thorax CIRS 008A physical phantom (Computerized Imaging Reference Systems, Inc.), and a multi-institutional dataset of real patient scans with various imaging protocols/scanners.
+
+
+XCAT simulation study
+
+The simulated XCAT phantom covers the thoracic-abdominal portion of the anatomy, for a dimension of 200 × 200 × 100 voxels and an isotropic 2 × 2 × 2 mm 3 voxel size.A spherical tumor 30 mm in diameter was inserted into the lower lobe of the right lung for motion tracking and assessment.Six free-breathing scenarios (X1-X6) were simulated to assess the accuracy of PMF-STINR in reconstructing dynamic CBCTs to capture different motion variations.X1 simulates the simplest scenario of a quasi-periodic breathing cycle (∼5 s) with small amplitude variations.The average range of the tumor center-of-mass motion was about 13 mm.X2 includes a rapid baseline shift (∼5 mm) in the middle of the scan (∼30 s).X3 combines both breathing amplitude variations and baseline shifts.The breathing period of X4 is gradually increasing, along with the motion amplitude.X5 simulates a slow breathing scenario (or equivalently, a fast-rotation scan) where the acquisition contains only a single breathing cycle.This scenario is deemed extremely challenging for motion-sorting-based reconstruction algorithms (e.g.4D-CBCT), as the projection angles of the sorted phases will be limited to a small range.X6 combines variations of the breathing period, motion amplitude, and baseline shift.
+
+Based on the dynamic XCAT volumes, cone-beam projections were simulated using the tomographic package ASTRA toolbox (van Aarle et al 2016).The total scan time was set to 60 s, covering a 360°scan angle (6°/ s gantry rotation speed).A total of N 660 p = projections were generated based on a frame rate of 11 fps to mimic a clinical 3D CBCT scan.Each projection contained 256 × 192 pixels for a pixel resolution of 1.6 × 1.6 mm 2 .
+
+The accuracy of the reconstructed dynamic CBCTs was quantitatively evaluated using the relative error (RE) and the structural similarity index (SSIM) (Wang et al 2004).RE was defined as
+I x I x I x N t t t RE 1 , , , , 1 6 p t i N i i i N i 1 gt 2 1 gt 2 voxel voxel å = å - å = = ‖ ˆ( ) ( )‖ ‖ ( )‖ ( )
+where I gt denotes the 'ground-truth' CBCTs.The accuracy of the solved motion was evaluated by contourbased metrics: tumor center-of-mass error (COME) and Dice similarity coefficient (DSC).To calculate COMEs and DSCs, the lung tumors in the reference-frame CBCTs were contoured and propagated to other dynamic CBCTs by the dynamic DVFs solved by PMF-STINR, and compared with the 'ground-truth'.
+
+
+CIRS measurement study
+
+A dynamic thorax phantom (CIRS) was employed in a clinical measurement study to assess PMF-STINR.For CIRS, a spherical tumor with an electron density similar to that of the phantom body was placed in the left lung.
+
+The tumor motion is driven by an actuator and can be customized.Six motion trajectories (C1-C6) were used in the CIRS phantom study, including X1 (C1), X3 (C2), X4 (C3), and X5 (C4) from the XCAT study, and two additional irregular trajectories (C5 and C6).The peak-to-peak amplitudes in the superior-inferior (SI) direction of these trajectories ranged from 24 to 30 mm, and those in the anterior-posterior (AP) direction ranged from 0 to 10 mm.For each of the motion scenarios, cone-beam projections of the dynamic phantom were acquired on a Varian VitalBeam system (Varian Medical Systems, Inc.) in the half-fan mode, with the phantom center aligned to the imaging iso-center.Each scan took about 1 min for a 360°scan angle, acquiring 894-896 projections.Due to the off-axis tumor location and the half-fan scan, the tumor was only visible in about half of the projections.The projections were acquired under a 125 kVp energy, with mAs of 15 mA/20 ms.Each projection had 1024 × 768 pixels with a 0.388 × 0.388 mm 2 pixel resolution.The projections were downsampled to 256 × 172 before the reconstruction, and the reconstructed dynamic CBCTs are of 200 × 200 × 68 voxels, with an isotropic voxel size of 2 × 2 × 2 mm 3 and a temporal resolution of 15 fps (the same as the x-ray acquisition frame rate).The solved tumor motion was compared against the programmed trajectories.Tumor COMEs in the AP, left-right (LR), and SI directions were individually evaluated.The Pearson correlation coefficient between the solved and the 'ground-truth' tumor motion trajectories of the SI direction was computed.Due to the half-fan scan geometry, the accuracy was evaluated only on the projection frames where the tumor was in the field of view.
+
+
+Patient study
+
+PMF-STINR was further evaluated on a multi-institutional patient dataset.Table 1 summarizes the imaging parameters of the patient study.A total of 12 cone-beam projection sets from eight patients were curated from three sources.The MDACC data (P1-P3) were acquired by a Varian system in full-fan mode (Lu et al 2007).A slow-gantry acquisition was used to cover a 200°scan angle.The scans took between 4.5 and 5.8 min, acquiring 1653-2729 projections.The SPARE data were taken from the SPARE Challenge (Shieh et al 2019) which evaluated 4D-CBCT reconstruction algorithms from sparse-view acquisitions in both full-and half-fan modes.The SPARE data contained 10 patients, and we selected four patients with clear anatomical structures that can be tracked in 2D projections for motion evaluation.The full-and half-fan scans were acquired from Elekta and Varian systems, respectively.For the SPARE data, each patient had two sets of projections: one was a fully-sampled scan, and the other was a down-sampled sparse-view set equivalent to a 1 min scan (patient ID ends with a suffix 'S').As in table 1, the sparse-view sets had much fewer projections.The UTSW data (P6) were acquired by a Varian system in half-fan mode.The scan time was about 1 min, covering a 360°scan angle.
+
+Since the patient study had no 'ground-truth' 3D motion for evaluation, the accuracy of the solved intrascan motion was evaluated in re-projected 2D planes.Specifically, for each reconstructed dynamic CBCT, we re-projected it into a 2D digitally reconstructed radiograph (DRR) to match the corresponding cone-beam projection's imaging geometry.Motion tracked on the cone-beam projections and the DRRs was then compared by two methods: (1).Structure-based motion evaluation.The structures being tracked include the diaphragms, lung nodules, and other lung features.For diaphragm tracking, the Amsterdam Shroud (AS) technique (Zijp et al 2004) was employed to highlight the motion-induced intensity variations on both the cone-beam projection sets and the re-projected DRR sets.From the view-consolidated Amsterdam Shroud image, the motion of the diaphragm dome was extracted based on the sharp image contrast at the diaphragm boundary.The match between the diaphragm motion tracked on the original cone-beam projections and that tracked on the reprojected DRRs was evaluated by the Pearson correlation coefficient and the localization error.Since the diaphragm of P1 moved in and out of the field of view during the scan, instead of the diaphragm, a high-density lung nodule was tracked with a similar approach as diaphragm tracking.In addition, the diaphragm of P3 was barely visible in the projections, so the respiratory motion trajectory was extracted from the AS images using a high-contrast lung feature.
+
+(2).Feature point-based motion evaluation.The second method automatically tracked corresponding feature points from both cone-beam projections and DRRs for motion comparison, without using the AS images (Park et al 2017, Wei et al 2020).Specifically, it first automatically and independently extracted image feature points from cone-beam projections based on local intensity variations, with the selected points typically at the boundaries of anatomic features.Next, corresponding feature points in these projections were identified and selected, and their motion trajectories across multiple frames were tracked, using the M-estimator sample consensus algorithm (Torr and Zisserman 2000).Finally, the corresponding feature points in the DRRs were localized and tracked by a correlation coefficient-based searching algorithm for comparison.
+
+The feature point motion difference (localization error, LE) between the cone-beam projections and DRRs was evaluated by (Wei et al 2020):
+LE N M z z 1 1 17 p p p q pq cb pq DRR 2 å å = - ( ) ( )
+where M p denotes the number of feature points in the p th cone-beam projection, z pq cb denotes the tracked location of the q th feature point in the p th cone-beam projection, and z pq DRR is the tracked location of the corresponding point in the p th DRR.Due to the limitations of tracking in 2D planes with rotating projection angles, we only calculated LE along the SI direction, which is the dominant direction of respiratory motion.
+
+
+Comparison studies
+
+Due to the challenge of dynamic CBCT reconstruction, there are very few available dynamic CBCT reconstruction techniques for comparison.And since in our preliminary study the original STINR framework has proved more accurate than the INR method with polynomial-based DVF fitting (INR-Poly) and the deformation-driven PCA method, we did not include them further in this comparison.Instead, in this study we focused on comparing PMF-STINR with the previously published STINR framework (Zhang et al 2023).We also compared PMF-STINR with the surrogate-driven, motion-compensated dynamic CBCT reconstruction method (SuPReMo) by (Huang et al 2024).The first comparison study is to evaluate the benefit of the prior model-free approach of PMF-STINR, whereas the second comparison study is to further demonstrate the strength of PMF-STINR against a state-of-the-art technique.
+
+We performed the first comparison study on the XCAT dataset with known 'ground truth'.Two variants of the original STINR framework were compared.The first variant uses an XCAT-simulated 4D-CT of the same patient (motion: sinusoidal curve of 5 s cycle) for PCA motion modeling, which matches with the configuration of the published STINR study.The corresponding method, STINR PCA-4DCT , operates in an ideal scenario where a high-quality prior 4D-CT is available for motion modeling, and there is no inter-fractional deformation or anatomy change between the 4D-CT and the dynamic CBCT acquisitions.The second framework does not have access to the 4D-CT motion model.Instead, its motion model was derived from the 4D-CBCT set reconstructed using the dynamic cone-beam projections of each motion scenario.The second variant was named STINR PCA-4DCBCT.Compared with the motion model of PMF-STINR, the PCA-based motion model of STINR PCA-4DCBCT is not learned/optimized but generated before the reconstruction using ad-hoc reconstructed 4D-CBCTs.Specifically, before the STINR PCA-4DCBCT reconstruction, the cone-beam projections of each motion scenario were first sorted and binned into 10 respiratory phases, except for scenario X5.For X5, we sorted the projections into 5 phases, as the single-cycle scenario yielded substantial limited-angle artifacts if 10 phases were used, which led to highly inaccurate PCA motion modeling.We reconstructed 4D-CBCTs from the phase-sorted projections using the FDK algorithm.Deformable image registrations between the end-exhale phase and the other phases were performed to obtain the inter-phase DVFs for each motion scenario, using Elastix (Klein et al 2010).Finally, we derived principal motion components from the inter-phase DVFs using PCA for each motion scenario, and fed them as a known motion model into the STINR PCA-4DCBCT reconstruction.For both STINR PCA-4DCBCT and STINR PCA-4DCT , we added multi-resolution hash encoding and spatial TV regularization into the original STINR framework, for a fair comparison with PMF-STINR.
+
+For the second comparison study, similar to PMF-STINR, SuPReMo adopted a joint reconstruction and registration approach to reconstruct a reference CBCT and a corresponding sequence of motion fields characterizing the respiration-induced motion.However, in contrast to PMF-STINR, the motion fields of SuPReMo were solved by a surrogate-driven motion model that related respiratory motion to measured surrogate signals.In SuPReMo's implementation, the surrogate signals were extracted via intensity analysis on acquired cone-beam projections (Kavanagh et al 2009, Huang et al 2024).The intensity analysis extracts respiratory motion signals embedded in a sequence of cone-beam projections by analyzing the intensity variations in pixel values between the projection images.The intensity variation was attributed to both respiration motion and gantry rotation.To isolate the contribution of respiratory motion, a frequency-based filter was applied to extract the respiration signal and remove the effects of gantry rotation, selecting the frequency range corresponding to the respiratory motion.Current SuPReMo implementation required nontruncated projections to ensure the entire anatomy was within the transverse field of view.Since our XCAT dataset was based on full-fan scans with a limited field-of-view, using our XCAT dataset for comparison will introduce a bias favoring PMF-STINR as it has no such limitation as SuPReMo.To ensure an adequate comparison, we evaluated both methods using the SuPReMo simulation dataset (Huang et al 2024).The dataset was also based on the XCAT digital phantom with a regular motion scenario and an irregular motion scenario.The motion curves were real breathing traces measured from cine sagittal magnetic resonance images.A spherical tumor with a diameter of 30 mm was inserted in the lower lobe of the left lung.The scan lasted about 1 min and included 310 projections that covered a 360°scan angle.Each projection contained 512 × 512 pixels with a 0.8 × 0.8 mm 2 resolution.The projections were simulated using the same geometry as the Elekta Synergy system.The reconstructed CBCT volumes were 188 × 188 × 120 with an isotropic 2 × 2 × 2 mm 3 resolution.Since the SuPReMo dataset was relatively small and may not provide a comprehensive evaluation of both methods, the results were presented in supplementary materials (section 2) as additional supporting evidence.
+
+We compared the accuracy of the reconstructed dynamic CBCTs and the solved intra-scan motion between STINR PCA-4DCBCT , STINR PCA-4DCT , SuPReMo, and PMF-STINR.Wilcoxon signed-rank tests were performed to evaluate the statistical significance of the result differences between the methods.
+
+
+Results
+
+
+The XCAT study results
+
+Figure 4 compares the reconstructed reference-frame CBCTs between STINR PCA-4DCBCT , STINR PCA-4DCT , and PMF-STINR for the XCAT study.Correspondingly, figure 5 compares the tracked tumor motion between STINR PCA-4DCBCT , STINR PCA-4DCT , and PMF-STINR, with the 'ground-truth' trajectories as reference.Table 2 shows the accuracy of reconstructed dynamic CBCTs of different methods, and table 3 shows the corresponding tumor motion tracking accuracy.For tables 2 and 3, the Wilcoxon signed-rank tests showed that the p-values were <10 −3 for all metrics and motion scenarios when comparing PMF-STINR with STINR PCA-4DCBCT or STINR PCA-4DCT .
+
+In figure 4, PMF-STINR presented consistently better image quality than STINR PCA-4DCBCT in terms of contrast, shape, and intensity distributions of the anatomy, across all six motion scenarios.The reference-frame CBCT image quality of STINR PCA-4DCBCT is considerably worse, especially for scenario X5.Compared with PMF-STINR for which the motion model was learned and optimized on the fly during the reconstruction, STINR PCA-4DCBCT had to rely on the same PCA motion model derived from the ad-hoc reconstructed 4D-CBCT throughout the image reconstruction.Imaging artifacts of the 4D-CBCT, including those from under-sampling, intra-phase residual motion, and motion irregularity, reduced the accuracy of the resulting PCA motion model.The inaccurate PCA motion model in turn negatively impacted the reference-frame CBCT reconstruction and the intra-scan DVF optimization for STINR PCA-4DCBCT .For scenario X5 where there is only one breathing cycle (figure 5), the 4D phase sorting led to a limited-angle reconstruction for each phase image, and resulted in a highly inaccurate PCA motion model.The erroneous PCA motion model significantly impacted the referenceframe CBCT quality for STINR PCA-4DCBCT .In comparison, using the PCA motion model derived from a simulated artifact-free 4D-CT, STINR PCA-4DCT generated better results than STINR PCA-4DCBCT , with an accuracy level on par with that reported in the original STINR study (Zhang et al 2023).However, the highquality, artifacts-free 4D-CT of XCAT is difficult to realize in real clinical cases.For the XCAT study, there was no inter-scan deformation or anatomy change, which favorably biased the STINR PCA-4DCT results.Even so, PMF-STINR provided more accurate tumor localization accuracy than STINR PCA-4DCT with a comparable CBCT image quality (tables 2 and 3).Compared with STINR PCA-4DCT , PMF-STINR used cone-beam projections to directly learn and optimize the motion model, which can better fit the onboard data and avoid uncertainties from the 4D-CT deformable registration used to derive the PCA model.For STINR PCA-4DCT , the reference frame is expected to be close to the end-exhale phase (section 2.3.4), on which the PCA motion model was built.However, for PMF-STINR, the reference frame is not pre-fixed to a specific phase and the  optimization framework will jointly determine the motion model and the reference frame to best match the dynamic projections.Figure 6 plots two examples of the dynamic CBCTs reconstructed by PMF-STINR (scenarios X1 and X2), with the 'ground-truth' reference dynamic CBCTs for comparison.It can be observed that PMF-STINR successfully reconstructed the dynamic CBCTs to match well with the 'ground truth' in anatomy and motion.As seen in the difference images, the vertebrae and lung tissues were smoothed in the dynamic CBCTs, which was contributed by the TV regularization.
+
+
+The CIRS study results
+
+Figure 7 presents the reconstructed reference-frame CBCT images of PMF-STINR for scenario C1, and the comparison between the programmed (reference) motion curves and the solved curves by PMF-STINR of scenarios C1-C6 for the CIRS study.Due to variations of the scan start time relative to the phantom motion trajectories, the tracked portion of each motion trajectory varies.Since the moving portion of the CIRS phantom is limited to the tumor, when the tumor moved outside the field-of-view, there were no moving features available in the projections to reconstruct the motion.Thus for those projections with the tumor outside the field-of-view, motion was not evaluated.For the projections where tumors are contained, PMF-STINR accurately captured the intra-scan motion of the tumor for both regular and irregular motion scenarios.Table 4 presents the tumor center-of-mass localization errors in the LR, AP, and SI directions and the Pearson correlation coefficients between the solved and the 'ground-truth' SI trajectories.A tracking error within or around 1 mm was achieved for all three Cartesian directions.Figure 8 plots one example of the dynamic CBCTs reconstructed by PMF-STINR for the CIRS study (scenarios C3).The dynamic motion of the tumor matches well with the programmed curves.
+
+
+The patient study results
+
+Figure 9 presents the reference-frame CBCTs reconstructed for the patient study.The reference-frame CBCTs of the fully-and sparsely-sampled acquisitions (P4, P5, P7, and P8) are comparable in image quality, showing that PMF-STINR allows dynamic CBCT reconstruction from sparsely-sampled 3D CBCT scans (∼340 total projections, table 1).The high-density lung nodule of P1 used for motion tracking and evaluation was highlighted (section 2.3.3). Figure 10 shows example motion curves extracted by the AS image-based method, and example feature points identified by the automatic feature point tracking method.Figure 11 compares the tracked and the reference SI trajectories of various lung anatomies (e.g.lung nodule, diaphragm) by the AS image-based method.The tracked curves by PMF-STINR match well with the reference curves directly extracted from the cone-beam projections.Various motion irregularities, including amplitude variations, frequency changes, and baseline shifts and drifts, were accurately captured.Part of the gradual baseline drifts observed in  the curves is due to the rotating angle geometry and the off-iso locations of the tracked anatomy.For P5 and P5-S, the tracked anatomy (diaphragm) can only be seen in a subset of the projections.Although PMF-STINR can still solve its motion from other motion features and moving parts in the diaphragm-occluded projections, we  cannot extract the corresponding diaphragm motion from the cone-beam projections as references for comparison.Thus only the diaphragm-visible section of the trajectory was evaluated (figure 11).
+
+Table 5 shows the accuracy of the solved motion by PMF-STINR for the patient study, using both the AS image-based tracking and the feature point tracking methods.Overall, PMF-STINR achieved accurate structure and feature point localization in the dynamic sequences, as evaluated by the counterpart reference signals extracted from the corresponding cone-beam projections.The localization errors presented here were calculated in projected 2D planes, and included the magnification factor (∼1.5) due to the imaging trajectory.On average a sub-millimeter accuracy was achieved by PMF-STINR-solved motion, after accounting for the factor.Figure 12
+
+
+Discussion
+
+In this study, we proposed PMF-STINR (figure 1), an INR-based framework to address the dynamic CBCT reconstruction challenge.Without relying on any prior anatomical or motion model, PMF-STINR reconstructs dynamic CBCTs and solves the intra-scan motion simultaneously from the cone-beam projections via a 'oneshot' learning framework.PMF-STINR decouples the ill-posed spatiotemporal inverse problem of dynamic CBCT reconstruction into learning a spatial INR module (figure 2(a)), a temporal INR module (figure 2(b)), and a trainable B-spline-based, data-driven motion model, and develops a progressive learning strategy (figure 3) that is able to reconstruct dynamic CBCTs from 3D CBCT scans with ∼300 projections.Compared with the prior STINR framework, PMF-STINR achieves substantially higher reconstruction and motion tracking accuracy by the motion model learned and optimized on the fly, and does not require any prior motion sorting and binning (figures 4 and 5, tables 2 and 3).The use of the hash encoding, compared to the Fourier frequency encoding, enables faster computation and allows lightweight MLPs to be used for the INRs.The comprehensive evaluation of PMF-STINR on the XCAT (figures 4-6, tables 2 and 3), the CIRS (figures 7-8, table 4), and the patient datasets (figures 9-12, table 5) demonstrated its robustness to varying anatomical, motion, and imaging variations, a substantial advantage over previous deep learning-based models which require extensive training and are susceptible to out-of-distribution shifts.The robustness and adaptability of PMF-STINR indicate a high clinical translation potential.
+
+The CBCT images of the patient study in figure 9 exhibit some shading and streaking artifacts.Shading artifacts in reconstructed CBCTs may result from several factors, including scatter radiation, beam hardening effects, nonlinear detector efficiency, and the use of bow-tie filters.In the current PMF-STINR workflow, no additional pre-processing/post-processing steps were utilized to correct these degrading signals.For PMF-STINR, the only pre-processing step was the projection-domain intensity normalization by an air scan.For the steaking artifacts in P6, we found many dead pixels in the projections (zero-valued pixels) due to the relatively large patient size.To avoid undefined pixel values after log-transform we overrode these pixels to one, which was over-simplified and led to bright pixels in the transformed image to cause the streaking artifacts.In our evaluation, such artifacts did not result in appreciable degradations in solved motion accuracy (figure 11 and   PMF-STINR can reconstruct a volume of ∼300 × 300 × 100 voxels with an isotropic 2-mm resolution.However, current clinical practices may request CBCTs of finer resolutions (1 mm or higher).For 2 mm resolution-based reconstructions, the GPU memory consumption of PMF-STINR was ∼30 GB for a batch size of 32, which prevented PMF-STINR from achieving higher resolutions beyond 2 mm.The development of more advanced graphic cards with larger memories can help to address this problem.For clinical practice, we can also potentially register the dynamic CBCTs of PMF-STINR to a higher-resolution CBCT to preserve the spatial resolution and the learned motion.On the other hand, the INR is theoretically resolution-agnostic and can achieve image rendering at arbitrary resolutions.However, in implementation, we found directly inferring highresolution CBCTs from INRs optimized with lower-resolution image renderings will yield amplified noises in the resulting images.While it is possible to render higher-resolution CT/CBCTs using a perturbation strategy on the spatial coordinate (Reed et al 2021, Mildenhall et al 2022) to promote the INR to learn a continuous representation, mathematically this perturbation strategy is similar to the nearest neighbor interpolation on the low-resolution CBCTs.Thus, the effective spatial resolution is still limited by the low-resolution reconstruction.To maximize the resolution-agnostic learning capability of PMF-STINR, we would need to remove all voxel gridding-based image renderings, which were used by the ASTRA toolbox (van Aarle et al 2016) during the optimization to generate digitally reconstructed radiographs (DRRs) to compute data fidelity losses.To fully exploit the continuous representation of the spatial INR, the cone-beam projector has to be replaced by a coordinate-based representation, which is beyond the scope and reach of this study.Future investigations are warranted in this direction to further improve the reconstruction resolution.
+
+Whereas the spatial and temporal INRs were lightweight and learning efficient, currently PMF-STINR took about 3 h to reconstruct a sequence of 2000-frame dynamic CBCTs on a Nvidia V100 card.A major speed bottleneck was the cone-beam projector from the ASTRA toolbox (van Aarle et al 2016), which was optimized for projecting multiple DRRs from the same CBCT in parallel.However, PMF-STINR only requires a single DRR at a gantry angle for a dynamic CBCT, and thus the DRRs of different dynamic CBCTs were sequentially projected in the current framework.To reduce the reconstruction time, the high throughput of a GPU can be leveraged in future by parallelizing a cone-beam projector to generate DRRs of different CBCTs simultaneously.
+
+Compared with SuPReMo (section 2.3.4),PMF-STINR offers several advantages over this surrogate-driven method (Huang et al 2024).First, PMF-STINR does not rely on any motion surrogate signals for dynamic CBCT reconstruction.In comparison, SuPReMo used a surrogate-driven motion model to correlate respiratory motion with surrogate signals, and incorporated it into a motion-compensated CBCT reconstruction algorithm to solve a dynamic sequence.Accordingly, the accuracy of the dynamic CBCT reconstruction critically depends on the quality of these surrogate signals.In SuPReMo's implementation, two surrogate signals were derived from projection images to feed into the motion model.However, for respiration-induced anatomical motion, the surrogate signals may inadequately characterize the motion fields over the entire thorax region.In addition, In the present study, PMF-STINR was assessed for solving the respiratory motion of the thoracic-abdominal region.The proposed framework, in theory, can handle other types of anatomical motions, such as cardiac beats and peristalsis.However, for motion fields involving multiple modes of anatomical motions with disparate temporal and spatial scales (e.g.respiratory and cardiac motions have distinct periods of about 3-5 s and 0.8-1 s, respectively), the PMF-STINR framework may warrant additional modifications to effectively describe the multi-mode motion field.It is possible to describe a multi-mode and multi-scale DVF by increasing the number of MBCs along each direction, or further introducing region-focused MBCs.The current motion model used a uniform B-spline grid to cover the entire reconstructed volume.For improvement, a non-uniform grid can be used wherein the grid density will automatically adapt to the involved anatomical locations.Further investigations and developments of PMF-STINR are warranted to evaluate and potentially improve its versatility and adaptability for different motion types and scenarios.
+
+Currently, PMF-STINR was designed for the retrospective reconstruction of dynamic CBCTs, preventing it from solving time-resolved motion in real time.However, with additional modifications to the framework, PMF-STINR may leverage the obtained knowledge of the reference-frame CBCT and the learned motion model to achieve real-time imaging and tumor localization.Currently, the temporal INR takes a temporal frame index as input and outputs the temporal coefficients of the MBCs at the queried time point.To adapt the framework for real-time imaging, the input can be replaced by motion-related image features extracted from a cone-beam projection by a deep learning network.This modification may allow the temporal INR to learn the mapping from the extracted imaging features to the coefficients of MBCs.After the network training, the temporal INR may directly use real-time-acquired imaging features to infer the motion basis component coefficients and compose real-time DVFs to represent instantaneous motion.Such modifications towards real-time imaging are currently under investigation with future reports anticipated.
+
+
+Conclusion
+
+We developed a prior model-free, spatiotemporal implicit neural representation method in this study to reconstruct dynamic CBCTs.The technique can reconstruct dynamic images from conventional or sparsely sampled 3D-CBCTs in a 'one-shot' fashion, without using any prior anatomical/motion model or requiring any motion sorting/binning.The method has demonstrated accuracy and robustness through comprehensive evaluations using digital phantom, physical phantom, and real patient studies.The dynamic CBCTs offer richer motion information than current state-of-the-art 4D-CBCTs, and can capture various motion irregularities including motion amplitude variations, frequency changes, and baseline shifts and drifts to inform better motion management strategies.The simultaneously solved intra-scan motion fields in addition to the CBCTs can be applied for structure propagation, dose accumulation, and adaptive radiotherapy.
+
+radiation treatment quality and safety by retrospective data analysis).This is a retrospective analysis study and not a clinical trial.No clinical trial ID number is available.In both datasets, individual patient consent was signed for the anonymized use of the imaging and treatment planning data for retrospective analysis.These studies were conducted in accordance with the principles embodied in the Declaration of Helsinki.
+
+
+ORCID iDs
+
+Hua-Chieh Shao https:/ /orcid.org/0009-0003-7664-7257Tielige Mengke https:/ /orcid.org/0000-0003-1836-9829You Zhang https:/ /orcid.org/0000-0002-8033-2755
+
+Figure 1
+1
+illustrates the workflow of PMF-STINR, which comprises three major blocks: spatial INR, temporal INR, and a learnable cubic B-spline interpolant for data-driven motion modeling.The spatial INR reconstructs a reference-frame CBCT of the dynamic sequence, and the temporal INR, in conjunction with the data-driven B-spline motion model, solves the time-dependent DVFs of the subject with respect to the reference CBCT.The motion model learns data-driven MBCs e x from the cone-beam projections, while the temporal INR captures the time-varying temporal coefficients w for the MBCs.PMF-STINR uses B-splines to parametrize the dense MBCs with coarser grids of control points than those of voxels, to leverage the piecewise smooth nature of motion fields.The values of control points, representing the motion patterns, are learned via the PMF-STINR framework.For PMF-STINR, the spatial and temporal INRs and the data-driven motion model are jointly trained, reconstructing the reference-frame CBCT and solving the intra-scan motion simultaneously.The network training is driven by both projection-domain data fidelity loss and spatiotemporal regularization losses.In the following sections we described each component of PMF-STINR and the training strategy.
+
+
+Figure 2
+2
+presents the details of the spatial INR (figure 2(a)) and the temporal INR (figure 2(b)).The spatial INR takes a voxel coordinate x of the reference CBCT as input, and maps x to the attenuation coefficient I x .
+
+
+Figure 1 .
+1
+Figure 1.Workflow of PMF-STINR.PMF-STINR solves a sequence of dynamic CBCTs, by using a spatial INR to reconstruct a reference-frame CBCT and a temporal INR as well as a data-driven B-spline-based motion model to represent the intra-scan motion.
+
+
+Figure 2 .
+2
+Figure 2. Details of the spatial and temporal INRs.The spatial INR reconstructs a reference-frame CBCT by learning a continuous mapping from the voxel coordinate system to the linear attenuation coefficient, utilizing multiresolution hash encoding and a multilayer perceptron (MLP).The temporal INR maps a frame index t to the temporal coefficients w t i ( ) of the MBCs, using multiresolution hash encoding and nine MLPs.Each of the nine MLPs corresponds to a Cartesian component of e x i i 1 3 = { ( )} .
+
+
+Figure 3 .
+3
+Figure 3.The five-staged progressive training strategy of PMF-STINR.
+
+
+
+
+joint training in which all components of PMF-STINR are unfrozen, based on the loss function defined in equation (15).The joint training allows simultaneous image reconstruction and registration to improve the accuracy of the reference CBCT and the coherence of the solved intra-scan motion.The training in Stage III used a total of 3000 epochs.At Stage IV, the dynamic CBCT reconstruction was performed at a targeted high-resolution scale.The intermediate CBCTs and motion fields rendered at this stage and Stage V were all based on the higher-resolution grids.Through this stage (IV), the temporal INR and motion model were frozen.Similar to Stage I, in the first step of Stage IV the similarity loss was defined in the image domain where the approximate reference CBCT I x approx ( ) in equation (7) was replaced by the up-sampled reference CBCT (by a factor of two) learned from Stage III.In the second step of Stage IV, the similarity loss was changed to the projection domain (equation (11)), to further optimize the spatial INR at the higher-resolution scale.Meanwhile, the TV regularization loss was added in step 2. The training epochs for the first and second steps of Stage IV were both 1000 epochs.Finally, at the last stage (Stage V), the spatial and temporal INRs and the motion model were jointly trained for 200 epochs to further fine-tune the reconstruction at the high-resolution scale, using the same loss function as Stage III (equation (
+
+
+Figure 4 .
+4
+Figure 4. Comparison of reference-frame CBCTs reconstructed by (a) STINR PCA-4DCBCT , (b) STINR PCA-4DCT , and (c) PMF-STINR for the six XCAT motion scenarios (X1-X6) in the axial and coronal views.The circular boundary in the axial view reflects the field of view from the clinically realistic projection size simulation in full-fan mode (section 2.3.1).The display window is 1200 HU at −400 HU level for all images.
+
+
+Figure 5 .
+5
+Figure 5.Comparison of tumor SI (a)-(f) and AP (g)-(l) trajectories of the six motion scenarios of the XCAT study (X1-X6), between STINR PCA-4DCBCT , STINR PCA-4DCT , PMF-STINR, and the 'ground-truth' reference.
+
+
+Figure 6 .
+6
+Figure 6.Examples of dynamic CBCTs reconstructed by PMF-STINR for the XCAT study: (a) scenario X1; and (b) scenario X2.The first row shows the corresponding motion curves along the SI direction, with the dots indicating the motion states selected for plotting.In the following rows, PMF-STINR CBCTs of the selected motion states were compared against the 'ground-truth' reference dynamic CBCTs, with the difference images calculated.The display window for the CBCT images is 1200 HU at −400 HU level, while for the difference images the display window is 1200 HU at 0 HU level.Ref.: reference CBCT.Diff.: difference CBCT between PMF-STINR and reference.
+
+
+Figure 7 .
+7
+Figure 7. (Upper panel) Example reference-frame CBCT images reconstructed by PMF-STINR for the CIRS study (scenario C1).(Lower panels) Comparison between the programmed motion curves (reference) and the solved curves by PMF-STINR for scenarios C1-C6.For PMF-STINR, the tumor trajectories were only available for frames where the tumor was in the field of view.
+
+
+
+
+plots two examples of the dynamic CBCTs reconstructed by PMF-STINR for the patient study (P1 and P5).The dynamics of the lung nodule (P1) and the lung tumor (P5) are well captured.
+
+
+Figure 8 .
+8
+Figure 8. Examples of dynamic CBCTs reconstructed by PMF-STINR for the CIRS study: scenario C3.First row shows the corresponding motion curve along the SI direction, with the dots indicating the motion states selected for plotting.In the following rows, PMF-STINR CBCTs of the selected motion states were shown in three views.The display window for the CBCT images is 1070 HU at −465 HU level.
+
+
+Figure 9 .
+9
+Figure 9. Reference-frame CBCTs reconstructed by PMF-STINR for the patient study.The display windows and levels for the CBCT images range between 1270 HU and 1900 HU, and between −365 HU and −50 HU, respectively, to optimize the image contrast.
+
+
+Figure 10 .
+10
+Figure 10.(a)-(d) Examples illustrating the reference and the PMF-STINR-solved motion trajectories, respectively extracted from the cone-beam projections and the DRRs via the Amsterdam Shroud (AS) method.Figures 10(a) and (b) show the AS-tracked results for P1, based on a lung nodule.Figures 10(c) and (d) show the AS-tracked results for P2, based on the diaphragm.Figures 10(a) and (c) show the AS images derived from the projections and DRRs.Figures 10(b) and (d) show the vertically cropped, z-score normalized regions containing the tracked objects, on which the motion trajectories (red lines) were extracted for quantitative evaluation.(e)-(f) Examples illustrating the feature points automatically extracted and tracked from the consecutively acquired cone-beam projections and the corresponding DRRs via the feature point-tracking method for localization comparison.
+
+
+Figure 11 .
+11
+Figure 11.Comparison between tracked and reference SI trajectories of P1-P8 for the patient study using the Amsterdam Shroud image-based method, between the PMF-STINR curves (extracted from the re-projected DRRs from reconstructed dynamic CBCTs) and the reference curves (extracted from the cone-beam projections).
+
+
+
+
+
+
+
+
+
+(Hoisak et al 2004)estigated a motion-compensated simultaneous algebraic reconstruction technique that is capable of reconstructing high-quality CBCTs at arbitrary breathing points without a prior motion model or reference image data.Their motion model required a measurement of breathing amplitude and velocity (i.e.tidal volume and airflow) as surrogate signals for initial motion binning of projection images, and the intra-bin motion field was linearly related to the surrogate signals.Since the measurement of such motion signals can be inaccurate and not fully correlated with anatomical motion(Hoisak et al 2004), the accuracy of reconstructed CBCTs can be sensitive to the quality of the surrogate signals.
+
+Huang et al (2024))used joint image reconstruction and registration for dynamic CBCT imaging, without patient-specific prior knowledge.Their approach alternates between motion-compensated reconstruction and projection-based spatiotemporal kinematics estimation.The spatiotemporal kinematics was modeled using a finite element mesh of the pulmonary pleurae, and solved in a multi-scale manner.The temporal kinematics were initialized as pre-defined functions or tracked surrogate curves.Although a certain degree of relaxation is allowed to correct errors within the initial temporal kinematics, it is uncertain to which extent the correction can be made in case of large motion mismatches.The method was evaluated by a single CBCT scan, and the evaluation focused on the motion blurriness reduction of the reconstructed CBCT rather than the accuracy of the tracked motion trajectory.Recently,Huang et al (2024)developed a surrogate-driven respiration motion model to reconstruct dynamic CBCTs from unsorted projection data.The approach required measuring motion surrogate signals and using these surrogate signals to represent intra-treatment motion fields via B-splines.Their study reported that the quality of the surrogate signals can have a considerable influence on the motion model accuracy.
+
+
+Table 1 .
+1
+Summary of imaging parameters of the patient study.
+Patient ID aSource bVenderScan modeProjection size cPixel size (mm 2 )kVp/mA/mSSAD d (mm)/ SDD (mm)Reconstructed CBCT voxelsVoxel size (mm 3 )P1MDACCVarianFull fan512 × 384 × 19830.776 × 0.776120/80/251000/1500200 × 200 × 1002 × 2 ×P2MDACCVarianFull fan512 × 384 × 27290.776 × 0.776120/80/251000/1500200 × 200 × 1002 × 2 ×P3MDACCVarianFull fan512 × 384 × 16530.776 × 0.776120/80/251000/1500200 × 200 × 1002 × 2 ×P4SPAREElektaFull fan512 × 512 × 10150.8 × 0.8125/20/201000/1536200 × 200 × 1002 × 2 ×P4-SSPAREElektaFull fan512 × 512 × 3400.8 × 0.8125/20/201000/1536200 × 200 × 1002 × 2 ×P5SPAREElektaFull fan512 × 512 × 10050.8 × 0.8125/20/201000/1536200 × 200 × 1002 × 2 ×P5-SSPAREElektaFull fan512 × 512 × 3400.8 × 0.8125/20/201000/1536200 × 200 × 1002 × 2 ×P6UTSWVarianHalf fan1024 × 768 × 8950.388 × 0.388125/15/201000/1500310 × 310 × 1022 × 2 ×P7SPAREVarianHalf fan1006 × 750 × 24160.388 × 0.388120/20/201000/1500300 × 300 × 1022 × 2 ×P7-SSPAREVarianHalf fan1006 × 750 × 6790.388 × 0.388120/20/201000/1500300 × 300 × 1022 × 2 ×P8SPAREVarianHalf fan1006 × 750 × 29180.388 × 0.388120/20/201000/1500300 × 300 × 1022 × 2 ×P8-SSPAREVarianHalf fan1006 × 750 × 6770.388 × 0.388120/20/201000/1500300 × 300 × 1022 × 2 ×
+(Shieh et al 2019)a suffix 'S' indicates a sparsely-sampled set extracted from the fully-sampled one.bMDACC:MDAndersoncancer center(Lu et al 2007).SPARE: SPARE challenge(Shieh et al 2019).UTSW: University of Texas Southwestern Medical Center.c width (in pixel number) × height (in pixel number) × N p (number of projections).d SAD: source-to-axis distance.SDD: source-to-detector distance.
+
+
+Table 2 .
+2
+Accuracy of the reconstructed dynamic CBCTs of the XCAT study, in terms of the relative error and the structural similarity index (SSIM).The results are presented as mean ± S.D. The arrows are pointing in the direction of higher accuracy.
+Relative error ↓SSIM ↑Motion scenarioSTINR PCA-4DCBCTSTINR PCA-4DCTPMF-STINRSTINR PCA-4DCBCTSTINR PCA-4DCTPMF-STINRX10.212 ± 0.0190.171 ± 0.0090.166 ± 0.0140.957 ± 0.0070.992 ± 0.0010.993 ± 0.002X20.218 ± 0.0270.168 ± 0.0110.169 ± 0.0110.970 ± 0.0050.992 ± 0.0010.993 ± 0.001X30.201 ± 0.0230.166 ± 0.0090.163 ± 0.0060.978 ± 0.0030.993 ± 0.0010.994 ± 0.001X40.243 ± 0.0250.184 ± 0.0130.198 ± 0.0140.961 ± 0.0070.990 ± 0.0020.989 ± 0.002X50.304 ± 0.0370.174 ± 0.0100.189 ± 0.0190.958 ± 0.0070.992 ± 0.0020.990 ± 0.003X60.225 ± 0.0220.168 ± 0.0090.174 ± 0.0070.961 ± 0.0050.992 ± 0.0010.992 ± 0.001
+
+Table 3 .
+3
+Lung tumor tracking accuracy of the XCAT study.The results are presented in terms of mean ± S.D. The arrows are pointing in the direction of higher accuracy.
+COME (mm) ↓DSC ↑Motion scenarioSTINR PCA-4DCBCTSTINR PCA-4DCTPMF-STINRSTINR PCA-4DCBCTSTINR PCA-4DCTPMF-STINRX11.8 ± 1.41.7 ± 0.70.8 ± 0.50.874 ± 0.0480.892 ± 0.0300.941 ± 0.017X21.6 ± 1.11.3 ± 0.80.8 ± 0.40.875 ± 0.0450.917 ± 0.0330.932 ± 0.012X32.3 ± 1.41.3 ± 0.70.9 ± 0.50.842 ± 0.0690.920 ± 0.0280.931 ± 0.017X44.3 ± 2.61.6 ± 0.71.4 ± 0.80.757 ± 0.1170.907 ± 0.0300.921 ± 0.029X58.4 ± 3.11.6 ± 0.90.8 ± 0.30.539 ± 0.1120.902 ± 0.0340.938 ± 0.010X62.8 ± 1.51.3 ± 0.70.7 ± 0.30.809 ± 0.0500.915 ± 0.0310.943 ± 0.011
+
+Table 4 .
+4
+Lung tumor localization accuracy of PMF-STINR for the dynamic thorax CIRS phantom study.The results are presented in terms of mean ± S.D. The arrows are pointing in the direction of higher accuracy.
+Pearson correlationMotion scenariocoefficient (SI trajectory) ↑Tumor localization error ↓LR (mm)AP (mm)SI (mm)C10.9970.4 ± 0.41.1 ± 0.71.2 ± 0.7C20.9990.4 ± 0.21.0 ± 0.71.0 ± 0.3C30.9990.5 ± 0.61.0 ± 0.61.0 ± 0.4C40.9990.3 ± 0.31.1 ± 0.91.0 ± 0.2C50.9590.4 ± 0.40.2 ± 0.21.1 ± 1.1C60.9790.2 ± 0.31.1 ± 0.40.9 ± 0.6
+
+table 5 )
+5
+. For such artifacts and degradation signals, there are many commercial and research solutions available (e.g.(Ren et al 2016, Zhao et al 2018, Peng et al 2019)), which can be used to replace or augment our current approaches to further improve the accuracy of PMF-STINR.
+
+
+Table 5 .
+5
+Accuracy of the solved intra-scan motion by PMF-STINR for the patient study.The results are presented in terms of mean ± S.D. The arrows are pointing in the direction of higher accuracy.
+Patient IDPearson correlation coefficient (SI trajectory)↑Localization error (mm) ↓AS image-basedFeature pointtrackingtrackingP10.9621.2 ± 1.30.8 ± 1.0P20.9851.2 ± 1.30.7 ± 1.4P30.9451.0 ± 1.31.4 ± 2.1P40.9791.0 ± 0.91.7 ± 1.6P4-S0.9621.3 ± 1.21.5 ± 1.5P50.9812.2 ± 2.11.4 ± 1.9P5-S0.9841.9 ± 1.71.2 ± 1.6P60.9891.2 ± 1.01.0 ± 0.7P70.9941.3 ± 1.32.0 ± 1.8P7-S0.9921.5 ± 1.41.8 ± 1.7P80.9941.2 ± 1.01.5 ± 1.3P8-S0.9921.4 ± 1.51.5 ± 1.2
+Phys. Med. Biol. 69 (2024) 115030 H-C Shao et al
+Phys. Med. Biol. 69 (2024) 115030  
+Phys. Med. Biol. 69 (2024) 115030 H-C Shao et al
+AcknowledgmentsThe study was supported by funding from the National Institutes of Health (R01 CA240808, R01 CA258987, R01 CA280135), and from Varian Medical Systems.We would like to thank Dr Jamie R. McClelland and Yuliang Huang from the University of College London for sharing the SuPReMo executable and their XCAT simulation dataset in our comparison study, and for their supportive and insightful discussions.We would like to thank Dr Ran Wei from the Cancer Hospital, Chinese Academy of Medical Sciences for sharing the MATLAB codes to perform feature point tracking.We would also like to thank Dr Paul Segars at Duke University for providing the XCAT phantom for our study, and Dr Park Yang at UT Southwestern Medical Center for helping with configuring the CIRS phantom for measurements.Data availability statementThe data cannot be made publicly available upon publication because they contain sensitive personal information.The data that support the findings of this study are available upon reasonable request from the authors.for projections with limited field of views, a consistent surrogate may not exist in all projections to be extracted.Using external surrogate signals like surface motion, on the other hand, may face challenges due to the lack of internal-external correlation(Alderliesten et al 2012, Wiant et al 2014).Moreover, additional frequency-based filtering was needed for SuPReMo to process the surrogate signals to remove background intensity variations (due to gantry angle changes), noise, and other spurious signals.Such filtering may remove true intra-scan motion signals (for instance, the high-pass filter applied to remove background intensity variations from gantry angle changes may also remove the low-frequency baseline drift signal).In contrast, PMF-STINR used the datadriven motion model and the temporal INR to directly solve the time-varying motion fields without assuming any motion curves in advance, eliminating uncertainties and simplifying the overall workflow.Second, in SuPReMo's motion-compensated reconstruction algorithm, no regularization (e.g.TV regularization) was implemented to guide the highly ill-posed reconstruction process.As a result, the reconstructed images still contain motion-related streaking artifacts (e.g.figure S-2 in supplementary materials).On the other hand, PMF-STINR adopted an iterative framework that can easily incorporate regularization loss functions to regularize the reconstruction process.The results of the comparison study (figures S-2 and S-3, and tables S-2 and S-3 of supplementary materials) demonstrated that PMF-STINR outperformed SuPReMo in both the CBCT image quality and tumor localization accuracy.Ethical statementThe MDACC dataset used in this study was retrospectively collected from an IRB-approved study at MD Anderson Cancer Center in 2007.The UTSW dataset was retrospectively collected from an approved study at UT Southwestern Medical Center on 31 August, 2023, under an umbrella IRB protocol 082013-008 (Improving
+Application of four-dimensional cone beam computed tomography in lung cancer radiotherapy. M Abulimiti, X Yang, M Li, F Huan, Y Zhang, L Jun, Radiat. Oncol. 18692023
+
+3D surface imaging for monitoring intrafraction motion in frameless stereotactic body radiotherapy of lung cancer. T Alderliesten, J J Sonke, A Betgen, C Van Vliet-Vroegindeweij, P Remeijer, 10.1016/j.radonc.2012.08.016Radiother. Oncol. 1052012
+
+Autoadaptive phase-correlated (AAPC) reconstruction for 4D CBCT. F Bergner, T Berkus, M Oelhafen, P Kunz, T Pan, M Kachelrieß, 10.1118/1.3260919Med. Phys. 362009
+
+M Brehm, T Berkus, M Oehlhafen, P Kunz, M Kachelriess, Motion-compensated 4D cone-beam computed tomography 2011 Ieee Nuclear Science Symp. and Medical Imaging Conf. Nss/Mic2011
+
+Artifact-resistant motion-compensated on-board cone-beam CT imaging. M Brehm, P Paysan, M Kachelriess, 10.1016/S0167-8140(15)30185-7Radiother. Oncol. 1112014
+
+Iterative motion-compensated reconstruction for image-guided radiation therapy. M Brehm, P Paysan, M Oehlhafen, P Kunz, M Kachelriess, Ieee Nuclear Science Symp. and Medical Imaging Conf. Record (Nss/Mic. 2012a. 2012
+
+Artifact-resistant motion estimation with a patient-specific artifact model for motion-compensated cone-beam CT. M Brehm, P Paysan, M Oelhafen, M Kachelriess, Med. Phys. 401019132013
+
+Self-adapting cyclic registration for motion-compensated cone-beam CT in image-guided radiation therapy. M Brehm, P Paysan, M Oelhafen, P Kunz, M Kachelriess, 10.1118/1.4766435Med. Phys. 392012b
+
+Cardiorespiratory motion-compensated micro-CT image reconstruction using an artifact model-based motion estimation. M Brehm, S Sawall, J Maier, S Sauppe, M Kachelriess, 10.1118/1.4916083Med. Phys. 422015
+
+Adaptive radiotherapy: moving into the future Semin. K Brock, 10.1016/j.semradonc.2019.02.011Radiat. Oncol. NIH Public Access. 292019
+
+Cine cone beam CT reconstruction using low-rank matrix factorization: algorithm and a proof-of-principle study. J-F Cai, X Jia, H Gao, S B Jiang, Z Shen, H Zhao, 10.1109/TMI.2014.2319055IEEE Trans. Med. Imaging. 332014
+
+The effect of irregular breathing patterns on internal target volumes in four-dimensional CT and cone-beam CT images in the context of stereotactic lung radiotherapy. N Clements, T Kron, R Franich, L Dunn, P Roxby, Y Aarons, B Chesson, S Siva, D Duplan, D Ball, 10.1118/1.4773310Med. Phys. 40219042013
+
+Deformation vector fields (DVF)-driven image reconstruction for 4D-CBCT. J Dang, O Luo, X Gu, Wang J , 10.1364/JOSAA.1.000612J. X-ray Sci. Technol. 232015J. Opt. Soc. Am. A
+
+Principal component reconstruction (PCR) for cine CBCT with motion learning from 2D fluoroscopy. H Gao, Y Zhang, L Ren, F F Yin, 10.1002/mp.12671Med. Phys. 452018
+
+Reconstruction of a high-quality volumetric image and a respiratory motion model from patient CBCT projections. M Guo, 10.1002/mp.13595Med. Phys. 462019
+
+Correlation of lung tumor motion with external surrogate indicators of respiration Int. J D Hoisak, K E Sixel, R Tirona, P Cheung, J P Pignol, 10.1016/j.ijrobp.2004.07.681J. Radiat. Oncol. Biol. Phys. 602004
+
+U-Net-based deformation vector field estimation for motion-compensated 4D-CBCT reconstruction. X Huang, Y Zhang, Chen L , Wang J , 10.1002/mp.14150Med. Phys. 472020
+
+Surrogate-driven respiratory motion model for projection-resolved motion estimation and motion compensated cone-beam CT reconstruction from unsorted projection data. Y Huang, K Thielemans, G Price, J R Mcclelland, 10.1088/1361-6560/ad1546Phys. Med. Biol. 69250202024
+
+Flat-panel cone-beam computed tomography for image-guided radiation therapy. D A Jaffray, J H Siewerdsen, J Wong, A Martinez, 10.1016/S0360-3016(02)02884-5Int. J. Radiat. Oncol. Biol. Phys. 532002
+
+Projection-based dynamic tomography. C Jailin, S Roux, D Sarrut, S Rit, 10.1088/1361-6560/ac309ePhys. Med. Biol. 662150182021
+
+Obtaining breathing patterns from any sequential thoracic x-ray image set. A Kavanagh, P M Evans, V Hansen, S Webb, 10.1088/0031-9155/54/16/003Phys. Med. Biol. 542009
+
+Elastix: a toolbox for intensity-based medical image registration. S Klein, M Staring, K Murphy, M Viergever, J P Pluim, IEEE Trans. Med. Imaging. 292010
+
+A survey of hierarchical non-linear medical image registration Pattern Recognit. H Lester, S R Arridge, 10.1016/S0031-3203(98)00095-8199932
+
+3D tumor localization through real-time volumetric x-ray imaging for lung cancer radiotherapy. J Li, J H Lewis, X Jia, X J Gu, M Folkerts, C Men, W Y And Song, S B Jiang, 10.1118/1.3582693Med. Phys. 382011
+
+Effects of irregular respiratory motion on the positioning accuracy of moving target with free breathing cone-beam computerized tomography Int. X Li, J. Med. Phys. Clin. Eng. Radiat. Oncol. 72018
+
+Learning deep intensity field for extremely sparse-view CBCT reconstruction Medical Image Computing and Computer Assisted Intervention Miccai. Y Q Lin, Z J Luo, W Zhao, X M Li, 2023. 2023Pt X vol 14229
+
+Four-dimensional cone beam CT with adaptive gantry rotation and adaptive data sampling. J Lu, T M Guerrero, P Munro, A Jeung, P C Chi, P Balter, X R Zhu, Mohan R Pan, T , 10.1118/1.2767145Med. Phys. 342007
+
+Nerf: representing scenes as neural radiance fields for view synthesis. B Mildenhall, P P Srinivasan, M Tancik, J T Barron, R Ramamoorthi, R Ng, Commun. ACM. 652021
+
+NeRF: representing scenes as neural radiance fields for view synthesis. B Mildenhall, P P Srinivasan, M Tancik, J T Barron, R Ramamoorthi, R Ng, 10.1145/3503250Commun. ACM. 652022
+
+Instant neural graphics primitives with a multiresolution hash encoding. T Muller, A Evans, C Schied, A Keller, Acm Trans. Graphics. 411022022
+
+M Oldham, D Létourneau, L Watt, G Hugo, D Yan, D Lockman, L H Kim, P Y Chen, A Martinez, J W Wong, Cone-beam-CT guided radiation therapy: a model for on. 200575E278
+
+A novel method of cone beam CT projection binning based on image registration. S Park, S Kim, B Yi, G Hugo, H Gach, Y Motai, IEEE Trans. Med. Imaging. 362017
+
+MCDNet-a denoising convolutional neural network to accelerate Monte Carlo radiation transport simulations: a proof of principle with patient dose from x-ray. Z Peng, H M Shan, T Y Liu, Pei X , Wang G Xu, X G , CT imaging Ieee Access. 72019
+
+Dynamic ct reconstruction from limited views with implicit neural representations and parametric motion fields Proc. A W Reed, H Kim, R Anirudh, K A Mohan, K Champley, J Kang, L Jayasuriya S ; Ren, Y Chen, Y Zhang, Giles W , Jin J Yin, F F , 10.1177/1533034615587615IEEE/CVF Int. Conf. on Computer Vision. 2021. 201615Scatter reduction and correction for dual-source cone-beam CT using prepatient grids Technol
+
+Comparative study of respiratory motion correction techniques in cone-beam computed tomography. S Rit, J Nijkamp, M Van Herk, J-J Sonke, 10.1016/j.radonc.2011.08.018Radiother. Oncol. 1002011
+
+Five-dimensional motion compensation for respiratory and cardiac motion with cone-beam CT of the thorax region Med. S Sauppe, A Hahn, M Brehm, P Paysan, D Seghers, M Kachelriess, 10.1117/12.2216266Imaging. 97832016
+
+Motion vector field phase-to-amplitude resampling for 4D motion-compensated cone-beam CT. S Sauppe, J Kuhm, M Brehm, P Paysan, D Seghers, M Kachelriess, Phys. Med. Biol. 63350322018
+
+. W P Segars, G Sturgeon, S Mendonca, J Grimes, B M Tsui, 10.1118/1.34809854D XCAT phantom for multimodality imaging research Med. Phys. 372010
+
+Real-time liver motion estimation via deep learning-based angle-agnostic x-ray imaging. H Shao, C Li, Y Wang, J Jiang, S Zhang, Y , Med. Phys. 502023a
+
+Real-time liver tumor localization via combined surface imaging and a single x-ray projection. H-C Shao, Y Li, J Wang, S Jiang, Y Zhang, Phys. Med. Biol. 68650022023b
+
+Real-time liver tumor localization via a single x-ray projection using deep graph neural network-assisted biomechanical modeling. H-C Shao, J Wang, T Bai, J Chun, J C Park, S Jiang, Y Zhang, 10.1088/1361-6560/ac6b7bPhys. Med. Biol. 671150092022
+
+NeRP: implicit neural representation learning with prior embedding for sparsely sampled image reconstruction. L Shen, Pauly J Xing, L , IEEE Trans. Neural Netw. Learn. Syst. 352022
+
+Patient-specific reconstruction of volumetric computed tomography images from a single projection view via deep learning Nat. L Shen, Y Zhao, W Xing, L , 10.1038/s41551-019-0466-4Biomed. Eng. 32019
+
+SPARE: Sparse-view reconstruction challenge for 4D cone-beam CT from a 1 min scan. C Shieh, 10.1002/mp.13687Med. Phys. 462019
+
+Implicit neural representations with periodic activation functions. V Sitzmann, J Martel, A Bergman, D Lindell, G Wetzstein, Adv. Neural Inf. Process. Syst. 332020
+
+. J J Sonke, L Zijp, P Remeijer, M Van Herk, 10.1118/1.1869074CT Med. Phys. 322005
+
+A modified McKinnon-Bates (MKB) algorithm for improved 4D cone-beam computed tomography (CBCT) of the lung. Star-Lack J , Med. Phys. 452018
+
+M Tancik, P P Srinivasan, B Mildenhall, S Fridovich-Keil, N Raghavan, U Singhal, R Ramamoorthi, J Barron, R Ng, Fourier Features Let Networks Learn High Frequency Functions in Low Dimensional Domains. NeurIPS2020
+
+Real-time cryo-electron microscopy data preprocessing with Warp Nat. D Tegunov, P Cramer, 10.1038/s41592-019-0580-yMethods. 162019
+
+MLESAC: a new robust estimator with application to estimating image geometry Comput. Vision Image Understand. Torr P , H Zisserman, A , 10.1006/cviu.1999.0832200078
+
+Fast and flexible x-ray tomography using the ASTRA toolbox. W Van Aarle, W J Palenstijn, J Cant, E Janssens, F Bleichrodt, A Dabravolski, De Beenhouwer, J , Joost Batenburg, K Sijbers, J , 10.1364/OE.24.025129Opt. Express. 242016
+
+Potential underestimation of the internal target volume (ITV) from free-breathing. I Vergalasova, J Maurer, F F Yin, 10.1118/1.3613153CBCT Med. Phys. 382011
+
+Simultaneous motion estimation and image reconstruction (SMEIR) for 4D cone-beam CT. J Wang, X Gu, Med. Phys. 401019122013
+
+Z Wang, A C Bovik, H Sheikh, E P Simoncelli, 10.1109/TIP.2003.819861Image quality assessment: from error visibility to structural similarity IEEE Trans. Image Process. 200413
+
+Convolutional neural network (CNN) based three dimensional tumor localization using single x-ray projection. R Wei, F Zhou, B Liu, X Bai, D Fu, Y Li, B Liang, Q Wu, IEEE Access. 72019
+
+Real-time tumor localization with single x-ray projection at arbitrary gantry angles using a convolutional neural network (CNN). R Wei, F G Zhou, B Liu, X Z Bai, D S Fu, B Liang, Q W Wu, 10.1088/1361-6560/ab66e4Phys. Med. Biol. 65650122020
+
+Surface imaging-based analysis of intrafraction motion for breast radiotherapy patients. B Wiant, S Wentworth, J M Maurer, C L Vanderstraeten, J A Terrell, B J Sintay, 10.1120/jacmp.v15i6.4957J. Appl. Clin. Med. Phys. 152014
+
+A hybrid reconstruction algorithm for fast and accurate 4D conebeam CT imaging. H Yan, X Zhen, M Folkerts, Y Li, T Pan, L Cervino, S Jiang, X Jia, 10.1118/1.4881326Med. Phys. 41719032014
+
+Investigation of the location effect of external markers in respiratory-gated radiotherapy. H Yan, G Zhu, J Yang, M Lu, M Ajlouni, J H Kim, F F Yin, 10.1120/jacmp.v9i2.2758J. Appl. Clin. Med. Phys. 92008
+
+Quantitative analysis of the intra-beam respiratory motion with baseline drift for respiratory-gating lung stereotactic body radiation therapy. K Yasue, H Fuse, S Oyama, K Hanada, K Shinoda, H Ikoma, T Fujisaki, Y Tamaki, 10.1093/jrr/rrab098J. Radiat. Res. 632022
+
+NAF: neural attenuation fields for sparse-view CBCT reconstruction Medical Image Computing and Computer Assisted Intervention Miccai. Y Zha, Y Zhang, H D Li, 2022. 202213436Pt Vi
+
+A new CT reconstruction technique using adaptive deformation recovery and intensity correction. Y Zhang, J Ma, P Iyengar, Y Zhong, Wang J , 10.1002/mp.12259ADRIC) Med. Phys. 442017
+
+Dynamic cone-beam CT reconstruction using spatial and temporal implicit neural representation learning (STINR). Y Zhang, H C Shao, T Pan, T Mengke, 10.1088/1361-6560/acb30dPhys. Med. Biol. 68450052023
+
+A biomechanical modeling guided CBCT estimation technique. Y Zhang, J Tehrani, Wang J , IEEE Trans. Med. Imaging. 362016
+
+Preliminary clinical evaluation of a 4D-CBCT estimation technique using prior information and limited-angle projections. Y Zhang, F-F Yin, T Pan, I Vergalasova, L Ren, 10.1016/j.radonc.2015.02.022Radiother. Oncol. 1152015
+
+A technique for estimating 4D-CBCT using prior knowledge and limited-angle projections. Y Zhang, F F Yin, W Segars, L Ren, Med. Phys. 401217012013
+
+Image reconstruction from highly undersampled (k, t)-space data with joint partial separability and sparsity constraints. B Zhao, J P Haldar, A Christodoulou, Z P Liang, IEEE Trans. Med. Imaging. 312012
+
+4D cone-beam computed tomography (CBCT) using a moving blocker for simultaneous radiation dose reduction and scatter correction. C Zhao, Y Zhong, X Duan, Y Zhang, X Huang, Wang J , Jin M , 10.1088/1361-6560/aac229Phys. Med. Biol. 631150072018
+
+High-quality initial image-guided 4D CBCT reconstruction. S Zhi, M Kachelrieß, X Mou, 10.1002/mp.14060Med. Phys. 472020
+
+L Zijp, J Sonke, M Van Herk, Extraction of the respiratory signal from sequential thorax cone-beam x-ray images Int. Conf. on the Use of Computers in Radiation Therapy. 2004
+
+Dynamic simulation of motion effects in IMAT lung SBRT. W Zou, L Yin, J Shen, M N Corradetti, M Kirk, R Munbodh, P Fang, S K Jabbour, C B And Simone, N J Yue, Radiat. Oncol. 92014

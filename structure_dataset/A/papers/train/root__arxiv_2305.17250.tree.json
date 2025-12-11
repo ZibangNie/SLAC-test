@@ -1,0 +1,2253 @@
+{
+  "doc_id": "corpus_258959224",
+  "units": [
+    {
+      "unit_id": 0,
+      "text": "Self-Supervised Reinforcement Learning that Transfers using Random Features",
+      "type": "heading",
+      "level": 0,
+      "parent_id": null,
+      "subtype": "doc_title"
+    },
+    {
+      "unit_id": 1,
+      "text": "Introduction",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 2,
+      "text": "As in most machine learning problems, the ultimate goal of building deployable sequential decisionmaking agents via reinforcement learning (RL) is its broad generalization across tasks in the real world.While reinforcement learning algorithms have been shown to successfully synthesize complex behavior in single-task sequential decision-making problems [31,36,45], their performance as generalist agents across tasks has been less convincing [9].In this work, we focus on the problem of learning generalist agents that are able to transfer across problems where the environment dynamics are shared, but the reward function is changing.This problem setting is reflective of scenarios that may be encountered in real-world settings such as robotics.For instance, in tabletop robotic manipulation, different tasks like pulling an object, pushing an object, picking it up, and pushing to different locations, all share the same transition dynamics, but involve different reward functions.We hence ask the question -Can we reuse information across tasks in a way that scales to high dimensional, longer horizon problems?A natural possibility to tackle this problem is direct policy search [54,44].Typical policy search algorithms can achieve good performance on a single task.However, the policy is optimized for a particular reward and may be highly suboptimal in new scenarios.Other model-free RL algorithms like actor-critic methods [23,15,13] or Q-learning [51,31] may exacerbate this issue, with learned Q-functions entangling dynamics, rewards, and policies.For new scenarios, an ideal algorithm should be able to disentangle and retain the elements of shared dynamics, allowing for easy substitution of rewards without having to repeat significant computations.While multi-task policy search techniques like goal-conditioned RL address this issue to some extent, they are restricted to particular tasks like goal-reaching and usually require prior knowledge about the tasks one may encounter in testing.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 3,
+      "text": "Model-based RL arises as a natural fit for disentangling dynamics and rewards [33,10,17,19,20].These algorithms directly learn a model of transition dynamics and leverage the learned model to plan control actions [35,17,10,8].In particular, the models can be used to re-plan behaviors for new rewards.However, these learned dynamics models are brittle and suffer from compounding error [25,3] due to their autoregressive nature.States predicted by the model are iteratively used as inputs for subsequent predictions, leading to compounding approximation errors during planning [25].This makes it challenging to apply them to problems with long horizons and high dimensions.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 4,
+      "text": "In this work, we thus ask -Can we build RL algorithms that disentangle dynamics, rewards, and policies for transfer across problems, while retaining the ability to solve problems with high dimensional observations and long horizons?To this end, we propose a self-supervised RL algorithm that can leverage collected data to implicitly model transition dynamics without ever having to generate future states, and then use this to quickly transfer to a variety of different new tasks with varying reward functions that may be encountered at test time.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 5,
+      "text": "Our method relies on the following key insight: to prevent tying specific reward functions and policies to the RL algorithm, one can instead model the long-term evolution of randomly chosen basis functions of all possible reward functions [6].Such basis functions can be generated using random features [39][40][41].The accumulation of such basis functions over time, which we refer to as a Q-basis, is task-agnostic [48], and implicitly models the transition dynamics of the problem.We show that with a large enough number of random features and model-free RL, the value function for any reward function that may be encountered in testing could be estimated, via a simple linear combination of these Q-basis functions.This is important since it allows us to obtain the benefits of transfer, without explicitly learning a dynamics model that may suffer from compounding error.Moreover, with randomly chosen basis functions that are agnostic of downstream tasks, this is not restricted to just a certain distribution of tasks, as in most multi-task or goal-conditioned RL [49,2].Finally, we note that the random features (as well as the corresponding Q-basis functions) can be generated using datasets that are not necessarily labeled with reward signals.Indeed, these random-feature-based pseudo rewards can be viewed as self-supervised signals in training, making the approaches based on them naturally compatible with large (task-agnostic) offline datasets.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 6,
+      "text": "Based on the aforementioned insights, we propose a new algorithm Random Features for Model-Free Planning (RaMP) that allows us to leverage unlabelled offline datasets to learn reward-agnostic Qbases.These can be used to estimate the test-time value functions for new reward functions using linear regression, enabling quick adaptation to new tasks under the same shared transition dynamics.We show the efficacy of this method on a number of tasks for robotic manipulation and locomotion in simulation, and highlight how RaMP provides a more general paradigm than typical generalizations of model-based or model-free RL.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 7,
+      "text": "Related Work",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 8,
+      "text": "Model-based RL is naturally suited for transfer across tasks with shared dynamics, by explicitly learning a model of the transition dynamics, which is disentangled with the reward functions for each task [17,35,10,16,8,47,27].These models are typically learned via supervised learning on one-step transitions and then used to extract control actions via planning [28,42] or trajectory optimization [46,59,38].The key challenge in scaling lies in the fact that they sequentially feed model predictions back into the model for sampling [50,3,25].This can often lead to compounding errors [25,3,55], which grow with the horizon length unfavorably.In contrast, our work does not require autoregressive sampling, making it easier to scale to longer horizons and higher dimensions.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 7,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 9,
+      "text": "On the other hand, model-free RL avoids the challenge of compounding error by directly modeling either policies or Q-values without autoregressive generation [54,43,44,30,31,15].However, these approaches entangle rewards, dynamics, and policies, making them hard to transfer.While attempts have been made to build model-free methods that generalize across rewards, such as goal-conditioned value functions [21,1,37,14] or multi-task policies [22,18], they only apply to restricted classes of reward functions and particular training distributions.Our work aims to obtain the best of both worlds (model-based and model-free RL), learning some representation of dynamics independent of rewards and policies, while using a model-free algorithm for learning.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 7,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 10,
+      "text": "Our notion of long-term dynamics is connected to the notion of state-action occupancy measure [34,58], often used for off-policy evaluation and importance sampling methods in RL.These methods often try to directly estimate either densities or density ratios [20,34,58].Our work simply learns the long-term accumulation of random features, without requiring any notion of normalized densities.Perhaps most closely related work to ours is the framework of successor features, that considers transfer from a fixed set of source tasks to new target tasks [5,26,57,11].Like our work, the successor features framework leverages the linearity of rewards to disentangle dynamics from rewards using model-free RL.However, transfer using successor features is dependent on choosing (or learning) the right featurization and forces an implicit dependence on the policy.Our work leverages random features and multi-step Q-functions to alleviate the transfer performance of successor features.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 7,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 11,
+      "text": "Preliminaries",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 12,
+      "text": "Model.We consider the standard Markov decision process (MDP) as characterized by a tuple M = (S, A, T , R, γ, µ), with state space S, action space A, transition dynamics T : S ×A → ∆(S), ), and initial state distribution µ ∈ ∆(S).The goal is to learn a policy π : S → ∆(A), such that it maximizes the expected discounted accumulated rewards, i.e., solves",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 13,
+      "text": "reward function R : S × A → ∆([−R max , R max ]), discount factor γ ∈ [0, 1",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 14,
+      "text": "max π E π ∞ h=1 γ h−1 r h with r h := r(s h , a h ) ∼ R s h ,a h = Pr(• | s h , a h ).",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 15,
+      "text": "Hereafter, we will refer to an MDP and a task interchangeably.Note that in our problem settings, different MDPs will always share transition dynamics T , but will have varying reward functions R.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 16,
+      "text": "Q-function Estimation.Given an MDP M, one can define the state-action Q-value function under any policy π as",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 17,
+      "text": "Q π (s, a) := E a h ∼π(• | s h ) s h+1 ∼T (• | s h ,a h ) ∞ h=1 γ h−1 r h s 1 = s, a 1 = a which denotes",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 18,
+      "text": "the expected accumulated reward under policy π, when starting from state-action pair (s, a).By definition, this Q-function is inherently tied to the particular reward function R and the policy π, making it challenging to transfer for a new reward or policy.Similarly, one can also define the multi-",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 19,
+      "text": "step (τ -step) Q-function Q π (s, a 1 , a 2 , • • • , a τ ) = E a τ +h ∼π(• | s τ +h ) s h+1 ∼T (• | s h ,a h ) ∞ h=1 γ h−1 r h s 1 = s, a 1 = a 1 , a 2 = a 2 , • • • , a τ = a τ .",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 20,
+      "text": "One can estimate the τ -step Q π by Monte-Carlo sampling of the trajectories under π, i.e., by solving",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 21,
+      "text": "min Q∈Q 1 N N j=1 Q(s, a j 1 , a j 2 , • • • , a j τ ) − 1 M M m=1 ∞ h=1 γ h−1 r m,j h 2 2 ,(2.1)",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 22,
+      "text": "where Q is some function class for Q-value estimation, which in practice is some parametric function class, e.g., neural networks; r m,j h ∼ R s m,j h ,a m,j h and (s m,j h , a m,j h ) come from M N trajectories that are generated by N action sequences {( a j 1 , a j 2 , • • • , a j τ )} N j=1 and M trajectories following policy π after each action sequence.A large body of work considers finding this Q-function using dynamic programming, but for the sake of simplicity, this work will only consider Monte-Carlo estimation.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 23,
+      "text": "In practice, the infinite-horizon estimator in (2.1) can be hard to obtain.We hence use a finite-horizon approximation of Q π (of length H), denoted by Q H π , in learning.We will treat this finite-horizon formula in the main paper for practical simplicity.We also provide a method to deal with the infinite-horizon case directly by bootstrapping the value function estimate.We defer the details to Appendix B.1.Note that if one chooses H = τ , then the τ -step Q-function defined above becomes",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 24,
+      "text": "Q H π (s, a 1 , a 2 , • • • , a H ) := E s h+1 ∼T (• | s h ,a h ) H h=1 γ h−1 r h | s 1 = s, a 1 = a 1 , • • • , a H = a H .",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 25,
+      "text": "Note that in this case, the Q-function is irrelevant of the policy π, denoted by Q H , and is just the expected accumulated reward executing the action sequence ( a 1 , a 2 , • • • , a H ) starting from the state s.This Q-function can be used to score how \"good\" a sequence of actions will be, which in turn can be used for planning.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 26,
+      "text": "Problem setup.We illustrate our problem setup in Figure 1.Consider a transfer learning scenario, where we assume access to an offline dataset consisting of several episodes",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 27,
+      "text": "D = {(s m h , a m h , s m h+1 )} h∈[H],m∈[M ] .",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 28,
+      "text": "Here H is the length of the trajectories, which is large enough, e.g., of order O(1/(1 − γ)) to approximate the infinite-horizon setting; M is the total number of trajectories.This dataset assumes that all transitions are collected under the same transition dynamics T , but otherwise does not require the labels, i.e., rewards, and may even come from different behavior policies.This is reminiscent of the offline RL problem statement, but offline RL datasets are typically labeled with rewards and are task-specific.In contrast, in this work, the pre-collected dataset is used to quickly learn policies for any downstream reward, rather than for one specific reward function.The goal is to make the best use of the dataset D, and generalize the learned experience to improve the performance on a new task M, with the same transition dynamics T but an arbitrary reward function R. Note that unlike some related work [5,4], we make no assumption on the reward functions of the MDPs that generate D. The goal of the learning problem is to pre-train on the offline dataset such that we can enable fast (even zero-shot) adaptation to arbitrary new reward functions encountered at test time.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 29,
+      "text": "3 RaMP: Learning Implicit Models for Cross-Reward Transfer with Self-Supervised Model-Free RL",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 30,
+      "text": "We now introduce our algorithm, Random Features for Model-Free Planning (RaMP), to solve the problem described in Section 2 -learning a model of long-term dynamics that enables transfer to tasks labeled with arbitrary new rewards, while making use of the advantages of model-free RL.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 31,
+      "text": "Clearly, the problem statement we wish to solve requires us to (1) be able to solve tasks with long horizons and high-dimensional observations and (2) alleviate policy and reward dependence to be able to transfer computation across tasks.The success of model-free RL in circumventing compounding error from autoregressive generation raises the natural question: Is there a model-free approach that can mitigate the challenges of compounding error and can transfer across tasks painlessly?We answer this in the affirmative in the following section.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 32,
+      "text": "3.1 Key Idea: Implicit Model Learning with Random Feature Cumulants and Model-Free RL",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 33,
+      "text": "The key insight we advocate is that we can avoid task dependence if we directly model the long-term accumulation of many random functions of states and actions (treating them as the rewards), instead of modeling the long-term accumulation of one specific reward as in typical Q-value estimation.Since these random functions of the state and actions are task-agnostic and uninformed of any specific reward function, they simply capture information about the transition dynamics of the environment.However, they do so without actually requiring autoregressive generative modeling, as is commonplace in model-based RL.Doing so can effectively disentangle transition dynamics from reward, and potentially allow for transfer across tasks, while still being able to make use of model-free RL methods.Each long-term accumulation of random features is referred to as an element of a \"random\" Q-basis, and can be learned with simple modifications to typical model-free RL algorithms.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 34,
+      "text": "The key is to replace the Q-estimation of a single task-specific reward function with estimating the Q-functions of a set of task-agnostic random functions of the state and actions as a random Q-basis.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 35,
+      "text": "At training time, the offline dataset D can be used to learn a set of \"random\" Q-basis functions for different random functions of the state and action.This effectively forms an \"implicit model\", as it carries information about how the dynamics propagate, without being tied to any particular reward function.At test time, given a new reward function, we can recombine Q-basis functions to effectively approximate the true reward-specific Q-function under any policy.This inferred Q-function can then be used for planning for the new task.As we will show in Section 3.4, this recombination can actually be done by a linear combination of Q-basis functions for a sufficiently rich class of random features, reducing the problem of test-time adaptation for new rewards to a simple linear regression problem.We detail the two phases of our approach in the following subsections.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 36,
+      "text": "Offline Training",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 37,
+      "text": "Online Quick Adaptation to New Objective(s)",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 36,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 38,
+      "text": "Random Features",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 36,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 39,
+      "text": "Small Amount of Interaction Linear Regression",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 38,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 40,
+      "text": "Model Predictive Control Infer",
+      "type": "heading",
+      "level": 4,
+      "parent_id": 38,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 41,
+      "text": "Fit  to accumulated features over trajectory Q-basis exploration trajectories w/ unknown reward approximates so for some with respect to a potential reward function",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 40,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 42,
+      "text": "Offline Training: Self-Supervised Learning Random Q-functions",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 43,
+      "text": "Without any prior knowledge about the downstream test-time rewards, the best that an agent can do is to model the evolution of the state (i.e., model system dynamics).The key insight we make is that the evolution of state can be implicitly represented by simply modeling the long-term accumulation of random features of state to obtain a set of Q-basis functions.Such a generation of random features is fully self-supervised.These functions can then be combined to infer the task-specific Q-function.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 44,
+      "text": "Given the lack of assumptions about the downstream task, the random features being modeled must be expressive and universal in their coverage.As suggested in [39][40][41], random features can be powerful in that most nonlinear functions can be represented as linear combinations of random features effectively.As we will show in Section 3.4, modeling the long-term accumulation of random features allows us express the value function for any reward as a linear combination of these accumulations of random features.In particular, in our work, we assume that the random features are represented as the output of",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 45,
+      "text": "K neural networks ϕ(•, •; θ k ) : S × A → R with weights θ k ∈ R d and k ∈ [K],",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 46,
+      "text": "where θ k are randomly sampled i.i.d.from some distribution p. Sampling K such weights",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 47,
+      "text": "θ k with k ∈ [K] yields a vector of scalar functions [ϕ(•, •; θ k )] k∈[K] ∈ R K for any (s, a)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 48,
+      "text": ", which can be used as random features.To model the long-term accumulation of each of these random features, we note that they can be treated as reward functions (as can any function of state and action [48]) in model-free RL, and standard model-free policy evaluation to learn Q-functions can be reused to learn a set of K Q-basis functions, with each of them corresponding to the Q-value of a random feature.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 49,
+      "text": "We note that done naively, this definition of a Q-basis function is tied to a particular policy π that generates the trajectory.However, to transfer behavior one needs to predict the accumulated random features under new sequences of actions, as policy search for the new task is likely to involve evaluating a policy that is not the same as the training policy π.To allow the modeling of accumulated features that is independent of particular policies, we propose to learn multi-step Q-basis functions for each of the random features (as discussed in Section 2), which is explicitly dependent on an input sequence of actions ( a 1 , a 2 , • • • , a τ ).This can be used to search for optimal actions in new tasks.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 50,
+      "text": "To actually learn these Q-basis functions (one for each random feature), we use Monte-Carlo methods for simplicity.We generate a new dataset",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 51,
+      "text": "D ϕ from D, with D ϕ = {((s m 1 , a m 1:H ), h∈[H] γ h−1 ϕ(s m h , a m h ; θ k ))} m∈[M ],k∈[K] .",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 52,
+      "text": "Here we use",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 53,
+      "text": "h∈[H] γ h−1 ϕ(s m h , a m h ; θ k )",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 54,
+      "text": "as the accumulated random features for action sequences {a 1 , • • • , a H } taken from state s 1 .We then use K function approximators representing each of the K Q-basis functions, e.g., neural networks ψ(•,",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 55,
+      "text": "•; ν k ) : S × A H → R for k ∈ [K],",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 56,
+      "text": "to fit the accumulated random features.Specifically, we minimize the following loss",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 57,
+      "text": "min {ν k } 1 M m∈[M ],k∈[K] ψ(s m 1 , a m 1:H ; ν k ) − h∈[H] γ h−1 ϕ(s m h , a m h ; θ k ) 2 .",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 58,
+      "text": "This objective is a Monte Carlo estimate, but we can also leverage dynamic programming to do so in an infinite-horizon way, as we show in Appendix B.1.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 42,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 59,
+      "text": "Online Planning: Inferring Q-functions with Linear Regression and Planning",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 60,
+      "text": "Our second phase concerns online planning to transfer to new tasks with arbitrary rewards using our learned Q-basis functions.For a sufficiently expressive set of random non-linear features, any non-linear reward function can be expressed as a linear combination of these features.As we outline below, this combined with linearity of expectation, allows us to express the task-specific Q-function for any particular reward as a linear combination of learned Q-bases of random functions.Therefore, we can obtain the test-time Q-function by solving a simple linear regression problem from random features to instantaneous rewards, and use the same inferred coefficients to recombine Q-bases to obtain task-specific Q-functions.This inferred Q-function can then be used to plan an optimal sequence of actions.We describe each of these steps below.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 59,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 61,
+      "text": "Reward Function Fitting with Randomized Features",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 59,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 62,
+      "text": "We first learn how to express the reward function for the new task as a linear combination of the random features.This can be done by solving a linear regression problem to find the coefficient",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 61,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 63,
+      "text": "vector w = [w 1 , • • • , w K ]",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 61,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 64,
+      "text": "⊤ that approximates the new task's reward function as a linear combination of the (non-linear) random features.Specifically, we minimize the following loss",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 61,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 65,
+      "text": "w * = argmin w 1 M H h∈[H],m∈[M ] r(s m h , a m h ) − k∈[K] w k ϕ(s m h , a m h ; θ k ) 2 + λ∥w∥ 2 2 ,(3.1)",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 61,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 66,
+      "text": "where λ ≥ 0 is the regularization coefficient, and",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 61,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 67,
+      "text": "r(s m h , a m h ) ∼ R s m h ,a m h .",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 61,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 68,
+      "text": "Due to the use of random features, Eq. (3.1) is a ridge regression problem, and can be solved efficiently.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 61,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 69,
+      "text": "Given these weights, it is easy to estimate an approximate multi-step Q-function for the true reward on the new task by linearly combining the Q-basis functions learned in the offline training phase {ψ(•, •; ν * k )} k∈[K] according to the same coefficient vector w * .This follows from the additive nature of reward and linearity of expectation.In particular, if the reward function r(s, a) = k∈[K] w * k ϕ(s, a; θ k ) holds approximately, which will be the case for large enough K and rich enough ϕ, then the approximate Q-function for the true test-time reward under the sequence {a",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 61,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 70,
+      "text": "1 , • • • , a H } satisfies Q H (s 1 , a 1:H ) := E s h+1∼T (s h ,a h ) h∈[H] γ h−1 R s h ,a h ≈ k∈[K] w * k ψ(s 1 , a 1:H ; ν * k ), where {w * k } k∈[K]",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 61,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 71,
+      "text": "is the solution to the regression problem (Eq.(3.1)) and {ν * k } k∈[K] is the solution to the Q-basis fitting problem described in Section 3.2.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 61,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 72,
+      "text": "Planning with Model Predictive Control",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 59,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 73,
+      "text": "To obtain the optimal sequence of actions, we can use the inferred approximate Q-function for the true reward Q H (s 1 , a 1:H ) for online planning at each time t in the new task: at state s t , we conduct standard model-predictive control techniques with random shooting [35,52], i.e., randomly generating N sequences of actions",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 72,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 74,
+      "text": "{a n 1 , • • • , a n H } n∈[N ]",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 72,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 75,
+      "text": ", and find the action sequence with the maximum Q-value such that n",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 72,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 76,
+      "text": "* t ∈ argmax n∈[N ] k∈[K] w * k ψ(s t , a n t:t+H−1 ; ν * k ).",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 72,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 77,
+      "text": "We note that this finite-horizon planning is an approximation of the actual infinite-horizon planning, which may be enhanced by an additional reward-to-go term in the objective.We provide such an enhancement with details in Appendix B.1, although we found minimal effects on empirical performance.We then execute a n * t t from the sequence n * t , observe the new state s t+1 , and replan.We refer readers to Appendix F for a detailed connection of our proposed method to existing work and Appendix A for pseudocode.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 72,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 78,
+      "text": "Theoretical Justifications",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 79,
+      "text": "We now provide some theoretical justifications for the methodology we adopt.To avoid unnecessary nomenclature of measures and norms in infinite dimensions, we in this section consider the case that S and A are discrete (but can be enormously large).Due to space limitation, we present an abridged version of the results below, and defer the detailed versions and proofs in Appendix D. We first state the following result on the expressiveness of random cumulants.Theorem 3.1 (Q-function approximation; Informal).Under standard coverage and sampling assumptions of offline dataset D, and standard assumptions on the boundedness and continuity of random features ϕ(s, a; θ), it follows that with horizon length H = Θ( log(Rmax/ϵ)",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 78,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 80,
+      "text": "1−γ ) and M = Θ( 1 (1−γ) 3 ϵ 4 )",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 78,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 81,
+      "text": "episodes in dataset D, and with K = Ω((1 − γ) −2 ϵ −2 ) random features, we have that for any given reward function R, and any policy π",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 78,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 82,
+      "text": "∥ Q H π (w * ) − Q π ∥ ∞ ≤ O(ϵ) + O inf f ∈H E(f ) with high probability, where Q H π (s, a; w * ) is defined as E H h=1 γ h−1 k∈[K] w * k ϕ(s h , a h ; θ k ) | s 1 = s, a 1 = a for each (s, a)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 78,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 83,
+      "text": "and can be estimated from the offline dataset D; inf f ∈H E(f ) is the infimum expected risk over the function class H induced by ϕ.Theorem 3.1 is an informal statement of the results in Appendix D.2, which specifies the number of random features, the horizon length per episode, and the number of episodes, in order to approximate Q π accurately by using the data in D, under any given reward function R and policy π.Note that the number of random features is not excessive and is polynomial in problem parameters.We also note that the results can be improved under stronger assumptions of the sampling distributions p and kernel function classes [41,29].",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 78,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 84,
+      "text": "Next, we justify the use of multi-step Q-functions in planning in a deterministic transition environment, which contains all the environments our empirical results we will evaluate later.Recall that for any given reward R, let Q π denote the Q-function under policy π.Note that with a slight abuse of notation, Q π can also be the multi-step Q-function (see definition in Section 2), and the meaning should be clear from the input, i.e., whether it is",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 78,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 85,
+      "text": "Q π (s, a) or Q π (s, a 1 , • • • , a H ).",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 78,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 86,
+      "text": "Theorem 3.2.Let Π be some subclass of Markov stationary policies, i.e., for any π ∈ Π, π : S → ∆(A).Suppose the transition dynamics T is deterministic.For any given reward R, denote the H-step policy obtained from H-step policy improvement over Π as π ′ H : S → A H , defined as",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 78,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 87,
+      "text": "π ′ H (s) ∈ argmax (a1,••• ,a H )∈A H max π∈Π Q π (s, a 1 , • • • , a H ), for all s ∈ S. Let V π ′",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 78,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 88,
+      "text": "H denote the value function under the policy π ′ H (see formal definition in Appendix D.1).Then, we have that for all s ∈ S",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 78,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 89,
+      "text": "V π ′ H (s) ≥ max a 1:H max π∈Π Qπ(s, a1, • • • , aH ) ≥ max a max π∈Π Qπ(s, a).",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 78,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 90,
+      "text": "The proof of Theorem 3.2 can be found in Appendix D.2.The result can be viewed as a generalization of the generalized policy iteration result in [5] to multi-step action-sequence policies.Taking Π to be the set of policies that generate the data, the result shows that the value function of the greedy multi-action policy improves over all the possible H-step multi-action policies, with the policy after step H to be any policy in Π.Moreover, the value function by π ′ H also improves overall one-step policies if the policy after the first step onwards follows any policy in Π.This is due to the fact that Π (coming from data) might be a much more restricted policy class than any action sequence a 1:H .",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 78,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 91,
+      "text": "Experimental Evaluation",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 92,
+      "text": "In this section, we aim to answer the following research questions: (1) Does RaMP allow for effective transfer of behaviors across tasks with varying rewards?(2) Does RaMP scale to domains with high-dimensional observation and action spaces and long horizons?(3) Which design decisions in RaMP enable better transfer?",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 93,
+      "text": "Experiment Setup",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 94,
+      "text": "Across several domains, we evaluate the ability of RaMP to leverage the knowledge of shared dynamics from an offline dataset to quickly solve new tasks with arbitrary rewards.Offline Dataset Construction: For each domain, we have an offline dataset collected by a behavior policy as described in Appendix C.2. Typically this behavior policy is a mixture of noisy policies accomplishing different objectives in each domain.Although RaMP and other model-based methods do not require knowledge of any reward from the offline dataset, other baseline comparisons will require privileged information.Baseline comparison methods like model-free RL and successor features require the provision of a set of training objectives, as well as rewards labeled for these objectives on state actions from the offline dataset.We call such objectives \"offline objectives\" and a dataset annotated with these offline objectives and rewards a privileged dataset.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 93,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 95,
+      "text": "Test-time adaptation: At test-time, we select a novel reward function for online adaptation, referred to as 'online objective' below.The online objective may correspond to rewards conditioned on different goals or even arbitrary rewards, depending on the domain.Importantly, the online objective need not be drawn from the same distribution as the privileged offline objectives.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 93,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 96,
+      "text": "Given this problem setup, we compare RaMP with a variety of baselines.(1) MBPO [19] is a modelbased RL method that learns a standard one-step dynamics model and uses actor-critic methods to plan in the model.We pre-train the dynamics model for MBPO on the offline dataset.(2) PETS [8] is a model-based RL method that learns an ensemble of one-step dynamics models and performs MPC.We pre-train the dynamics model on the offline dataset and use the cross-entropy method (CEM) to plan.(3) Successor feature (SF) [5] is a framework for transfer learning in RL as described in Sec.1.1.SF typically assumes access to a set of policies towards different goals along with a learned featurization, so we provide it with the privileged dataset to learn a set of training policies.We also learn successor features with the privileged dataset.(4) CQL [24]: As an oracle comparison, we compare with a goal-conditioned variant of an offline RL algorithm (CQL).CQL is a model-free offline RL algorithm that learns policies from offline data.While model-free offline RL naturally struggles to adapt to arbitrarily changing rewards, we provide CQL with information about the goal at both training and testing time.CQL is trained on the distribution of training goals on the offline dataset, and finetuned on the new goals at test time.The CQL comparison is assuming access to more information than RaMP.Each method is benchmarked on each domain with 4 seeds.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 93,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 97,
+      "text": "Transfer to Unseen Rewards",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 98,
+      "text": "We first evaluate the ability of RaMP to learn from an offline dataset and quickly adapt to unseen test rewards in 4 robotic manipulation environments from Meta-World [56].We consider skills like reaching a target across the wall, opening a door, turning on a faucet, and pressing a button while avoiding obstacles, which are challenging for typical model-based RL algorithms (Fig. 3).Each domain features 50 different possible goal configurations, each associated with a different reward but the same dynamics.The privileged offline objectives consist of 25 goal configurations.The test-time reward functions are drawn from the remaining 25 \"out-of-distribution\" reward functions.We refer the reader to Appendix C.1 for details.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 97,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 99,
+      "text": "As shown in Fig 4, our method adapts to test reward most quickly across all four meta-world domains.MBPO slowly catches up with our performance with more samples, since it still needs to learn the Q function from scratch even with the dynamics branch trained.PETS adapts faster than MBPO but performs worse than our method as it suffers from compounding error.In multiple environments, successor features barely transfer to the online objective as it entangles policies that are not close to those needed for the online objective.Goal-conditioned CQL performs poorly in all tasks as it has a hard time generalizing to out-of-distribution goals.In comparison, RaMP is able to deal with arbitrary sets of test time rewards, since it does not depend on the reward distribution at training time.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 97,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 100,
+      "text": "Scaling to Tasks with Longer Horizons and High Dimensions",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 101,
+      "text": "We further evaluate the ability of our method to scale to tasks with longer horizons.We consider locomotion domains such as the Hopper environment from OpenAI Gym [7].We chose the offline objectives to be a mixture of skills such as standing, sprinting, jumping, or running backward with goals defined as target velocities or heights.The online objectives consist of unseen goal velocities or heights for standing, sprinting, jumping or running.As shown in Fig. 4, our method maintains the highest performance when adapting to novel online objectives, as it avoids compounding errors by directly modeling accumulated random features.MBPO adapts at a slower rate since higher dimensional observation and longer horizons increase the compounding error of model-based methods.We note that SF is performing reasonably well, likely because the method also reduces the compounding error compared to MBPO, and it has privileged information.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 100,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 102,
+      "text": "To understand whether RaMP can scale to higher dimensional state-action spaces, we consider a dexterous manipulation domain (referred to as the D'Claw domain in Fig 3).This domain has a 9 DoF action space controlling each of the joints of the hand as well as a 16-dimensional state space including object position.The offline dataset is collected moving the object to different orientations, and the test-time rewards are tasked with moving the object to new orientations (as described in Appendix C.1). Fig 4 shows that both Q-estimation and planning with model-predictive control remain effective when action space is large.In Appendix C.3, we test our method on environments with even higher dimensional observations such as images.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 100,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 103,
+      "text": "Ablation of Design Choices",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 91,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 104,
+      "text": "To understand what design decisions in RaMP enable better transfer and scaling, we conduct ablation studies on various domains, including an analytical 2D point goal-reaching environment and its variants (described in Appendix C.1), as well as the classic double pendulum environment and meta-world reaching.We report an extensive set of ablations in Appendix C.5.We hypothesize that our method does not suffer from compounding errors in the same way that feedforward dynamics models do.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 103,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 105,
+      "text": "Reduction of compounding error with multi-step Q functions",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 103,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 106,
+      "text": "In Table 1, we compare the approximation error of truncated Q values computed with (1) multi-step Q functions obtained as a linear combination of random cumulants (Ours), and (2) rollouts of a dynamics model (MBRL).We train the methods on the offline data and evaluate on the data from a novel task at test time.As shown in Table 1, our method outperforms feedforward dynamics models.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 105,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 107,
+      "text": "Discussion",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 108,
+      "text": "In this work, we introduce RaMP, a method that leverages diverse unlabeled offline data to learn models of long horizon dynamics behavior, while being able to naturally transfer across tasks with different reward functions.To this end, we propose to learn the long-term evolution of random features under different action sequences, which can be generated in a self-supervised fashion without reward labels.This way, we are able to disentangle dynamics, rewards, and policies, while without explicitly learning the dynamic model.We validate our approach across a number of simulated robotics and control domains, with superior transfer ability than baseline comparisons.There are also limitations of the current approach we would like to address in the future work: the current Monte-Carlo-based value function estimation may suffer from high variance, and we hope to incorporate the actor-critic algorithms [23] in RaMP to mitigate it; current approach is only evaluated on simulated environments, and we hope to further test it on real robotic platforms.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 109,
+      "text": "Supplementary Materials for \"Self-Supervised Reinforcement Learning that Transfers using Random Features\" A Algorithm Pseudocode",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 110,
+      "text": "D ϕ = (s m 1 , a m 1:H ), h∈[H] γ h−1 ϕ(s m h , a m h ; θ k ) m∈[M ],k∈[K]",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 111,
+      "text": ".",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 112,
+      "text": "4: Fit random Q-basis functions ψ(•, •, ν k ) : S × A H → R for k ∈ [K] by minimizing the loss over the dataset D ϕ , ν * k k∈[K] ∈ argmin {ν k } k∈[K] 1 M m∈[M ],k∈[K] ψ(s m 1 , a m 1:H ; ν k ) − h∈[H] γ h−1 ϕ(s m h , a m h ; θ k ) 2 .",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 113,
+      "text": "5: Online Planning Phase: 6: Fit the testing task's reward function r(•, •) with linear regression on random features:",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 114,
+      "text": "w * ∈ argmin w 1 M H h∈[H],m∈[M ] r(s m h , a m h ) − k∈[K] w k ϕ(s m h , a m h ; θ k ) 2 + λ∥w∥ 2 2 where r(s m h , a m h ) ∼ R s m h ,a m h . 7: Sample s 1 ∼ µ 0 8: for time index t = 1, • • • do 9:",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 115,
+      "text": "Randomly generate N sequences of actions",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 116,
+      "text": "{a n 1 , • • • , a n H } n∈[N ]",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 117,
+      "text": "10:",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 118,
+      "text": "Find the best sequence such that",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 119,
+      "text": "n * t ∈ argmax n∈[N ] k∈[K] w * k ψ(s t ,",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 120,
+      "text": "B Implementation Details",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 121,
+      "text": "Our implementation contains a few optional components that are omitted from main paper due to page limit.We note that RaMP's performance already surpasses the baselines even without them.These components are introduced for the completeness of our main algorithm and leads to better sample efficiency in different situations.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 120,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 122,
+      "text": "B.1 Infinite-Horizon Q-function Variant",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 120,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 123,
+      "text": "While our setup in Section 2 uses a finite-horizon Q H π to approximate Q π , our method can also plan with an infinite-horizon Q function during the online phase.In this section, we describe one compatible way to learn an infinite-horizon Q-function while still enjoying the benefits of RaMP in the case with deterministic transition dynamics.We find this variant leads to continual improvement and thus better performance in a few longer-horizon environments.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 122,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 124,
+      "text": "We first notice that an infinite-horizon Q-function Q π can be decomposed into the discounted sum of an H-step reward and a discounted value function under policy π evaluated at s t+H :",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 122,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 125,
+      "text": "Q π (s ′ , a ′ ) = E at∼π(• | st) st+1∼T (• | st,at) γ H V π (s H+1 ) + H t=1 γ t−1 r(s t , a t ) s 1 = s ′ , a 1 = a ′ where V π (s ′ ) = E at∼π(• | st) ∞ t=1 γ t−1 r(s t , a t ) s 1 = s ′ .",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 122,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 126,
+      "text": "Given a policy π, value function V θ π parameterized by θ can be learned via gradient descent and Monte-Carlo method:",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 122,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 127,
+      "text": "θ ← θ − α∇ θ ||V θ π (s t ) − (r t + γV θ ′ π (s t+1 ))|| 2 2",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 122,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 128,
+      "text": ", for sampled (s t:t+1 , a t , r t ) ∼ τ π where τ π is trajectory rollouts collected with current policy π and θ ′ is a target network that gets updated by θ with momentum.Now consider our multi-step setup.Our multi-step Q-function can also be written as the sum of our H step approximation and discounted value function at s H+1 :",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 122,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 129,
+      "text": "Q π (s, a 1:H ) = E a H+t ∼π(• | s H+t ) st+1∼T (• | st,at) ∞ t=1 γ t−1 r t s 1 = s, a 1 = a 1 , • • • , a H = a H = Q H π (s, a 1:H ) + γ H V π (s H+1",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 122,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 130,
+      "text": "), where we note that in the last line, there is no expectation over s H+1 since the transition dynamics is deterministic, and s H+1 is deterministically decided by (s 1 , a 1:H ).",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 122,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 131,
+      "text": "Vanilla RaMP enables efficient estimation of Q π with novel reward function at the cost of truncating the second term above with Q π ≈ Q H π .As we have shown in Section 4, planning with this finitehorizon Q-approximation would already lead to reasonable planning in most of the experiments.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 122,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 132,
+      "text": "We can go a step further and also estimate the second term so we can plan in an infinite-horizon setting.The main challenge is getting V π (s H+1 ) in our multi-step setup, as we don't explicitly predict s H+1 .This, however, can be addressed easily by reparameterizing V π (s H+1 ) on an action sequence that leads to s H+1 just like what we did for Q.We thus define a multi-step value function",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 122,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 133,
+      "text": "F π (s, a 1:H ) = E s H+1 V π (s H+1 ) s 1 = s, a 1 = a 1 , • • • , a H = a H . Then Q π (s, a 1:H ) = Q H π (s, a 1:H ) + γ H • F π (s, a 1:H ).",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 122,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 134,
+      "text": "Under our deterministic transition dynamics, s H+1 is fully determined by (s 1 , a 1:H ), so we can remove the expectation in the equation.We then rewrite the training objective V π in terms of F π to learn F π :",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 122,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 135,
+      "text": "θ ← θ − α∇ θ ||V θ π (s t+H ) − (r t+H + γV θ ′ π (s t+H+1 ))|| 2 2 for sampled (s t+H:t+H+1 , a t+H , r t+H ) ∼ τ π becomes θ ← θ − α∇ θ ||F θ π (s t , a t:t+H−1 ) − (r t+H + γF θ ′ π (s t+1 , a t+1:t+H ))|| 2 2",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 122,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 136,
+      "text": "for sampled (s t:t+1 ,a t:t+H , r t+H ) ∼ τ π where we parameterize multi-step value function F π by F θ π .So we can learn F π with Monte-Carlo sampling and gradient descent just like what we do to learn V π in the single-step case above.Combined with Q H π , we now have an estimation for the infinite-horizon Q-function Q π in a multi-step manner.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 122,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 137,
+      "text": "For planning, we do on policy learning by alternating between policy rollout and Q π learning.As a policy, MPC planner first uses the infinite-horizon Q π (s, a 1:H ) = Q H π (s, a 1:H ) + γ H • F π (s, a 1:H ) to plan and collect rollouts.Then F π is trained with these on policy rollouts while Q H π is also learned like vanilla RaMP via online least square.By incorporating this infinite-horizon variant, our MPC planner can now plan with an infinite horizon during the online phase.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 122,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 138,
+      "text": "Infinite-horizon Q-function variant is used in all benchmarks in",
+      "type": "heading",
+      "level": 4,
+      "parent_id": 122,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 139,
+      "text": "B.2 Online Psi Finetuning",
+      "type": "heading",
+      "level": 5,
+      "parent_id": 138,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 140,
+      "text": "While we freeze the Q-basis networks during online training in our setup in Section 2, we can also finetune the Q-basis networks to continuously improve our estimate of the Q-value.After performing reward regression for a number of steps, we can finetune the Q-basis networks on online trajectories by fitting the predicted Q-values to the Monte-Carlo Q values and allowing the gradients to flow through the regression weights.To illustrate the effectiveness of finetuning, we train our algorithm on a set of environments for 12800 steps, where we freeze the regression weights and begin finetuning after 6400 environment steps.As shown in Fig. 5, our method sees a noticeable performance increase with finetuning.We incorporate finetuning in our Hopper and D'Claw experiments, where we finetune the psi network every 800 steps.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 139,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 141,
+      "text": "B.3 Planning With Uncertainty",
+      "type": "heading",
+      "level": 6,
+      "parent_id": 139,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 142,
+      "text": "Since the Q-basis networks are trained on an offline dataset, they can provide inaccurate Q estimates when online planning goes out of distribution.To encourage the agent to stay within distribution, we train an ensemble of Q-basis networks and augment the online planning objective with a disagreement penalty.Let {ψ m } m∈[M ] denote the ensemble of Q-basis networks.The planning objective becomes",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 141,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 143,
+      "text": "n * t ∈ argmax n∈[N ] 1 M m∈[M ] k∈[K] w * k ψ m (s t , a n t:t+H−1 ; v * k ) − β Var k∈[K] w * k ψ m (s t , a n t:t+H−1 ; v * k ) m∈[M ] (B.1)",
+      "type": "equation",
+      "level": 7,
+      "parent_id": 141,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 144,
+      "text": "where β is a hyperparameter controlling the weight of the penalty.We use β = 1 for all our experiments.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 141,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 145,
+      "text": "B.4 Model-Predictive Path Integral (MPPI)",
+      "type": "heading",
+      "level": 7,
+      "parent_id": 141,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 146,
+      "text": "Our method benefits from more powerful planning algorithms such as model-predictive path integral (MPPI) [53].MPPI is an sampling-based trajectory optimization method which maintains a distribution of action sequence initialized as isotropic standard Gaussian.In each iteration, MPPI draws n action sequences from the current distribution and computes their value using the learned Q-basis networks and online regression weights.It then updates the action distribution using a weighted mean and standard deviation of the sampled trajectories, where the weights are computed as the softmax of the values multiplied by a temperature parameter γ.We use an MPPI planner with γ = 10 for the D'Claw environment.",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 145,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 147,
+      "text": "C Setup Details and Additional Experiments",
+      "type": "heading",
+      "level": 8,
+      "parent_id": 145,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 148,
+      "text": "In this section, we provide more details of the experiments, including more detailed setup and supplementary results.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 147,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 149,
+      "text": "10 policies from a another hopper environment whose goal is running at a random velocity between 0 and 1.We note the 50 policies doesn't provide any information about their corresponding rewards because the reward is only computed towards the different set of goal between 0.5 and 0.75.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 147,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 150,
+      "text": "D'Claw D'Claw environment is a dexterous manipulation environment with 24 dimensions of observation space and 9 dimensions of action space.The 9 dimensions correspond to the 9 joints of a robot hand with 3 fingers and 3 joints on each finger.The objective of the environment is to control the hand to rotate a tripod to a certain angle.Angular distance to the target angle is used as the offline objective.To increase the degree of freedom and make the environment more challenging, we allow the tripod to not only rotate but also translate freely on the 2d plane.The initial rotation and position of thetripod are randomized upon every episode.We collect the offline dataset in the same way as in meta-world, training on 50 offline objectives and using ϵ-greedy to collect rollouts.At test time we choose a new offline objective angle and annotate the rewards of the privileged dataset in the same way we did for goal conditioned Metaworld environments.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 147,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 151,
+      "text": "Point Point is an analytical 2D goal-reaching environment with linear dynamics.The reward is defined as the distance to goal minus an action penalty.The offline objectives are negative distances to the randomly selected goals on the 2D plane.The online objectives are novel goals on the plane.Since we are not evaluating CQL and SF on this environment, we don't generate the privileged dataset for Point.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 147,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 152,
+      "text": "Point Perturbed Point Perturbed shares the same linear dynamics as Point, but features unsafe regions with negative rewards or local maxima with small positive rewards.These perturbations represent out-of-distribution test objectives that cannot be well approximated by a low-dimensional feature vector.Note that the added perturbations make Point Perturbed no longer an instance of the Point environment with a different goal.Instead, it features online objectives that are completely in a different class from Point.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 147,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 153,
+      "text": "C.2 Training Details",
+      "type": "heading",
+      "level": 9,
+      "parent_id": 147,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 154,
+      "text": "For each domain, we first train 50 policies with SAC [15].Each policy is trained towards some offline objective of the domain described in Sec.C.1 for 50000 steps.We then use an ϵ-greedy version of each trained policy to collect 32000 data points for each domain per offline objective.We choose ϵ = 0.5.Such a procedure ensures the dataset has reasonable coverage of the entire state-action space.We note training these policies are fully optional, since RaMP only trajectories without rewards.Datasets collected via intrinsic rewards like curiosity would totally suffice.We also note that the environment used to train expert policies are not necessarily the same as environments used to collect the data points.They should share the same dynamics yet the only the later provides reward information to our offline dataset.In particular, all metaworld data are collected via their original goal conditioned policies while hopper data are collected with a mixture of running and jumping policies in a different goal-velocity-conditioned environment as decribed in Sec.C.1.We choose the random feature dimension to be 2048.Each dimension in the random feature is extracted by feeding the state-action tuple to a randomly initialized MLP with 2 hidden layers of size of 32.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 155,
+      "text": "There are therefore 2048 independent, small random MLPs to extract ϕ.All state-action tuples are projected to reward basis ϕ with it.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 156,
+      "text": "During offline training phase, we ensemble 8 instances of MLP with 2 hidden layers of size 4096 and train ψ network following Sec.3.2.We train ψ network with a learning rate of 3 × 10 −4 on the offline dataset for 4 epochs, with a γ decay of 0.9 and batch size 128.We choose the horizon H to be 16 for Meta-World and Hopper environments and 10 for D'Claw.During online adaptation phase, we first do random exploration for 2500 steps to collect enough data points for linear regression.When doing linear regression, we always concatenate a bias dimension to ψ.Since online least square makes recomputing ω regression fast, we perform an update of weight vector every single step after initial random exploration is finished.In each MPC step, we randomly sample 1024 action sequences.We penalize the predicted rewards with the variance of predictions from all 8 ensembles following Sec.B.3.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 153,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 157,
+      "text": "C.3 Scaling to High-dimensional Pixel Observation",
+      "type": "heading",
+      "level": 10,
+      "parent_id": 153,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 158,
+      "text": "In Sec.4.3, we evaluate RaMP's ability to scale to environments with high dimensional observations.In this section, we go a step further by evaluating RaMP on visual domains, effectively increasing the dimension of the observation space to 42336 as described in Sec.C.1.We use a CNN encoder following the architecture in [32] followed by 2 layer MLP as the random feature network.Both CNN and MLP layers are randomly initialized.Action is projected and concatenated to the first layer of MLP so the random feature would still be conditioned on both action and observation.We compare our method against the Dreamer [16], the state of art model-based learning method optimized for pixel observations.Similar to MBPO, we pre-train dreamer's dynamics branch with offline data before the online phase.As shown in Fig. 6, our method is able to achieve a similar level of performance as Dreamer in two meta-world environments, Pixel Reach and Pixel Faucet Open.RaMP does not see a significant return drop from the variant of the environment with state observation.Given the efficacy of Dreamer, the result still shows RaMP's performance can scale up to pixel observation.However, Dreamer is able to outperform RaMP significantly in an environment like Pixel Door Open.This is likely because random features capture the change in input space rather than reward space.",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 157,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 159,
+      "text": "Pixel observations can give random features a lot of noise while important semantic features may not correspond to a big change in pixel space.We note that instead of using random convolution layers, we can use pre-trained encoders to achieve better semantic feature extraction and significantly improve the quality of random features.This is beyond the scope of our work and we leave this for future works.Here we provide additional results of RaMP and baselines for it in Fig. 7.The result is consistent with our analysis in the main paper.",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 157,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 160,
+      "text": "C.4 Additional Results on Hopper Sprint",
+      "type": "heading",
+      "level": 11,
+      "parent_id": 157,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 161,
+      "text": "RaMP matches or outperforms the baselines just as in other Hopper variants.One major difference here is that CQL is performing well for HopperSprint.This is likely because the online objective of Hopper Sprint is at the boundary of the offline objectives as described in Sec.C.1.Given that offline objectives are running at target velocities, the CQL likely learns to not fall down even if the online objective is out of distribution.By not falling down alone, CQL is capable of maintaining a good reward as seen in this case.",
+      "type": "paragraph",
+      "level": 12,
+      "parent_id": 160,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 162,
+      "text": "C.5 Additional Ablations",
+      "type": "heading",
+      "level": 12,
+      "parent_id": 160,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 163,
+      "text": "Our method builds on the assumption that a linear combination of high dimensional random features can approximate arbitrary reward functions.In the following ablation experiments, we validate this assumption both quantitatively and qualitatively.Effect of different types of featurization We experiment with three choices of projections: random features parameterized by a deep neural network, random features parameterized by a gaussian matrix, and polynomial features of state and action up to the second order.We evaluate these choices on Point and MetaWorld Reach in Table 2.We see that a linear combination of NN-parametrized random features approximate the true reward well in all tasks.Polynomial features perform well on environments with simple rewards, but struggle as the reward becomes more complex, while Gaussian features are rarely expressive enough.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 162,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 164,
+      "text": "Effect of random feature dimension",
+      "type": "heading",
+      "level": 13,
+      "parent_id": 162,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 165,
+      "text": "We evaluate our method on Point, Point Perturbed, and Metaworld Reach using {128, 256, 512, 1024, 2048, 4096} random features.We summarize the final returns in Table .3 and plot the learning curves in Fig. 8.We find that performance degrades as the feature dimension gets lower because the random features are less capable of approximating the true reward.On the other hand, higher-dimensional random features experience slower adaptation.In addition, we provide visualizations of reward approximation in Fig. 9.",
+      "type": "paragraph",
+      "level": 14,
+      "parent_id": 164,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 166,
+      "text": "Scaling with state dimension",
+      "type": "heading",
+      "level": 14,
+      "parent_id": 164,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 167,
+      "text": "In Table 4 we evaluate our method on analytical point environments with 2, 3, and 4 state dimensions.All three environments feature distance-to-goal with an action penalty as the reward.We compute the return error stemming from linear regression as well as the Q error stemming from both linear regression and function approximation.We see an increase in both return error and Q error with higher state dimensions, but overall the approximation errors remain reasonably low.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 166,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 168,
+      "text": "Nonlinear approximation capability In Fig. 10, we visualize the truncated Q value obtained from a linear combination of the random cumulants and compare it to the ground truth Q value approximated by Monte-Carlo sampling.We perform the comparison in Point and Point Perturbed environments.Our method provides an accurate estimate of the Q value even in the face of out-of-distribution and highly nonlinear rewards.In-distribution baselines Finally, we compare the performance of RaMP to baselines on in-distribution online objectives.Our method is designed to make no assumptions about test objectives during policy transfer.As shown in Fig. 4, RaMP outperforms CQL and SF when the online objectives are out of distribution.A natural question to ask is how things will change when the setting satisfies the assumptions of offline-online objective correlation.For example, in a 2D reaching environment, the training dataset may be annotated with either rewards corresponding to only goals on the right half or goals covering the entire plane.When the online objective is to reach a goal on the left half of the plane, it will be out of distribution for the first case while being in distribution for the second.As shown in Fig. 11, when we curate the labeling process of the privileged dataset to satisfy the in-distribution assumption, CQL and SF receive a significant performance boost, while the performance of our method and MBPO are unaffected as neither algorithm depends on the offline objectives.This serves as a foil to the generalization of our method to out-of-distribution online objectives.",
+      "type": "paragraph",
+      "level": 15,
+      "parent_id": 166,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 169,
+      "text": "Point",
+      "type": "heading",
+      "level": 15,
+      "parent_id": 166,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 170,
+      "text": "D Detailed Theoretical Results",
+      "type": "heading",
+      "level": 16,
+      "parent_id": 169,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 171,
+      "text": "In this section, we provide the formal statement of the theoretical insights given in §3.4, and corresponding proofs.",
+      "type": "paragraph",
+      "level": 17,
+      "parent_id": 170,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 172,
+      "text": ") + γ • Q π − Q π (w * ) ∞ .",
+      "type": "equation",
+      "level": 17,
+      "parent_id": 170,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 173,
+      "text": "Taking sup over s, a and organizing the terms, we have",
+      "type": "paragraph",
+      "level": 17,
+      "parent_id": 170,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 174,
+      "text": "Q π − Q π (w * ) ∞ ≤ 1 1 − γ • sup s,a",
+      "type": "equation",
+      "level": 17,
+      "parent_id": 170,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 175,
+      "text": "Q π − Q π (w * ) ∞ ≤ 1 (1 − γ) √ ρ • E (s,",
+      "type": "equation",
+      "level": 17,
+      "parent_id": 170,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 176,
+      "text": "E Complexity Analysis",
+      "type": "heading",
+      "level": 17,
+      "parent_id": 170,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 177,
+      "text": "The space complexity of RaMP is primarily determined by the number of random features that are needed.As we describe in Corollary D.2, we require K = Ω((1 − γ) −2 ϵ −2 ) random features to achieve ϵ-order error between the estimated and true Q-function.As the required approximation error decreases, the space needed to store all the features grows sublinearly.Note that this result is for any given reward function (including the target one) under any policy π, but not tied to a specific one (under the realizability assumption of the reward function).",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 178,
+      "text": "On the other hand, the space complexity of the classical successor feature method is relatively fixed in the above sense: the dimension of the feature is fixed and does not change with the accuracy of approximating the optimal Q-function for the target task.However, the resulting guarantee is also more restricted: it is only for the optimal Q-function of the specific target reward, and also depends on the distance between the previously seen and the target reward functions.Hence, the two space complexities are not necessarily comparable.",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 179,
+      "text": "Figure 1: RaMP is a self-supervised reinforcement learning algorithm that pre-training on exploration trajectories without (or with unknown) reward.It then quickly adapts to new tasks through interaction with the environment.",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 180,
+      "text": "Figure 1: RaMP is a self-supervised reinforcement learning algorithm that pre-training on exploration trajectories without (or with unknown) reward.It then quickly adapts to new tasks through interaction with the environment.",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 181,
+      "text": "Figure 2: RaMP: Depiction of our proposed method for transferring behavior across tasks by leveraging modelfree learning of random features.At training time, Q-basis functions are trained on accumulated random features.At test time, adaptation is performed by solving linear regression and recombining basis functions, followed by online planning with MPC.",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 182,
+      "text": "Figure 2: RaMP: Depiction of our proposed method for transferring behavior across tasks by leveraging modelfree learning of random features.At training time, Q-basis functions are trained on accumulated random features.At test time, adaptation is performed by solving linear regression and recombining basis functions, followed by online planning with MPC.",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 183,
+      "text": "Figure 3: We evaluate our method on manipulation, locomotion, and high dimensional action space environments.The green arrow in each environment indicates the online objective for policy transfer while the red arrows are offline objectives used to label rewards for the privileged dataset.",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 184,
+      "text": "Figure 3: We evaluate our method on manipulation, locomotion, and high dimensional action space environments.The green arrow in each environment indicates the online objective for policy transfer while the red arrows are offline objectives used to label rewards for the privileged dataset.",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 185,
+      "text": "Figure 4: Reward transfer results on Metaworld, Hopper and D'Claw environments.RaMP adapts to novel rewards more rapidly than MBPO, Successor Features, and CQL baselines.",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 186,
+      "text": "Figure 4: Reward transfer results on Metaworld, Hopper and D'Claw environments.RaMP adapts to novel rewards more rapidly than MBPO, Successor Features, and CQL baselines.",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 187,
+      "text": "Model-Free Transfer with Randomized Cumulants and Model-Predictive Control 1: Input: Offline dataset D given in Section 2, distribution p over R d , number of random features K Offline Training Phase: 3: Randomly sample {θ k } k∈[K] with θ k ∼ p, and construct dataset",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 188,
+      "text": "Model-Free Transfer with Randomized Cumulants and Model-Predictive Control 1: Input: Offline dataset D given in Section 2, distribution p over R d , number of random features K Offline Training Phase: 3: Randomly sample {θ k } k∈[K] with θ k ∼ p, and construct dataset",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 189,
+      "text": "Figure 4.",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 190,
+      "text": "Figure 4.",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 191,
+      "text": "Figure 5: Finetuning results on MetaWorld and D'Claw.Our method is able to continuously improve by finetuning the Q-basis networks during online training.",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 192,
+      "text": "Figure 5: Finetuning results on MetaWorld and D'Claw.Our method is able to continuously improve by finetuning the Q-basis networks during online training.",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 193,
+      "text": "Figure 6: Results on Metaworld with high-dimensional pixel observation.RaMP achieves comparable performance to Dreamer on Pixel Reach and Pixel Faucet Open but struggles to perform well on Pixel Door Open.The performance of RaMP on Pixel Faucet Open and Pixel Reach is very similar to its performance in state observation environments.",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 194,
+      "text": "Figure 6: Results on Metaworld with high-dimensional pixel observation.RaMP achieves comparable performance to Dreamer on Pixel Reach and Pixel Faucet Open but struggles to perform well on Pixel Door Open.The performance of RaMP on Pixel Faucet Open and Pixel Reach is very similar to its performance in state observation environments.",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 195,
+      "text": "Figure 7: Results on Hopper Sprint",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 196,
+      "text": "Figure 7: Results on Hopper Sprint",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 197,
+      "text": "Figure 8: Learning curves for different random feature dimensions.Low-dimensional random features suffer from poor convergence performance, whereas high-dimensional random features experience slow adaptation.",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 198,
+      "text": "Figure 8: Learning curves for different random feature dimensions.Low-dimensional random features suffer from poor convergence performance, whereas high-dimensional random features experience slow adaptation.",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 199,
+      "text": "Figure 9: Visualization of reward approximated with different numbers of random basis.As the number of random basis increases, the reward approximation becomes more accurate.",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 200,
+      "text": "Figure 9: Visualization of reward approximated with different numbers of random basis.As the number of random basis increases, the reward approximation becomes more accurate.",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 201,
+      "text": "Figure 10: Visualization of true Q value and approximated Q value.Our method is able to approximate the Q value in the face of out-ofdistribution and highly nonlinear rewards.",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 202,
+      "text": "Figure 10: Visualization of true Q value and approximated Q value.Our method is able to approximate the Q value in the face of out-ofdistribution and highly nonlinear rewards.",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 203,
+      "text": "Formal Statement Theorem D.1.Suppose the offline data in D are generated from some distribution ρ ∈ ∆(S × A), i.e., (s m h , a m h ) ∼ ρ(•, •) and s m h+1 ∼ T for all (m, h) ∈ [M ] × [H], and inf (s,a)∈S×A ρ(s, a) = ρ > 0. Suppose θ k ∼ p(•) for all k ∈ [K], and sup (s,a,θ)∈S×A×R d |ϕ(s, a; θ)| ≤ κ for some κ > 0 and features:Q π (s, a; w * ) := E ∞ h=1 γ h−1 r(s h , a h ; w * ) s 1 = s, a 1 = a ,where r(s, a; w * ) :=k∈[K] w * k ϕ(s, a; θ k ).(D.4)By Bellman equation, we have that for each (s, a)Q π (s, a) − Q π (s, a; w * ) = rdR s,a (r) + γ s ′ ,a ′ Q π (s, a)T (s ′ | s, a)π(a ′ | s ′ ) − r(s, a; w * ) − γ s ′ ,a ′ Q π (s, a; w * )T (s ′ | s, a)π(a ′ | s ′ )≤ rdR s,a (r) − r(s, a; w *",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 204,
+      "text": "Formal Statement Theorem D.1.Suppose the offline data in D are generated from some distribution ρ ∈ ∆(S × A), i.e., (s m h , a m h ) ∼ ρ(•, •) and s m h+1 ∼ T for all (m, h) ∈ [M ] × [H], and inf (s,a)∈S×A ρ(s, a) = ρ > 0. Suppose θ k ∼ p(•) for all k ∈ [K], and sup (s,a,θ)∈S×A×R d |ϕ(s, a; θ)| ≤ κ for some κ > 0 and features:Q π (s, a; w * ) := E ∞ h=1 γ h−1 r(s h , a h ; w * ) s 1 = s, a 1 = a ,where r(s, a; w * ) :=k∈[K] w * k ϕ(s, a; θ k ).(D.4)By Bellman equation, we have that for each (s, a)Q π (s, a) − Q π (s, a; w * ) = rdR s,a (r) + γ s ′ ,a ′ Q π (s, a)T (s ′ | s, a)π(a ′ | s ′ ) − r(s, a; w * ) − γ s ′ ,a ′ Q π (s, a; w * )T (s ′ | s, a)π(a ′ | s ′ )≤ rdR s,a (r) − r(s, a; w *",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 205,
+      "text": "rdR s,a (r) − r(s, a; w * ) rdR s,a (r) − r(s, a; w * ) rdR s,a (r) − r(s, a; w * ) γ) √ ρ • E (s,a)∼ρ(s,a) rdR s,a (r) − r(s, a; w * ) where (D.5) uses that ∥ • ∥ ∞ ≤ ∥ • ∥ 2 for finite-dimensional vectors, (D.6) uses the definition of ρ.Further, by Jensen's inequality, for each (s, a) rdR s,a (r) − r(s, a; w * ) E r∼Rs,a(•) r − r(s, a; w * ) E r∼Rs,a(•) r − r(s, a; w * ) 2 , which, combined with (D.7) and (D.3), gives that",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 206,
+      "text": "rdR s,a (r) − r(s, a; w * ) rdR s,a (r) − r(s, a; w * ) rdR s,a (r) − r(s, a; w * ) γ) √ ρ • E (s,a)∼ρ(s,a) rdR s,a (r) − r(s, a; w * ) where (D.5) uses that ∥ • ∥ ∞ ≤ ∥ • ∥ 2 for finite-dimensional vectors, (D.6) uses the definition of ρ.Further, by Jensen's inequality, for each (s, a) rdR s,a (r) − r(s, a; w * ) E r∼Rs,a(•) r − r(s, a; w * ) E r∼Rs,a(•) r − r(s, a; w * ) 2 , which, combined with (D.7) and (D.3), gives that",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 207,
+      "text": "a)∼ρ(s,a),r∼Rs,a(•) rdR s,a (r) − r(s, a; w * ) , note that with H = Θ( log(Rmax/(ϵ(1−γ)))1−γ ) ensures that ∥ Q H π (w * )− Q π (w * )∥ ∞ ≤ O(ϵ), which can be obtained by the boundedness of r(s, a) by R max , and the fact thatγ H R max 1 − γ = (1 − (1 − γ)) 1 1−γ •H(1−γ) R max 1 − γ ≤ 1 e log(Rmax/(ϵ(1−γ))) R max 1 − γ = ϵ.Furthermore, since Theorem D.1 requires n = HM = Θ( −γ) 4 ϵ 4 ), to make sure∥ Q π (w * ) − Q π ∥ ∞ ≤ ϵ.Combining these facts yields the desired result.",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 208,
+      "text": "a)∼ρ(s,a),r∼Rs,a(•) rdR s,a (r) − r(s, a; w * ) , note that with H = Θ( log(Rmax/(ϵ(1−γ)))1−γ ) ensures that ∥ Q H π (w * )− Q π (w * )∥ ∞ ≤ O(ϵ), which can be obtained by the boundedness of r(s, a) by R max , and the fact thatγ H R max 1 − γ = (1 − (1 − γ)) 1 1−γ •H(1−γ) R max 1 − γ ≤ 1 e log(Rmax/(ϵ(1−γ))) R max 1 − γ = ϵ.Furthermore, since Theorem D.1 requires n = HM = Θ( −γ) 4 ϵ 4 ), to make sure∥ Q π (w * ) − Q π ∥ ∞ ≤ ϵ.Combining these facts yields the desired result.",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 209,
+      "text": ".7 ± 5.4 65.1 ± 0.4 MBRL 50.2 ± 9.7 395.4 ± 5.8 Policy evaluation error.Feed-",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 210,
+      "text": ".7 ± 5.4 65.1 ± 0.4 MBRL 50.2 ± 9.7 395.4 ± 5.8 Policy evaluation error.Feed-",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 211,
+      "text": "Return for different features.Random features are able to approximate the true reward well across domains.Polynomial features work in simple environments but do not scale to complex rewards.Gaussian features are unable to express the reward.",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 212,
+      "text": "Return for different features.Random features are able to approximate the true reward well across domains.Polynomial features work in simple environments but do not scale to complex rewards.Gaussian features are unable to express the reward.",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 213,
+      "text": "Return as a function of random feature dimension.Low dimensional random features are unable to approximate the true reward with linear regression, leading to degraded convergence performance.",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 214,
+      "text": "Return as a function of random feature dimension.Low dimensional random features are unable to approximate the true reward with linear regression, leading to degraded convergence performance.",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 215,
+      "text": "Approximation error with different state dimensions.As state dimension increases, approximation error increases but remains in a reasonable range.",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 216,
+      "text": "Approximation error with different state dimensions.As state dimension increases, approximation error increases but remains in a reasonable range.",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 217,
+      "text": "Return Error 0.42 ± 0.20 1.20 ± 0.61 1.32 ± 0.70 Q Error 0.32 ± 0.05 0.51 ± 0.10 0.61 ± 0.12",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 218,
+      "text": ".2.3 Proof of Theorem 3.2 Define Q max H (s, a 1 , • • • , a H ) := max π∈Π Q π (s, a 1 , • • • , a H ), and Q max (s, a) := max We also define the Bellman operator under the open-loop policy π ′ H as follows: for any Q∈ R |S|×|A H | T H,π ′ H (Q)(s, a 1 , • • • , a H ) = E h∈[H] γ h−1 r(s h , a h ) + γ H Q(s H+1 , π ′ H (s H+1 )) s 1 = s, a 1:H .(D.8)Note that T H,π ′H is a contracting operator, and we denote the fixed point of the operator asQ H,π ′ H ∈ R |S|×|A H | ,which is the Q-value function under open-loop policy π ′ H .By definition, we also know that the state-value function under π ′ H , V H,π ′ H = Q H,π ′ H (s, π ′ H (s)), i.e., by applying the open-loop policy π ′ H to the actions a 1:H in Q H,π ′ H (s, a 1:H ).Note thatT H,π ′ H (Q max H )(s, a 1 , • • • , a H ) = E h∈[H] γ h−1 r(s h , a h ) + γ H Q max H (s H+1 , π ′ H (s H+1 )) s 1 = s, a 1:H h−1 r(s h , a h ) + γ H max H+1 , a H+1:2H) s 1 = s, a 1:H (D.9) (D.12) for any π ∈ Π, where (D.9) uses the definition of π ′ H , (D.10) is due to the definition of Q max H , and (D.11) is by the max a H+1:2H , and (D.12) is by definition.Since (D.12) holds for any π ∈ Π, by the monotonicity of T H,π ′ H , we have Q H,π ′ Notice that for all s, by applying π ′ H (s) on both sides of (D.13), V H,π ′",
+      "type": "figure",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 219,
+      "text": ".2.3 Proof of Theorem 3.2 Define Q max H (s, a 1 , • • • , a H ) := max π∈Π Q π (s, a 1 , • • • , a H ), and Q max (s, a) := max We also define the Bellman operator under the open-loop policy π ′ H as follows: for any Q∈ R |S|×|A H | T H,π ′ H (Q)(s, a 1 , • • • , a H ) = E h∈[H] γ h−1 r(s h , a h ) + γ H Q(s H+1 , π ′ H (s H+1 )) s 1 = s, a 1:H .(D.8)Note that T H,π ′H is a contracting operator, and we denote the fixed point of the operator asQ H,π ′ H ∈ R |S|×|A H | ,which is the Q-value function under open-loop policy π ′ H .By definition, we also know that the state-value function under π ′ H , V H,π ′ H = Q H,π ′ H (s, π ′ H (s)), i.e., by applying the open-loop policy π ′ H to the actions a 1:H in Q H,π ′ H (s, a 1:H ).Note thatT H,π ′ H (Q max H )(s, a 1 , • • • , a H ) = E h∈[H] γ h−1 r(s h , a h ) + γ H Q max H (s H+1 , π ′ H (s H+1 )) s 1 = s, a 1:H h−1 r(s h , a h ) + γ H max H+1 , a H+1:2H) s 1 = s, a 1:H (D.9) (D.12) for any π ∈ Π, where (D.9) uses the definition of π ′ H , (D.10) is due to the definition of Q max H , and (D.11) is by the max a H+1:2H , and (D.12) is by definition.Since (D.12) holds for any π ∈ Π, by the monotonicity of T H,π ′ H , we have Q H,π ′ Notice that for all s, by applying π ′ H (s) on both sides of (D.13), V H,π ′",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 220,
+      "text": "π∈Π Q π (s, a).γ γ h−1 r(s h , a h ) + γ H max a H+1:2H Q π (s H+1 , a H+1:2H ) s 1 = s, a 1:H (D.10) ≥ E h∈[H] γ h−1 r(s h , a h ) + γ H Q π (s H+1 , π(s H+1 ) • • • , π(s 2H )) s 1 = s, a 1:H , (D.11) = Q π (s, a 1 , • • • , a H ), H (s, a 1:H ) = lim k→∞ (T H,π ′ H ) k (Q max H )(s, a 1:H ) ≥ Q max H (s, a 1:H ) ≥ max π∈Π Q π (s, a 1:H ).(D.13) H (s) = Q H,π ′ H (s, π ′ H (s)) ≥ max π∈Π Q π (s, π ′ H (s)) = max a 1:H max π∈Π Q π (s, a 1:H ).(D.14)Further, due to the multi-step maximization, we have maxa 1:H max π∈Π Q π (s, a 1 , • • • , a H ) ≥ max a max π∈Π Q π (s, a),which, combined with (D.14), completes the proof.",
+      "type": "paragraph",
+      "level": 18,
+      "parent_id": 176,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 221,
+      "text": "References",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "references"
+    },
+    {
+      "unit_id": 222,
+      "text": "Hindsight experience replay. M Andrychowicz, F Wolski, A Ray, J Schneider, R Fong, P Welinder, B Mcgrew, J Tobin, O P Abbeel, W Zaremba, Advances in Neural Information Processing Systems. 2017",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 223,
+      "text": "M Andrychowicz, F Wolski, A Ray, J Schneider, R Fong, P Welinder, B Mcgrew, J Tobin, P Abbeel, W Zaremba, CoRR, abs/1707.01495Hindsight experience replay. 2017",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 224,
+      "text": "Lipschitz continuity in model-based reinforcement learning. K Asadi, D Misra, M L Littman, Proceedings of the 35th International Conference on Machine Learning, ICML 2018. J G Dy, A Krause, the 35th International Conference on Machine Learning, ICML 2018Stockholmsmässan, Stockholm, SwedenPMLRJuly 10-15, 2018. 201880of Proceedings of Machine Learning Research",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 225,
+      "text": "Transfer in deep reinforcement learning using successor features and generalised policy improvement. A Barreto, D Borsa, J Quan, T Schaul, D Silver, M Hessel, D Mankowitz, A Zidek, R Munos, International Conference on Machine Learning. PMLR2018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 226,
+      "text": "Successor features for transfer in reinforcement learning. A Barreto, W Dabney, R Munos, J J Hunt, T Schaul, H P Van Hasselt, D Silver, Advances in Neural Information Processing Systems. 302017",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 227,
+      "text": "Random projection in dimensionality reduction: applications to image and text data. E Bingham, H Mannila, Knowledge Discovery and Data Mining. 2001",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 228,
+      "text": ". G Brockman, V Cheung, L Pettersson, J Schneider, J Schulman, J Tang, W Zaremba, CoRR, abs/1606.015402016",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 229,
+      "text": "Deep reinforcement learning in a handful of trials using probabilistic dynamics models. K Chua, R Calandra, R Mcallister, S Levine, CoRR, abs/1805.121142018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 230,
+      "text": "Quantifying generalization in reinforcement learning. K Cobbe, O Klimov, C Hesse, T Kim, J Schulman, CoRR, abs/1812.023412018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 231,
+      "text": "PILCO: A model-based and data-efficient approach to policy search. M P Deisenroth, C E Rasmussen, Proceedings of the 28th International Conference on Machine Learning, ICML 2011. L Getoor, T Scheffer, the 28th International Conference on Machine Learning, ICML 2011Bellevue, Washington, USAOmnipressJune 28 -July 2, 2011. 2011",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 232,
+      "text": "Psiphi-learning: Reinforcement learning with demonstrations using successor features and inverse temporal difference learning. A Filos, C Lyle, Y Gal, S Levine, N Jaques, G Farquhar, Proceedings of the 38th International Conference on Machine Learning, ICML 2021. M Meila, T Zhang, the 38th International Conference on Machine Learning, ICML 2021PMLR18-24 July 2021. 2021139of Proceedings of Machine Learning Research",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 233,
+      "text": "Model-agnostic meta-learning for fast adaptation of deep networks. C Finn, P Abbeel, S Levine, 2017",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 234,
+      "text": "Addressing function approximation error in actor-critic methods. S Fujimoto, H Van Hoof, D Meger, Proceedings of the 35th International Conference on Machine Learning, ICML 2018. J G Dy, A Krause, the 35th International Conference on Machine Learning, ICML 2018Stockholmsmässan, Stockholm, SwedenPMLRJuly 10-15, 2018. 201880of Proceedings of Machine Learning Research",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 235,
+      "text": "Learning to reach goals via iterated supervised learning. D Ghosh, A Gupta, A Reddy, J Fu, C M Devin, B Eysenbach, S Levine, 9th International Conference on Learning Representations, ICLR 2021, Virtual Event. AustriaMay 3-7, 2021. OpenReview.net, 2021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 236,
+      "text": "Soft actor-critic: Off-policy maximum entropy deep reinforcement learning with a stochastic actor. T Haarnoja, A Zhou, P Abbeel, S Levine, arXiv:1801.012902018arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 237,
+      "text": "Dream to control: Learning behaviors by latent imagination. D Hafner, T P Lillicrap, J Ba, M Norouzi, 8th International Conference on Learning Representations. Addis Ababa, EthiopiaApril 26-30, 2020. 20202020OpenReview.net",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 238,
+      "text": "Learning continuous control policies by stochastic value gradients. N Heess, G Wayne, D Silver, T P Lillicrap, T Erez, Y Tassa, Advances in Neural Information Processing Systems 28: Annual Conference on Neural Information Processing Systems. C Cortes, N D Lawrence, D D Lee, M Sugiyama, R Garnett, Montreal, Quebec, Canada2015. December 7-12, 2015. 2015",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 239,
+      "text": "Multi-task deep reinforcement learning with popart. M Hessel, H Soyer, L Espeholt, W Czarnecki, S Schmitt, H Van Hasselt, The Thirty-Third AAAI Conference on Artificial Intelligence, AAAI 2019, The Thirty-First Innovative Applications of Artificial Intelligence Conference, IAAI 2019, The Ninth AAAI Symposium on Educational Advances in Artificial Intelligence. Honolulu, Hawaii, USAAAAI PressJanuary 27 -February 1, 2019. 20192019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 240,
+      "text": "When to trust your model: Model-based policy optimization. M Janner, J Fu, M Zhang, S Levine, Advances in Neural Information Processing Systems 32: Annual Conference on Neural Information Processing Systems. H M Wallach, H Larochelle, A Beygelzimer, F Alché-Buc, E B Fox, R Garnett, NeurIPS; Vancouver, BC, Canada2019. 2019. December 8-14, 2019. 2019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 241,
+      "text": "Gamma-models: Generative temporal difference learning for infinite-horizon prediction. M Janner, I Mordatch, S Levine, Advances in Neural Information Processing Systems 33: Annual Conference on Neural Information Processing Systems. H Larochelle, M Ranzato, R Hadsell, M Balcan, H Lin, NeurIPS2020. 2020. December 6-12, 2020, virtual, 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 242,
+      "text": "Learning to achieve goals. L P Kaelbling, International Conference on Machine Learning. Citeseer1993",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 243,
+      "text": "Mt-opt: Continuous multi-task robotic reinforcement learning at scale. D Kalashnikov, J Varley, Y Chebotar, B Swanson, R Jonschkowski, C Finn, S Levine, K Hausman, CoRR, abs/2104.082122021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 244,
+      "text": "Actor-critic algorithms. V R Konda, J N Tsitsiklis, Advances in Neural Information Processing Systems. S A Solla, T K Leen, K Müller, Denver, Colorado, USAThe MIT PressNovember 29 -December 4, 1999. 199912",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 245,
+      "text": "Conservative q-learning for offline reinforcement learning. A Kumar, A Zhou, G Tucker, S Levine, CoRR, abs/2006.047792020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 246,
+      "text": "Investigating compounding prediction errors in learned dynamics models. N O Lambert, K S J Pister, R Calandra, CoRR, abs/2203.096372022",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 247,
+      "text": "Successor features combine elements of model-free and modelbased reinforcement learning. L Lehnert, M L Littman, J. Mach. Learn. Res. 212020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 248,
+      "text": "End-to-end training of deep visuomotor policies. S Levine, C Finn, T Darrell, P Abbeel, The Journal of Machine Learning Research. 1712016",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 249,
+      "text": "Learning complex neural network policies with trajectory optimization. S Levine, V Koltun, Proceedings of the 31th International Conference on Machine Learning. the 31th International Conference on Machine LearningBeijing, China2014. June 2014. 201432Workshop and Conference Proceedings",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 250,
+      "text": "Towards a unified analysis of random Fourier features. Z Li, J.-F Ton, D Oglic, D Sejdinovic, International Conference on Machine Learning. PMLR2019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 251,
+      "text": "Asynchronous methods for deep reinforcement learning. V Mnih, A P Badia, M Mirza, A Graves, T P Lillicrap, T Harley, D Silver, K Kavukcuoglu, Proceedings of the 33nd International Conference on Machine Learning, ICML 2016. M Balcan, K Q Weinberger, the 33nd International Conference on Machine Learning, ICML 2016New York City, NY, USAJune 19-24, 2016. 201648",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 252,
+      "text": "Playing atari with deep reinforcement learning. V Mnih, K Kavukcuoglu, D Silver, A Graves, I Antonoglou, D Wierstra, M Riedmiller, arXiv:1312.56022013arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 253,
+      "text": "Riedmiller. Playing atari with deep reinforcement learning. V Mnih, K Kavukcuoglu, D Silver, A Graves, I Antonoglou, D Wierstra, M A , CoRR, abs/1312.56022013",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 254,
+      "text": "Model-based reinforcement learning: A survey. T M Moerland, J Broekens, C M Jonker, 2006.16712, 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 255,
+      "text": "Dualdice: Behavior-agnostic estimation of discounted stationary distribution corrections. O Nachum, Y Chow, B Dai, L Li, Advances in Neural Information Processing Systems 32: Annual Conference on Neural Information Processing Systems. H M Wallach, H Larochelle, A Beygelzimer, F Alché-Buc, E B Fox, R Garnett, NeurIPS; Vancouver, BC, Canada2019. 2019. December 8-14, 2019. 2019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 256,
+      "text": "Neural network dynamics for modelbased deep reinforcement learning with model-free fine-tuning. A Nagabandi, G Kahn, R S Fearing, S Levine, IEEE International Conference on Robotics and Automation, ICRA. 2018. 2018. May 21-25. 2018. 2018IEEE",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 257,
+      "text": "Deepmimic: example-guided deep reinforcement learning of physics-based character skills. X B Peng, P Abbeel, S Levine, M Van De Panne, ACM Trans. Graph. 3741432018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 258,
+      "text": "Skew-fit: State-covering self-supervised reinforcement learning. V H Pong, M Dalal, S Lin, A Nair, S Bahl, S Levine, arXiv:1903.036982019arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 259,
+      "text": "Direct trajectory optimization of rigid body dynamical systems through contact. M Posa, R Tedrake, Algorithmic Foundations of Robotics X -Proceedings of the Tenth Workshop on the Algorithmic Foundations of Robotics, WAFR 2012, MIT. E Frazzoli, T Lozano-Pérez, N Roy, D Rus, Cambridge, Massachusetts, USASpringerJune 13-15 2012. 201286",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 260,
+      "text": "Random features for large-scale kernel machines. A Rahimi, B Recht, Advances in Neural Information Processing Systems. 202007",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 261,
+      "text": "Weighted sums of random kitchen sinks: Replacing minimization with randomization in learning. A Rahimi, B Recht, Advances in Neural Information Processing Systems. 200821",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 262,
+      "text": "Generalization properties of learning with random features. A Rudi, L Rosasco, Advances in Neural Information Processing Systems. 201730",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 263,
+      "text": "Model-based reinforcement learning via latent-space collocation. O Rybkin, C Zhu, A Nagabandi, K Daniilidis, I Mordatch, S Levine, Proceedings of the 38th International Conference on Machine Learning, ICML 2021. M Meila, T Zhang, the 38th International Conference on Machine Learning, ICML 2021PMLR18-24 July 2021. 2021139of Proceedings of Machine Learning Research",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 264,
+      "text": "Trust region policy optimization. J Schulman, S Levine, P Abbeel, M I Jordan, P Moritz, ICML. 2015",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 265,
+      "text": "Proximal policy optimization algorithms. J Schulman, F Wolski, P Dhariwal, A Radford, O Klimov, CoRR, abs/1707.063472017",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 266,
+      "text": "Mastering chess and shogi by self-play with a general reinforcement learning algorithm. D Silver, T Hubert, J Schrittwieser, I Antonoglou, M Lai, A Guez, M Lanctot, L Sifre, D Kumaran, T Graepel, T P Lillicrap, K Simonyan, D Hassabis, CoRR, abs/1712.018152017",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 267,
+      "text": "Bundled gradients through contact via randomized smoothing. H J T Suh, T Pang, R Tedrake, IEEE Robotics Autom. Lett. 722022",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 268,
+      "text": "Integrated architectures for learning, planning, and reacting based on approximating dynamic programming. R S Sutton, Machine Learning, Proceedings of the Seventh International Conference on Machine Learning. B W Porter, R J Mooney, Austin, Texas, USAMorgan KaufmannJune 21-23, 1990. 1990",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 269,
+      "text": "Horde: a scalable real-time architecture for learning knowledge from unsupervised sensorimotor interaction. R S Sutton, J Modayil, M Delp, T Degris, P M Pilarski, A White, D Precup, 10th International Conference on Autonomous Agents and Multiagent Systems (AAMAS 2011). L Sonenberg, P Stone, K Tumer, P Yolum, Taipei, TaiwanMay 2-6, 2011. 20111",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 270,
+      "text": "Distral: Robust multitask reinforcement learning. Y W Teh, V Bapst, W M Czarnecki, J Quan, J Kirkpatrick, R Hadsell, N Heess, R Pascanu, CoRR, abs/1707.041752017",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 271,
+      "text": "Improving multi-step prediction of learned time series models. A Venkatraman, M Hebert, J A Bagnell, Proceedings of the Twenty-Ninth AAAI Conference on Artificial Intelligence. B Bonet, S Koenig, the Twenty-Ninth AAAI Conference on Artificial IntelligenceAustin, Texas, USAAAAI PressJanuary 25-30, 2015. 2015",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 272,
+      "text": "Q-learning. C J C H Watkins, P Dayan, Machine Learning. 1992",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 273,
+      "text": "Model predictive path integral control: From theory to parallel computation. G Williams, A Aldrich, E A Theodorou, Journal of Guidance, Control, and Dynamics. 4022017",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 274,
+      "text": "Aggressive driving with model predictive path integral control. G Williams, P Drews, B Goldfain, J M Rehg, E A Theodorou, 2016 IEEE International Conference on Robotics and Automation, ICRA 2016. D Kragic, A Bicchi, A D Luca, Stockholm, SwedenIEEEMay 16-21, 2016. 2016",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 275,
+      "text": "Simple statistical gradient-following algorithms for connectionist reinforcement learning. R J Williams, Mach. Learn. 81992",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 276,
+      "text": "Learning to combat compounding-error in model-based reinforcement learning. C Xiao, Y Wu, C Ma, D Schuurmans, M Müller, CoRR, abs/1912.112062019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 277,
+      "text": "Meta-world: A benchmark and evaluation for multi-task and meta reinforcement learning. T Yu, D Quillen, Z He, R Julian, K Hausman, C Finn, S Levine, of Proceedings of Machine Learning Research. L P Kaelbling, D Kragic, K Sugiura, Osaka, JapanPMLR2019. October 30 -November 1, 2019. 20191003rd Annual Conference on Robot Learning",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 278,
+      "text": "Deep reinforcement learning with successor features for navigation across similar environments. J Zhang, J T Springenberg, J Boedecker, W Burgard, 2017 IEEE/RSJ International Conference on Intelligent Robots and Systems. Vancouver, BC, CanadaIEEE2017. September 24-28, 2017. 2017",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 279,
+      "text": "Gendice: Generalized offline estimation of stationary values. R Zhang, B Dai, L Li, D Schuurmans, 8th International Conference on Learning Representations. Addis Ababa, EthiopiaApril 26-30, 2020. 20202020OpenReview.net",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 280,
+      "text": "CHOMP: covariant hamiltonian optimization for motion planning. M Zucker, N D Ratliff, A D Dragan, M Pivtoraiko, M Klingensmith, C M Dellin, J A Bagnell, S S Srinivasa, Int. J. Robotics Res. 329-102013",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 221,
+      "subtype": "bibentry"
+    }
+  ]
+}

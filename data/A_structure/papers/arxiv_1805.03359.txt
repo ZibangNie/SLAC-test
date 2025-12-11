@@ -1,0 +1,1206 @@
+Reward Estimation for Variance Reduction in Deep Reinforcement Learning
+
+
+Joshua Romoff 
+MILA
+McGill University
+MontréalQuébecCanada
+
+Facebook AI Research
+MontréalQuébecCanada
+
+Peter Henderson 
+MILA
+McGill University
+MontréalQuébecCanada
+
+Alexandre Piché 
+MILA
+Université de Montréal
+QuébecCanada
+
+Vincent François-Lavet 
+MILA
+McGill University
+MontréalQuébecCanada
+
+Joelle Pineau 
+MILA
+McGill University
+MontréalQuébecCanada
+
+Facebook AI Research
+MontréalQuébecCanada
+
+Reward Estimation for Variance Reduction in Deep Reinforcement Learning
+Reinforcement LearningUncertaintyGoal Specification
+Reinforcement Learning (RL) agents require the specification of a reward signal for learning behaviours. However, introduction of corrupt or stochastic rewards can yield high variance in learning. Such corruption may be a direct result of goal misspecification, randomness in the reward signal, or correlation of the reward with external factors that are not known to the agent. Corruption or stochasticity of the reward signal can be especially problematic in robotics, where goal specification can be particularly difficult for complex tasks. While many variance reduction techniques have been studied to improve the robustness of the RL process, handling such stochastic or corrupted reward structures remains difficult. As an alternative for handling this scenario in model-free RL methods, we suggest using an estimator for both rewards and value functions. We demonstrate that this improves performance under corrupted stochastic rewards in both the tabular and non-linear function approximation settings for a variety of noise types and environments. The use of reward estimation is a robust and easy-to-implement improvement for handling corrupted reward signals in model-free RL.
+
+Introduction
+
+Reinforcement Learning (RL) agents learn from a generated reward provided by the environment. However, it is possible that the generated reward is corrupted [1,2], stochastic [3], or misspecified [2]. The specification of rewards which do not exhibit these problems can be especially difficult in robotics and has resulted in data-driven approaches for reward specification [4,5,6]. However, these data-driven approaches may also yield corrupted reward signals where the sensory-based features used for reward generation are themselves corrupted. As such, handling corrupted or stochastic rewards in the learning process is a necessity for successfully learning complex behaviours in robotics using RL Everitt et al. [2].
+
+In particular, such scenarios can result in high variance in the gradients during learning and impede successful convergence to an optimal policy. Several methods have already been used to reduce variance, sometimes at the cost of bias. These include generalized advantage estimation [7], constrained updates [8], updating the target policy via the expectation of its actions [9,10], and updating the value function via the posterior mean of an estimated uncertain value distribution [11]. However, these don't explicitly account for corrupted rewards and aim to address variance induced with a deterministic true reward.
+
+Here, we propose a simple method for updating model-free RL algorithms to compensate for stochastic corrupted reward signals. We suggest learning an estimator for both the local expected reward and the value function -that is, using a direct estimate of rewardsR(s t ) to update the discounted value function V π γ (s t ) and policy π θ (s t ), rather than the sampled rewards.
+
+We show that this method results in theoretical variance reductions in the tabular case and corresponds to empirical performance gains in the tabular and function approximation settings in situations where rewards are highly stochastic and corrupted. We validate this on the MuJoCo environments [12] from OpenAI Gym [13] for continuous control robotic locomotion benchmark tasks and provide complementary results on Atari games for discrete settings.
+
+
+Related Work
+
+A variety of model-based work in robotic and non-robotic domains has used reward estimation [14,15,16,17,18,19]. However, those works use the predicted (or "imagined") reward for planning rather than training a value function. In several cases, estimated rewards are used in imagination augmented rollouts with a stochastic dynamics model accompanying the reward estimator. For example, [17,20] use a method to apply model-based methods to model-free RL. However, in our case we do not require multi-step imaginary rollouts, avoiding learning system dynamics as our reward estimation method is explicitly aimed at handling corrupted stochastic rewards rather than for planning. Nevertheless, it may be possible to view reward estimation as a single step case of model-based value expansion.
+
+Similarly, the myriad of inverse reinforcement learning (IRL) literature for robotics involves learning reward functions from demonstrations rather than previous rewards. For example in [5,6], rewards are learned in a data-driven way explicitly to better model the desired robotic behaviours. In some cases, such as in [6,21], the reward function is modified to be compatible and beneficial to the learning process. However, this doesn't specifically account for corruption in the learned rewards.
+
+Other works in the RL setting augment rewards via shaping mechanisms [22,23]; for example, to make robot learning easier with sparse rewards. Our method can be viewed as a shaping mechanism as well, where the transformation is captured within a single function approximator. While much of the reward shaping literature aims to aid exploration, Talvitie [24] comes close to our work by learning to correct the reward function for misspecifications of the model.
+
+Generally, while all of these works model rewards in some way, most do not explicitly seek to address a corrupted reward. Everitt et al. [2], on the other hand set up the problem of corrupted rewards formally and suggest a method to address corrupted reward channels in small GridWorld scenarios. However, the method they introduce is specific to the tabular setting and they do not propose any methods for continuous control as is often needed for handling complex robotic tasks.
+
+
+Background
+
+
+Reinforcement Learning
+
+We formulate our method in the context of a fully observable Markov Decision Process (MDP) [25].
+
+In an MDP, an agent can take an action a t based on its current state s t and receive a reward r t , before transitioning to the next state of the MDP s t+1 . We focus on the discounted MDP case, where an agent tries to maximize the cumulative discounted reward V π γ (s) = [ ∞ t=0 γ t r t |s 0 = s, π], also known as the discounted value of a policy π. It is common to learn a value estimate of the current policy via temporal difference (TD) learning [26], where the current estimate of the value function is used to bootstrap the next estimate according to the Bellman target Y t = r t + γV π γ (s t+1 ), via the loss:
+L(θ V ) = E Y t − V π γ (s t ; θ V ) 2 .
+In the case of Advantage Actor Critic (A2C), the synchronous version of Asynchronous Advantage Actor Critic (A3C) [27], a stochastic parameterized policy (actor, π θ (a|s)) is learned from this value estimator via the TD error. That is, the actor loss becomes: L(θ π ) = E − log π(a, s; θ π ) r t + γV π γ (s t+1 ; θ V ) − V π γ (s t ; θ V ) . Proximal Policy Optimization (PPO) [8] can be considered to be a similar method to A2C. In the case of PPO, however, long Monte Carlo rollouts are used while the value function acts primarily as a variance-reducing baseline in the policy update -typically via generalized advantage estimation [28]. Furthermore, the policy update is constrained via a trust region in the form of a clipping objective (as we use here) or a divergence penalty. The clipping objective for training the policy is:
+L CLIP (θ) =Ê min(r t (θ)Â t , clip(r t (θ), 1 − , 1 + )Â t(1)
+where the likelihood ratio is r t (θ) = π θ (at|st) π θ old (at|st) ,Â t is the generalized advantage function, and < 1 is some small factor applied to constrain the update.
+
+
+Stochastic or Corrupted Rewards
+
+Since we tackle the case of using stochastic or corrupted rewards, it is important to have a clear understanding of this scenario. In stochastic rewards, for a state transition tuple (s, a, s ), a reward can be treated as a random variable. That is, the reward is provided from some distribution with a certain probability density. This corresponds to settings in robotics where a reward function may be learned through variational means [4].
+
+We further define a corrupted reward to be such that the provided reward does not match the true reward due to some noise process, similarly to the Corrupted Reward MDP (CRMDP) setting of [2]. In the cases we consider, the reward is both corrupted and stochastic. That is, for a given state transition tuple (s, a, s ), the true reward is r(s, a, s ), whereas the corrupted stochastic reward becomes a random variableR such that the likelihood of a reward being sampled from the corrupted stochastic random variable is P (R = r|s, a, s ).
+
+
+Reward Estimation
+
+Under a corrupted stochastic reward, an additional source of variance is injected into the value function update. To reduce this variance, we introduce an estimator for the reward at a given stateR(s t ). In the function approximation case, learning this reward estimator becomes a simple regression problem:
+L(θR) = E r t −R(s t ; θR) 2 .
+We then use this reward estimator in the TD update of the value function, rather than the sampled reward:
+L(θ V ) = E R (s t ; θR) + γV π γ (s t+1 ; θ V ) − V π γ (s t ; θ V ) 2
+. As we will see in Section 4.1, under corrupted stochastic rewards, this estimation will reduce the variance propagated to the value function.
+
+We note that this is an easy update to model-free methods which does not significantly change the problem formulation and can be used in any model-free method. An example of using the reward estimator in an actor-critic process can be seen in Figure 1.  
+
+
+Theoretical Variance Reduction in Tabular Domains
+
+To determine whether our method for using a reward approximator reduces variance theoretically, we examine the tabular case. In this setting, we use the sample mean for the reward estimator:
+R(s, a, s ) = 1 N i r i where r i ∼ R(s, a, s ) for all i ∈ [1, . . . , N ]
+. That is, given N i.i.d reward samples at a given state s where action a was taken and where we transitioned to s , we determine the mean of those rewards 2 . In this scenario, the sample mean is an unbiased estimator.
+
+First, following a similar methodology to the variance analysis by Van Seijen et al. [29], we determine the variance of the standard discounted Bellman equation: [30]: G γ t = r t + γV γ π (s t+1 ). The variance of this Bellman estimate is:
+var [G γ t ] = var [r t ] + var [γV γ π (s t+1 )] + 2 cov [r t , γV γ π (s t+1 )] .(2)
+If we instead use an approximator for the reward, the Bellman equation becomes:Ĝ γ t = R(s t , a t , s t+1 ) + γV γ π (s t+1 ). Similarly, the variance becomes: var Ĝ γ t = var R (s t , a t , s t+1 ) + var [γV γ π (s t+1 )] + 2 cov R (s t , a t , s t+1 ), γV γ π (s t+1 ) .
+
+Moreover, since approximation in the tabular case is simply the sample mean, we have that:
+var R (s t , a t , s t+1 ) = 1 N var [r t ](4)
+and,
+cov R (s t , a t , s t+1 ), γV γ π (s t+1 ) = 1 N cov [r t , γV γ π (s t+1 )](5)
+Thus, we arrive at the following equality:
+var Ĝ γ t −var [G γ t ] = 1 N var [r t ]+ 2 N cov [r t , γV γ π (s t+1 )]−var [r t ]−2 cov [r t , γV γ π (s t+1 )] . (6) Analyzing Equation 6
+, one can see that if the covariance between the reward and the value function at the next state is ≥ 0 that var Ĝ γ t ≤ var [G γ t ] , ∀N ≥ 1. We note that this is always true when the reward function depends only on (s, a) and not s , since the covariance in this case is 0. Moreover, even when the reward function depends on s it is likely to have a positive covariance. We refer to the Appendix for a more lengthy discussion and to our results in Section 5.2.5 and Appendix D.3.1 that highlight the variance reduction empirically.
+
+Therefore, by using the empirical mean of the rewards in a tabular setting, it is possible to reduce the variance of the update. The M-Step return case follows similarly, holding under the same covariance assumptions. The intuitive benefit of this becomes clear in settings with stochastic corrupted rewards. In such a case, the error will propagate through longer MDP chains, whereas using the empirical mean will provide a more stable estimate, as will be demonstrated in subsequent experimental sections.
+
+
+Choosing the Best Estimator
+
+The features provided to the reward estimator can be updated to refine the estimate or provide an expectation. Specifically, we can model the reward in three different ways: 
+R(s) = E s ,
+Overall, the inputs provided to the reward function capture expectations at different levels, sometimes encompassing the dynamics of the system. In our case, we focus on deterministic dynamics but where the reward can be treated as a random variable so any of these estimators are effective to varying degrees. However, choosing the best features to use as in Equation 7 can contain various benefits and tradeoffs. The most obvious trade-off depends on the true reward function of the underlying MDP that is being estimated. If the true reward function depends on the action and next state then not including one or the other as inputs will make estimation of the rewards more difficult (or impossible). For example, in some of the OpenAI Gym MuJoCo benchmark robotics environments, a reward is provided based on the action resulting in a penalty for large amounts of generated torque on the simulated motors. Without providing the action as a feature to the learned reward function it may be difficult to successfully learn a reward estimator. On the other hand, as we describe in the Appendix, in domains like Atari where the reward signal is typically delayed several steps and mostly dependent on only the current state, R(s) is an adequate choice. Using R(s, a) or R(s, a, s ) would not provide any benefit and simply make estimating the reward more difficult due to the extra inputs. Empirical results which demonstrate these effects can be found in the Appendix.
+
+
+Experiments
+
+To validate that using a function approximatorR for the reward improves performance, we investigate several settings with induced stochastic noise 3 . We investigate a small toy MDP problem in the tabular case to show the variance reduction properties of the system in the tabular setting which validate our theoretical reduction shown in Section 4.1.
+
+We then use several simulated MuJoCo tasks from the OpenAI Gym benchmark environments for continuous control settings [13]. These tasks are particularly relevant for robotics domains as the action space directly applies torque to simulated motors in various robotic configurations to learn locomotion behaviours.
+
+We generate three types of noise to corrupt the reward system with, or to introduce stochasticity into the reward which may be relevant for robotic domains: Gaussian noise, -likelihood replacement of the reward with uniform noise, and randomly induced sparsity. First, we add a Gaussian noise to the system -which may occur with sensory noise in robotic systems or with a reward provided from a distribution (as in with a data-driven distributional reward). Next, we investigate uniform replacement of the reward with a random reward which could correspond to misspecification or sensory noise. Finally, we investigate artificially and randomly induced sparsity in the reward signal which could be the case if there is a human in the loop providing a reward signal to the robot such that the human may or may not consider providing a reward at some timestep depending on the teacher as in [31]. Alternatively, the stochastically sparse reward case could correspond to delayed rewards provided to the robot as in [3].
+
+Finally, we extend these experiments to Atari games to show the benefits in discrete settings as well.
+
+In both the Atari and MuJoCo domains we use a neural network function approximator forR to match the value function and policy networks in the baselines. We also run several experiment seeds for all settings as indicated by Henderson et al. [32]: 10 for MuJoCo tasks and 3 for Atari domains.
+
+
+Tabular Experiments
+
+We first empirically investigate the tabular case. We construct a 5 state MDP, as seen in Figure 5.1, for value learning (an extended 10 state MDP can be seen in Appendix B). The MDPs contain deterministic transitions from left to right in the states, and the agent follows a fixed policy moving to the right and terminates on reaching the farthest state to the right. At each state it receives a stochastic reward of 1, 2, or 5 with a fixed probability of 0.5. The value function is updated via the TD error for 100 episodes. We measure the robustness to variance by evaluating the root mean squared error (RMSE) of the value function across the 100 episodes. As is seen in Figure 2, when using the reward estimator, the agent is able to learn more accurate representations of the value function even at high learning rates. This aligns with the aforementioned theoretical variance reduction in Section 4.1. In all cases, rewards are assigned with probability 0.5 and, set to 0 otherwise (rewards of +1, +2, +5, from left to right). The x-axis demonstrates various learning rates for the TD-update. We report the average RMSE over the first 100 episodes of learning -lower is better. 
+
+
+MuJoCo Experiments
+
+We experiment on four different continuous control tasks in the MuJoCo simulator as provided by OpenAI Gym [13]: Reacher, Hopper, HalfCheetah, and Walker2d. In all cases we use the −v2 version of the MuJoCo benchmarks. We use the PyTorch PPO implementation with a clipping objective found in [33] for the baseline, with modifications for reward estimation built directly on top of this. Further information about experimental setup can be found in Appendix D. We compare against two baselines: the regular implementation of PPO using the sampled reward and an augmented value function network which trains on an additional auxiliary task to predict the reward as well as the value function (such that hidden layers encode information for both tasks) similarly to [34].
+
+
+Gaussian Noise
+
+The first type of reward noise which we add is a Gaussian noise centered around 0 with increasing variance. This noise is inspired by a reward signal which is sensory based, but where sensors exhibit a Gaussian noisy distribution as in [35]. That is, the resulting reward becomes r new t = r t + ψ where Ψ ∼ N (0, σ 2 ). The relative normalized baseline improvement of this experiment can be found in Table 5.2.1 with extended information in the Appendix. As can be seen under a zero-centered Gaussian noise, reward estimation improves results over the baseline in all cases except when no noise is added.  Table 1: Gaussian reward noise (σ = (0.0, 0.1, 0.2, 0.3, 0.4)) comparison between our approach and the best of both baselines (PPO and PPO with the reward prediction auxiliary task). The score represents the relative improvement over the best baseline normalized with respect to the the average episode reward over the last 100 Episodes after training for 1M steps:
+σ = 0.0 σ = 0.1 σ = 0.2 σ = 0.3 σ = 0.4 (% Gain) (% Gain) (% Gain) (% Gain) (%
+Ours−Best Baseline |Best Baseline−Random Policy| . Bold scores indicate an improvement over both baselines. The results are the average over 10 runs using different random seeds.
+
+
+Uniform Noise
+
+For the uniform noise experiments, we randomly replace the reward with an probability by a uniform reward between −1 and 1. That is:
+r new t = ψ, with probability r t , with probability (1 − ),(8)
+where Ψ ∼ U (−1, 1) and where 0 ≤ ≤ 1 is the probability of replacing the current reward.   )) comparison between our approach to the best of both baselines (PPO and PPO with the reward prediction auxiliary task). The score represents the relative improvement as in Figure 5.2.1. The results are the average over 10 runs using different random seeds.
+
+
+Sparsity
+
+We consider artificially making the reward sparser by replacing the true environmental reward with the zero reward with varying levels of probability. Specifically, the reward at time t is defined as:
+r new t = 0, with probability r t , with probability (1 − ),(9)
+This may reflect a scenario where there is a signal dropout either in a sensory-based reward signal as in [36] 
+
+As can be seen in Table 5 Table 3: Sparse reward noise ( = (0.6, 0.7, 0.8, 0.9, 0.95)) comparison between our approach to the best of both baselines (PPO and PPO with the reward prediction auxiliary task). The score represents the relative improvement as in Figure 5.2.1. The results are the averaged over 10 different experiment random seeds.
+
+
+Analyzing the Empirical Advantage
+
+We next attempt to uncover the exact source of the improved performances by analyzing the empirical advantage and TD-error. As mentioned in Section 3, the advantage function provides a signal for both the critic and the policy to use as part of their objective in actor-critic methods. For the policy, actions that lead to positive advantages are reinforced, while negative advantages result in a negative likelihood update for those actions. A high expected squared advantage -TD error -implies a large residual error that is not captured by the value function. As we can see in Figure 4, the reduction of this advantage (and thus TD error) directly correlates to performance gains in the episode return.
+
+
+Analyzing Reduction of Variance
+
+To determine if our theoretical variance reduction properties found in Section 4.1 hold in the continuous control case with neural network function approximators, we empirically measure the variance of the Bellman operator itself with the corrupted stochastic rewards. With full experimental details and extended results in the Appendix, we find that across all environments, we see an average of 59.7%, 76.7%, and 62.5% absolute reduction in variance under all tested levels of Gaussian, uniform, and sparsity inducing noise, respectively. 
+
+
+Atari Experiments
+
+We extend our methodology in the Atari domain to demonstrate the extension to discrete action spaces (for example if a robot can only select macro actions). The experimental setup, details, and full results for this can be found in Appendix C.   
+
+
+Conclusion
+
+Our work provides a simple yet effective method for addressing and improving performance under corrupted and stochastic rewards in model-free policy gradient methods. Future extensions of our work may involve learning a distributional reward estimator as in [39], off-policy experience replay for the reward estimator, or learn options for reward estimators as in [40]. These improvements may help improve the fidelity and accuracy of reward estimation to further improve results in settings such as induced sparsity.
+
+More importantly, as reward generation moves toward data-driven [5,6] or human-in-the-loop [31,41] means, addressing the likely stochasticity or corruption in the reward signal -particularly through the simple modification of existing methods as we show here -is vital for successful learning of intended behaviours in complex robotic tasks. We hope that our work provides a simple foundation for which other methods can build on to address corrupted and stochastic rewards.
+
+[40] P. Henderson 
+
+
+A Theoretical Proof Extensions
+
+
+A.1 Theoretical Variance Reduction Extended Discussion
+
+We note that we make an assumption that in most cases cov [r t , γV γ π (s t+1 )] ≥ 0. When conditioned on s t , a t and s t+1 , r t and r t+1 are independent variables and thus their covariance equal to zero. When the covariance is not zero and we must fall back to another formality. We note that as N → ∞ the left most terms of the right hand side of Equation 6 tend to 0, which gives us the following:
+var Ĝ γ t − var [G γ t ] = − var [r t ] − 2 cov [r t , γV γ π (s t+1 )] ,(11)
+which is less than 0 when:
+var [r t ] > −2 cov [r t , γV γ π (s t+1 )] .(12)
+Thus, when the variables are not independent and covariance equal to zero, Equation 12 must be followed for reductions in variance to occur using a reward estimator that is the expectation over the random variable. . The x-axis demonstrates various learning rates for the TD-update, as seen in similar variance analysis experiments [29]. As can be seen, using the sample mean in MDPs with stochastic processes greatly reduces the variance, allowing for higher learning rates to be used.
+
+
+B Tabular MDP Experiment
+
+
+C Atari Experiments
+
+For evaluating our method with function approximation, we use 5 Atari games from the Arcade Learning Environment (ALE) [42]. We use the exact same hyperparameters used in OpenAI's Baselines implementation [43] and modify the PyTorch A2C implementation for our codebase [33], but use an additional network (with the same architecture) as a reward predictor and use it to train our critic as described in Section 4. We compare our approach to the standard A2C algorithm, as well as A2C with reward prediction as an auxiliary task, similar to [34]. We report results, averaged over 3 random seeds, for rewards with varying levels of Gaussian noise in Table C.2, C.2 and Figure 6.
+
+In most settings, we see that our proposed method performs relatively better once noise has been introduced.
+
+
+C.1 Performance of Random Agent
+
+For the displayed results in the main text we normalize by the performance over a random agent. These performances were averaged over 100 episodes by uniformly sampling from the action space and can be found in Table 5 Table 5: Average return of a random uniform sampling policy on Atari games across 100 episodes.  Table 6: Comparison of the average episode reward over 10M steps of training between our approach to the best of both baselines (A2C and A2C with the reward prediction auxiliary task). The score represents the relative improvement over the best baseline normalized by the performance of the random policy:
+
+
+C.2 Extended Experimental Results
+Environment σ = 0.0 σ = 0.1 σ = 0.2 σ = 0.3 σ = 0.4 (% Gain) (% Gain) (% Gain) (% Gain) (%
+Ours−Best Baseline |Best Baseline−Random Policy| . Bold scores indicate an improvement over both baselines. The results are the average over 3 runs using different random seeds. Variance of the added Gaussian noise is σ 2 .  Table 7: Comparison of the average episode reward over 10M steps of training between our approach to the best of both baselines (A2C and A2C with the reward prediction auxiliary task). The score represents the relative improvement over the best baseline normalized by the performance of the random policy:    Table 8: Comparison of the average episode reward over 10M steps of training between our approach to the best of both baselines (A2C and A2C with the reward prediction auxiliary task). The score represents the relative improvement over the best baseline normalized by the performance of the random policy:  Table 11: The asymptotic average return across all episodes of training for the Atari experiments across 3 training runs with different random seeds (for both network initialization and environment seeding) under the sparsity inducing noise. Additional details: Our architecture and hyper-parameters are identical to the standard A2C parameters used in [43]. To learn the reward-predictor, we used a completely separate network with the same overall structure as the value/policy network.
+Environment = 0.1 = 0.2 = 0.3 (% Gain) (% Gain) (% Gain) BeamRiderNoFrameskip-
+We tuned the learning rate for the reward-predictor roughly through a coarse grid-search between [0.0001, 0.00025, 0.0005, 0.00075, 0.001] on a single game Pong and then used the best one (0.0001) on all other games.
+
+Additionally, we found that occasionally our algorithm diverged completely due to poor initialization of the reward-predictor. To alleviate this issue, we provided a convex combination between our estimater and the stochastic corrupted environment reward (for all environments) -which we linearly decayed over the first 25000 network updates (out of the total 125000 updates).
+
+For Atari experiments we modelR(s) which we find to be sufficient to improve performance since rewards are not directly related to the actions themselves and are often delayed by several steps.
+
+
+D Mujoco Experiments
+
+Additional details: Our architecture and hyper-parameters are identical to the standard PPO parameters used in [43], our implementation is directly taken from [33]. To learn the reward-predictor, we used a completely separate network with the same overall structure as the value network.
+
+We used the same learning rate as was standard for the policy / value network 0.0003.
+
+Additionally, we found that occasionally our algorithm diverged completely due to poor initialization of the reward-predictor. To alleviate this issue, we provided a convex combination between our estimater and the stochastic corrupted environment reward (for all environments) -which we linearly decayed over the first 100 network updates (out of the total ∼ 500 updates).
+
+For MuJoCo experiments we modelR(s, a, s ). We find that adding an expectation over states alone does not provide enough fidelity on the reward function since several of the tasks provide a reward for the action itself (e.g., Reacher).
+
+
+D.1 Performance of Random Agent
+
+For the displayed results in the main text we normalize by the performance over a random agent. These performances were averaged over 100 episodes by uniformly sampling from the action space and can be found in Table 12 Table 13: The asymptotic average return across the last 100 episodes of training for the MuJoCo experiments across 10 training runs with different random seeds (for both network initialization and environment seeding). We also include results for varying features provided to theR estimator such that this demonstrates the selection criteria in the main text. As can be seen, in several tasks where the reward has a component related to the action or transition itself, the use of action as a feature is required.  Table 14: The asymptotic average return across the last 100 episodes of training for the MuJoCo experiments across 10 training runs with different random seeds (for both network initialization and environment seeding). We also include results for varying features provided to theR estimator such that this demonstrates the selection criteria in the main text. As can be seen, in several tasks where the reward has a component related to the action or transition itself, the use of action as a feature is required. Sparsity inducing noise did not always yield improvements over the baseline except for in higher noise conditions.  Table 15: The asymptotic average return across the last 100 episodes of training for the MuJoCo experiments across 10 training runs with different random seeds (for both network initialization and environment seeding). We also include results for varying features provided to theR estimator such that this demonstrates the selection criteria in the main text. As can be seen, in several tasks where the reward has a component related to the action or transition itself, the use of action as a feature is required.  To discover whether there is indeed a variance reduction in the Bellman backup operator, we use a pretrained policy and reward estimator and run 100 more training episodes to retrain a new value function. We do this for 10 trials under all noise conditions and environments. The results of this can be seen in Tables D.3 
+
+Figure 1 :
+1The actor-critic update process with the reward estimator.
+
+Figure 2 :
+2Tabular experiments with a 5-state MDP.
+
+Figure 3 :
+30, P (.5) +1 : 0, P (.5) +1 : 0, P (.5) Illustration of the sample Markov Decision Process (MDP) used for the tabular case experiments.
+
+
+or in communication of the reward signal. This type of noise in particular provides insight into the robustness ofR estimation to sparse rewards, while still preserving the optimal ordering of policies -where the optimal ordering indicates that if Q(s, a) > Q(s, a ) under R(s, a, s ) then Q (s, a) > Q (s, a ) under R(s, a, s ) * c where c > 0. The latter is true because sparsity noise can be seen as simply multiplying the reward signal by a constant positive factor at every time step. Specifically, where 0 ≤ ≤ 1 is the probability of receiving reward 0: E[r new |s, a, s ] = (1 − )E[r|s, a, s ].
+
+Figure 4 :
+4The recorded emperical advantage and performance of PPO on the HalfCheetah environment under Gaussian corruption of the reward.
+
+4 :
+4The relative average percentage improvement across 5 Atari games of theR estimator using the same metric as inFigure5.2.1 under Gaussian noise with different standard deviations. See Appendix C for more details and results. Noise1-4 correspond to σ = 0.1, 0.2, 0.3, 0.4 for Gaussian noise, = 0.1, 0.2, 0.3 for uniform noise, and = 0.3, 0.5, 0.75 for sparsity inducing noise.
+
+Figure 5 Figure 5 :
+55shows the extended results for our tabular experiments. Tabular experiments with a 5-state MDP (top row) and a 10-state MDP (bottom row), with varying reward assignments at each states. In all cases, rewards are assigned with probability 0.5 and, set to 0 otherwise (rewards of +1, +2, +5, from left to right)
+
+
+Ours−Best Baseline|Best Baseline−Random Policy| . Bold scores indicate an improvement over both baselines. The results are the average over 3 runs using different random seeds. values indicate likelihood of uniform noise.
+
+=
+
+
+Figure 6 :
+6Full learning curves for 3 runs for six Atari Games over 10M training steps (corresponding with 40M raw frames). From top to bottom: Beam Rider, Breakout, Space Invaders, Seaquest, Qbert, Pong. We compare five different noise levels that each correspond to adding Gaussian noise centered at zero with the labelled standard-deviation. From left to right we have: 0.0, 0.1, 0.2, 0.3, 0.4. Our proposed method is labelled "Ours", while A2C and A2C with the reward prediction auxiliary task are labelled Baseline and Baseline+ respectively.
+
+Figure 7 :
+7Gaussian noise
+
+Figure 8 :Figure 9 : 0 Figure 10 :
+89010Uniform noise -with probability p the reward is replaced with a sampled reward from U[-1,1] Sparsity noise -with probability p the reward is replaced with TD
+
+Table 5 .
+52.2 demonstrates the results of this type of added noise. Once again, using reward estimation increases results greatly with added noise up to a relative 500% average gain in extremely noise scenarios (where the reward is replaced by a uniformly random reward 40% of the time).= 0.0 
+= 0.1 
+= 0.2 
+= 0.3 
+= 0.4 
+(% Gain) (% Gain) (% Gain) (% Gain) (% Gain) 
+Hopper 
+-8.09 
+28.76 
+50.43 
+20.74 
+110.45 
+Walker 
+-8.09 
+180.86 
+105.78 
+125.84 
+34.58 
+Reacher 
+-1.79 
+15.60 
+24.62 
+32.61 
+40.31 
+HalfCheetah 
+-12.55 
+110.99 
+212.74 
+555.61 
+2044.25 
+
+Average 
+-7.63 
+84.05 
+98.39 
+183.70 
+557.40 
+
+
+
+Table 2 :
+2Uniform reward noise ( = (0.0, 0.1, 0.2, 0.3, 0.4
+
+
+Table 5.3 shows a sampling of results under Gaussian noise where once again we see that using an estimatorR improves performance under corrupted stochastic reward signals in most cases.No Noise Noise1 Noise2 Noise3 Noise4 
+Average Improvement (Gaussian) 
+-8.69 
+12.6 
+262.7 
+684.73 632.82 
+Average Improvement (Uniform) 
+-8.69 
+20.86 
+108.15 285.59 
+-
+Average Improvement (Sparse) 
+-8.69 
+9.95 
+21.26 
+43.40 
+-
+
+
+
+Table
+
+
+
+, W.-D. Chang, P.-L. Bacon, D. Meger, J. Pineau, and D. Precup. OptionGAN: Learning Joint Reward-Policy Options using Generative Adversarial Inverse Reinforcement Learning. In Proceedings of the Thirty-Second AAAI Conference on Artificial Intelligence (AAAI), 2018. [41] P. F. Christiano, J. Leike, T. Brown, M. Martic, S. Legg, and D. Amodei. Deep reinforcement learning from human preferences. In Advances in Neural Information Processing Systems,pages 4302-4310, 2017. 
+
+[42] M. G. Bellemare, Y. Naddaf, J. Veness, and M. Bowling. The Arcade Learning Environment: 
+An Evaluation Platform for General Agents. Journal of Artificial Intelligence Research, 47: 
+253-279, 2013. 
+
+[43] P. Dhariwal, C. Hesse, O. Klimov, A. Nichol, M. Plappert, A. Radford, J. Schulman, S. Sidor, 
+and Y. Wu. Openai baselines. https://github.com/openai/baselines, 2017. 
+
+
+
+Ours−Best Baseline|Best Baseline−Random Policy| . Bold scores indicate an improvement over both baselines. The results are the average over 3 runs using different random seeds. values indicate likelihood of sparsity induction. The asymptotic average return across all episodes of training for the Atari experiments across 3 training runs with different random seeds (for both network initialization and environment seeding) under the Gaussian noise. The asymptotic average return across all episodes episodes of training for the Atari experiments across 3 training runs with different random seeds (for both network initialization and environment seeding) under the uniform noise.Environment 
+Gaussian Noise A2C 
+A2C+R(s) 
+
+BeamRiderNoFrameskip-v4 
+
+0 
+2151.73 1836.51 2639.65 
+0.1 
+1555.06 991.56 
+2157.87 
+0.2 
+416.91 
+429.00 
+1685.37 
+0.3 
+398.13 
+396.06 
+942.69 
+0.4 
+390.60 
+393.35 
+671.57 
+
+BreakoutNoFrameskip-v4 
+
+0 
+252.19 
+274.57 
+271.19 
+0.1 
+222.99 
+223.14 
+257.24 
+0.2 
+114.05 
+119.35 
+239.15 
+0.3 
+27.51 
+29.83 
+221.64 
+0.4 
+6.86 
+10.93 
+209.68 
+
+PongNoFrameskip-v4 
+
+0 
+9.95 
+9.60 
+9.88 
+0.1 
+0.07 
+-2.10 
+4.57 
+0.2 
+-14.63 
+-10.13 
+-10.29 
+0.3 
+-20.46 
+-20.42 
+-15.08 
+0.4 
+-20.47 
+-20.43 
+-20.34 
+
+QbertNoFrameskip-v4 
+
+0 
+4539.80 7332.23 4638.91 
+0.1 
+3343.67 4867.65 4388.63 
+0.2 
+1584.20 2362.24 4089.10 
+0.3 
+608.56 
+712.62 
+3217.89 
+0.4 
+412.90 
+531.20 
+2905.16 
+
+SeaquestNoFrameskip-v4 
+
+0 
+1381.11 1154.93 993.49 
+0.1 
+619.22 
+963.16 
+881.00 
+0.2 
+785.69 
+352.32 
+723.40 
+0.3 
+297.31 
+262.98 
+468.21 
+0.4 
+162.95 
+185.23 
+320.59 
+
+SpaceInvadersNoFrameskip-v4 
+
+0 
+630.36 
+558.65 
+579.80 
+0.1 
+542.80 
+549.90 
+583.90 
+0.2 
+420.60 
+422.60 
+573.91 
+0.3 
+300.52 
+281.72 
+508.40 
+0.4 
+218.09 
+209.49 
+473.78 
+Table 9: Environment 
+
+Uniform Noise A2C 
+A2C+ 
+Ours 
+
+BeamRiderNoFrameskip-v4 
+
+0.1 
+402.36 
+532.39 
+1286.34 
+0.2 
+398.35 
+395.18 
+922.52 
+0.3 
+390.33 
+393.20 
+676.20 
+
+BreakoutNoFrameskip-v4 
+
+0.1 
+149.31 
+160.98 
+234.07 
+0.2 
+45.28 
+55.66 
+216.50 
+0.3 
+12.79 
+13.43 
+190.33 
+
+PongNoFrameskip-v4 
+
+0.1 
+-13.91 
+-8.94 
+-13.08 
+0.2 
+-20.08 
+-20.37 
+-20.30 
+0.3 
+-20.41 
+-20.38 
+-20.31 
+
+QbertNoFrameskip-v4 
+
+0.1 
+1778.70 3436.01 3930.60 
+0.2 
+752.14 
+589.16 
+3031.33 
+0.3 
+394.96 
+440.09 
+2561.66 
+
+SeaquestNoFrameskip-v4 
+
+0.1 
+462.80 
+1005.19 783.56 
+0.2 
+384.28 
+184.19 
+441.49 
+0.3 
+168.80 
+162.69 
+385.03 
+
+SpaceInvadersNoFrameskip-v4 
+
+0.1 
+451.64 
+420.91 
+537.92 
+0.2 
+319.46 
+279.20 
+489.20 
+0.3 
+227.79 
+207.25 
+463.20 
+Table 10: Environment 
+Sparsity Noise A2C 
+A2C+ 
+Ours 
+
+BeamRiderNoFrameskip-v4 
+
+0.3 
+1555.07 1505.46 2389.58 
+0.5 
+918.60 
+931.14 
+1751.48 
+0.75 
+492.38 
+405.17 
+627.33 
+
+BreakoutNoFrameskip-v4 
+
+0.3 
+256.43 
+259.22 
+267.63 
+0.5 
+223.10 
+234.60 
+244.65 
+0.75 
+101.99 
+88.84 
+174.25 
+
+PongNoFrameskip-v4 
+
+0.3 
+-0.53 
+-0.01 
+4.55 
+0.5 
+-6.73 
+-20.28 
+-2.27 
+0.75 
+-20.28 
+-19.38 
+-19.68 
+
+QbertNoFrameskip-v4 
+
+0.3 
+2534.81 3232.79 4302.55 
+0.5 
+1666.17 1986.04 3504.11 
+0.75 
+564.04 
+587.49 
+1648.87 
+
+SeaquestNoFrameskip-v4 
+
+0.3 
+1195.62 1319.00 745.50 
+0.5 
+938.44 
+957.43 
+690.18 
+0.75 
+399.54 
+354.25 
+451.95 
+
+SpaceInvadersNoFrameskip-v4 
+
+0.3 
+562.61 
+588.71 
+590.05 
+0.5 
+496.33 
+510.24 
+495.69 
+0.75 
+348.18 
+328.75 
+461.00 
+
+
+
+Average return of a random uniform sampling policy on MuJoCo tasks across 100 episodes., 
+
+Env 
+Hopper Walker2d HalfCheetah Reacher 
+Return 
+16.97 
+1.54 
+-272 
+-43.1 
+Table 12: D.2 Result Tables 
+
+Environment 
+Gaussian Noise PPO 
+PPO+R(s)R(s,a)R(s,a,s') 
+
+HalfCheetah-v2 
+
+0.0 
+1392.40 1462.89 174.38 
+1638.44 1245.21 
+0.1 
+977.12 
+803.66 
+404.80 
+1595.80 1460.57 
+0.2 
+339.41 
+300.59 
+105.42 
+1095.05 1043.79 
+0.3 
+122.36 
+56.86 
+115.28 
+1148.32 672.59 
+0.4 
+-131.29 -149.76 -98.19 
+868.31 
+563.25 
+
+Hopper-v2 
+
+0.0 
+1854.69 1991.64 1820.39 1828.26 1831.93 
+0.1 
+1689.57 1809.31 1857.21 1801.71 1881.85 
+0.2 
+1170.60 1687.88 1873.61 1922.32 1790.57 
+0.3 
+1420.17 1184.10 1542.23 1767.25 1565.90 
+0.4 
+843.86 
+1188.19 1793.98 1697.48 1579.56 
+
+Reacher-v2 
+
+0.0 
+-6.53 
+-6.41 
+-99.90 
+-6.54 
+-7.07 
+0.1 
+-17.28 
+-17.11 
+-127.82 -15.94 
+-14.40 
+0.2 
+-22.43 
+-22.88 
+-161.28 -20.87 
+-19.00 
+0.3 
+-26.34 
+-27.33 
+-173.28 -22.57 
+-21.20 
+0.4 
+-29.14 
+-32.53 
+-175.05 -25.70 
+-25.68 
+
+Walker2d-v2 
+
+0.0 
+2340.91 2672.04 2346.76 2447.12 2455.96 
+0.1 
+1412.13 1211.24 2153.51 2473.58 2310.20 
+0.2 
+677.54 
+589.28 
+1571.95 1966.97 1752.62 
+0.3 
+393.01 
+540.58 
+1292.29 1091.87 1497.89 
+0.4 
+400.04 
+352.48 
+1160.65 1362.22 1000.16 
+
+
+
+.1, D.3.1, and D.3.1.Environment 
+var(Rtrue) var(Rcorr) var(R) MSE(Rcorr, Rtrue) MSE(R, Rtrue) 
+
+HalfCheetah-v2 
+
+0.1 54.770 
+78.743 
+19.112 
+0.034 
+0.004 
+0.2 49.468 
+101.663 
+44.717 
+0.067 
+0.006 
+0.3 83.261 
+149.241 
+30.471 
+0.101 
+0.004 
+0.4 57.554 
+163.790 
+29.989 
+0.134 
+0.005 
+
+Hopper-v2 
+
+0.1 74.558 
+64.372 
+37.278 
+0.033 
+0.017 
+0.2 370.582 
+243.092 
+93.033 
+0.070 
+0.029 
+0.3 151.449 
+85.673 
+13.354 
+0.105 
+0.016 
+0.4 149.258 
+72.268 
+4.146 
+0.142 
+0.020 
+
+Reacher-v2 
+
+0.1 4.947 
+6.047 
+0.209 
+0.034 
+0.026 
+0.2 5.058 
+6.675 
+0.309 
+0.071 
+0.027 
+0.3 5.110 
+7.692 
+0.622 
+0.106 
+0.027 
+0.4 4.917 
+8.709 
+0.778 
+0.143 
+0.027 
+
+Walker2d-v2 
+
+0.1 14.739 
+16.633 
+9.202 
+0.034 
+0.014 
+0.2 14.710 
+16.499 
+4.345 
+0.069 
+0.014 
+0.3 15.603 
+31.481 
+7.402 
+0.102 
+0.013 
+0.4 17.224 
+29.401 
+5.587 
+0.140 
+0.016 
+
+
+
+Table 16 :
+16The variance and mean squared error averaged over 10 trials of 100 episodes under uniform noise at varying probabilities where the likelihood of replacement with a random reward is . var(Rtrue) var(Rcorr) var(R) MSE(Rcorr, Rtrue) MSE(R, Rtrue)Environment 
+HalfCheetah-v2 
+
+0.6 
+66.947 
+11.796 
+5.087 
+0.003 
+0.005 
+0.7 
+67.277 
+6.051 
+2.461 
+0.003 
+0.003 
+0.8 
+67.176 
+3.368 
+1.107 
+0.004 
+0.005 
+0.9 
+59.593 
+0.705 
+0.698 
+0.002 
+0.003 
+0.95 69.234 
+0.316 
+0.183 
+0.004 
+0.004 
+
+Hopper-v2 
+
+0.6 
+343.477 
+54.577 
+14.768 
+0.011 
+0.017 
+0.7 
+505.215 
+46.451 
+10.550 
+0.014 
+0.018 
+0.8 
+10.416 
+0.483 
+0.218 
+0.016 
+0.017 
+0.9 
+239.583 
+3.014 
+0.256 
+0.018 
+0.018 
+0.95 407.326 
+1.161 
+0.060 
+0.021 
+0.021 
+
+Reacher-v2 
+
+0.6 
+5.068 
+0.721 
+0.007 
+0.020 
+0.025 
+0.7 
+4.811 
+0.406 
+0.004 
+0.022 
+0.026 
+0.8 
+5.249 
+0.260 
+0.004 
+0.023 
+0.026 
+0.9 
+5.008 
+0.054 
+0.002 
+0.026 
+0.027 
+0.95 4.811 
+0.019 
+0.002 
+0.027 
+0.027 
+
+Walker2d-v2 
+
+0.6 
+28.327 
+4.720 
+4.929 
+0.010 
+0.013 
+0.7 
+84.195 
+7.686 
+4.380 
+0.008 
+0.011 
+0.8 
+11.193 
+0.518 
+0.285 
+0.010 
+0.011 
+0.9 
+45.122 
+0.501 
+0.268 
+0.013 
+0.013 
+0.95 38.299 
+0.118 
+0.096 
+0.011 
+0.011 
+
+
+
+Table 17 :
+17Variance and mean squared error under sparsity inducing noise with indicating the probability that a reward is replaced with 0. Rcorr, Rtrue) MSE(R, Rtrue)Environment 
+
+σ 
+var(Rtrue) var(Rcorr) var(R) 
+MSE(HalfCheetah-v2 
+
+0 
+90.984 
+90.984 
+47.689 
+0.000 
+0.004 
+0.1 58.407 
+69.364 
+27.151 
+0.010 
+0.005 
+0.2 81.375 
+117.149 
+45.172 
+0.040 
+0.004 
+0.3 48.259 
+134.517 
+42.478 
+0.090 
+0.005 
+0.4 67.252 
+241.708 
+95.358 
+0.160 
+0.006 
+
+Hopper-v2 
+
+0 
+577.269 
+577.269 
+108.070 0.000 
+0.019 
+0.1 254.271 
+254.137 
+176.411 0.010 
+0.012 
+0.2 77.429 
+84.184 
+45.178 
+0.040 
+0.016 
+0.3 1180.103 
+1213.711 
+67.992 
+0.091 
+0.029 
+0.4 288.084 
+333.094 
+87.369 
+0.160 
+0.026 
+
+Reacher-v2 
+
+0 
+4.947 
+4.947 
+0.020 
+0.000 
+0.024 
+0.1 4.845 
+5.383 
+0.124 
+0.010 
+0.025 
+0.2 4.930 
+6.983 
+0.371 
+0.040 
+0.025 
+0.3 4.871 
+9.672 
+0.605 
+0.090 
+0.026 
+0.4 5.326 
+13.629 
+1.481 
+0.160 
+0.028 
+
+Walker2d-v2 
+
+0 
+95.792 
+95.792 
+75.649 
+0.000 
+0.009 
+0.1 67.335 
+71.721 
+38.815 
+0.010 
+0.013 
+0.2 8.616 
+13.220 
+13.372 
+0.040 
+0.017 
+0.3 10.462 
+22.723 
+24.300 
+0.090 
+0.019 
+0.4 26.990 
+58.277 
+38.250 
+0.161 
+0.017 
+
+
+
+Table 18 :
+18Variance and mean squared error under added Gaussian noise with variance σ 2 .
+In domains where the reward signal is fully determined by s or by (s, a),R(s) orR(s, a) can be used instead respectively.
+Code provided at https://github.com/facebookresearch/reward-estimator-corl.
+
+Noisy reinforcements in reinforcement learning: some case studies based on gridworlds. A Moreno, J D Martín, E Soria, R Magdalena, M Martínez, Proceedings of the 6th WSEAS international conference on applied computer science. the 6th WSEAS international conference on applied computer scienceA. Moreno, J. D. Martín, E. Soria, R. Magdalena, and M. Martínez. Noisy reinforcements in reinforcement learning: some case studies based on gridworlds. In Proceedings of the 6th WSEAS international conference on applied computer science, pages 296-300, 2006.
+
+Reinforcement learning with a corrupted reward channel. T Everitt, V Krakovna, L Orseau, M Hutter, S Legg, arXiv:1705.08417arXiv preprintT. Everitt, V. Krakovna, L. Orseau, M. Hutter, and S. Legg. Reinforcement learning with a corrupted reward channel. arXiv preprint arXiv:1705.08417, 2017.
+
+Handling stochastic reward delays in machine reinforcement learning. J S Campbell, S N Givigi, H M Schwartz, Electrical and Computer Engineering (CCECE), 2015 IEEE 28th Canadian Conference on. IEEEJ. S. Campbell, S. N. Givigi, and H. M. Schwartz. Handling stochastic reward delays in ma- chine reinforcement learning. In Electrical and Computer Engineering (CCECE), 2015 IEEE 28th Canadian Conference on, pages 314-319. IEEE, 2015.
+
+Variational inverse control with events: A general framework for data-driven reward definition. J Fu, A Singh, D Ghosh, L Yang, S Levine, arXiv:1805.11686arXiv preprintJ. Fu, A. Singh, D. Ghosh, L. Yang, and S. Levine. Variational inverse control with events: A general framework for data-driven reward definition. arXiv preprint arXiv:1805.11686, 2018.
+
+Inverse reward design. D Hadfield-Menell, S Milli, P Abbeel, S J Russell, A Dragan, Advances in Neural Information Processing Systems. D. Hadfield-Menell, S. Milli, P. Abbeel, S. J. Russell, and A. Dragan. Inverse reward design. In Advances in Neural Information Processing Systems, pages 6768-6777, 2017.
+
+Unsupervised perceptual rewards for imitation learning. P Sermanet, K Xu, S Levine, arXiv:1612.06699arXiv preprintP. Sermanet, K. Xu, and S. Levine. Unsupervised perceptual rewards for imitation learning. arXiv preprint arXiv:1612.06699, 2016.
+
+High-dimensional continuous control using generalized advantage estimation. J Schulman, P Moritz, S Levine, M Jordan, P Abbeel, Proceedings of the International Conference on Learning Representations (ICLR). the International Conference on Learning Representations (ICLR)J. Schulman, P. Moritz, S. Levine, M. Jordan, and P. Abbeel. High-dimensional continuous control using generalized advantage estimation. In Proceedings of the International Confer- ence on Learning Representations (ICLR), 2016.
+
+J Schulman, F Wolski, P Dhariwal, A Radford, O Klimov, arXiv:1707.06347Proximal policy optimization algorithms. arXiv preprintJ. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347, 2017.
+
+Expected policy gradients. K Ciosek, S Whiteson, Proceedings of the Thirty-Second AAAI Conference on Artificial Intelligence (AAAI). the Thirty-Second AAAI Conference on Artificial Intelligence (AAAI)K. Ciosek and S. Whiteson. Expected policy gradients. In Proceedings of the Thirty-Second AAAI Conference on Artificial Intelligence (AAAI), 2018.
+
+. K Asadi, C Allen, M Roderick, A Mohamed, G Konidaris, M Littman, arXiv:1709.00503Mean actor critic. arXiv preprintK. Asadi, C. Allen, M. Roderick, A.-r. Mohamed, G. Konidaris, and M. Littman. Mean actor critic. arXiv preprint arXiv:1709.00503, 2017.
+
+Bayesian policy gradients via alpha divergence dropout inference. P Henderson, T Doan, R Islam, D Meger, Bayesian Deep Learning Workshop at NIPS. P. Henderson, T. Doan, R. Islam, and D. Meger. Bayesian policy gradients via alpha divergence dropout inference. Bayesian Deep Learning Workshop at NIPS, 2017.
+
+Mujoco: A physics engine for model-based control. E Todorov, T Erez, Y Tassa, Intelligent Robots and Systems (IROS), 2012 IEEE/RSJ International Conference on. IEEEE. Todorov, T. Erez, and Y. Tassa. Mujoco: A physics engine for model-based control. In Intelligent Robots and Systems (IROS), 2012 IEEE/RSJ International Conference on, pages 5026-5033. IEEE, 2012.
+
+. G Brockman, V Cheung, L Pettersson, J Schneider, J Schulman, J Tang, W Zaremba, arXiv:1606.01540OpenAI Gym. arXiv preprintG. Brockman, V. Cheung, L. Pettersson, J. Schneider, J. Schulman, J. Tang, and W. Zaremba. OpenAI Gym. arXiv preprint arXiv:1606.01540, 2016.
+
+Imagination-augmented agents for deep reinforcement learning. S Racanière, T Weber, D Reichert, L Buesing, A Guez, D J Rezende, A P Badia, O Vinyals, N Heess, Y Li, Advances in Neural Information Processing Systems. S. Racanière, T. Weber, D. Reichert, L. Buesing, A. Guez, D. J. Rezende, A. P. Badia, O. Vinyals, N. Heess, Y. Li, et al. Imagination-augmented agents for deep reinforcement learning. In Advances in Neural Information Processing Systems, pages 5694-5705, 2017.
+
+D Silver, H Van Hasselt, M Hessel, T Schaul, A Guez, T Harley, G Dulac-Arnold, D Reichert, N Rabinowitz, A Barreto, arXiv:1612.08810The predictron: End-to-end learning and planning. arXiv preprintD. Silver, H. van Hasselt, M. Hessel, T. Schaul, A. Guez, T. Harley, G. Dulac-Arnold, D. Re- ichert, N. Rabinowitz, A. Barreto, et al. The predictron: End-to-end learning and planning. arXiv preprint arXiv:1612.08810, 2016.
+
+Model-based planning in discrete action spaces. M Henaff, W F Whitney, Y Lecun, arXiv:1705.07177arXiv preprintM. Henaff, W. F. Whitney, and Y. LeCun. Model-based planning in discrete action spaces. arXiv preprint arXiv:1705.07177, 2017.
+
+Model-based value estimation for efficient model-free reinforcement learning. V Feinberg, A Wan, I Stoica, M I Jordan, J E Gonzalez, S Levine, arXiv:1803.00101arXiv preprintV. Feinberg, A. Wan, I. Stoica, M. I. Jordan, J. E. Gonzalez, and S. Levine. Model-based value estimation for efficient model-free reinforcement learning. arXiv preprint arXiv:1803.00101, 2018.
+
+Efficient planning in MDPs by small backups. H Van Seijen, R S Sutton, Proceedings of the International Conference on Machine Learning. the International Conference on Machine LearningH. Van Seijen and R. S. Sutton. Efficient planning in MDPs by small backups. In Proceedings of the International Conference on Machine Learning, 2013.
+
+V François-Lavet, Y Bengio, D Precup, J Pineau, arXiv:1809.04506Combined reinforcement learning via abstract representations. arXiv preprintV. François-Lavet, Y. Bengio, D. Precup, and J. Pineau. Combined reinforcement learning via abstract representations. arXiv preprint arXiv:1809.04506, 2018.
+
+Integrated architectures for learning, planning, and reacting based on approximating dynamic programming. R S Sutton, Machine Learning Proceedings. ElsevierR. S. Sutton. Integrated architectures for learning, planning, and reacting based on approximat- ing dynamic programming. In Machine Learning Proceedings 1990, pages 216-224. Elsevier, 1990.
+
+Compatible Reward Inverse Reinforcement Learning. A M Metelli, M Pirotta, M Restelli, Advances in Neural Information Processing Systems. A. M. Metelli, M. Pirotta, and M. Restelli. Compatible Reward Inverse Reinforcement Learn- ing. In Advances in Neural Information Processing Systems, pages 2047-2056, 2017.
+
+Learning shaping rewards in model-based reinforcement learning. M Grzes, D Kudenko, Proc. AAMAS 2009 Workshop on Adaptive Learning Agents. AAMAS 2009 Workshop on Adaptive Learning Agents115M. Grzes and D. Kudenko. Learning shaping rewards in model-based reinforcement learning. In Proc. AAMAS 2009 Workshop on Adaptive Learning Agents, volume 115, 2009.
+
+Variance-based rewards for approximate bayesian reinforcement learning. J Sorg, S Singh, R L Lewis, arXiv:1203.3518arXiv preprintJ. Sorg, S. Singh, and R. L. Lewis. Variance-based rewards for approximate bayesian rein- forcement learning. arXiv preprint arXiv:1203.3518, 2012.
+
+Learning the reward function for a misspecified model. E Talvitie, arXiv:1801.09624arXiv preprintE. Talvitie. Learning the reward function for a misspecified model. arXiv preprint arXiv:1801.09624, 2018.
+
+A Markovian Decision Process. R Bellman, Journal of Mathematics and Mechanics. R. Bellman. A Markovian Decision Process. Journal of Mathematics and Mechanics, 1957.
+
+Learning to predict by the methods of temporal differences. R S Sutton, Machine Learning. 3R. S. Sutton. Learning to predict by the methods of temporal differences. Machine Learning, 3(1):9-44, Aug 1988.
+
+Asynchronous methods for deep reinforcement learning. V Mnih, A P Badia, M Mirza, A Graves, T Lillicrap, T Harley, D Silver, K Kavukcuoglu, International Conference on Machine Learning. V. Mnih, A. P. Badia, M. Mirza, A. Graves, T. Lillicrap, T. Harley, D. Silver, and K. Kavukcuoglu. Asynchronous methods for deep reinforcement learning. In International Conference on Machine Learning, pages 1928-1937, 2016.
+
+High-dimensional continuous control using generalized advantage estimation. J Schulman, P Moritz, S Levine, M Jordan, P Abbeel, arXiv:1506.02438arXiv preprintJ. Schulman, P. Moritz, S. Levine, M. Jordan, and P. Abbeel. High-dimensional continuous control using generalized advantage estimation. arXiv preprint arXiv:1506.02438, 2015.
+
+A theoretical and empirical analysis of expected sarsa. H Van Seijen, H Van Hasselt, S Whiteson, M Wiering, Adaptive Dynamic Programming and Reinforcement Learning, 2009. ADPRL'09. IEEE Symposium on. IEEEH. Van Seijen, H. Van Hasselt, S. Whiteson, and M. Wiering. A theoretical and empirical analysis of expected sarsa. In Adaptive Dynamic Programming and Reinforcement Learning, 2009. ADPRL'09. IEEE Symposium on, pages 177-184. IEEE, 2009.
+
+Dynamic Programming. R Bellman, Princeton University PressPrinceton, NJ, USAR. Bellman. Dynamic Programming. Princeton University Press, Princeton, NJ, USA, 1957.
+
+Reinforcement learning with human teachers: Understanding how people want to teach robots. A L Thomaz, G Hoffman, C Breazeal, The 15th IEEE International Symposium on Robot and Human Interactive Communication (ROMAN). IEEEA. L. Thomaz, G. Hoffman, and C. Breazeal. Reinforcement learning with human teachers: Understanding how people want to teach robots. In The 15th IEEE International Symposium on Robot and Human Interactive Communication (ROMAN), pages 352-357. IEEE, 2006.
+
+Deep Reinforcement Learning that Matters. P Henderson, R Islam, P Bachman, J Pineau, D Precup, D Meger, Proceedings of the Thirty-Second AAAI Conference on Artificial Intelligence (AAAI). the Thirty-Second AAAI Conference on Artificial Intelligence (AAAI)P. Henderson, R. Islam, P. Bachman, J. Pineau, D. Precup, and D. Meger. Deep Reinforcement Learning that Matters. In Proceedings of the Thirty-Second AAAI Conference on Artificial Intelligence (AAAI), 2018.
+
+Pytorch implementations of reinforcement learning algorithms. I Kostrikov, I. Kostrikov. Pytorch implementations of reinforcement learning algorithms. https:// github.com/ikostrikov/pytorch-a2c-ppo-acktr, 2018.
+
+M Jaderberg, V Mnih, W M Czarnecki, T Schaul, J Z Leibo, D Silver, K Kavukcuoglu, Reinforcement learning with unsupervised auxiliary tasks. International Conference on Learning Representations. M. Jaderberg, V. Mnih, W. M. Czarnecki, T. Schaul, J. Z. Leibo, D. Silver, and K. Kavukcuoglu. Reinforcement learning with unsupervised auxiliary tasks. International Conference on Learning Representations, 2017.
+
+Modeling kinect sensor noise for improved 3d reconstruction and tracking. C V Nguyen, S Izadi, D Lovell, 3D Imaging, Modeling, Processing, Visualization and Transmission (3DIMPVT). IEEESecond International Conference onC. V. Nguyen, S. Izadi, and D. Lovell. Modeling kinect sensor noise for improved 3d recon- struction and tracking. In 3D Imaging, Modeling, Processing, Visualization and Transmission (3DIMPVT), 2012 Second International Conference on, pages 524-530. IEEE, 2012.
+
+Sparsity and compressed sensing in radar imaging. L C Potter, E Ertin, J T Parker, M Cetin, Proceedings of the IEEE. 986L. C. Potter, E. Ertin, J. T. Parker, and M. Cetin. Sparsity and compressed sensing in radar imaging. Proceedings of the IEEE, 98(6):1006-1020, 2010.
+
+Adam: A method for stochastic optimization. D P Kingma, J Ba, arXiv:1412.6980arXiv preprintD. P. Kingma and J. Ba. Adam: A method for stochastic optimization. arXiv preprint arXiv:1412.6980, 2014.
+
+On the convergence of adam and beyond. S J Reddi, S Kale, S Kumar, International Conference on Learning Representations. S. J. Reddi, S. Kale, and S. Kumar. On the convergence of adam and beyond. In International Conference on Learning Representations, 2018.
+
+A distributional perspective on reinforcement learning. M G Bellemare, W Dabney, R Munos, ICML. PMLR70M. G. Bellemare, W. Dabney, and R. Munos. A distributional perspective on reinforcement learning. In ICML, volume 70 of Proceedings of Machine Learning Research, pages 449-458. PMLR, 2017.

@@ -1,0 +1,246 @@
+Generic Prediction Architecture Considering both Rational and Irrational Driving Behaviors
+
+
+Yeping Hu 
+Liting Sun 
+Masayoshi Tomizuka 
+Generic Prediction Architecture Considering both Rational and Irrational Driving Behaviors
+
+Accurately predicting future behaviors of surrounding vehicles is an essential capability for autonomous vehicles in order to plan safe and feasible trajectories. The behaviors of others, however, are full of uncertainties. Both rational and irrational behaviors exist, and the autonomous vehicles need to be aware of this in their prediction module. The prediction module is also expected to generate reasonable results in the presence of unseen and corner scenarios. Two types of prediction models are typically used to solve the prediction problem: learning-based model and planning-based model. Learning-based model utilizes real driving data to model the human behaviors. Depending on the structure of the data, learning-based models can predict both rational and irrational behaviors. But the balance between them cannot be customized, which creates challenges in generalizing the prediction results. Planning-based model, on the other hand, usually assumes human as a rational agent, i.e., it anticipates only rational behavior of human drivers. In this paper, a generic prediction architecture is proposed to address various rationalities in human behavior. We leverage the advantages from both learningbased and planning-based prediction models. The proposed approach is able to predict continuous trajectories that wellreflect possible future situations of other drivers. Moreover, the prediction performance remains stable under various unseen driving scenarios. A case study under a real-world roundabout scenario is provided to demonstrate the performance and capability of the proposed prediction architecture.
+
+I. INTRODUCTION
+
+
+A. Motivation
+
+While interacting with human drivers, autonomous vehicles need to be aware of the multi-modal interaction outcomes in order to have reasonable prediction results. Such multimodality comes from the fact that human can have different levels of rationality. Rational behaviors usually result in safe and feasible driving motions, while irrational behaviors are typically reflected by dangerous and unusual driving motions that may lead to car accidents.
+
+Even though most people would consider themselves to be logical and can make rational decisions, drivers are not necessarily absolute rational. They do not always drive in optimal and safe trajectories since sometimes they are willing to take risks for their own benefits. For example, a driver may perform a dangerous cut-in maneuver to change into a desired lane quickly; a novice driver might be overly cautious and tends to make improper braking. Besides, drivers can easily have irrational driving behaviors due to wrong predictions of other road entities or unawareness of *This work was supported by Momenta. Y. Hu, L. Sun  the surroundings. Therefore, autonomous cars are expected to consider not only rational but also irrational behaviors of other drivers during the prediction process, which will assure preparation for potential emergencies as well as safe and comfortable driving experiences.
+
+B. Related Works 1) Learning-based Approach: Learning-based methods [1]- [7] have been wildly used for prediction problems for autonomous vehicles, which utilize real data to produce the future outcomes of human drivers. In [2], the authors modeled the driver behavior by hidden Markov models (HMM) and Gaussian Process (GP) to generate a group of future trajectories of the predicted vehicle. The long shortterm memory (LSTM) method is utilized in [1] and [3] to analyze past trajectory data and predict the future locations of the surrounding vehicles. [8] proposed to combine a modified mixture density network (MDN) [4] and a conditional variational autoencoder (CVAE) to predict both discrete intention and continuous motions for multiple interacting vehicles. Based on generative models, an interpretable multi-modal prediction method is proposed in [9] , which can predict interactive behavior for traffic participants.
+
+The main advantage of learning-based methods is that complicated models can be learned to represent real-life situations for prediction. However, two drawbacks need to be concerned for the learning-based method. First is the data insufficiency. Although researchers have tried to use more training data to learn driving models, it is nearly impossible to have a dataset that is large enough to cover every possible driving situations and thus the learned model can easily fail under any unseen or corner cases. Second is the inherent biases of the collected data. In fact, if the training data has some inherent biases, the driving model will not only learn those biases but will end up amplifying them. For example, if under a certain driving scenario, the data contain mostly irrational behaviors, the learned model will be inclined to predict more irrational than rational behaviors.
+
+2) Planning-based Approach: Planning-based approaches [10]- [15] assume that human drivers are approximately optimal planners with respect to some reward functions, i.e., their future trajectories are maximizing their rewards. Hence, the prediction of their trajectories can be obtained by solving optimization problems with the correct reward functions. To acquire such reward functions, inverse reinforcement learning (IRL) has been widely adopted. It aims at finding a reward function which can match best in terms of key features with the observed demonstrations.
+
+Initially proposed by Kalman [16], [17] and [18] formulated it as apprenticeship learning by maximizing the margin in terms of feature matching. Later, Ziebart et al. [19] further extended IRL to deal with the probabilistic characteristic of reward functions via the maximum entropy principle. Levine et al. [20] proposed to solve the maximum-entropy IRL directly in continuous domain and applied it to predict human driving behaviors. Based on these works, many IRL based prediction or human behavior modeling approaches have been proposed. For instance, [21] learned a model for cooperative agents to generate human navigation behavior, and in [22], the authors used IRL to model the social impact between interactive agents. In [23], the authors formulated a hierarchical IRL to model human driver's decision making and trajectory planning, so that interactive driving behaviors can be predicted.
+
+One main advantage of the aforementioned planning-based methods is their inherent implication of causality. Hence, they can easily guarantee the feasibility of the predicted trajectories and have better generalization ability to unseen circumstances. For instance, [24] used planning-based methods to infer about uncertainties for better prediction. However, the planning-based approach also suffer from several issues. First, most of the planning-based approaches assume that all drivers are approximately rational, i.e., they are optimizing some reward/cost function while driving. This assumption cannot be strictly hold in practice since "irrational" behaviors are inevitable. Consequently, the predicted trajectories might be too conservative to reflect potential dangers in some situations. Although recent works such as [25] and [26] have introduced some "irrational" behaviors into planning-based approaches, it is still not sufficient to cover all human driving behaviors. Moreover, to obtain a solvable and interpretable planning problem, the learned reward/cost functions are typically linear combinations of features. Such representation might not be complicated enough to capture different driving behavior.
+
+
+C. Contribution
+
+As planning is a lower module of prediction, it is common to solve planning problems by utilizing prediction results to incorporate uncertainties. However, very few works explicitly apply the planning approach in the prediction problem. In this work, we propose to leverage the advantages of both the planning-based and learning-based methods to mutually compensate for their drawbacks, which can enhance the overall prediction performance. The main contributions of this work are as follows:
+
+• We propose a generic environmental representation methodology for vehicle behavior predictions under highly-interactive scenarios. • Both the irrational and rational future trajectories of human drivers can be predicted, which can provide better environment information to the autonomous vehicle. • The performance of the proposed architecture remains stable and can be safely used under rare events and corner cases.
+
+• A challenging real-world roundabout scenario is considered in this work to demonstrate the capability of our method.
+
+
+II. PROBLEM STATEMENT
+
+
+A. A mathematical representation
+
+In this problem, we consider the interactive behavior between two vehicles: the ego autonomous vehicle (denoted by (·) ego ) and the predicted human-driven vehicle (denoted by (·) pred ). Other vehicles in the scene will be regarded as surrounding vehicles which is denoted by (·) surr . For a given vehicle, we use ξ to represent historical trajectories,ξ for future trajectories, andξ gt for ground truth future trajectories. We store all historical trajectories of the related vehicles in ξ, where ξ = [ξ pred , ξ ego , ξ surr ]. Note that a trajectory is represented by a sequence of states of the vehicle, i.e. ξ = [x 1 , x 2 , . . . , x T ] where T is the trajectory horizon and x t denotes the vehicle state at t-th time step.
+
+We aim at predicting the behavior of the selected vehicle while considering the potential influence of its future behavior from our own vehicle. We use the following conditional probability density function (PDF) to represent the correlated future trajectories of two interactive vehicles:
+P (ξ pred ,ξ ego |ξ),(1)
+where the possible joint trajectories of the two vehicles depend on the historical trajectories of their own as well as all surrounding vehicles in the scene. However, after the ego vehicle planned a possible future trajectory for its own, it is necessary to marginalize outξ ego to obtain the future trajectories of the predicted vehicle conditioned on the ego vehicle's planned trajectory. Mathematically, such dependencies can be expressed as:
+P (ξ pred |ξ ego , ξ).(2)
+In general, we are trying to infer possible future behaviors of the predicted vehicle given several potential future trajectories planned for the ego vehicle. 1) Representation in Frenét Frame: Instead of Cartesian coordinate, we utilized the Frenét Frame to represent vehicle state. As illustrated in Fig. 1, the vehicle motion in the Frenét Frame can be represented with the longitudinal position along the path s(t), and lateral deviation to the path d(t). Therefore the vehicle state at time step t can be defined as x t = (s(t), d(t)). Note that the reference path of a vehicle will change according to the road it is current driving on. The origin of the reference path can be defined differently according to different objectives and each reference path will have its own Frenét Frame. Since we are dealing with interaction between two vehicles, we define the origin as the cross point of their reference path. Note that each vehicle can have several possible reference paths, thus there could be multiple combinations of reference path pair corresponding to different cross points.
+
+
+B. Generic Environmental Representatioñ
+
+2) Conversion between Cartesian coordinate and Frenét Frame: For both ego and predicted vehicle, the following steps need to be performed throughout the testing process of the proposed architecture: 
+
+
+III. PREDICTION ARCHITECTURE
+
+In this section, we first introduce the detailed formulation and structure of the overall prediction framework. We then overview the approaches used for the learning-based and planning-based model. The graph illustration of the proposed architecture as well as the pseudo-code of the algorithm are shown in Fig. 2 and Algorithm 1 respectively.
+
+
+A. Overall Framework
+
+The proposed generic prediction framework contains the following six steps:
+
+1) Sample Joint Trajectories: Given the observed historical trajectories of the two interacting vehicles and their surrounding vehicles, the future joint trajectories can be sampled from the predicted joint distribution generated by a learning-based method. The N sampled trajectory pairs can be expressed as {ξ pred ,ξ ego } 1:N .
+
+2) Convert to Conditional Distribution: Since we are interested in predicting the possible future trajectories of the predicted vehicle given the most likely future trajectory of the ego vehicle, we need to convert the predicted joint distribution into the a conditional distribution. Namely, we want to get P (ξ pred |ξ ego gt , ξ) from P (ξ pred ,ξ ego |ξ). According to Bayes rule, we have:
+P (ξ pred |ξ ego gt , ξ) = P (ξ pred ,ξ ego gt |ξ) ξpred P (ξ pred ,ξ ego gt |ξ) ,(3)
+where the numerator is an unknown distribution since it is nearly impossible to obtain a sampled future trajectory of the ego vehicle that exactly equals to the ground-truth. To resolve this problem, we first rewriteξ ego asξ ego gt + ∆ξ ego , whereξ ego gt denotes the ground truth future trajectory of the ego vehicle and ∆ξ ego represents the discrepancy between the ego vehicle's ground truth and each of its possible future trajectory. Then among all the sampled joint trajectories, if any ∆ξ ego is smaller than a certain threshold, we denote the predicted ego vehicle's trajectory as a satisfied trajectorŷ ξ ego s that can well approximateξ ego gt and we store the corresponding trajectory pair {ξ pred s ,ξ ego s }. Finally, for all saved samples, we can rewrite (3) as:
+P (ξ pred s |ξ ego gt , ξ) ≈ P (ξ pred s |ξ ego s , ξ) = P (ξ pred s ,ξ ego s |ξ) ξ pred s P (ξ pred s ,ξ ego s |ξ) ≈ P (ξ pred s ,ξ ego s |ξ).(4)
+Note that the ground-truth trajectory of the ego vehicle is unknown if the algorithm is running online. Therefore, the ego vehicle needs to first plan for itself in real-time and use each of the planned trajectories as its ground-truth trajectory.
+
+3) Optimal Trajectory Generation: Apart from sampling trajectories that may contain both rational and irrational behaviors, we can further generate the most probable trajectory by solving a finite horizon Model Predictive Control (MPC) problem using the learned continuous cost function via a planning-based method, which guarantees the resulting behavior be rational. The equation of obtaining the optimal trajectory can be expressed as:
+ξ pred opt = arg miñ ξ pred C(θ,ξ pred ,ξ ego gt , ξ),(5)
+where θ is the weight parameter vector for cost function C to determine the importance of each of the features. 4) Weight Ratio Update: The next step is to determine how many optimal trajectory pairsξ pred opt should we add to the trajectory set so that the resampling result are reasonable. In fact, we want to keep updating the probability of both the optimal trajectory P opt and the average of the satisfied trajectories obtained from the learning-based prediction approach P s . Note that P opt + P s = 1 and we denote the ratio of the two probabilities as r where r = Ps Popt . The probabilities are calculated by comparing the similarities between the actual observed trajectory and the predicted trajectory for the predicted vehicle, which will be updated after each new observation at the next time step using Bayes' theorem. The number of added optimal trajectory pairs N opt is then equal to r × N s , where N s denotes the total number of satisfied trajectoriesξ pred s from step 2). Therefore, the ratio r can be Here, we demonstrate intuitive illustration of the reweighting process in each of these cases, where the original probability density function (PDF) of all sampled trajectories is shown in blue, the PDF after the reweighting process is shown in red, and the shaded area contains infeasible sample points. also regarded as the weight ratio between the optimal and the satisfied trajectory pairs. 5) Distribution Reweighting: After having all the satisfied trajectories sampled from the learning-based method along with the added optimal trajectories from the planning-based method, we are then able to re-evaluate each trajectory's probabilities using our learned cost function. According to the principle of maximum entropy, the distribution of agents' behaviors can be approximated by an exponential distribution family and thus we can write
+P (ξ pred |ξ ego gt , ξ) ∝ exp −C(θ,ξ pred ,ξ ego gt ,ξ) ,(6)
+where we will minimize the probability of irrational behaviors that might generate infeasible trajectories while increasing the likelihood of rational behaviors that result in safe trajectories. 6) Resampling: Finally, we need to resample trajectories from the sample set according to the updated conditional distribution obtained from the previous step. These sampled trajectories are then regarded as our final prediction results at the current time step.
+
+
+B. Learning-based Trajectory Prediction
+
+The learning-based trajectory prediction method we applies is called the conditional variational autoencoder (CVAE) [9] [28], which is a latent variable model that is rooted in Bayesian inference. The goal is to model the underlying probability distribution of the data using a factored, low-dimensional representation. In this problem, our objective is to estimate the probability distribution of joint trajectories in (1) by utilizing the encoder-decoder structure of CVAE.
+
+The encoder Q ϕ , parameterized by ϕ, takes the input X as a learned embedded space of historical trajectories of all vehicles (ξ) and Y as the actual future trajectories of the two interacting vehicles (ξ ego gt ,ξ pred gt ) to "encode" them into a latent z-space. Then the decoder P ψ , parameterized by ψ, takes X and sampled z values from the latent space to "decode" them back to the future trajectoriesŶ as the prediction result (ξ ego ,ξ pred ). The network is trained using the reparameterization trick [29] to enable back-propagation, where the network tries to minimize the evidence lower 2)ξ ego gt ← path planning for ego vehicle {ξ pred ,ξ ego s } 1:Ns ←filter trajectories and update sample set 3)ξ pred opt ←generate optimal trajectory (M P + MPC) 4) r ← update weight ratio N opt = r × N s ← add N opt optimal trajectories to the current sample set 5) P (ξ pred |ξ ego gt , ξ, z) ← reweight samples (M P ) 6)ξ pred ← resample from the updated conditional distribution Return Prediction:ξ pred Obtain new state observation from the sensor. ξ, map information ← update end bound (ELBO) and it is formulated as:
+L = −E Qϕ log P ψ (Y |X, z) + βD KL (Q ϕ (z|X, Y )||p(z)),(7)
+where p(z) denotes the prior distribution of the latent z space and it is usually defined as a unit Gaussian. The overall idea of the loss function is to have a good estimation of data loglikelihood as well as a small Kullback-Leibler (KL) divergence denoted by D KL between the approximated posterior and the prior p(z) at the same time. The hyperparameter β is used to control the training balance between the two losses for better performance. Note that during the test time, only the decoder will be used. Each predicted joint trajectories will be generated when we randomly sample one z value and feed it into the decoder network along with the historical input X.
+
+
+C. Planning-based Trajectory Prediction
+
+The planning-based trajectory prediction stems from Theory of Mind [30] which describes the prediction process of human. We let the ego vehicle simulate what the other vehicle will do assuming that it is approximately optimal planners with respect to some reward or cost functions, i.e., it is a noisily rational driver. Under this assumption, the target vehicle's driving behavior can be described via its cost function which can be learned based on demonstrations. In this paper, we adopt the continuous domain maximumentropy inverse reinforcement learning (IRL) [19], [20]. A brief review of the algorithm is given below.
+
+Assume that the cumulative cost C of the target vehicle is a linear combination of a set of selected features over a defined horizon N . Then given a demonstration set U D which contains M interactive trajectories of both the ego and target vehicles:
+U D = {(ξ pred gt,i , ξ ego gt,i , ξ), i = 1, 2, · · · , M },(8)
+we can write the cumulative cost function as
+C(ξ pred gt ,ξ ego gt ,ξ;θ) = θ T N −1 t=0 φ(x pred t ,x ego t ,ξ),(9)
+where φ is the feature vector which includes the distance between two vehicles, the speed gap with respect to the speed limit, the acceleration, and the lateral deviation from the target lane. x pred t and x ego t are, respectively, the states of the target vehicle and the ego vehicle at time instant t within the planning horizon.
+
+Building on the principle of maximum entropy, we assume that trajectories are exponentially more likely when they have lower cost: P (ξ pred gt |ξ ego gt , ξ) ∝ exp −C(ξ pred gt ,ξ ego gt ,ξ;θ) .
+
+Then, our goal is to find the weight θ which maximizes the likelihood of the demonstration set U D :
+θ * = arg max θ P (U D |θ) (11) = arg max θ Π M i=1 P (ξ pred gt,i |ξ ego gt,i , ξ i , θ) P (θ) (12) = arg max θ Π M i=1 P (ξ pred gt,i |ξ ego gt,i , ξ i , θ) P (ξ pred gt |ξ ego gt,i , ξ i , θ)dξ pred gt(13)
+To tackle the partition term P (ξ pred gt |ξ ego gt,i , ξ i , θ)dξ pred gt in (13), we approximate C with its Laplace approximation as proposed in [20]:
+C(ξ pred gt ,ξ ego gt,i ,ξ i ;θ) ≈ C(ξ pred gt,i ,ξ ego gt,i ,ξ i ;θ) + ξ pred gt −ξ pred gt,i T ∂C ∂ξ pred gt + 1 2 ξ pred gt −ξ pred gt,i T ∂ 2 C ∂ξ pred gt × ξ pred gt −ξ pred gt,i .(14)
+With the assumption of locally optimal demonstrations, we have ∂C ∂ξ pred gt | ξ pred gt,i ≈0 in (14). This simplifies the partition term P (ξ pred gt |ξ ego gt,i , ξ i , θ)dξ pred gt as a Gaussian Integral  where a closed-form solution exists (see [20] for details). Substituting (14) into (13) yields the optimal parameter θ * as the maximizer. Once we have learned the cost function, we can use it to either evaluate the probabilities of given trajectory samples, or generate the most probable trajectory by solving a MPC problem, as explained in Section III-A.
+
+
+IV. EXPERIMENTS AND RESULTS
+
+In this section, we first introduce the scenario that we used in the experiment. Afterwards, we evaluate the prediction results with only the learning-based part of the proposed architecture. Finally, we assess the quality of the proposed model architecture in different aspects.
+
+
+A. Real-world Scenario
+
+We conduct experiments on a roundabout scenario included in the INTERACTION dataset [31], [32]. It is a 8-way roundabout and each of the branch has one entry lane and one exit lane. The bird-view image of the roundabout as well as the reference path information can be found in [9], [31], [32]. We manually selected 1120 highly interactive driving segments in the dataset and used 80 % for training and the remaining for testing. We define the car that is about to enter the circular roadway as the ego vehicle and the car that is already driving on the circular roadway as the predicted vehicle. In this problem setting, our goal is to predict 1s  into the future using the past 1s information with a sampling frequency of 5Hz.
+
+B. Learning-based Trajectory Prediction 1) Prediction Accuracy: We calculated the root mean squared error (RMSE) between the predicted and groundtruth state for both interacting vehicles at each future time step. The results are shown in the table below. According to the table, the mean RMSE error and the standard deviation continuously increase as the prediction horizon extends. However, prediction errors for both vehicles are all within an acceptable range even when the prediction horizon reaches one second.  2) Generalization Ability: To illustrate that the proposed prediction algorithm is able to generalize well under unseen scenarios, we select a test data from another entrance of the roundabout that is not considered in the training data. As shown in Fig. 4, although the location of the interaction changes, our architecture can still have reasonable prediction results and can generate multi-modal trajectories.
+
+3) Failures under Unseen/Corner Cases: Even if the learning-based prediction method has been proved to have good testing performances in the previous section, the model can still fail under some corner cases that have certain discrepancies from the collected data as discussed in Section I-B. To demonstrate potential failure testing cases, we formulated four different artificial test scenarios that are unseen from the training set. We fixed ξ pred and the initial state of the ego vehicle and assumed that the ego vehicle would drive at constant speed during the historical time steps. We then assigned four different velocities to the ego vehicle: {4m/s, 6m/s, 7m/s, 8m/s}.
+
+From the prediction results in Fig. 5, the sampled trajectories in case (a) and (d) are all feasible and collision free. When ego vehicle's historical motion changes slightly as in (b) and (c), infeasible trajectories are predicted, where a collision occurs. However, we cannot simply conclude that the prediction method failed in every cases that a collision is predicted since under some dangerous circumstances, the predictor is expected to generate results that can reflect such situation.
+
+Therefore, to further analyze if (b) and (c) are indeed failure test cases, we first checked whether the two vehicles have any chances to avoid collision given their initial states for each testing case. We applied a constant deceleration model on one vehicle while letting the other vehicle drive with constant speed. Our result shows that if any of the two vehicles brakes in time, collision can be avoided. Therefore, the predicted result in all four scenarios should be expected to be either collision free or have small collision rate. However, as observed in Fig. 5, all the sampled joint trajectories in case (b) and more than half percent of the samples in case (c) are infeasible. Therefore, we concluded that that these two scenarios are indeed failure testing cases as they violate the common consensus of human behaviors, which verifies the drawback of using pure learning-based method for trajectory prediction.
+
+C. Overall Framework Evaluation 1) Convert to Conditional Distribution: In order to convert the predicted joint distribution to conditional distribution, we need to filter out the predicted trajectories for the ego vehicleξ ego that are far from its planned ground-truth trajectoryξ ego gt . We obtained the trajectory discrepancies by calculating the RMSE error between the last state of each predicted trajectory and that of the actual trajectory. We set the discrepancy threshold to 0.2 meter and thus the sampled joint trajectory will be retained only when |ξ ego gt (t f inal ) −ξ ego (t f inal )| ≤ 0.2m, where t f inal is the the final prediction time step.
+
+2) Trajectory Cost Evaluation: We defined three categories of driving behaviors for the predicted vehicle: optimal, rational, and irrational. In order to demonstrate the cost differences among these categories, we plotted one sampled trajectory from each category and calculated the correspond- ing cost C after acquiring the parameters θ of the cost function from the IRL algorithm (Fig. 7). According to the corresponding cost of each sample, we can conclude that the learned IRL cost parameters are able to assign high cost when collision occurs due to irrational behavior (Fig. 7(c)) and low cost when the predicted trajectory results in rational behavior ( Fig. 7(b)). In this testing scenario, the optimal cost is achieved when the predicted vehicle applies maximum deceleration (4m/s 2 ) at every future time steps as shown in Fig. 7(a).
+
+3) Distribution Re-weighting: One of the most important aspects needs to be evaluated is whether we are indeed able to reasonably change the original sample distribution. Besides, we need to further examine the correlations between the weight ratio factor r and the final outcomes. First of all, under a selected testing scenario, we let N opt = 1 during the 4 th step in Algorithm 1, where we added only one optimal trajectory to the current sample set and resampled N final trajectories for evaluation. We then gradually increased N opt while keep sampling the same number of final samples. Lastly, we calculated the collision rate of the sampled trajectory set corresponds to each r and plotted the result in Fig. 6.
+
+From the plot, we notice that when r = 0, where no optimal trajectory is added, the collision rate is 0.7 from the pure learning-based prediction results. As the planning-based model is introduced to the algorithm and the weight ratio gradually increases, the collision rate decreases dramatically at the beginning and slowly converges to 0 as r passes 1. Such result is reasonable since when more rational and feasible samples with lower costs are added to the sample set, the original conditional distribution will not only gradually shifts away from the infeasible sample area horizontally but also gets lower probability at those irrational sample points as illustrated in the reweighting part of Fig. 2. Therefore, we concluded that the proposed architecture is capable of reshaping the original sample distribution to desired outcomes when it is used online with a constantly updating r value.
+
+
+4) Final Results Visualization:
+
+We selected the same scenario as in 3) to compare the prediction result of our framework with the pure learning-based prediction method. Note that the online path planning for ego vehicle is not the focus of our current work and thus we will not visualize the prediction result of applying online update to the weight ratio. Instead, we assigned r to a fixed ratio and visualized the prediction result at a single time step (Fig. 8). The result of directly sampling from the learned learningbased prediction models is shown in Fig. 8(a), which corresponds to step 1) in Algorithm 1. After converting the joint distribution to conditional distribution in step 2), the remaining satisfied trajectories are shown in Fig. 8(b), where we notice that all the ego vehicle's predicted trajectories are close to the ground-truth as desired. The collision rate in (b) is 0.7, which implies that more irrational than rational behaviors are predicted. We then directly sampled from the current sample set and obtained the prediction results by using only the learning-based method as in Fig. 8(c). Comparing to the predicted results in Fig. 8(c) , the generated trajectories of our approach in Fig. 8(d) tend to have more rational behaviors while still having a collision rate of 0.3 as a warning to the ego vehicle. In this way, the ego vehicle is able to have both rational and irrational information about the predicted vehicle's future behavior, where it believes that the predicted vehicle will be more likely to behave rationally in the future while preparing for possible irrational behaviors.
+
+
+V. CONCLUSIONS
+
+In this paper, a generic prediction architecture is proposed, which can predict continuous trajectories of other vehicles by considering both rational and irrational driving behaviors. An exemplar roundabout scenario with real-world data was used to demonstrate the performance of our method. We first evaluated the prediction accuracy of the learning-based method on the test dataset. Then, we demonstrated the generalizability of the method by using our generic environmental representation. By testing on some unseen and corner driving scenarios, we revealed the limitations of using pure learningbased prediction method. Finally, by thoroughly examining the proposed architecture, we concluded that the approach of combining both learning-based and planning-based method can enhance the overall prediction performance by providing sufficient possible outcomes to the ego vehicle. For future work, we will perform human-in-the-loop experiments online using the proposed prediction architecture to evaluate its capabilities.
+
+Fig. 1 :
+1Illustration of the Frenét frame and vehicle boundaries. The red point represents the vehicle's center of mass. The shape of the vehicle is approximated by three circles.
+
+
+(i) Determine the possibility of every reference trajectory according to historical path using dynamic time wrapping (DTW) [27] [9]. (ii) Map the current global position (in Cartesian coordinate) of the vehicle on to each possible reference path (in Frenét Frame). (iii) Perform the proposed prediction algorithm under the Frenét Frame. (iv) Convert the predicted results back to Cartesian coordinate to check for collision and visualize the result. (v) Receive a new observation in Cartesian coordinate and repeat step (i)-(iv).
+
+Fig. 2 :
+2This plot shows the process of proposed architecture. Note that trajectories directly sampled from the learning-based method can have three different degrees of rationality: (a) fully rational; (b) partially rational; (c) fully irrational.
+
+Algorithm 1 :
+1Proposed Generic Prediction Architecture Input : ξ , map information Output :ξ pred at each prediction time step Trained Models : M L -learning-based model M P -planning-based model while algorithm is running do 1) {ξ pred ,ξ ego } 1:N ←sample joint trajectories (M L )
+
+Fig. 3 :
+3Visualized prediction results of a selected scene at different time steps. The red car is the ego vehicle and the green car is the predicted vehicle. We plotted both the historical and the predicted trajectories of each vehicle, where the yellow circles represent the current state of two vehicles. The small yellow dots denote groundtruth states and the dashed lines are the possible reference paths for both vehicles.
+
+Fig. 4 :
+4Generalization results at an unseen roundabout entrance.
+
+Fig. 5 :Fig. 6 :
+56Selected artificial test scenarios and the corresponding results. The pink dot represents the cross point of two vehicles ground-truth reference paths. The number on the top right corner denotes the percentage rate of rational or irrational behaviors. Weight ratio versus collision rate.
+
+ego 0 .
+007±0.01 0.16±0.05 0.29±0.12 0.40±0.20 0.51±0.29 pred 0.08±0.02 0.18±0.04 0.33±0.10 0.50±0.18 0.70±0.26
+
+Fig. 7 :
+7Different sampled trajectories and their corresponding costs at a selected scenario.
+
+Fig. 8 :
+8Visualization of the overall framework at different stages and a result comparison with the pure learning-based prediction method.
+
+
+and M. Tomizuka are with the Department of Mechanical Engineering, University of California, Berkeley, CA 94720 USA [yeping hu, litingsun, tomizuka@berkeley.edu]
+
+TABLE
+
+
+Convolutional social pooling for vehicle trajectory prediction. N Deo, M M Trivedi, arXiv:1805.06771arXiv preprintN. Deo and M. M. Trivedi, "Convolutional social pooling for vehicle trajectory prediction," arXiv preprint arXiv:1805.06771, 2018.
+
+Probabilistic analysis of dynamic scenes and collision risks assessment to improve driving safety. C Laugier, I E Paromtchik, M Perrollaz, M Yong, J.-D Yoder, C Tay, K Mekhnacha, A Nègre, IEEE Intelligent Transportation Systems Magazine. 34C. Laugier, I. E. Paromtchik, M. Perrollaz, M. Yong, J.-D. Yoder, C. Tay, K. Mekhnacha, and A. Nègre, "Probabilistic analysis of dynamic scenes and collision risks assessment to improve driving safety," IEEE Intelligent Transportation Systems Magazine, vol. 3, no. 4, pp. 4-19, 2011.
+
+Probabilistic vehicle trajectory prediction over occupancy grid map via recurrent neural network. B Kim, C M Kang, S H Lee, H Chae, J Kim, C C Chung, J W Choi, arXiv:1704.07049arXiv preprintB. Kim, C. M. Kang, S. H. Lee, H. Chae, J. Kim, C. C. Chung, and J. W. Choi, "Probabilistic vehicle trajectory prediction over occupancy grid map via recurrent neural network," arXiv preprint arXiv:1704.07049, 2017.
+
+Probabilistic prediction of vehicle semantic intention and motion. Y Hu, W Zhan, M Tomizuka, Intelligent Vehicles Symposium (IV). Y. Hu, W. Zhan, and M. Tomizuka, "Probabilistic prediction of vehicle semantic intention and motion," in Intelligent Vehicles Symposium (IV), 2018 IEEE. IEEE, 2018, pp. 307-313.
+
+A probabilistic model for estimating driver behaviors and vehicle trajectories in traffic environments. T Gindele, S Brechtel, R Dillmann, Intelligent Transportation Systems (ITSC). IEEE13th International IEEE Conference onT. Gindele, S. Brechtel, and R. Dillmann, "A probabilistic model for estimating driver behaviors and vehicle trajectories in traffic environments," in Intelligent Transportation Systems (ITSC), 2010 13th International IEEE Conference on. IEEE, 2010, pp. 1625-1631.
+
+Generating lane-change trajectories of individual drivers. Y Nishiwaki, C Miyajima, N Kitaoka, R Terashima, T Wakita, K Takeda, Vehicular Electronics and Safety. IEEEY. Nishiwaki, C. Miyajima, N. Kitaoka, R. Terashima, T. Wakita, and K. Takeda, "Generating lane-change trajectories of individual drivers," in Vehicular Electronics and Safety, 2008. ICVES 2008. IEEE International Conference on. IEEE, 2008, pp. 271-275.
+
+Accurate and diverse sampling of sequences based on a best of many sample objective. A Bhattacharyya, B Schiele, M Fritz, Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition. the IEEE Conference on Computer Vision and Pattern RecognitionA. Bhattacharyya, B. Schiele, and M. Fritz, "Accurate and diverse sampling of sequences based on a best of many sample objective," in Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition, 2018, pp. 8485-8493.
+
+A framework for probabilistic generic traffic scene prediction. Y Hu, W Zhan, M Tomizuka, Intelligent Transportation Systems (ITSC). IEEEY. Hu, W. Zhan, and M. Tomizuka, "A framework for probabilistic generic traffic scene prediction," in Intelligent Transportation Systems (ITSC). IEEE, 2018, pp. 2790-2796.
+
+Multi-modal probabilistic prediction of interactive behavior via an interpretable model. Y Hu, W Zhan, M Tomizuka, Proceedings of the 2019 IEEE Intelligent Vehicles Symposium (IV2019). the 2019 IEEE Intelligent Vehicles Symposium (IV2019)Y. Hu, W. Zhan, and M. Tomizuka, "Multi-modal probabilistic predic- tion of interactive behavior via an interpretable model," in Proceedings of the 2019 IEEE Intelligent Vehicles Symposium (IV2019), 2019.
+
+Junior: The stanford entry in the urban challenge. M Montemerlo, J Becker, S Bhat, H Dahlkamp, D Dolgov, S Ettinger, D Haehnel, T Hilden, G Hoffmann, B Huhnke, Journal of field Robotics. 259M. Montemerlo, J. Becker, S. Bhat, H. Dahlkamp, D. Dolgov, S. Et- tinger, D. Haehnel, T. Hilden, G. Hoffmann, B. Huhnke et al., "Junior: The stanford entry in the urban challenge," Journal of field Robotics, vol. 25, no. 9, pp. 569-597, 2008.
+
+Path planning for autonomous vehicles in unknown semi-structured environments. D Dolgov, S Thrun, M Montemerlo, J Diebel, The International Journal of Robotics Research. 295D. Dolgov, S. Thrun, M. Montemerlo, and J. Diebel, "Path planning for autonomous vehicles in unknown semi-structured environments," The International Journal of Robotics Research, vol. 29, no. 5, pp. 485-501, 2010.
+
+Time-bounded lattice for efficient planning in dynamic environments. A Kushleyev, M Likhachev, 2009 IEEE International Conference on Robotics and Automation. IEEEA. Kushleyev and M. Likhachev, "Time-bounded lattice for efficient planning in dynamic environments," in 2009 IEEE International Conference on Robotics and Automation. IEEE, 2009, pp. 1662- 1668.
+
+Real-time motion planning with applications to autonomous urban driving. Y Kuwata, J Teo, G Fiore, S Karaman, E Frazzoli, J P How, IEEE Transactions on Control Systems Technology. 175Y. Kuwata, J. Teo, G. Fiore, S. Karaman, E. Frazzoli, and J. P. How, "Real-time motion planning with applications to autonomous urban driving," IEEE Transactions on Control Systems Technology, vol. 17, no. 5, pp. 1105-1118, 2009.
+
+Optimal motion planning with the half-car dynamical model for autonomous high-speed driving. J Hwan Jeon, R V Cowlagi, S C Peters, S Karaman, E Frazzoli, P Tsiotras, K Iagnemma, 2013J. hwan Jeon, R. V. Cowlagi, S. C. Peters, S. Karaman, E. Frazzoli, P. Tsiotras, and K. Iagnemma, "Optimal motion planning with the half-car dynamical model for autonomous high-speed driving," in 2013
+
+. American Control Conference. IEEE. American Control Conference. IEEE, 2013, pp. 188-193.
+
+Threat-aware path planning in uncertain urban environments. G S Aoude, B D Luders, D S Levine, J P How, RSJ International Conference on Intelligent Robots and Systems. IEEE. in 2010 IEEE/G. S. Aoude, B. D. Luders, D. S. Levine, and J. P. How, "Threat-aware path planning in uncertain urban environments," in 2010 IEEE/RSJ International Conference on Intelligent Robots and Systems. IEEE, 2010, pp. 6058-6063.
+
+When is a linear control system optimal?. R E Kalman, Journal of Basic Engineering. 861R. E. Kalman, "When is a linear control system optimal?" Journal of Basic Engineering, vol. 86, no. 1, pp. 51-60, 1964.
+
+Algorithms for inverse reinforcement learning. A Y Ng, S J Russell, Icml. 12A. Y. Ng, S. J. Russell et al., "Algorithms for inverse reinforcement learning." in Icml, vol. 1, 2000, p. 2.
+
+Apprenticeship learning via inverse reinforcement learning. P Abbeel, A Y Ng, Proceedings of the twenty-first international conference on Machine learning. the twenty-first international conference on Machine learningACM1P. Abbeel and A. Y. Ng, "Apprenticeship learning via inverse rein- forcement learning," in Proceedings of the twenty-first international conference on Machine learning. ACM, 2004, p. 1.
+
+Maximum entropy inverse reinforcement learning. B D Ziebart, A L Maas, J A Bagnell, A K Dey, Aaai. Chicago, IL, USA8B. D. Ziebart, A. L. Maas, J. A. Bagnell, and A. K. Dey, "Maximum entropy inverse reinforcement learning." in Aaai, vol. 8. Chicago, IL, USA, 2008, pp. 1433-1438.
+
+Continuous inverse optimal control with locally optimal examples. S Levine, V Koltun, the 29th International Conference on Machine Learning (ICML-12). S. Levine and V. Koltun, "Continuous inverse optimal control with locally optimal examples,," in the 29th International Conference on Machine Learning (ICML-12), 2012.
+
+Socially compliant mobile robot navigation via inverse reinforcement learning. H Kretzschmar, M Spies, C Sprunk, W Burgard, The International Journal of Robotics Research. 3511H. Kretzschmar, M. Spies, C. Sprunk, and W. Burgard, "Socially compliant mobile robot navigation via inverse reinforcement learning," The International Journal of Robotics Research, vol. 35, no. 11, pp. 1289-1307, 2016.
+
+Courteous autonomous cars. L Sun, W Zhan, M Tomizuka, A D Dragan, 2018 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEEL. Sun, W. Zhan, M. Tomizuka, and A. D. Dragan, "Courteous autonomous cars," in 2018 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEE, 2018, pp. 663-670.
+
+Probabilistic prediction of interactive driving behavior via hierarchical inverse reinforcement learning. L Sun, W Zhan, M Tomizuka, 2018 21st International Conference on Intelligent Transportation Systems (ITSC). IEEEL. Sun, W. Zhan, and M. Tomizuka, "Probabilistic prediction of interactive driving behavior via hierarchical inverse reinforcement learning," in 2018 21st International Conference on Intelligent Trans- portation Systems (ITSC). IEEE, 2018, pp. 2111-2117.
+
+Behavior planning of autonomous cars with social perception. L Sun, W Zhan, C.-Y. Chan, M Tomizuka, Proceedings of the 2019 IEEE Intelligent Vehicles Symposium (IV2019). the 2019 IEEE Intelligent Vehicles Symposium (IV2019)12L. Sun, W. Zhan, C.-Y. Chan, and M. Tomizuka, "Behavior planning of autonomous cars with social perception," in Proceedings of the 2019 IEEE Intelligent Vehicles Symposium (IV2019), vol. 1, 2019, p. 2.
+
+Risk-sensitive inverse reinforcement learning via coherent risk models. A Majumdar, S Singh, A Mandlekar, M Pavone, Robotics: Science and Systems. A. Majumdar, S. Singh, A. Mandlekar, and M. Pavone, "Risk-sensitive inverse reinforcement learning via coherent risk models." in Robotics: Science and Systems, 2017.
+
+Interpretable modelling of driving behaviors in interactive driving scenarios based on cumulative prospect theory. L Sun, W Zhan, Y Hu, M Tomizuka, Proceedings of the 2019 IEEE Intelligent Transporation Systems Conference (ITSC2019). the 2019 IEEE Intelligent Transporation Systems Conference (ITSC2019)12L. Sun, W. Zhan, Y. Hu, and M. Tomizuka, "Interpretable modelling of driving behaviors in interactive driving scenarios based on cumu- lative prospect theory," in Proceedings of the 2019 IEEE Intelligent Transporation Systems Conference (ITSC2019), vol. 1, 2019, p. 2.
+
+Scaling up dynamic time warping for datamining applications. E J Keogh, M J Pazzani, Proceedings of the sixth ACM SIGKDD international conference on Knowledge discovery and data mining. the sixth ACM SIGKDD international conference on Knowledge discovery and data miningACME. J. Keogh and M. J. Pazzani, "Scaling up dynamic time warping for datamining applications," in Proceedings of the sixth ACM SIGKDD international conference on Knowledge discovery and data mining. ACM, 2000, pp. 285-289.
+
+Learning structured output representation using deep conditional generative models. K Sohn, H Lee, X Yan, Advances in neural information processing systems. K. Sohn, H. Lee, and X. Yan, "Learning structured output representa- tion using deep conditional generative models," in Advances in neural information processing systems, 2015, pp. 3483-3491.
+
+Auto-encoding variational bayes. D P Kingma, M Welling, arXiv:1312.6114arXiv preprintD. P. Kingma and M. Welling, "Auto-encoding variational bayes," arXiv preprint arXiv:1312.6114, 2013.
+
+Does the chimpanzee have a theory of mind?. D Premack, G Woodruff, Behavioral and brain sciences. 14D. Premack and G. Woodruff, "Does the chimpanzee have a theory of mind?" Behavioral and brain sciences, vol. 1, no. 4, pp. 515-526, 1978.
+
+Constructing a highly interactive vehicle motion dataset. W Zhan, L Sun, D Wang, Y Jin, M Tomizuka, IROS2019. 12W. Zhan, L. Sun, D. Wang, Y. Jin, and M. Tomizuka, "Constructing a highly interactive vehicle motion dataset." in IROS2019, vol. 1, 2019, p. 2.
+
+Interaction dataset: An international, adversarial and cooperative motion dataset in interactive scenarios with semantic maps. W Zhan, L Sun, D Wang, H Shi, A Clausse, M Naumann, J Kummerle, H Konigshof, C Stiller, A De La Fortelle, M Tomizuka, W. Zhan, L. Sun, D. Wang, H. Shi, A. Clausse, M. Naumann, J. Kum- merle, H. Konigshof, C. Stiller, A. de La Fortelle, and M. Tomizuka, "Interaction dataset: An international, adversarial and cooperative motion dataset in interactive scenarios with semantic maps," 2019.

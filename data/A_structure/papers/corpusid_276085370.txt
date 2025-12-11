@@ -1,0 +1,384 @@
+Multi-objective surrogate optimization of mixed-variable IPM motor design problem with ADMM-based approach
+1 February 2025
+
+Tatsuya Asanuma asanuma-tatsuya@g.ecc.u-tokyo.ac.jp 
+Department of Mathematical Informatics
+Graduate School of Information Science and Technology
+The University of Tokyo
+Hongo 7-3-1113-8656TokyoJapan
+
+JMAG Business Company
+JSOL Corporation
+Kudan-kaikan Terrace
+Kudan-minami 1-6-5102-0074TokyoJapan
+
+Yoshihiro Kanno 
+Department of Mathematical Informatics
+Graduate School of Information Science and Technology
+The University of Tokyo
+Hongo 7-3-1113-8656TokyoJapan
+
+Multi-objective surrogate optimization of mixed-variable IPM motor design problem with ADMM-based approach
+1 February 20253DA1DA1559C687C165C9FEA4C6DBECE010.1007/s11081-024-09954-9Received: 11 May 2024 / Revised: 24 December 2024 / Accepted: 31 December 2024 /Electric motorMulti-objective optimizationMixed-integer nonlinear programmingSequential approximation optimizationSurrogate-based optimizationRadial basis function network
+Designing electric motors boils down to solving multi-objective optimization problems where we look for design variables satisfying multiple requirements on, e.g., torque and electromagnetic losses.To design high-performance motors without restriction by existing design ideas, it is necessary to take the design space as wide as possible at the initial design stage.When dealing with the extensive design space, it is required to treat the basic structure parameters of motors and the detailed dimensions as design variables.For an interior permanent magnet (IPM) motor, which is one of the typical motor types, we need to handle discrete integer design variables such as the number of slots and the coil pitch in addition to the continuous ones.However, it is difficult to obtain the discrete design variable values without rounding off to the nearest allowed values in the framework of the existing continuous surrogate optimization such as sequential approximation optimization (SAO) with the response surface created from the electromagnetic finite element analysis results.We solve this mixed-variable optimization problem by the heuristic approach based on the alternating direction method of multipliers (ADMM) and show with example design problems that the better results are obtained more efficiently in terms of the number of expensive objective function evaluations compared to taking rounding-off measures.
+
+Introduction
+
+An interior permanent magnet (IPM) motor is one of the typical types of synchronous electric motors and is used in a wide range of products such as electric vehicles and compressors.It consists of a rotor and a stator.Both parts are mainly made of iron.The rotor is magnetized by a set of permanent magnets embedded inside.The rotor rotates in synchronization with the rotating magnetic field excited by the three-phase alternating current which flows through the coil wrapped around the stator iron.
+
+Designing IPM motors boils down to solving multi-objective optimization problems.To develop high-performance products, IPM motors must simultaneously satisfy multiple and often contradictory requirements.Ray and Lowther (2009) set multiple reference torques at different stator currents.They searched for the best design variable values on magnet size and arrangement to minimize the difference from each reference torque.Sun and Tian (2022) treated average torque and torque ripple as objectives under a specific stator current condition.Torque ripple is the time-dependent fluctuation in torque as the rotor rotates, so the smaller the better.They optimized the rotor dimensions to maximize the average torque and minimize the torque ripple.Sizov et al. (2013) set the total electromagnetic loss as the objective function in addition to the average torque and torque ripple.They found designs with higher average torque and lower torque ripple than the original design while maintaining the ability to efficiently produce the output torque by optimizing rotor and stator dimensions, including rotor magnet size.
+
+There are two main methods for solving multi-objective optimization problems.The first is to directly handle multiple objective functions (Ray and Lowther 2009;Sizov et al. 2013).By incorporating the Pareto dominance criterion into an evolutionary algorithm, it is possible to obtain multiple Pareto solutions.The second is to convert multiple objective functions into a single objective function.The simplest way is to use the weighted sum of each objective function as the single objective function (Sun and Tian 2022).However, it is generally not easy to determine the weight values, and there is a problem that a Pareto solution cannot be obtained if it lies in concave parts of the Pareto surface.A method called satisficing trade-off method (STOM) (Nakayama and Sawaragi 1984) can overcome these problems.This method has a favorable property for our design optimization problems that the main parameter for STOM is not related to the numerical calculation method but the desired value of each objective function that is familiar to motor designers.
+
+In order to design high-performance IPM motors without restriction by existing design ideas, it is necessary to take the design space as wide as possible at the initial design stage.When dealing with the extensive design space, it is required to treat the basic structure parameters and the dimensions of IPM motors as design variables.Therefore, we need to handle discrete integer design variables such as the number of slots and the coil pitch in addition to the continuous design variables.
+
+It is straightforward to try as many combinations of discrete values as possible to handle such discrete design variables.Carraro et al. (2018) picked up some promising combinations of discrete values according to the preliminary theoretical consideration.After that, they swept rotor and stator dimensions for each discrete value combination to find optimal designs in terms of torque density (average torque per unit volume) and material cost.Finally, they compared the performance of all these optimal designs manually.Sato and Igarashi (2023) automated the process of selecting the promising combinations of discrete values using the Monte Carlo tree search.They performed multi-objective optimization for each set of discrete values to determine the continuous design variable values and fed back the results to the tree nodes.After sufficient iterations, they successfully found an improved IPM motor design in terms of the average torque and electromagnetic loss.
+
+The methods where the discrete design variables are optimized prior to the continuous design variables such as those seen above, however, may overlook promising combinations of discrete variables, especially when the number of candidate values for each discrete variable is large.
+
+There are several efforts to optimize the discrete and continuous variables simultaneously.Le Besnerais et al. (2008) rounded continuous values into discrete values during the individual generation process of an evolutionary algorithm originally used for continuous variable optimization.They reached a more efficient, quieter, and lower material cost design of an induction motor, which is another type of electric motors.Liuzzi et al. (2015) updated design variables sequentially and iteratively with a line search procedure.In the case of a small deterioration in objective function value after the discrete design variable update, they continued searching the neighborhood in the design space.They showed that the IPM motor design obtained by their method is better in terms of the total weight and average torque than the one obtained with a well-known software package.
+
+For the efficient computation of the mixed-variable optimization, surrogate-based approaches can be an option to speed up the simulation-based optimization.There are not many surrogate-based approaches to mixed variable optimization yet (Dahito et al. 2024).Although no examples of application to motor design problems are given, we introduce several mixed variable surrogate optimization methods.All of these methods share the flow of sequential approximation optimization (SAO) (Nakayama et al. 2009, Chap. 5) in common.First, we calculate the objective function value at several sampling points.Next, we use these objective function values to estimate the objective function over the entire design variable space.Then, we add the next sampling point at a location that is likely to minimize the objective function value.The best solution is updated by repeating the above procedure.One of the specific methods that follow SAO is Bayesian optimization.In Bayesian optimization, the objective function is supposed to follow a Gaussian process, and the acquisition function constructed based on the posterior distribution of the objective function is optimized (Papalexopoulos et al. 2022).There are also methods to interpolate the objective function using a specific form such as an artificial neural network (ANN) or a radial basis function (RBF) network (Kim and Boukouvala 2020;Müller 2016).In the literature cited here, discrete variables are handled by either expressing them using one-hot encoding or relaxing them to continuous variables.The advantages of one-hot encoding include the ease of eliminating certain combinations of discrete variables and the ability to reduce the optimization problem with the interpolated objective function to a mixed-integer linear programming (MILP) problem (Papalexopoulos et al. 2022).
+
+To solve an optimization problem of IPM motors with mixed design variables, we need to handle discrete constraints in a sense that we have to choose valid combination of discrete variable values in addition to linear constraints of continuous design variables.In this paper, an approach to combine surrogate-based SAO and the heuristic method (Kanno and Kitayama 2018) based on the alternating direction method of multipliers (ADMM) is presented.The feature of this approach is that it treats discrete variables as continuous variables with discrete constraints rather than as rounded continuous variables.Without forced rounding to discrete values, we can solve the optimization problems with discrete constraints with high accuracy, resulting in improved efficiency of search for optimal solution in terms of the number of expensive objective function evaluations.The advantageous property, which is suitable for industrial use, is demonstrated by numerical computation examples.Another advantage of our approach is that it requires fewer problem-specific parameters that are unfamiliar to motor designers, compared to other methods.
+
+The rest of this paper is organized as follows.In Sect.2, the IPM motor model to be optimized is introduced and the optimization problem is specified.In Sect.3, our solution approach based on SAO and ADMM is presented.We also explain the reason for choosing this approach rather than other alternatives.In Sect.4, the optimization results are shown with validations.Finally, in Sect.5, conclusions are given.
+
+
+Optimization problem specification
+
+In this section, we first explain the IPM motor, which is the design target of this research.After that, we will specify the optimization problem by clarifying the design variables, objective functions, and constraints.
+
+
+Optimization target model
+
+The IPM motor to be optimized is shown in Fig. 1 in the form of a two-dimensional cross-section.The outer diameter is 116 mm.
+
+The stator, the outer part of Fig. 1, consists of a stator core made of stacked 50A1000 electromagnetic steel sheets that transmits magnetic flux, and a copper coil wound around it.The space formed by the stator core through which the coil passes is called a slot.In the example in Fig. 1, there are six slots.The rotor, the inner part of Fig. 1, consists of a rotor core made similarly to the stator core and neodymium magnets embedded in the rotor core.
+
+There are three coils: U phase, V phase, and W phase.They are wrapped around the stator core and are connected to the three-phase alternating current power supply.The power supply supplies three-phase sinusoidal alternating current in the order of U, V, and W phases at 120-degree intervals.The advance angle of the U-phase current is 40 degrees.This three-phase current generates a rotating magnetic field in the stator, and the rotor, which is magnetized by the permanent magnets, rotates in synchronization with this rotating magnetic field.
+
+
+Design variables
+
+We have four design variables: the number of slots x 1 , coil pitch x 2 , magnet width x 3 , and magnet thickness x 4 .From now on, let x = (x 1 , x 2 , x 3 , x 4 ) .The first two are discrete variables x d = (x 1 , x 2 ) , and the latter two are continuous variables
+x c = (x 3 , x 4 ) .
+The number of slots is the number of areas through which the coil passes.Figure 2 shows the case with three slots and the case with twenty-four slots.As seen in Fig. 2, changing the number of slots greatly changes the entire structure of the stator.In our design problem, the sum of teeth widths and the sum of slot opening widths are kept constant irrespective of the number of slots.
+
+Coil pitch is the distance between slots through which the same coil passes.Figure 3 is an example of how to wind a coil with coil pitches of 1 and 2, respectively, when the number of slots is 9. Focusing on the U-phase coil coming out of slot 1, when the coil pitch is 1, it goes into the immediately adjacent slot 2. In contrast, when the coil pitch is 2, the U-phase coil coming out of slot 1 goes into slot 3, which is one step ahead.Although changing the coil pitch does not affect the two-dimensional crosssectional shape of the model, it has a large effect on the current distribution within the two-dimensional cross-section, that is, the source placement of the magnetic field.The width and thickness of the magnet are the lengths of the two sides of the rectangular magnet part in the two-dimensional cross-sectional view, respectively.In this study, we refer to the dimension of the edge perpendicular to the radial direction of the motor as the width, and the dimension of the edge parallel to the radial direction of the motor as the thickness.
+
+Intended for the initial design stage, we selected the above four design variables that affect the source of the magnetic field.
+
+
+Objective functions
+
+We have two objective functions: the average torque to be maximized and the iron loss to be minimized.Since these are both functions of the design variables, we express these as − f 1 (x) and f 2 (x), respectively.For convenience of formulation, f 1 is given a negative sign.
+
+
+Fig. 4 Feasible domain of design variables
+
+Average torque is the time history average value of torque during one electrical angle period, which is the time when the phase of the power supply current advances by 360 degrees.
+
+Iron loss is a loss that occurs in the rotor core and stator core due to time fluctuations in magnetic flux, and is one of the major losses along with copper loss in electric machinery (Guru and Hiziroglu 2001).Since the copper loss is the same for all design candidates in our problem setting, we focus on the iron loss as a loss.
+
+
+Constraints
+
+Here, we consider constraints other than simple box constraints for design variables.
+
+Regarding the number of slots and coil pitch, only the value combinations shown in Fig. 4, which allow the coil to be wound systematically, can be taken.The number of slots should be a multiple of 3, and its upper and lower bounds are 90 and 6, respectively.
+
+Regarding the magnet width and thickness, the feasible set shown in Fig. 4 is defined as the domain to prevent geometrical incompatibility.
+
+
+Specification summary
+
+Given the above, our optimization problem can be formulated as follows:
+Min. ( f 1 (x), f 2 (x)) (1) s.t. l j ≤ x j ≤ u j , j = 1, 2, 3, 4,
+(2)
+x j ∈ D j (x k ), ( j, k) = (1, 2), (2, 1), (3) Ax c ≤ b. (4)
+Here, l j and u j are the lower and upper bounds of each design variable, respectively.D j is the feasible set of each discrete variable.We have to note that D j is depenent on the other discrete variable value.A and b are the constant 2 × 2 matrix and constant 2 × 1 vector, respectively.x c is a continuous variable vector defined in Sect.2.2.
+
+
+Optimization method
+
+The overall solution procedure developed in this paper is based on surrogate-based SAO (Kitayama et al. 2011).We first introduce the idea of surrogate-based SAO in Sect.3.1.In Sects.3.2-3.6,we will explain the methods used in the flow of SAO to solve the multi-objective optimization problem defined in Sect. 2.
+
+
+Surrogate-based sequential approximate optimization
+
+Figure 5 shows the overall solution flow of surrogate-based SAO we use.The algorithm begins by arranging initial sampling points within the design space.Discrete design variable space x 1 -x 2 and continuous design variable space x 3 -x 4 are each divided into n g × n g grids, and we randomly place one or two sampling points in each grid.Figure 6 shows an example of the initial sampling point arrangement on x 1 -x 2 and x 3 -x 4 space when n g is set to 3.
+
+Next, we perform the electromagnetic finite element analysis (FEA) at each sampling point to calculate the objective function values, that is, average torque and iron loss.The computation procedure is explained in Sect.3.2.
+
+The average torque and iron loss are approximated as response surfaces over the entire design variable space by using the RBF network as a surrogate model (Kitayama et al. 2011).Here, we treat discrete variables by relaxing them as continuous variables rather than by introducing auxiliary binary variables, which allows us to take advantage of the numerical property of discrete variables.The specific form of the RBF network is shown in Sect.3.3.We do not take the Bayesian optimization approach in this study.Instead, we interpolate the unknown functions directly.Some electromagnetic physical quantities might vary multimodally with respect to design variables, and there is concern that the acquisition function used in the Bayesian optimization approach would have even stronger multimodality (Shahriari et al. 2016), making the optimization problem more difficult to solve.Although ANN is also a candidate for the direct interpolation function form, we adopt the RBF network in this study because it does not require hyperparameters that are unfamiliar to motor designers.
+
+While constructing the RBF network, all design variables and objective functions are scaled for achieving good approximation and numerical stability.We explain the scaling method (Kitayama et al. 2011) in Sect.3.4.
+
+We use these RBF networks to formulate and solve our multi-objective optimization problem.Since our problem has multiple objective functions, we use the satisficing trade-off method (STOM) (Nakayama and Sawaragi 1984) to convert it into a single objective function and multiple constraints.Unlike the method that uses a weighted sum of multiple objective functions, STOM can even derive optimal solutions that lie in concave parts of the Pareto surface.We can also say that STOM works well with design optimization problems because the main parameter for STOM is not related to the numerical calculation method but the desired value of each objective function that is familiar to motor designers.The specific formula for STOM is shown in Sect.3.5.
+
+To find a mixed-variable solution to this transformed optimization problem, we use an ADMM-based method (Kanno and Kitayama 2018), by which we can treat the discrete constraints in the form of (3).We explain the solution procedure in detail in Sect.3.6.
+
+After solving the optimization problem, we check whether the termination criteria are satisfied, and if so, we terminate the procedures.For example, if the number of iterations exceeds the specified maximum number, we consider the termination criterion to be satisfied.Otherwise, we add new sampling points and continue the process using the updated set of sampling points.
+
+
+Electromagnetic finite element analysis
+
+In the electromagnetic FEA, we use two of Maxwell's equations:
+123 rot H = J, (5) divB = 0,(6)
+and the constitutive relation:
+B = μH. (7)
+Here, H is the magnetic field intensity, J is the electric current density, B is the magnetic flux density, and μ is the magnetic permeability.We introduce a magnetic vector potential A (Silvester and Ferrari 1996) satisfying
+B = rot A (8)
+and solve for A in the two-dimensional space.By the weighted residual method (Salon 1995), the equation to be solved is
+V rotw • 1 μ rot A dV = S w • 1 μ rot A × n dS + V w • JdV (9)
+under the following boundary conditions:
+A = 0 on the Dirichlet boundary S D , (10) H × n = 0 on the Neumann boundary S N . (11)
+Here, V and S are the analysis domain and its boundary, respectively, n is the outward unit normal vector of S, and w is the weight function.Using the Galerkin method (Bianchi 2005), w and A are interpolated with the same basis function.For twodimensional problems, we use the nodal shape function for the interpolation.The two-dimensional analysis domain is discretized with first-order triangular elements and iso-parametric quadrilateral elements.In each element, w and A are interpolated as
+w = n e n=1 N (n) w (n) , (12) A = n e n=1 N (n) A (n) , (13)
+where n e is the number of nodes of the element, N (n) is the shape function for the node n, w (n) and A (n) are the nodal values of w and A, respectively.At each analysis time step, we update the rotor position and construct simultaneous linear equations that have nodal vector potential values as unknowns.Solving these simultaneous linear equations, we can obtain the time-dependent magnetic flux density value in each element B e (t) from Eqs. ( 8) to (13).Once B e (t) has been obtained, we use this to calculate the electromagnetic force for each node and the iron loss for each element, and find the average torque and the iron loss for the entire motor.
+
+We use the nodal force method (Kameari 1993) to calculate the electromagnetic force.According to the nodal force method, the electromagnetic force at each node is obtained by the following equation:
+f (n) = − ne T • ∂ N (n) ∂ u d , (14)
+where ne is the domain covered by the element group containing the node n, T is Maxwell's stress tensor determined from the magnetic flux density value, and u = (u 1 , u 2 , u 3 ) is the global coordinate.
+
+We refer to the material data sheets to calculate the iron loss.The data sheets contain the iron loss density value w iron (B amp , f ) when a sinusoidal magnetic flux density of amplitude B amp is passed through a single steel sheet at frequency f .Iron loss can be broken down into eddy current loss and hysteresis loss.For the decomposition, we consider that eddy current loss and hysteresis loss are proportional to f 2 and f , respectively (Yamazaki 2003).When calculating eddy current loss, B e (t) is decomposed into the frequency domain for each component (Leonardi et al. 1996).We then refer to the material data sheets using the amplitude and frequency after the frequency decomposition.The eddy current loss is determined by summing up all frequency components.When calculating hysteresis loss, we extract the local maximum and local minimum values for each component of B e (t) and determine the magnetic flux density amplitudes of the hysteresis loops (Sadowski et al. 2000).We then refer to the material data sheets using these amplitudes together with the fundamental frequency (N 0 /60) • ( p/2), where N 0 is the rotational speed [min −1 ] and p is the number of poles, which is 4 in our case from Fig. 1.The hysteresis loss is determined by summing up the areas of all hysteresis loops (Ho et al. 1998).
+
+
+Radial basis function network
+
+The objective functions (average torque and iron loss in our case) are approximated over the entire design variable space in the form of the following equation using an RBF network (Kitayama et al. 2011) based on the values determined by electromagnetic FEA at N s sampling points x (k)
+(k = 1, 2, ..., N s ): fi (x) = N s k=1 α (k) i K (x, x (k) ). (15)
+Here we denote the ith objective function by f i and its approximation by fi . 1 The basis function is in the following form:
+K (x, x (k) ) = exp − x − x (k) x − x (k) r (k) 2 , (16)
+with
+r (k) = max l x (k) − x (l) √ N x Nx √ N s − 1 , (17)
+where N x is the number of design variables.The coefficients α (k)  i (k = 1, 2, ..., N s ) are determined for each objective function by solving the following optimization problem: Min.
+N s k=1 fi (x (k) ) − f i (x (k) ) 2 + γ N s k=1 α (k) i 2 , (18)
+where γ is a positive constant with a small value such as 1.0 × 10 −5 .The optimization problem (18) reduces to simultaneous linear equations with respect to α
+(k) i (k = 1, 2, ..., N s ).
+
+Scaling
+
+Design variables and objective functions are scaled according to the following equations, respectively:
+X j = x j − x L j x U j − x L j • s, (19)F i = − s 2 + f i − min k f i (x (k) ) max k f i (x (k) ) − min k f i (x (k) ) • s, (20)
+where x U j and x L j are the upper and lower bounds of each design variable, respectively.Scaling factor s can be determined according to the adaptive scaling method (Kitayama et al. 2011) so that the minimum basis function radius, min k r (k) , becomes equal to or larger than 1.
+
+
+Satisficing trade-off method
+
+Our multiobjective optimization problem can be formulated with STOM (Nakayama and Sawaragi 1984).In the case when the number of objective functions is N o , first we define w i (i = 1, 2, ..., N o ) as
+w i = 1 f A i − f I i , (21)
+where f I i is the ideal point, and f A i is the aspiration level.The ideal point is a set of objective function values that are difficult to achieve, and the aspiration level is a set of realistically desired objective function values.Then our optimization problem can be formulated as follows:
+Min. max i=1,2,...,N o w i f i (x) − f A i . (22)
+This formulation leads to one of the Pareto solutions.The solution appears on the straight line connecting the ideal point and the aspiration level in the objective function space.In practice, we solve the following optimization problem by introducing an auxiliary variable t and equivalently transforming ( 22) as Nakayama and Sawaragi (1984) proposed:
+Min. t (23a) s.t. w i f i (x) − f A i ≤ t, i = 1, 2, ..., N o . (23b)
+
+ADMM-based mixed-integer nonlinear programming
+
+Since N d (2 in our case) out of N x (4 in our case) original design variables take discrete values, we introduce auxiliary variables z = (z 1 , z 2 , ..., z N d ) and reconstruct the optimization problem by adding the equality constraints to the original problem ( 23) (Kanno and Kitayama 2018) as:
+Min. t (24a) s.t. w i f i (x) − f A i ≤ t, i = 1, 2, ..., N o , (24b)x j = z j ∈ D j , j = 1, 2, ..., N d , (24c)
+where D j is the set of discrete values that x j ( j = 1, 2, ..., N d ) can take.Now the augmented Lagrangian is formulated as
+L ρ ( y, z; λ) =t + δ o ( y) + δ d (z) + N d j=1 λ j (x j − z j ) + N d j=1 ρ 2 (x j − z j ) 2 , (25)
+where y is defined as
+(t, x 1 , x 2 , ..., x N x ) , λ = (λ 1 , λ 2 , ..., λ N d )Lρ ( y, z; v) =t + δ o ( y) + δ d (z) + N d j=1 ρ 2 (x j − z j + v j ) 2 − N d j=1 ρ 2 v j 2 . (26)
+Based on the augmented Lagrangian ( 26), the ADMM iterations are expressed with the iteration number k as follows:
+y k+1 := arg min y Lρ ( y, z k ; v k ), (27)z k+1 := arg min z Lρ ( y k+1 , z; v k ), (28)v k+1 j := v k j + y k+1 j − z k+1 j , j = 1, 2, ..., N d . (29)
+Equation ( 27), the update of y, means that we solve the following optimization problem:
+Min. t + N d j=1 ρ 2 x j − z k j + v k j 2 (30a) s.t. w i f i (x) − f A i ≤ t, i = 1, 2, ..., N o , (30b)
+which is a standard nonlinear programming problem, where all the design variables are treated as continuous variables and there are no discrete constraints.Equation ( 28), the update of z, means that we pick the vector consisting of discrete values z j ∈ D j ( j = 1, 2, ..., N d ) that satisfies Min.
+N d j=1 x k+1 j + v k j − z j 2 . (31)
+We set two convergence conditions for the iterative process ( 27)-( 29): the fluctuations in the values of the original design variables must be small, and the discrete constraints must be sufficiently satisfied.We gradually increase the penalty parameter ρ from a small value in the process of iteration (Kanno and Kitayama 2018).Based on the above, the solution flow for the optimization problem is as shown in Fig. 7.We run this flow multiple times with different initial values.In the flow, y 0 , z 0 , ρ 0 are the initial values, ε 1 , ε 2 are the convergence tolerances, and n 1max , n 2max are the maximum iteration numbers.
+
+
+Optimization results
+
+For the computation in this section, we fix the ideal point and the aspiration level in (21).We set the ideal point
+(− f I 1 , f I 2 ) to (2 [Nm], 0 [W]).
+For the aspiration level, to clarify the trade-off relation between the objective functions we have three variations: standard, torque-oriented, and loss-oriented.We set and (1 [Nm], 10 [W]), respectively.Recall that the feasible domain of the design variables is as shown in Fig. 4 (Sect.2.4).
+(− f A 1 , f A 2 ) to (1 [Nm], 15 [W]), (1.5 [Nm], 15 [W]),
+First, Sect.4.1 shows the preliminary computation results when the design variables are only two discrete variables, with the continuous variables being fixed.Since the Fig. 7 The solution flow for the optimization problem true optimal solution can be found by enumeration for this problem, it is possible to check that the proposed method can find the solution effectively.Next, Sect.4.2 shows the computation results when we treat both discrete and continuous variables as the design variables.The results of the rounding-off method, which rounds the solution obtained by optimizing all design variables as continuous variables to the nearest feasible discrete value, are also shown for comparison.In Sect.4.3, we compare our optimization results with the solutions obtained by existing methods.Finally, in Sect.4.4, we show the test results for other typical types of IPM motor models.
+
+We use JMAG-Designer (JSOL Corporation 2024) for the electromagnetic FEA explained in Sect.3.2.Version 22.0 was used for the computation in Sect.4.1, and Version 23.0 was used for the computation in the following sections.We also use MATLAB R2023a (The MathWorks Inc 2024) built-in function fmincon to solve the continuous optimization problem (30).
+
+
+Optimization of discrete variables only
+
+Here, the continuous design variables (x 3 , x 4 ) are fixed at 21.8 [mm] and 2.5 [mm], respectively.We adopt a standard aspiration level here.Figure 8 and Table 1 show the results when optimization was performed 100 times with 100 different random number seeds used to generate the 9 initial sampling points.Figure 8 is a plot of the objective function values obtained by SAO for each random number seed, and Table 1 summarizes the 100 optimization results.
+
+There are a total of 337 feasible combinations of discrete variables, and Table 2 shows the results of FEA on all of these combinations and arranging the objective function values in ascending order.The minimum value of the objective function is 0.160747, and both the proposed method and the rounding-off method succeeded in finding this minimum value.Both methods terminated with about 12 sampling points.The obtained objective function value on average is the 4th-5th best level for the  proposed method, and the 7th-8th best level for the rounding-off method, indicating that good solutions can be extracted from 337 candidates.The average value and worst value of the objective function obtained by the proposed method are better than the ones obtained by the rounding-off method.Although there is no guarantee that the solution obtained by the proposed method is globally optimal, the above results indicate that the discrete solution search with the proposed method is effective.
+
+
+Optimization of both discrete and continuous variables
+
+In this section, we will optimize continuous variables x 3 and x 4 simultaneously in addition to discrete variables x 1 and x 2 .We show the optimization results obtained by changing the seeds for random numbers used to generate the 81 initial sampling points in four ways.For each seed, Figs. 9, 10, 11 show the transition of the best objective function value with respect to the number of sampling points.We add sampling points until the proposed method completes 30 SAO iterations.Tables 3, 4, 5 represent the best objective function values.The best solution among all four seeds obtained with the proposed method for each aspiration level is plotted in the objective function space in Fig. 12.
+
+From the obtained results, we can observe the followings.
+
+• The objective function value is improved by treating the continuous variables as the design variables in addition to the discrete variables (see Tables 2 and 3).
+
+
+Fig. 12
+
+The best solution by the proposed method in the objective function space
+
+• The proposed method tends to improve the objective function value with fewer sampling points than the rounding-off method (see Figs. 9, 10, 11).• The proposed method tends to obtain better objective function values than the rounding-off method (see Tables 3-5).• The solution obtained by the proposed method reflects the designer's intention.
+
+In other words, in the objective function space, the solution is on the straight line called "target" connecting the ideal point and the aspiration level point (see Fig. 12).
+
+We discuss why the proposed method tends to show better performance than the rounding-off method.We focus on the SAO iteration that yields the best objective function value.In Fig. 13, the label "solution" corresponds to the plot of torque versus iron loss obtained by substituting the solution obtained during this SAO iteration into the RBF network approximation Eq. ( 15).The plots for the proposed method are clustered on the target straight line connecting the ideal point and the aspiration level.In contrast, the plots for the rounding-off method are scattered around the target straight line.In the proposed method, the solution to the optimization problem ( 23) is searched for while considering discrete constraints, so it is possible to solve (23) more accurately.In Fig. 13, the label "best" corresponds to the point where the objective function value of the optimization problem ( 23) is the smallest after we re-evaluate the torque and the iron loss using FEA instead of the RBF networks.The "best" point is located in the lower right direction compared to the initial sampling point group "initial," confirming that a good solution has been obtained through optimization.Since the "best" point is on the target line, the approximation accuracy of the RBF networks is considered to be high near the solution that minimizes the objective function.To confirm this, Fig. 14 plots the objective function values of the optimization problem (23) before and after the torque and the iron loss are re-evaluated by FEA.We can see that in the proposed method, the approximation accuracy of the RBF networks is high when the objective function value re-evaluated by FEA is minimal.Additionally, the objective function values evaluated using the RBF networks tend to be low, indicating that the optimization process works well.On the other hand, in the rounding-off method, let us focus on the lower left part of the graph.When we re-evaluate the torque and iron loss by FEA, we can see in some cases that the objective function value is accidentally improved (at seeds 1 and 4) and then the best objective function value is obtained.
+
+
+Comparison with existing methods
+
+We compare the performance of the proposed approach with two other existing algorithms: a genetic algorithm (GA) (Deep et al. 2009) and a mesh adaptive direct search (MADS) algorithm (Audet and Dennis 2006).We run built-in function ga in MAT-LAB R2023a (The MathWorks Inc 2024) for GA, and NOMAD 4.4.0 (Audet et al. 2022) for MADS.
+
+Figure 15 shows the transition of the best objective function value with respect to the number of sampling points.We add sampling points until the proposed method with random number seed 1 completes 30 SAO iterations.We have three results for GA with different random number seeds and two results for NOMAD with two different initial points: the first and the best initial sampling point for the proposed method.Table 6 shows the best objective function value obtained by each method.For the proposed method and the rounding-off method, the worst results from four different random number seeds are listed.
+
+From Fig. 15 and Table 6, we can confirm that the proposed method finds better solutions with limited number of sampling points.
+
+
+Optimization with other IPM motor models
+
+There are typical rotor magnet arrangements for IPM motors such as V-shaped arrangement and ∇-shaped arrangement shown in Fig. 16 in addition to the I-shaped arrangement shown in Fig. 1.We also performed optimization calculations for the rotor shapes shown in Fig. 16.By setting a dependency between the dimensions of multiple magnets, the number of continuous design variables for the magnet dimensions remains two, as before.
+
+We add sampling points until the proposed method completes 30 SAO iterations.Tables 7 and 8 show the best objective function value obtained by each method.As with the case of the I-shaped magnet arrangement, we can confirm that the proposed method finds better solutions with limited number of sampling points.
+
+
+Conclusions
+
+To solve mixed-variable multi-objective optimization problems that appear when the design space of IPM motors is wide, we developed a method that combines surrogate optimization and an ADMM-based heuristic approach.We confirmed that the proposed method tends to solve optimization problems accurately while considering discrete constraints on design variables.Compared to the rounding of continuous variables to the nearest discrete values, we confirmed that the proposed method tends to obtain better objective function values with fewer sampling points.
+
+In the present study, the number of design variables is limited to 4 in total, and the variety of objective functions is limited to average torque and iron loss.In the future work, to tackle more practical design problems, we would like to focus on the cases where the number of design variables is larger or when additional objective functions such as torque ripple are included.
+
+Fig. 1
+1
+Fig.1The IPM motor, our design target
+
+
+Fig. 2
+2
+Fig. 2 Example of changing the number of slots: three slots and twenty-four slots
+
+
+Fig. 5
+5
+Fig. 5 Procedure of surrogate-based SAO we use
+
+
+Fig. 6
+6
+Fig. 6 Example of initial sampling point placement
+
+
+Fig. 8
+8
+Fig. 8 Results when optimizing only discrete variables
+
+
+Fig. 9
+9
+Fig.9Results when optimizing both discrete and continuous variables (standard aspiration level)
+
+
+Fig. 11
+11
+Fig. 11Results when optimizing both discrete and continuous variables (torque-oriented aspiration level)
+
+
+Fig. 13
+13
+Fig. 13 Solution plot in the objective function space
+
+
+Fig. 14
+14
+Fig. 14 Approximation accuracy of the objective function by the RBF networks
+
+
+Fig. 15
+15
+Fig. 15 Comparison of best objective transitions between methods
+
+
+Fig. 16
+16
+Fig. 16 Some other typical rotor magnet configurations
+
+
+
+
+is the Lagrange multiplier, ρ > 0 is the penalty parameter, δ o and δ d are the functions that take +∞ or 0. The function δ o takes +∞ if the constraint (24b) is not satisfied, otherwise it takes 0. The function δ d takes +∞ if there exists j such that z j / ∈ D j , otherwise it takes 0. By setting v = λ/ρ, we can derive the following scaled form(Boyd et al. 2010):
+
+
+Table 1
+1
+Summary of results when optimizing only discrete variables
+Proposed methodRounding-off methodObjective (best)0.1607470.160747Objective (worst)0.2121170.221683Objective (average)0.1812490.183293Number of sampling points (average)12.112.2Table 2 Objective function values for all feasible designRankObjectivevariable sets sorted in ascending order1 . . .0.160747 . . .40.17794050.18187660.18200970.18236780.184024. . .. . .
+
+Table 3
+3Best objective function value (standard aspiration level)SeedObjective Proposed methodRounding-off method1−0.143592−0.1438132−0.143477−0.1402153−0.145207−0.1418344−0.146067−0.144234Average−0.144586−0.142524Table 4 Best objective function value (loss-oriented aspiration level)SeedObjective Proposed methodRounding-off method10.0989620.10113720.0993850.09965430.0994980.10009840.0994430.102735Average0.0993220.100906Table 5 Best objective function value (torque-oriented aspiration level)SeedObjective Proposed methodRounding-off method10.0088970.01407920.0136730.01670730.0121800.01516040.0114130.014897Average0.0115410.015211
+
+Table 6
+6
+Comparison of best objective between methods
+Aspiration levelMethodProposedRounding-offStandard−0.143477−0.140215Loss-oriented0.0994980.102735Torque-oriented0.0136730.016707Aspiration levelMethodGA-1GA-2GA-3NOMAD-1NOMAD-2Standard−0.127016−0.133936−0.134788−0.130076−0.140174Loss-oriented0.1122580.1218660.1076600.2090230.100067Torque-oriented0.0185500.0175040.0226250.0821340.013818
+
+Table 7
+7
+Best objective (V-shaped magnet configuration)
+Aspiration levelMethodProposedRounding-offGANOMADStandard−0.227011−0.207880−0.203699−0.144754Loss-oriented0.0169610.0214580.0701410.051628Torque-oriented−0.107060−0.096899−0.0774290.008673
+
+Table 8
+8
+Best objective (∇-shaped magnet configuration)
+Aspiration levelMethodProposedRounding-offGANOMADStandard−0.208045−0.207187−0.196246−0.081462Loss-oriented0.0530770.0740940.0948250.054599Torque-oriented−0.064176−0.0635290.0078940.013711
+Although f i is denoted by the same symbol f as f(n)  in equation (14), the reader should not confuse them.
+AcknowledgementsThe first author gratefully acknowledge partial financial support from JSOL Corporation.Availability of data and materialsThe example design problem data are available upon request for research purposes.Author Contributions T. A. formulated the problems, developed and implemented the algorithm, conducted the numerical experiments, and wrote the manuscript.Y. K. supervised the research and reviewed the manuscript.Funding Open Access funding provided by The University of Tokyo.The work of the first author is partially supported by JSOL Corporation.The work of the second author is partially supported by JSPS KAKENHI JP24K07747.DeclarationsEthics approval and consent to participate Not applicable.Consent for publication Not applicable.Competing interestsThe authors have no conflict of interest to declare that are relevant to the content of this article.Open Access This article is licensed under a Creative Commons Attribution 4.0 International License, which permits use, sharing, adaptation, distribution and reproduction in any medium or format, as long as you give appropriate credit to the original author(s) and the source, provide a link to the Creative Commons licence, and indicate if changes were made.The images or other third party material in this article are included in the article's Creative Commons licence, unless indicated otherwise in a credit line to the material.If material is not included in the article's Creative Commons licence and your intended use is not permitted by statutory regulation or exceeds the permitted use, you will need to obtain permission directly from the copyright holder.To view a copy of this licence, visit http://creativecommons.org/licenses/by/4.0/.Publisher's Note Springer Nature remains neutral with regard to jurisdictional claims in published maps and institutional affiliations.
+Mesh adaptive direct search algorithms for constrained optimization. C Audet, J E DennisJr, 10.1137/040603371SIAM J Optim. 1712006
+
+Algorithm 1027: NOMAD version 4: nonlinear optimization with the MADS algorithm. C Audet, S Le Digabel, V R Montplaisir, C Tribes, 10.1145/3544489ACM Trans Math Softw. 483352022
+
+Distributed optimization and statistical learning via the alternating direction method of multipliers. N Bianchi, S Parikh, N Chu, E Peleato, B Eckstein, J , 10.1561/2200000016Found Trends Mach Learn. 312005. 2010CRC PressElectrical machine analysis using finite elements
+
+Design and performance comparison of fractional slot concentrated winding spoke type synchronous motors with different slot-pole combinations. E Carraro, N Bianchi, S Zhang, M Koch, 10.1109/TIA.2018.2807382IEEE Trans Ind Appl. 5432018
+
+A solution method for mixed-variable constrained blackbox optimization problems. M A Dahito, L Genest, A Maddaloni, J Neto, 10.1007/s11081-023-09874-0Optim Eng. 252024
+
+A real coded genetic algorithm for solving integer and mixed integer optimization problems. K Deep, K P Singh, M L Kansal, C Mohan, 10.1016/j.amc.2009.02.044Appl Math Comput. 21222009
+
+Estimation of stray losses of skewed rotor induction motors using coupled 2-D and 3-D time stepping finite element methods. B S Guru, H R Hiziroglu, Sl, W N Fu, H C Wong, 10.1109/20.717726IEEE Trans Magn. 3452001. 1998Oxford University PressElectric machinery and transformers
+
+Local force calculation in 3D FEM with edge elements. A Kameari, Int J Appl Electromagn Mater. 31993
+
+Alternating direction method of multipliers as a simple effective heuristic for mixed-integer nonlinear optimization. Y Kanno, S Kitayama, 10.1007/s00158-018-1946-yStruct Multidiscip Optim. 5832018
+
+Surrogate-based optimization for mixed-integer nonlinear problems. S H Kim, F Boukouvala, 10.1016/j.compchemeng.2020.106847Comput Chem Eng. 1401068472020
+
+Sequential approximate optimization using radial basis function network for engineering optimization. S Kitayama, M Arakawa, K Yamazaki, 10.1007/s11081-010-9118-yOptim Eng. 1242011
+
+Multiobjective optimization of induction machines including mixed variables and noise minimization. Le Besnerais, J Lanfranchi, V Hecquet, M Brochet, P , 10.1109/TMAG.2007.916173IEEE Trans Magn. 4462008
+
+Iron loss calculation for synchronous reluctance machines. F Leonardi, T Matsuo, T A Lipo, 10.1109/PEDES.1996.539557Proceedings of international conference on power electronics, drives and energy systems for industrial growth. international conference on power electronics, drives and energy systems for industrial growth1996
+
+Derivative-free methods for mixed-integer constrained optimization problems. G Liuzzi, S Lucidi, F Rinaldi, 10.1007/s10957-014-0617-4J Optim Theory Appl. 16432015
+
+MISO: mixed-integer surrogate optimization framework. J Müller, 10.1007/s11081-015-9281-2Optim Eng. 172016
+
+Satisficing trade-off method for multiobjective programming. H Nakayama, Y Sawaragi, Interactive decision analysis. M Grauer, A P Wierzbicki, Berlin, HeidelbergSpringer1984229Lecture notes in economics and mathematical systems
+
+Sequential approximate multiobjective optimization using computational intelligence. H Nakayama, Y Yun, M ; Yoon, Springer, Heidelberg Berlin, T P Papalexopoulos, C Tjandraatmadja, R Anderson, J P Vielma, D Belanger, Proceedings of the 39th international conference on machine learning. the 39th international conference on machine learning2009. 2022162Constrained discrete black-box optimization using mixed-integer programming
+
+Multi-objective optimization applied to the matching of a specified torque-speed curve for an internal permanent magnet motor. S Ray, D A Lowther, 10.1109/TMAG.2009.2012694IEEE Trans Magn. 4532009
+
+Evaluation and analysis of iron losses in electrical machines using the rain-flow method. N Sadowski, M Lajoie-Mazenc, Jpa Bastos, Ferreira Da Luz, M V Kuo-Peng, P , 10.1109/20.877823IEEE Trans Magn. 3642000
+
+Multi-objective automatic design of permanent magnet motor using Monte Carlo tree search. S J Salon, 10.1109/TMAG.2023.3254510IEEE Trans Magn. 59582013041995. 2023Norwell Sato H, Igarashi HFinite element analysis of electrical machines
+
+Taking the human out of the loop: a review of Bayesian optimization. B Shahriari, K Swersky, Z Wang, R P Adams, N De Freitas, 10.1109/JPROC.2015.2494218Proc IEEE. 10412016
+
+Automated multi-objective design optimization of PM AC machines using computationally efficient FEA and differential evolution. P P Silvester, R L Ferrari, G Y Sizov, P Zhang, D M Ionel, Nao Demerdash, M Rosu, 10.1109/TIA.2013.2261791IEEE Trans Ind Appl. 4951996. 2013Cambridge University PressFinite elements for electrical engineers
+
+Multiobjective optimization of IPMSM with FSCW applying rotor notch design for torque performance improvement. K Sun, S Tian, 10.1109/TMAG.2022.3155269IEEE Trans Magn. 58581049092022
+
+Torque and efficiency calculation of an interior permanent magnet motor considering harmonic iron losses of both the stator and rotor. K Yamazaki, 10.1109/TMAG.2003.810515IEEE Trans Magn. 3932003

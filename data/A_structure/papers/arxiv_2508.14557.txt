@@ -1,0 +1,436 @@
+Improving OCR using internal document redundancy
+20 Aug 2025
+
+Diego Belzarena 
+Université Paris-Saclay
+ENS Paris-Saclay
+Centre BorelliGif-sur-YvetteFrance
+
+Facultad de Ingenería
+IIE
+Universidad de la República
+Uruguay
+
+Seginus Mowlavi 
+Université Paris-Saclay
+ENS Paris-Saclay
+Centre BorelliGif-sur-YvetteFrance
+
+Aitor Artola 
+City University of Hong Kong
+Kowloon, Hong Kong
+
+Camilo Mariño 
+Université Paris-Saclay
+ENS Paris-Saclay
+Centre BorelliGif-sur-YvetteFrance
+
+Facultad de Ingenería
+IIE
+Universidad de la República
+Uruguay
+
+Marina Gardella 
+Université Paris-Saclay
+ENS Paris-Saclay
+Centre BorelliGif-sur-YvetteFrance
+
+Ignacio Ramírez 
+Facultad de Ingenería
+IIE
+Universidad de la República
+Uruguay
+
+Antoine Tadros 
+Université Paris-Saclay
+ENS Paris-Saclay
+Centre BorelliGif-sur-YvetteFrance
+
+Determinant France
+ParisFrance
+
+Roy He 
+City University of Hong Kong
+Kowloon, Hong Kong
+
+Natalia Bottaioli 
+Université Paris-Saclay
+ENS Paris-Saclay
+Centre BorelliGif-sur-YvetteFrance
+
+Boshra Rajaei 
+Sadjad University
+MashhadIran
+
+Gregory Randall 
+Facultad de Ingenería
+IIE
+Universidad de la República
+Uruguay
+
+Jean-Michel Morel 
+City University of Hong Kong
+Kowloon, Hong Kong
+
+Improving OCR using internal document redundancy
+20 Aug 2025FF73002A18C7F70917E35F736A6ECE63arXiv:2508.14557v1[cs.CV]
+Current OCR systems are based on deep learning models trained on large amounts of data.Although they have shown some ability to generalize to unseen data, especially in detection tasks, they can struggle with recognizing low-quality data.This is particularly evident for printed documents, where intra-domain data variability is typically low, but inter-domain data variability is high.In that context, current OCR methods do not fully exploit each document's redundancy.We propose an unsupervised method by leveraging the redundancy of character shapes within a document to correct imperfect outputs of a given OCR system and suggest better clustering.To this aim, we introduce an extended Gaussian Mixture Model (GMM) by alternating an Expectation-Maximization (EM) algorithm with an intra-cluster realignment process and normality statistical testing.We demonstrate improvements in documents with various levels of degradation, including recovered Uruguayan military archives and 17th to mid-20th century European newspapers.⋆ D. Belzarena and S. Mowlavi contributed equally to this work.
+
+Introduction
+
+Optical Character Recognition (OCR) is an important problem in computer vision, and it has practical applications in various fields, such as the humanities and computational linguistics.This challenging task has been key to promoting far-reaching discoveries [19].
+
+A major technical hurdle hampering OCR performance is that the current deep learning technology does not detect errors.We argue that these errors can be avoided or corrected by exploiting the currently overlooked internal document redundancy.Redundancy refers to consistently using the same languages and fonts, and the image quality within similar documents.
+
+At the heart of its difficulty lies the fact that OCR systems typically need to run at the word or line granularity level, using Hidden Markov Model [13],
+
+Connectionist Temporal Classification [15], or Transformer [30] decoders.These systems output text strings without precisely localizing individual characters, bypassing the character segmentation issue, which has proven to be very difficult since the days of rule-based OCR algorithms [29].Successful applications of Convolutional Neural Networks (CNN) to image classification [18] and segmentation [27] have traded their unprecedented power with a new barrier to character segmentation: they rely on annotated data, which are prohibitively costly to produce at the character level.Meanwhile, abundant research has integrated CNNs into word or line-level methods to tackle the challenging handwriting settings [4] and scene texts [21].Since then, deep learning has remained at the forefront of OCR technology, with the Transformer architecture unlocking coarser granularity (paragraph, entire image) for greater versatility [9].
+
+Consequently, the philosophy on generalizability has moved toward acquiring and increasing training data [31]: shapes in new input images are recognized by their similarity to learned patterns, not by comparing them to patterns emerging within the input data.Notably, the generalization power is hardly interpretable, and even state-of-the-art models can fail without warning in unforeseen situations, hindering trust in the outputs.This approach remains as advances in OCR trickle down to the classical setting of printed text.Here, we make the case for exploiting the inherent redundancy among character shapes.Our contributions can be summarized as follows:
+
+-We propose improving OCR results by normalizing cropped character images and clustering them according to an extended Gaussian Mixture Model (GMM), where iterative sample image registration steps and cluster normality tests refine clusters.This method, built on general principles, learns the shapes of characters in a document without supervision, yielding easily interpretable outputs.-We implement a proof-of-concept and conduct experiments on historical printed and typewritten documents.The code is publicly available at https: //github.com/seginusmowlavi/ocr-using-shape-redundancy.Our results show that existing approaches under-use the internal redundancy of documents.-Some of our experiments are performed on a new annotated dataset of typewritten documents from real archives in a wide range of preservation quality.The dataset is publicly available at https://github.com/camilomarino/ocr_berrutti_dataset.
+
+Throughout the paper, we frequently use the terms "symbol", "glyph", and "character", whose general meaning can be ambiguous.In our usage, a symbol designates a basic unit of text (letter, punctuation sign, etc., except space); a glyph is an abstract graphic representation of a symbol (different typefaces and fonts produce different glyphs of the same symbol).A character is the realization of a glyph as a digital image.Therefore, character recognition is viewed as an image classification problem: characters are the input data, and symbols are the output labels.We make one exception for the Character Error Rate (CER) metric, which counts symbol errors according to our terminology but is an already established term.
+
+
+Related work
+
+Document redundancy Document redundancy, namely the repetition of characters in an almost identical printed form, has been considered in the computer vision era preceding deep learning.For example, Kopec and Lomelin [17] use a two-phase iterative training algorithm alternating between a transcription alignment and an aligned template estimation step at each iteration.The latter step involves assigning template pixel colors to maximize the likelihood.This enables the visualization of transcription errors and printing font generation.Both goals remain valid today.More recently, Siglidis et al .[28] have proposed learning to reconstruct images to discover the underlying glyphs, but their method does not provide a stochastic analysis of character variability.
+
+Character-level OCR To bypass the cost of annotating data at the character granularity level, CharNet [32] and CRAFT [1] devise an iterative weakly supervised training scheme where the network-in-training itself performs annotations.To our knowledge, this approach has not been further explored.Other works sidestep the problem with generative approaches by learning a model of characters' image formation, with [3] or without [28] guidance from a language model.
+
+
+Post-OCR correction and globality
+
+Traditional OCR systems make limited or no use of available prior information from the language they are transcribing.Therefore, a large body of work has been dedicated to the so called "post-OCR correction" task [23,26], where language models are used to fix OCR outputs.The recent development of attention mechanisms in OCR architectures has implicitly or explicitly integrated language modeling in an end-to-end fashion, enabling the OCR to process inputs globally at the scale of the document [9,20].Even though attention has been demonstrated to use global textual information within a document [5,8], whether it leverages the document's visual redundancy is yet to be substantiated.The experiments presented in this paper suggest that visual redundancy is under-used.A post-processing approach that exploits this visual information would be suitable to address this issue and would offer complementarity with the existing NLP-based post-OCR correction.
+
+
+Correcting OCR with character image clustering
+
+We propose a simple method to improve the output of any OCR algorithm (which we call the base OCR) by clustering character images.The clusters' empirical mean and covariance provide a model for each glyph.Accurate clustering enables error correction by the rule of majority, based on the assumption that the base OCR has a higher-than-random recognition performance when restricted to any subset of the alphabet.Note that the end goal is correcting labeling errors and not clustering for its sake, so we can, for example, allow our clusters to oversegment the set of images (i.e.partition the set into more clusters than needed).
+
+Our method is meant to be applied to any large enough series of images of printed or typewritten documents from a typographically consistent source, such as books, newspapers, or archives.It is based on the hypothesis that characters of the same symbol, typeface, and font (i.e.occurrences of the same glyph) follow a Gaussian distribution.We make this assumption in the image space, consequently our method does not require transforming the images into any feature space, easing the visual interpretability of the results.
+
+However, this Gaussianity assumption relies strongly on the correct alignment of the samples between themselves.In this setting, image alignment poses somewhat of a chicken-and-egg problem: alignment can be performed by registering similar images, but this assumes that they have already been correctly clustered.Conversely, one cannot hope to cluster the image space without some previous image alignment.We tackle this challenge by proceeding in three steps.First, all character images of fixed dimension are extracted using the bounding boxes predicted by the OCR, and roughly aligned (registered).Then, they are clustered following a Gaussian Mixture Model.Finally, each cluster is iteratively registered, tested and divided into sub-clusters if it fails a Gaussianity test.
+
+The following Sections 3.1 to 3.3 provide more details about the above steps, while Section 3.4 explains the process of correcting character recognition errors from the clustering result.
+
+
+Character bounding-box pre-processing and image standardization
+
+The first step is to convert the base OCR's character bounding boxes into standardized images.The naive way of cropping and resizing to fixed dimensions H × W would make each character's perceived size dependent on the tightness of the bounding box.Instead, we pad each crop to match the dimensions H ×W , only down-scaling bigger crops by a discrete factor (a power of a fixed parameter s > 1) as needed.We choose the size of padding margins so that the resulting image, seen as a distribution of mass (with mass at blacks, no mass at whites) have their barycenter at coordinates (W/2, H/2).Additionally, we perform radiometric and geometric pre-processing before cropping.Radiometric pre-processing tackles the issue of background discontinuity when padding, as the crops' background can be non-uniformly gray and noisy.We remove the background by threshold masking, and use Poisson editing [24] to make the text blend seamlessly with the new white background.Geometric pre-processing aims at correcting the bounding boxes, as they can be too tight (cutting away pieces of characters) or too loose (including fragments of neighboring characters).We use a procedure involving minimal cost paths [10] to find the outline of characters, outputting precise masks to be used in conjunction with cropping.Both pre-processing algorithms, which do not involve learning and are easily interpretable, are detailed in the supplementary material.
+
+
+GMM clustering
+
+To speed up computation, images are projected from R H×W to a D-dimensional space by principal component analysis (PCA), where D is chosen so that the Fig. 1: Cluster means after applying a GMM to all preprocessed character images of the Berrutti OCR collection extracted by CharNet, here with K = 300 clusters.Clusters where more than 90% of samples have the same predicted label are painted green.The clusters are sorted in increasing order of total variance (the trace of the covariance matrix).We observe that some cluster means blend two or more glyphs, especially in the mosaic's lower portion.
+
+selected dimensions retain a given fraction q variance of the total variance, i.e. the sum of the eigenvalues of the global covariance matrix along each dimension.
+
+The GMM model in R D is initialized with a preset number K of components using the k-means algorithm, and further adjusted using the Expectation-Maximization (EM) algorithm on the projected images.Covariance matrices are estimated using Oracle Approximating Shrinkage (OAS) [7] to better handle clusters with few samples, which is important given that symbol frequencies are expected to follow Zipf's law [25].After each M step of the EM algorithm, components with at most one sample are ignored, so the resulting number of components in the GMM is C ≤ K.The parameters of the components are not saved for later stages of the method, as only the clustering matters here.
+
+
+Cluster refinement as a binary tree
+
+Figure 1 shows the means of the GMM components after applying the EM algorithm.Closely examining these means indicates that some of the corresponding elements are multi-modal, blending in more than one glyph.We propose an algorithm to split such multi-modal components into uni-modal ones so that all the components in the final model are uni-modal and fit the Gaussian assumption; thus, samples can be unambiguously registered to their means.
+
+This algorithm (for which we provide a pseudo-code implementation in the supplementary material), starts from each component of the GMM and builds a binary tree of sub-clusters.At each node, images are registered to the cluster mean using a single-scale Inverse Compositional Algorithm (ICA) [2,6].The resulting set of registered images is then tested for normality.We experimentally observed that the multi-modal nature of composite clusters tends to appear in the first principal components.Accordingly, a fixed number k of principal components are kept and are given a p-value from their Anderson-Darling normality statistic [12, §4.8.1].If any of those does not pass a threshold p thr , the node is split into two children by fitting a two-component GMM.
+
+Trees are grown from each cluster until all leaves pass the Gaussianity test.To ensure the significance of the statistical testing, leaves that have fewer than n min elements are discarded; the others are taken as the final clusters.Note that those clusters, therefore, do not strictly make up a partition of the set of samples; however, as experimentally shown in Section 5, they concern the vast majority of samples, including a significant number incorrectly recognized by the base OCR.
+
+Figure 2 summarizes this procedure on a bimodal cluster produced by the global GMM of step 3.2 (with modes 'b' and 'h'), resulting in a simple tree with two leaves.Note the proximity of the two modes when considered among all the GMM-processed images, which the global PCA can exacerbate.Performing a PCA solely on this cluster shows how the first principal component discriminates 'b' images from the 'h' ones (Fig. 2d).This can be observed in the first eigenvector of the cluster covariance matrix (corresponding to the first principal component), which appears to be the difference between the "h" and "b" means (Fig. 2c).
+
+
+Correcting OCR errors
+
+The previous steps produced clusters of characters representing the same glyph.We use this information to correct the base OCR's recognition outputs according to the "super-majority wins over minority" principle.Specifically, for each cluster, we consider the predictions of the OCR (a symbol for each character) and their apparition frequency.We then replace each symbol by the one with the highest frequency (minority replaced by relative majority), provided that this frequency is higher than a preset threshold (super-majority needed) f thr ; otherwise, we do not override the OCR's prediction for the cluster.A pseudo-code implementation is provided in the supplementary material.
+
+The following reasoning motivates this procedure.Assuming the base OCR is consistently better than a random guess, a uni-modal cluster would theoretically be correctly labeled by a majority vote.In practice, the clustering is imperfect, and a few clusters remain aggregations of images of different glyphs.Fortunately, the existing OCR systems are significantly better than random guesses, allowing us to filter out presumably bad clusters by requiring a super-majority.
+
+
+Experimental setup
+
+
+Overview
+
+Here we present evidence that glyph image models can be learned from a large enough collection of documents from the same printing process.We show that this can improve the results of OCR systems, with the additional advantage of explaining each recognition.We shall, therefore, perform our experiments on datasets that satisfy the following criteria:
+
+-Domain-wise, the dataset should consist of images of printed (or typewritten) text, which are partitioned into sub-collections of pictures from the same or similar printing sources.-Granularity-wise, the data and their annotation should allow for a straightforward evaluation process.Ideally, annotations should be at the character level to use a classification or object detection metric.To our knowledge, no dataset meets this requirement.Instead, we work with datasets where images show a single line of text, with their annotation being the ground-truth transcription; then, the sequential layout of the text in such images allows for the character-level output to be unambiguously assembled as a string which can then be evaluated using the standard CER metric.
+
+The first criterion provides the setting where we claim an improvement, and the second makes evaluating our claim possible.We use two datasets meeting these criteria (see details in Sec.4.2).A unified evaluation protocol is laid out in Section 4.3.
+
+
+Datasets
+
+Berrutti OCR collection We use lines extracted from a subset of documents of the Berrutti Archive, a set of scans of typewritten documents from the dictatorship that ruled Uruguay between 1973 and 1985 [16].The original documents were microfilmed and maintained for decades in boxes until the Minister of Defense Azucena Berrutti discovered them in 2006 (hence the name).The microfilm rolls were scanned, producing more than 2 million images.A group of 175 images that comply with the Uruguayan law on protecting personal data was selected to represent the type and quality of the documents in the Berrutti Archive.The documents were preprocessed with noise reduction and alignment steps.At least one human expert manually corrected the Tesseract OCR output to produce ground truth transcriptions.Then, a human expert manually annotated the lines in each document using the VGG Image Annotator tool [11].The bounding boxes of these lines were then used to produce cropped images of each text line.Each document was manually classified into one of three categories-high, medium, and low quality-according to a subjective appreciation of how challenging the automatic transcription of the document is.This subjective classification was consistent with the performance of several OCR methods when applied to those collections (see the detailed results in the supplementary material).The three resulting annotated sub-collections are described in Table 1a.The documents in this collection were mainly produced by typewriter machines, which were common at the time, and the most typical problems concern the excess or lack of ink in the tape.Figure 3 shows some examples.This publicly available dataset, in Spanish, is similar to the documents that populated archives in other parts of the continent at that time.It can be found at https://github.com/camilomarino/ocr_berrutti_dataset.
+Sub
+Europeana Newspapers Project The Europeana Newspapers Project (ENP) is a dataset of scans of European newspapers from the 17th to the mid-20th centuries.The data is human-annotated at the paragraph level and includes the line-level output of a commercial OCR engine.We use this information to build a set of annotated cropped images of lines for each document; to mitigate the OCR Fig. 3: Examples of the Berrutti OCR collection images, with typical typewritten artifacts, such as irregular strength due to varying amounts of ink or stroke force and interaction between paper grain and ink diffusion.Other common artifacts are the presence of seals and dirt.engine errors, we automatically filter out lines that do not meet an annotation quality criterion.
+
+For our experiments, we keep a subset of documents from different countries and with a diversity of languages, as described in Table 1b, grouped in subcollections by newspaper issue (title and date).The size of the sub-collections permits the definition of image models for each glyph.As seen in Figure 4, these newspapers use a variety of fonts.Unlike the Berrutti OCR collection, which is formed by mono-space documents produced by typewriter machines, the ENP collection is of printed material.Hence, its documents have varying spaces between words, a fundamental difference between both collections.
+
+
+Evaluation protocol and metrics
+
+For evaluation on a single input line image, each method is asked to output a set of detections D pred , where detection is understood to be a bounding box with its predicted symbol.This is needed to ensure a fair comparison with our proposed post-processing, which acts on the output by correcting D pred .
+
+To score D pred against the ground-truth string s gt using the CER metric, we must reconstruct a string s pred from D pred .This means ordering the elements of D pred .We proceed by sorting the centers of the bounding boxes from left to right along the x-axis.Note that s pred does not include spaces, as we cannot predict their positions trivially from D pred .Thus, spaces are removed from s gt .
+
+Annotations sometimes take advantage of the wealth offered by the Unicode standard.To remove as many unwanted ambiguities as possible, we further standardize s pred and s gt by applying Unicode's Normalization Form C6 and replacing symbols with semantically differing variants (hyphens and quotation marks) with their ASCII counterpart.
+
+Once all these operations are performed, the CER metric is applied:
+CER(s gt , s pred ) = I + D + S length(s gt )(1)
+where I, D, S ∈ Z ≥0 are such that one can transform s gt into s pred using I insertions, D deletions and S substitutions of symbols, for which (1) is minimal.
+
+The resulting protocol differs slightly from what is commonly used in text recognition works because spaces are removed from transcriptions before comparison.This should not be viewed as an issue since the purpose is not to assess absolute OCR quality but to use the CER metric as a proxy to evaluate the performance of our proposed post-processing method on a character basis.
+
+
+Implementation details
+
+We apply our method on two different baseline OCR systems: CharNet [32] (specifically designed at the character level) and Google Cloud Vision's Document OCR [14] (a state-of-the-art commercial engine).The used parameters are: H = 48, W = 32, s = 1.2 (Sec.3.1); q variance = 0.9, K = 700 (Sec.3.2); n min = 20, p thr = P X∼N (0,1) (|X| > 2) ≈ 0.0455, k = 9 (Sec.3.3); and f thr = 0.6 (Sec.3.4).
+
+
+Experiments
+
+We present the outcome of experiments based on the setup detailed in Section 4. While we base our observations on the outputs of the character relabeling step (Sec.3.4), we do not aim to push it as a definitive answer to OCR post-processing.Instead, these results should be taken as evidence of the approach's ability to learn the image models of the glyphs from the image and its explainability, interpretability, and complementarity with existing OCR systems.
+
+
+Quantitative results
+
+
+Table 2a
+
+presents the quantitative results of two reference character-level OCR methods and the effect of the proposed post-processing method.It shows an improvement from the CharNet baseline, shaving more than one percentage point of CER on either Berrutti or ENP.Note that our method is only designed to correct character substitution errors, not insertions nor deletions.Estimating these respectively using S, I, and D of Equation (1) shows that CharNet recognition errors account for around 7.5 (resp.10) percentage points of its error rate on Berrutti (resp.ENP).Hence, one can reasonably conclude that our method achieves more than 1/10th of the maximum theoretical gain.On the other hand, results from the state-of-the-art Google baseline, which has a much better performance than CharNet, show non-negligible increases in CER.For this case, our method introduces more errors than corrections, giving it limited applicability as a fully automated OCR post-processor.This does not undermine the value of our method, as its appeal lies beyond this particular application.
+
+Indeed, a more detailed analysis shows our method's usefulness as a flagging system: it can point out significant blind spots of the Google baseline.This is remarkable in itself, considering the limited information it exploits (only the image modality, and no external training data).More precisely, we know the number N corr characters on which our method corrects the baseline, of which N true are actual corrections and N false are false corrections.The following is a heuristic interpretation of ∆CER:
+−N true + N false N ≈ ∆CER ( := CER(base + ours) − CER(base) ) ,(2)
+where N is the total number of characters in the ground truth.Together with N corr = N true + N false , we can then estimate the correction accuracy
+Acc := N true N corr ≈ 1 2 1 − ∆CER N corr /N(3)
+which we show in Table 2b.It appears that even when applied on Google, our method has statistically significant accuracy, so flagged errors can then be usefully corrected downstream, either by a human or a language model.This demonstrates that there is fundamentally untapped room for improvement in OCR, since even state-of-the art systems under-use the internal redundancy of their inputs, while they rely on training data and language modeling (see Sec. 2): our method, using the former but foregoing the latter two, was able to highlight a statistically significant number of recognition errors of those systems.
+
+Ablation study We investigate the specific effect of the binary tree cluster refinement module of Section 3.3, which is the main novelty of our method.To this end, we ablate it from the pipeline, by running the final OCR error correction module of Section 3.4 directly on the results of the GMM fitting step of Section 3.2.For a fair comparison, we note that the refinement module's main action is to create new clusters by splitting existing ones, but it also discards  3) (heuristic estimation).clusters of insignificant size; therefore we also test a variant of the GMM clustering by similarly discarding the small clusters of the output.All experiments are done across various values for the starting number K components in the GMM.Results are shown in Figure 5 as the numbers of true (resp.false) corrections N true (resp.N false ) as defined in Equation ( 3), rather than as ∆CER, so that we can precisely evaluate the impact of ablated parts.Two observations can be drawn from those results, demonstrating the performance and the robustness of our cluster refinement.
+
+First, the binary tree refinement step has a consistent added value in performance across the board: while it tends to reduce both N false and N true , the former is reduced more than the latter.In other words, the refinement step suggests fewer corrections but keeps more accurate corrections than false ones for an overall positive impact.More precisely, the reduction is more significant for N false than for N true in absolute difference, so that the CER is improved, as well as in relative factor, so that the correction accuracy is improved.Note that the scale of the impact depends on the base OCR, and that the most significant improvements come in the most challenging cases (Google).3), then averaged by dataset (unweighted).The algorithm is run for different values of K, in one of three ablated versions: using the clustering output of the GMM step, using the same output from which small clusters (fewer than n min elements) are discarded, and using the output of the binary tree refinement (i.e.unablated).Second, while the performance of the GMM clustering greatly depends on the parameter K, the downstream performance after cluster refinement does not (except for very large K).This step has a remarkable stabilizing effect.This property is further confirmed when looking at the number of clusters created by the method, and the proportion of characters included in retained clusters, shown in Table 3: whatever the GMM clustering results, the refinement algorithm will split those in a way that leads to a consistent result.This phenomenon starts to break down when K gets too large.This can be explained by most clusters being too small, leading the refinement algorithm to a regime where cluster discarding is predominant.Otherwise, one can conclude that the parameter K can be chosen relatively freely without affecting the quality of the pipeline output, the refinement step being robust enough.
+
+
+Qualitative analysis
+
+In Figure 6 we present notable examples of our method's success and failure cases.They show corrections made by our method on the Google baseline across different dataset documents.We do not claim that these examples represent all the results; instead, they have been selected because they showcase a few phenomena we have observed and thus provide some practical understanding of our method.
+
+In Figure 6a, almost all the highlighted characters have been incorrectly labeled by Google but successfully corrected by our post-processing.We deliberately chose difficult examples: lines 1 and 2 show heavily degraded images.In contrast, lines 2 to 5 display unusual glyphs, particularly lines 4 and 5, using fonts (historical or contemporary) where some glyphs resemble the shape of different symbols in more common fonts.In those cases, the character recognition task is impossible without using context or document-specific prior knowledge.Our method can handle them by acquiring the document-specific knowledge of which characters must be clustered together, i.e. the redundancy of each glyph's occurrence across the document.A detailed inspection of the provided example reveals that they are part of uniform clusters, as desired.Note how the subtle difference between 'o' and 'a' in line 4 is correctly discriminated.At the same time, our method's accurate labeling of the clusters demonstrates that the base OCR system could correctly recognize most, but not all, of the elements of each cluster.This inconsistent success of the base OCR (here, the SOTA Google system) hints at its leveraging of the local textual context or the breadth of its general prior knowledge.Still, it is an empirical proof that it does not use the global context within the document.
+
+Conversely, Figure 6b is an overview of the typical situations where our method fails.Lines 1 and 2 show characters whose image is degraded to become unrecognizable.In those cases, our method tends to aggregate images of different glyphs into the same cluster, which passes all normality tests, probably because the degradations provide more variance than shape differences between glyphs.The highlighted characters in lines 3 to 5 have few occurrences across the document collection.Our method puts them in the wrong cluster, where they are outliers; a visual inspection nonetheless shows that they do look similar to the model of their attributed cluster (in particular, the italics 'fi' ligature is in a cluster of italics 'h', and the 'fl' ligature is in a cluster of 'fi' which are labeled as 'i' by the baseline OCR).Finally, lines 6 and 7 show how our clustering algorithm only see aligned cropped images of characters, hence has no clue about their size or position: uppercase letters can then look identical to their lowercase version, as can apostrophes look identical to commas.Note that these are cases where clustering step is performing correctly.
+
+
+Conclusion
+
+This work explores the following hypothesis on the current state of automatic printed text recognition systems: they rely on geometric patterns identified through huge amounts of training data or language patterns, but under-use the patterns of the geometric redundancy of glyphs internal to any given input document.We test this by developing a method to correct character recognition errors in post-processing, relying solely on internal document geometric redundancy without prior training.Experiments on various data (including a dataset we introduce here, the Berrutti OCR Collection) show that our method, while yet impractical for fully automated post-processing, demonstrates aptitude as a flagging system to detect errors with statistically significant accuracy, hence validating our hypothesis.
+
+Future perspectives.Even as our method's core unsupervised clustering algorithm exhibits robustness and stability properties, experiments point to specific directions to further improve its performance, e.g. by incorporating positional information.Beyond this, our algorithm provides valuable modeling information that opens up new downstream possibilities.For example, while our paper focuses on correcting substitution errors, a combined use of our character models with pattern matching techniques could tackle insertion and deletion errors.In another possible application, post-OCR systems based on stochastic language models can incorporate accurate confidence estimation derived from our model.
+
+We define a target gradient field g ∈ R E by imposing it to be ∇u in the foreground and 0 elsewhere:
+∀e ∈ E, g(e) = ∇u(e) if e ∈ Ω 2 0 otherwise.(4)
+The desired edited image v ∈ R V is then the solution of the following Poisson equation:
+∆v = div(g) inside Ω v = 1 outside Ω(5)
+which is an invertible linear system in R V .Note that formulating the problem on the graph (V, E), instead of choosing discrete differential schemes, seamlessly handles the boundary conditions, using Dirichlet conditions at the boundary Ω except where it meets the edges of the images, where Neumann conditions are used instead.Finally, we change the contrast to keep black levels consistent (Fig. 7e).Indeed, Poisson editing keeps invariant the intensity difference between foreground and background: given two input images u and u ′ whose foregrounds' blacks have the same intensity, if the background's white is grayer for u than for u ′ , then in the Poisson-edited outputs, the blacks will be less intense in v than in v ′ .We remedy this by applying a linear contrast change, mapping to 1 the white intensity 1, and to 0.1 the first decile of non-white intensity values (i.e.strictly lower than 1).Last, the image is clipped to keep intensity values inside [0, 1].
+
+
+A.2 Character bounding-box pre-processing
+
+The other side of our pre-processing concerns the geometry of the detection data: starting from the character bounding boxes produced by the base OCR, we produce fine segmentation masks for precise cropping.We propose a procedure relying on elementary algorithmic bricks, first drawing the upper and lower horizontal boundaries of the text line, then finding the vertical lines separating the characters from one another.It is illustrated in Figure 8.
+
+Before drawing boundary lines, character boxes are have to be clustered into "proto-lines", which are groups of consecutive characters along the same line.The reason for doing this is that input line images sometimes include parts of the previous or following line in the source document, from which the base OCR can detect characters; therefore it would be ideal to segment those detections into lines.We have not achieved a way to reliably do so, hence we relax the problem by allowing over-segmentation, and proceed in the following way.Proto-lines are defined as the connected components of a special binarization of the image.To have the longest possible proto-lines, while keeping different lines from merging, we perform this binarization as such: a 1-D gaussian filter is applied (Fig. 8b), then Otsu thresholding is independently performed on each vertical  slice 7 (Fig. 8c).With the proto-lines defined as mask components, each character bounding box is matched to the proto-line having the biggest intersection (Fig. 8d).The rest of the process runs on each proto-line, which are horizontally cropped (Fig. 8e).
+
+Horizontal upper and lower text boundaries are computed as paths (i.e.sequences of adjacent pixels) minimizing the total cost, for a given cost map (the cost of a path is the sum of individual pixel costs).The cost map is the inverted image (0 for whites and 1 for blacks) to which we add a regularizing "guidance" map.The guidance map is built to push the paths towards the input bounding boxes: it is 0 at the top (resp.bottom) edges of the boxes, it outwardly linearly increases to a chosen value λ h = 0.1 at the top (resp.bottom) edge of the image, and inwardly linearly increases to 3λ h at the halfway points between top and bottom of the boxes (Fig. 8f).Last, the cost map is set to infinity along a horizontal barrier running through the middle of the boxes, to prevent paths from crossing the text.Given this cost map, the minimizing path, among those running from the top-left-most box corner to the top-right-most box corner, is chosen as the upper boundary of all character segmentation masks for the proto-line (and analogously for the lower boundary); see Fig. 8g.
+
+Then, for each character box of the proto-line, vertical (left and right) edges are similarly replaced by a minimizing path: they run from the intersection of the edge and the upper boundary, to that of the edge and lower boundary.As before, the cost map is taken as the sum of the inverted image and of a regularizer map; this time however the regularizer is uniformly set to a value λ v8 .This value sets the rigidity of the path: a lower λ v allows the path to take bigger detours, a higher λ v forces it to be straighter.The correct value is highly dependent on the document.Therefore we set it iteratively: the left and right paths are first computed with λ v = 0.05, and if they are not acceptable, the process is repeated with λ v incremented by δλ v = 0.15; until acceptability, or a number of eight iterations, is reached.Acceptability is defined by the interval between both paths: we require it to be on average within 10% of the box width, and that its biggest deviation be within 1/3 of the box width.At each iteration, besides incrementing λ v , we also shift the positions of the box edges, for exploration in case those edges were incorrectly predicted by the base OCR.The left edge x = l of the current box B is shifted by two pixels towards the closest right edge x = r ′ , among boxes B ′ such that the left edge x = l ′ of B ′ satisfies l ′ ≤ l (and analogously for the right edge); this is based on the principle that if B ′ is the box preceding B, then one should have r ′ = l "in ground truth".
+
+For each character, having computed the left and right vertical paths, we define the mask as the set of pixels lying between those two paths and the upper and lower boundaries of the corresponding proto-line (Figs.8h and 8i).
+
+
+A.3 Pseudo-codes
+
+For maximum clarity, we detail here implementations in pseudo-code of core parts of our method: Algorithm 1 is the radiometric pre-processing (see Sec. 3.1 and App.A.1), Algorithm 2 is the cluster refinement step (Sec.3.3), and Algorithm 3 is the final OCR correction step (Sec.3.4).Not included are pseudo-codes for the GMM clustering (Sec.3.2), which is explicit enough, and for the geometric pre-processing (App.A.2), which has too many minutiae; for the latter we refer the interested reader to our published source code.// Contrast change and clipping 7 q ← first decile of the sample {v(i, j) | (i, j) ∈ V, v(i, j) < 1} 8 v(i, j) ← max min 1 − 0.9 1−v(i,j) 1−q , 1 , 0 for all (i, j) ∈ V 9 return v
+
+
+Algorithm 1: PoissonStandardization
+input : u: image, in [0, 1] V ≃ [0, 1] H×W parameter : d: dilation factor output : v: standardized image, in [0, 1] V // Foreground mask 1 t ← Otsu threshold of u 2 Ω ← {(i, j) ∈ V | u(i, j) ≤ t} 3 for k ← 1 to d do
+
+B Detailed quantitative results
+
+In this section, we expand on the quantitative experiments of Section 5, providing results for each sub-collection.
+
+
+B.1 Performance metrics: ∆CER and correction accuracy
+
+Tables 4 and 5 provide the detailed metrics presented in Table 2, broken down by sub-collection.They support the conclusions drawn in the main paper; we nonetheless note that our method is able to improve on Google in two subcollections (ENP estonian and latvian), for which the latter is shown to struggle: see the last example of Figure 6a.
+:n 1 , u(1) 1
+1:n 2 ← partition of u1:n according to GMM2 on x
+
+
+B.2 Ablation study: GMM clustering
+
+We provide here the detailed experimental data of the ablation study, broken down by sub-collection (and not aggregated by dataset).Figures 9 and 10 correspond to Figure 5, and Table 6 corresponds to Table 3.They generally confirm the observations of the main paper about performance and robustness, except for a few situations (base OCR Google and sub-collections dutch, latvian, finnish, swedish of ENP) where robustness breaks down before K = 2000.
+
+
+Berrutti high
+
+Berrutti medium Berrutti low CharNet Google Fig. 9: N false (resp.−N true ) on the positive (resp.negative) scale, heuristically estimated on each sub-collection of Berrutti as in Equation (3).The algorithm is run for different values of K, in one of three ablated versions: using the clustering output of the GMM step, using the same output from which small clusters (fewer than n min elements) are discarded, and using the output of the binary tree refinement (i.e.unablated).3).The algorithm is run for different values of K, in one of three ablated versions: using the clustering output of the GMM step, using the same output from which small clusters (fewer than n min elements) are discarded, and using the output of the binary tree refinement (i.e.unablated).
+
+Fig. 2 :
+2
+Fig. 2: Cluster with 64% and 36% of 'b' and 'h' images, respectively, through the refinement process.(a) Mean of cluster images.(b) Mean of sub-clusters images after refinement; the refinement perfectly separates the 'b' and the 'h'.(c) First three eigenvectors of the initial (before refinement) cluster's covariance matrix.(d) First three PCA projections; Anderson-Darling testing gives them p-values of 3.0 × 10 −88 , 6.3 × 10 −12 and 2.9 × 10 −2 respectively.
+
+
+Fig. 4 :
+4
+Fig. 4: Examples of the ENP collection.
+
+
+Table 2 :
+2
+(a) CER of the base OCR (resp.∆CER from the base to our correction, where negative values indicate improvement), in %, computed on each sub-collection (as average over lines weighted by line length), then aggregated by dataset (with unweighted average).Shown values indicate the 95% confidence interval obtained by bootstrapping, sub-collection-wise, over 10 4 resamples.(b) Correction accuracy, in %, as defined in Equation (
+
+
+Fig. 5 )Fig. 5 :
+55
+Fig.5: N false (resp.−N true ) on the positive (resp.negative) scale, heuristically estimated on each sub-collection as in Equation (3), then averaged by dataset (unweighted).The algorithm is run for different values of K, in one of three ablated versions: using the clustering output of the GMM step, using the same output from which small clusters (fewer than n min elements) are discarded, and using the output of the binary tree refinement (i.e.unablated).
+
+
+Fig. 6 :
+6
+Fig. 6: Examples of character detections by Google.The predicted labels of drawn bounding boxes are the following: 'Google label' → 'our correction' (with boldface indicating agreement with ground truth).(a) Correct relabels.Line 1: 'e'→'e', 'o'→'e', 'o'→'e', 'o'→'e', 'e'→'e'.Line 2: 'o'→'e'.Line 3: '°'→'.','.'→'.'.Line 4: 'o'→'o', 'o'→'a', 'o'→'a', 'o'→'a'.Line 5: 'j'→'s', 'm'→'w', 'f'→'k', 'j'→'s'.(b) Wrong relabels.Line 1: 's'→'o'.Line 2: 'q'→'e'.Line 3: 'u'→'n', 'v'→'r'.Line 4: 'i'→'h'.Line 5: 'l'→'i'.Line 6: 'C'→'c', 'S'→'s', 'V'→'v', 'X'→'x'.Line 7: '''→',', ','→',', '''→','.
+
+
+
+
+(a) Document extract (from the polish sub-collection of ENP).(b) Inputs: lines (manual segmentation).(c) Foreground masks.(d) Poisson editing results.(e) Contrast-adjusted outputs
+
+
+Fig. 7 :
+7
+Fig. 7: Our Poisson image standardization process illustrated on a few examples.Note how noise, color variations and show-through text are eliminated from the background.
+
+
+4 Ω
+4
+← binary dilation of Ω // Poisson editing 5 g ← target gradient field defined in Equation (4) 6 v ← solution v(u, Ω, g) of Equation(5)
+
+
+
+
+(a) Input line image (from the english sub-collection of ENP).(b) Proto-lines 1/3: horizontal blur.(c) Proto-lines 2/3: binarized result.(d) Proto-lines 3/3: grouping of character boxes (see color version of the paper).(e) Cropped proto-line.(f) Guidance cost map for horizontal paths: dark purple is 0, bright yellow is 0.3.(g) Horizontal paths: upper and lower text boundaries.(h) Final result 1/2: output masks of every other character (for visual clarity).
+
+
+
+
+(i) Final result 2/2: output masks of every other character (for visual clarity).
+
+
+Fig. 8 :
+8
+Fig. 8: Our bounding-box pre-processing pipeline illustrated on an example.The boxes predicted by the base OCR produce an imperfect segmentation of characters (Fig. (e)), which our masks correct (Figs.(h) and (i)).
+
+
+13 return 2 )| , max l |{i∈C k |l i =l}| |C k | 4 if f > f thr then 5 l
+13245
+12 if n1 = 0 or n2 = 0 then // Return self if trivial partition 16 return L1 + L2 Algorithm 3: CorrectingLabelsUsingClusters input : u1:N : list of character images input : l1:N : list of OCR-predicted labels (symbols) input : C1:m: list of clusters (disjoint partition of {1,. . .,N}) parameter : f thr : majority frequency threshold output : l ′ 1:N : list of corrected labels1 l ′ 1:N ← l1:N 2 for k ← 1 to m do 3 l, f ← argmax l |{i∈C k |l i =l}| |C k ′ C k = (l | i ∈ C k ) −0.01±0.05+0.49±0.07+1.12±0.12+0.53±0.05
+
+
+Fig. 10 :
+10
+Fig. 10: N false (resp.−N true ) on the positive (resp.negative) scale, heuristically estimated on each sub-collection of ENP as in Equation (3).The algorithm is run for different values of K, in one of three ablated versions: using the clustering output of the GMM step, using the same output from which small clusters (fewer than n min elements) are discarded, and using the output of the binary tree refinement (i.e.unablated).
+
+
+Table 1 :
+1Sub-collectionLanguage NbL NbC1882/05/03 Alg. Han.Dutch 697 24778-collection NbP NbL NbC1845/09/13 The Exa. 1940/09/09 Postimees Estonian 2426 80645 English 2390 100084Low Quality46 3223 1010481906/12/06 Tur. San.Finnish 520 14546Medium Quality 55 2352 1076331894/12/23 Le Pet. Par. French 2423 78352High Quality74 2987 1351061928/08/04 Ham. Anz. German 789 16896(a)1931/08/27 Jau. Vor. 1939/09/01 Exp. Por.Latvian 583 18375 Polish 2645 696711910/04/17 Åbo Und.Swedish 1671 46137(b)
+(a) Berrutti OCR collection public dataset.(b) Used sub-collections from the ENP dataset with different languages, identified by issue date and abbreviated title.NbP: number of pages, NbL: number of lines, NbC: number of characters.
+
+
+Table 3 :
+3
+Complementary data for the ablation study (see
+
+
+
+
+µ ← i ui/n 4 for i ← 1 to k do 5 ui ← ICA(ui, µ) // Register ui to reference µ with the Inverse Compositional Algorithm (with homothety warp group)
+Algorithm 2: BinaryTreeRefinementinput: u1:n: cluster {u1, . . . , un} ∈ (R H×W ) n of images, of size nparameter : nmin: minimal output cluster sizeparameter : k: number of principal components to undergo normality testparameter : p thr : threshold on p-valuesoutput: L: list of sub-clusters1 if n < nmin then2return [ ]
+3 6 for j ← 1 to k do // Normality tests on k principal components 7 vj ∈ R H×W ← direction of j-th PC of u1:n 8 pj ← Anderson-Darling p-value of (vj • u)1:n 9 if minj pj ≥ p thr then // Return self if normality tests passed 10 return [(u1:n)] 11 u
+
+
+Table 4 :
+4
+(a) CER of the base OCR (resp.∆CER from the base to our correction, where negative values indicate improvement), in %, computed on each sub-collection of Berrutti (as average over lines weighted by line length), then averaged (unweighted).Shown values indicate the 95% confidence interval obtained by bootstrapping, sub-collection-wise, over 10 4 resamples.(b) Correction accuracy, in %, as defined in Equation (3) (heuristic estimation).86±0.16−1.02±0.11−2.40±0.15−1.50±0.26−1.71±0.13−1.56±0.29 −0.67±0.13−1.64±0.13−0.38±0.10−1.30±0.06+0.18±0.07+0.14±0.04−0.32±0.10+0.20±0.13+0.60±0.07+1.20±0.21−0.15±0.11+0.16±0.08 +0.07±0.04+0.23±0.04
+dut.eng.est.fin.fre.ger.lat.pol.swe.allCharNet 13.4±1.326.9±1.638.8±1.032.5±2.621.2±0.848.7±3.020.5±1.231.8±0.820.0±0.728.2±0.5+ ours −0.Google 4.0±0.72.0±0.24.0±0.33.3±0.91.3±0.23.7±0.87.5±0.82.9±0.31.5±0.33.3±0.2+ ours (a)dut.eng.est.fin.fre.ger.lat.pol.swe.allCharNet + ours 78±5.2 80±3.2 81±2.0 77±4.7 73±1.8 71±3.9 76±5.0 70±1.5 58±2.2 74±1.2Google + ours 22±10.5 30±5.7 63±4.0 11±26.0 11±4.8 5±8.0 65±10.7 42±3.9 32±11.1 31±3.8(b)
+
+Table 5 :
+5
+(a) CER of the base OCR (resp.∆CER from the base to our correction, where negative values indicate improvement), in %, computed on each sub-collection of ENP (as average over lines weighted by line length), then averaged (unweighted).Shown values indicate the 95% confidence interval obtained by bootstrapping, sub-collection-wise, over 10 4 resamples.(b) Correction accuracy, in %, as defined in Equation (3) (heuristic estimation).
+
+https://unicode.org/reports/tr15/
+We avoid doing a global Otsu thresholding as we find it to poorly handle cases where text stroke have non-uniform width: bolder words tend to invisibilize the others.
+Contrary to the horizontal case, prior information from the boxes is not used to build the regularizer map, for two reasons. First, inter-character space is narrower than inter-line space, so paths are already more constrained; additional constraints risk overriding too many of the original constraints. Second, the vertical edges predicted by the base OCRs tend to be less reliable.
+Acknowledgments.The research that originated the results presented in this publication was partly supported by the Agencia Nacional de Investigación e Innovación under scholarships POS_EXT_2023_2_180123 and POS_NAC_2024_1_183502, and by the France 2030 CollabNext project.The experiments presented in this paper used ClusterUY[22].Centre Borelli is also a member of Université Paris Cité, CNRS, SSA and INSERM.Supplementary materialThis supplementary material includes additional quantitative results and details on our methods.Appendix A provides a precise description of our method's preprocessing step, as wee as pseudo-code implementations for several key steps.Appendix B provides all quantitative experimental results at the sub-collection granularity, where the main paper only shows numbers aggregated by dataset.A Our method: thorough description and pseudo-code implementationsThis section is complementary to Section 3, providing further explanations of our method for increased reproducibility.Appendices A.1 and A.2 describe our image and bounding-box pre-processing steps respectively.Appendix A.3 contains pseudo-code implementations of several of our proposed algorithms, including the aforementioned pre-processing as well as cluster refinement and final character relabeling.A.1 Poisson image standardizationAt the very beginning of our method, radiometric pre-processing of line images is performed to make the background uniformly white.Consequently, character images can be cropped and padded for downstream steps, without issues of image discontinuity at the crop borders.The process given in Algorithm 1 and illustrated in Figure7.In the following, we assume images to be gray-scale; if not, the three color channels are averaged (Fig.7b).First, a mask encompassing all foreground (text) pixels is created by Otsu thresholding and morphological dilation (Fig.7c).Dilation is carried out repeatedly (five times in our implementation): the masks does not need to be precise, we find that including background pixels is preferable to missing foreground pixels.Then, the image is masked and seamlessly edited onto a white background by Poisson editing (Fig.7d).More precisely, let the image grid be a graph (V, E) where vertices v ∈ V are pixels and edges e = (v 1 , v 2 ) ∈ E are pairs of neighboring pixels (with 4-connectivity, so that interior, border and corner pixels have degree 4, 3 and 2 respectively); edges are oriented so as to flow to the right or to the bottom (positive x-and y-direction).An image (here, of a text line) is a vector u ∈ [0, 1] V (with values 0 for blacks and 1 for whites); the mask computed above defines a subset Ω ⊂ V of vertices.One has the standard linear operators of gradient ∇ : R V → R E , divergence div : R E → R V and Laplacian ∆ : R V → R V ; they are represented by the matrices B, −B ⊤ and −B ⊤ B respectively, where B ∈ M V,E (R) is the incidence matrix of the graph.
+Character region awareness for text detection. Y Baek, B Lee, D Han, S Yun, H Lee, 2019CVPR
+
+Equivalence and efficiency of image alignment algorithms. S Baker, I Matthews, CVPR. 20011
+
+Unsupervised transcription of historical documents. T Berg-Kirkpatrick, G Durrett, D Klein, ACL. 12013
+
+Gated convolutional recurrent neural networks for multilingual handwriting recognition. T Bluche, R Messina, ICDAR.20171
+
+Normalized vs diplomatic annotation: a case study of automatic information extraction from handwritten Uruguayan birth certificates. N Bottaioli, S Tarride, J Anger, S Mowlavi, M Gardella, A Tadros, G Facciolo, R G Von Gioi, C Kermorvant, J M Morel, J Preciozzi, Document Analysis and Recognition (DAR) at ICDAR. 2024
+
+Improvements of the inverse compositional algorithm for parametric motion estimation. T Briand, G Facciolo, J Sánchez, Image Processing On Line. 82018
+
+Shrinkage algorithms for MMSE covariance estimation. Y Chen, A Wiesel, Y C Eldar, A O Hero, TSP. 58102010
+
+End-to-end information extraction in handwritten documents: understanding Paris marriage records from 1880 to 1940. T Constum, L Preel, T Larcher, T Paquet, P Tranouez, S Brée, ICDAR2024
+
+DAN: A segmentation-free document attention network for handwritten document recognition. D Coquenet, C Chatelain, T Paquet, TPAMI. 4572023
+
+A note on two problems in connexion with graphs. E W Dijkstra, Edsger Wybe Dijkstra: his life, work, and legacy. Association for Computing Machinery2022
+
+The VIA annotation software for images, audio and video. A Dutta, A Zisserman, ACM MM2019
+
+Tests for the normal distribution. R B D'agostino, Goodness-of-fit-techniques. Routledge2017
+
+An HMM-based approach for off-line unconstrained handwritten word modeling and recognition. A El-Yacoubi, M Gilloux, R Sabourin, C Y Suen, TPAMI. 2181999
+
+Google Cloud Vision Document OCR, a Python client library. Llc Google, 
+
+A novel connectionist system for unconstrained handwriting recognition. A Graves, M Liwicki, S Fernández, R Bertolami, H Bunke, J Schmidhuber, TPAMI. 3152008
+
+Uruguay: a country study. R A Hudson, S W Meditz, Federal Research Division. 1992Library of Congress
+
+Supervised template estimation for document image decoding. G E Kopec, M Lomelin, TPAMI. 19121997
+
+ImageNet classification with deep convolutional neural networks. A Krizhevsky, I Sutskever, G E Hinton, NeurIPS. vol. 252012
+
+Backpropagation applied to handwritten zip code recognition. Y Le Cun, B Boser, J S Denker, D Henderson, R E Howard, W Hubbard, L D Jackel, Neural Computation. 141989
+
+TrOCR: Transformer-based optical character recognition with pre-trained models. M Li, T Lv, J Chen, L Cui, Y Lu, D Florencio, C Zhang, Z Li, F Wei, AAAI. 37112023
+
+Scene text detection and recognition: the deep learning era. S Long, X He, C Yao, IJCV. 12912021
+
+Cluster-UY: Collaborative scientific high performance computing in Uruguay. S Nesmachnow, S Iturriaga, Torres, M., Klapp, J.2019
+
+Survey of post-OCR processing approaches. T T H Nguyen, A Jatowt, M Coustaty, A Doucet, ACM Computing Surveys (CSUR). 5462021
+
+Poisson image editing. P Pérez, M Gangnet, A Blake, ACM TOG. 2232003
+
+Zipf's word frequency law in natural language: a critical review and future directions. S T Piantadosi, Psychonomic Bulletin & Review. 212014
+
+C Rigaud, A Doucet, M Coustaty, J P Moreux, ICDAR 2019 competition on post-OCR text correction. Icdar, 2019
+
+U-Net: Convolutional networks for biomedical image segmentation. O Ronneberger, P Fischer, T Brox, Medical Image Computing and Computer-Assisted Intervention. 2015MICCAI
+
+The learnable typewriter: a generative approach to text analysis. I Siglidis, N Gonthier, J Gaubil, T Monnier, M Aubry, ICDAR2024
+
+An overview of the Tesseract OCR engine. R Smith, ICDAR. 22007
+
+Attention is all you need. A Vaswani, N Shazeer, N Parmar, J Uszkoreit, L Jones, A N Gomez, Ł Kaiser, I Polosukhin, NeurIPS. vol. 302017
+
+Generalizing to unseen domains via adversarial data augmentation. R Volpi, H Namkoong, O Sener, J C Duchi, V Murino, S Savarese, NeurIPS. vol. 312018
+
+Convolutional character networks. L Xing, Z Tian, W Huang, M R Scott, ICCV2019

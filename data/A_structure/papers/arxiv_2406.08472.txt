@@ -1,0 +1,347 @@
+RILe: Reinforced Imitation Learning
+21 Oct 2024
+
+Mert Albaba balbaba@ethz.ch 
+Max Planck Institute for Intelligent Systems
+
+
+Sammy Christen sammyc@ethz.ch 
+Max Planck Institute for Intelligent Systems
+
+
+Thomas Langarek thomalan@ethz.ch 
+Max Planck Institute for Intelligent Systems
+
+
+Christoph Gebhardt cgebhard@ethz.ch 
+Max Planck Institute for Intelligent Systems
+
+
+Otmar Hilliges otmarh@ethz.ch 
+Max Planck Institute for Intelligent Systems
+
+
+Michael J Black black@tue.mpg.de 
+Max Planck Institute for Intelligent Systems
+
+
+Eth Zürich 
+Max Planck Institute for Intelligent Systems
+
+
+RILe: Reinforced Imitation Learning
+21 Oct 20245CA926A26F53149ED56175B045C271C3arXiv:2406.08472v2[cs.LG]
+Reinforcement Learning has achieved significant success in generating complex behavior but often requires extensive reward function engineering.Adversarial variants of Imitation Learning and Inverse Reinforcement Learning offer an alternative by learning policies from expert demonstrations via a discriminator.However, these methods struggle in complex tasks where randomly sampling expert-like behaviors is challenging.This limitation stems from their reliance on policy-agnostic discriminators, which provide insufficient guidance for agent improvement, especially as task complexity increases and expert behavior becomes more distinct.We introduce RILe (Reinforced Imitation Learning environment), a novel trainer-student system that learns a dynamic reward function based on the student's performance and alignment with expert demonstrations.In RILe, the student learns an action policy while the trainer, using reinforcement learning, continuously updates itself via the discriminator's feedback to optimize the alignment between the student and the expert.The trainer optimizes for long-term cumulative rewards from the discriminator, enabling it to provide nuanced feedback that accounts for the complexity of the task and the student's current capabilities.This approach allows for greater exploration of agent actions by providing graduated feedback rather than binary expert/non-expert classifications.By reducing dependence on policy-agnostic discriminators, RILe enables better performance in complex settings where traditional methods falter, outperforming existing methods by 2x in complex simulated robot-locomotion tasks.
+
+Introduction
+
+Reinforcement Learning (RL) has emerged as a powerful framework for teaching agents to perform complex tasks.In recent years, deep reinforcement learning has demonstrated remarkable success in replicating sophisticated behaviors, including playing Atari games, chess, and Go [1,2].However, these achievements often come at a cost: the tedious and challenging process of designing reward functions, as predicting the policy outcome from a manually crafted reward function remains notoriously difficult.
+
+To overcome the reward engineering problem, Imitation Learning (IL) leverages expert demonstrations to learn a policy.Since vast amounts of expert data are required to accurately learn expert behaviors, Adversarial Imitation Learning (AIL) approaches, such as GAIL [3], have been proposed as dataefficient alternatives.AIL employs a discriminator to measure similarity between learned behavior and expert behavior, rewarding the agent accordingly.While computationally efficient, AIL methods suffer from a critical limitation: the policy-agnostic nature of their discriminators.The discriminator lacks any inherent incentive to guide the agent towards expert-like behavior, in contrast to engineered reward functions in RL.Consequently, AIL methods face challenges in complex tasks requiring extensive exploration to find optimal actions.For instance, in digital locomotion tasks, AIL methods often struggle to consistently replicate expert performance [4].
+
+Inverse Reinforcement Learning (IRL) is another approach to alleviate reward engineering.Unlike IL, which directly learns expert behavior, IRL seeks to infer the underlying reward function that motivates the agent to acquire expert behaviors.The reward function and the agent are trained iteratively, with updates to the reward function based on the agent's behavior.This iterative process renders IRL computationally expensive [5].Adversarial Inverse Reinforcement Learning (AIRL) [6] attempts to address this inefficiency by introducing a discriminator that enables simultaneous learning of the policy and reward function.However, in AIRL, the reward function is tightly coupled to the discriminator, potentially limiting its ability to capture complex task structures or long-term dependencies and inheriting the limitations of a policy-agnostic discriminators.This highlights the need for a method that can learn a more flexible reward function without the computational overhead of traditional IRL methods.
+
+To overcome these challenges and effectively learn behaviors in complex settings, we propose Reinforced Imitation Learning (RILe) (Fig. 1-(d)).RILe aims to combine the ability to learn a reward function that actively guides the agent to imitate expert behavior with the computational efficiency of adversarial frameworks.At the core of RILe is a novel trainer-student system designed to address the shortcomings of existing methods:
+
+• A student agent that learns to replicate the expert's policy via RL in the environment • A trainer agent that learns a reward function via RL and guides the student agent during training By integrating the trainer-student dynamic, RILe decouples reward learning from policy learning and the discriminator, allowing each component to specialize and thereby overcome the limitations of policy-agnostic discriminators.While RILe utilizes a discriminator similar to those in adversarial frameworks, its role is fundamentally redefined.In RILe, the discriminator's primary function is to provide feedback to the trainer agent by distinguishing expert data from student roll-outs.This feedback serves as the reward signal for the trainer, not directly influencing the student agent.The trainer leverages the discriminator's feedback to learn a reward function that effectively guides the student agent.This approach enables more nuanced reward shaping, particularly beneficial in tasks requiring complex decision-making and extensive exploration.
+
+Our contributions are two-fold:
+
+1. Decoupled Reward-function Learning: We introduce a novel approach where the trainer agent learns the reward function independently from both the student agent and the discriminator.Unlike existing methods that derive rewards directly from discriminator outputs, our trainer agent uses reinforcement learning to optimize the reward function based on the feedback from the discriminator.By focusing on long-term reward maximization, RL enables the trainer to distill inconsistent feedback from the discriminator into meaningful rewards, leading to better student performance.2. Dynamic Reward Customization: Our trainer agent dynamically adjusts rewards based on the student agent's progress, facilitating a better learning experience and enabling accurate imitation of expert behavior in complex settings.This adaptive approach allows for more gradual learning, particularly in tasks where the optimal behavior may change depending on the agent's current capabilities.
+
+We evaluate RILe against state-of-the-art methods in AIL, and AIRL, specifically GAIL [3], and AIRL [6].Our experiments span three distinct scenarios: (1) Tailoring a reward function dynamically in a discrete maze task, (2) Investigating the impact of expert data on the trainer-student dynamics in a humanoid locomotion task, and (3) Imitating motion-capture data in continuous control tasks.The results demonstrate RILe's superior performance, especially in complex tasks, and its ability to learn an effective dynamic reward function where baseline methods fail.
+
+
+Related Work
+
+We review literature on learning from expert demonstrations, focusing on Imitation Learning (IL) and Inverse Reinforcement Learning (IRL), which form the conceptual foundation of RILe.
+
+Imitation Learning Early work introduced Behavioral Cloning (BC) [7], which learns a policy congruent with expert demonstrations through supervised learning.DAgger [8] introduces data aggregation.GAIL [3] introduces adversarial methods, where a discriminator aims to discriminate expert demonstrations, while a generator tries to fool the discriminator.DQfD [9] proposes two-stage approach with pre-training, and ValueDice [10] uses a distribution-matching objective between policy and expert.Despite progress, IL faces challenges in efficacy and generalization [5,11].RILe addresses these by introducing an adaptive teacher agent to guide the student beyond expert demonstrations.
+
+Inverse Reinforcement Learning IRL, introduced by [12], learns the expert's intrinsic reward function.Key developments include Apprenticeship Learning [13], Maximum Entropy IRL [14], and adversarial approaches like AIRL [6].Recent work explores handling unstructured data [15] and cross-embodiment scenarios [16].Despite advancements, IRL faces challenges in computational efficiency and scalability [17].RILe addresses these by jointly learning policy and reward function in a single process.
+
+3 Background
+
+
+Markov Decision Process
+
+A standard Markov Decision Process (MDP) is defined by (S, A, R, T, K, γ).S is the state space that consists of all possible environment states s, and A is action space that contains all possible environment actions a. R = R(s, a) : S × A → R is the reward function.T = {P (•|s, a)} is the transition dynamics where P (•|s, a) is defined as an unknown state state transition probability function upon taking action a ∈ A in state s ∈ S. K(s) is the initial state distribution, i.e., s 0 ∼ K(s) and γ is the discount factor.The policy π = π(a|s) : S → A is a mapping from states to actions.In this work, we consider γ-discounted infinite horizon settings.Following [3], expectation with respect to the policy π ∈ Π refers to the expectation when actions are sampled from π(s):
+E π [R(s, a)] ≜ E π [ ∞ t=0 γ t R(s t , a t )]
+, where s 0 is sampled from an initial state distribution K(s), a t is given by π(•|s t ) and s t+1 is determined by the unknown transition model as P (•|s t , a t ).The unknown reward function R(s, a) generates a reward given a state-action pair (s, a).We consider a setting where R = R(s, a) is parameterized by θ as R θ (s, a) ∈ R [18].
+
+Our work considers an imitation learning problem from expert trajectories, each consisting of states s and actions a.The set of expert trajectories τ E are sampled from an expert policy π E ∈ Π, where Π is the set of all possible policies.We assume that we have access to m expert trajectories, all of which have n time-steps, τ E = {(s i 0 , a i 0 ), (s i 1 , a i 1 ), . . ., (s i n , a i n )} m i=1 .
+
+
+Reinforcement Learning (RL)
+
+Reinforcement learning seeks to find an optimal policy, π * .that maximizes the discounted cumulative reward given from the reward function R = R(s, a) (Fig. 1-(a)).In this work, we incorporate entropy regularization using the γ-discounted casual entropy function , 19].The RL problem with a parameterized reward function and entropy regularization is defined as
+H(π) = E π [−log π(a|s)] [3RL(R θ (s, a)) = π * = arg max π E π [R θ (s, a)] + H(π).(1)
+
+Inverse Reinforcement Learning (IRL)
+
+Given sample trajectories τ E from an optimal expert policy π E , inverse reinforcement learning aims to recover a reward function R * θ (s, a) that maximally rewards the expert's behavior (Fig. 1-(b)).Formally, IRL seeks a reward function, R * θ (s, a), satisfying:
+E π E [ ∞ t=0 γ t R * θ (s t , a t )] ≥ E π [ ∞ t=0 γ t R * θ (s t , a t )] ∀π.
+Optimizing this reward function with reinforcement learning yields a policy that replicates expert behavior:
+RL(R * θ (s, a)) = π * = arg max π E π [ ∞ t=0 γ t R * θ (s t , a t )].
+Since only the expert's trajectories are observed, expectations over π E are estimated from samples in τ E .Incorporating entropy regularization H(π), maximum causal entropy inverse reinforcement learning [14] is defined as
+IRL(τ E ) = arg max R θ (s,a)∈R E s,a∈τ E [R θ (s, a)] − max π (E π [R θ (s, a)] + H(π)) .(2)
+
+Adversarial Imitation Learning (AIL) and Adversarial Inverse Reinforcement Learning (AIRL)
+
+Imitation Learning (IL) aims to directly approximate the expert policy from given expert trajectory samples τ E .It can be formulated as
+IL(τ E ) = arg min π E (s,a)∼τ E [L(π(•|s), a)],(3)
+where L is a loss function, that captures the difference between policy and expert data.
+
+GAIL [3] introduces an adversarial imitation learning setting by quantifying the difference between the agent and the expert with a discriminator D ϕ (s, a), parameterized by ϕ (Fig. 1-(c)).
+
+The discriminator distinguishes between between expert-generated state-action pairs (s, a) ∼ τ E and non-expert state-action pairs (s, a) / ∈ τ E .The goal of GAIL is to find the optimal policy that fools the discriminator while maximizing an entropy constraint.The optimization is formulated as a zero-sum game between the discriminator D ϕ (s, a) and the policy π:
+min π max ϕ E π [log D ϕ (s, a)] + E τ E [log (1 − D ϕ (s, a))] − λH(π).(4)
+In other words, the reward function that is maximized by the policy is defined as a similarity function, expressed as R(s, a) = −log (D ϕ (s, a)).
+
+AIRL [6] extends this adversarial approach to inverse reinforcement learning, aiming to recover a reward function decoupled from environment dynamics (Fig. 1-(c)).The key insight of AIRL is to structure the discriminator as:
+D ϕ,ψ (s, a, s ′ ) = exp(f ϕ (s, a, s ′ )) exp(f ϕ (s, a, s ′ )) + π(a|s) ,(5)
+where
+f ϕ (s, a, s ′ ) = r ψ (s, a) + γV ϕ (s ′ ) − V ϕ (s).
+Here, r ψ (s, a) represents the learned reward function that is decoupled from the environment dynamics, γV ϕ (s ′ ) − V ϕ (s).The AIRL optimization problem is formulated equivalently to GAIL (see Eqn. 4).The reward function r ψ (s, a) is learned through minimizing the cross-entropy loss inherent in this adversarial setup.Therefore, the reward function remains tightly coupled with the discriminator's learning process.
+
+
+RILe: Reinforced Imitation Learning
+
+We propose Reinforced Imitation Learning (RILe) to learn the reward function and acquire a policy that emulates expert-like behavior simultaneously in one learning process.Our framework consists of three key components: a student agent, a trainer agent, and a discriminator (Fig. 2).
+
+Intuitively, the student agent learns the action policy and the trainer agent learns the reward function.
+
+Both agents are trained simultaneously via RL with the help of an adversarial discriminator.Building on AIL, we utilize the discriminator to enable joint training of policy and reward function.Unlike traditional IRL, the discriminator provides immediate feedback to the trainer, eliminating the need to wait for the student agent's convergence.
+
+The trainer agent, trained via RL, is rewarded by the discriminator, and thus motivated to maximize the cumulative reward from the discriminator.The trainer learns to craft a reward function that promotes expert-like behavior in the student, even in complex scenarios.Crucially, the trainer's RL-based approach optimizes for long-term performance rather than immediate feedback.This allows the trainer to encourage exploration and gradual improvement in three main ways.First, the trainer can associate its reward-giving actions with future improvements in the student's behavior, even if those improvements take many steps to manifest.Second, the trainer can provide small positive rewards for actions that move the student in the right direction, even if they don't immediately result in expert-like behavior.Finally, the trainer can adapt its reward function based on the student's current capabilities, providing a learning path that gradually guides the student towards expert behavior.This approach enables RILe to overcome limitations of previous methods, particularly in complex tasks requiring extensive exploration, by promoting the discovery of expert-like strategies even when the student's initial policy significantly diverges from expert behavior.
+
+In the following, we define the components of RILe and explain how they can efficiently learn behavior from imperfect data.
+
+
+Student Agent
+
+The student agent aims to learn a policy π S by interacting with an environment in a standard RL setting within an MDP.For each of its actions a S ∈ A, the environment returns a new state s S ∈ S.However, rather than from a hand-crafted reward function, the student agent receives its reward from the policy of the trainer agent π T .Therefore, the reward function is represented by the trainer policy.Thus, the student agent is guided by the actions of the trainer agent, i.e., the action of the trainer is the reward of the student: r S = π T ((s S , a S )).The optimization problem of the student agent is then defined as
+min π S −E (s S ,a S )∼π S [π T (s S , a S ) ].(6)
+Discriminator The discriminator differentiates between expert-generated state-action pairs (s, a) ∼ τ E and state-action pairs stemming from the policy of the student (s, a) ∼ π S .In RILe, the discriminator is defined as a feed-forward deep neural network, parameterized by ϕ.Hence, the optimization problem is
+
+To provide effective guidance, the discriminator needs to accurately distinguish whether a given state-action pair originates from the expert distribution (s, a) ∼ τ E or not (s, a) / ∈ τ E .The feasibility of this discrimination has been demonstrated by GAIL [3].The according lemma and proof are presented in the Appendix A.
+
+Trainer Agent The trainer agent aims to guide the student to approximate expert behavior by operating as its reward mechanism.Since the trainer agent takes the role of a reward function for the student, a new MDP is defined for the trainer agent: MDP T : (S T , A T , R T , T T , K, γ), where S T : S x A is the state space that consists all possible state action pairs from the standard MDP, defined in 3.1.A T is the action space, a mapping from S T → R, so the action is a scalar value.R T (s, a) is the reward function where s ∈ S T and a ∈ A T .T T = {P (•|s, a)} is the transition dynamics where P (•|s, a) is defined as the state distribution upon taking action a ∈ A T in state s ∈ S T .K T is the initial state distribution.
+
+The trainer agent learns a policy π T that produces adequate reward signals to guide the student agent, by learning in a standard RL setting, within M DP T .Since the state space of M DP T is defined over state-action pairs of M DP S , the state of the trainer comprises the state-action pair of the student s T = (s S , a S ) ∈ S T .It generates a scalar action a T which is given to the student agent as reward r S , and bounded between -1 to 1.To help the trainer understand how its actions impact the reward it receives, we define the reward function such that it multiplies the scaled discriminator's output by trainer's actions.Therefore, the trainer agent's reward function is defined as R T = υ(D ϕ (s T ))(a T ), where D ϕ (s T ) is the output of the discriminator and υ(x) = 2x − 1 is the scaling function.By incorporating a T into the reward function, the trainer learns to adjust its policy based on the effectiveness of its previous actions.
+
+The optimization problem of the trainer can be defined as
+max π T E (s,a)∼π S a T ∼π T [υ(D ϕ (s, a))a T ].(8)
+RILe RILe combines the three components defined previously in order to find a student policy that mimics expert behaviors presented in τ E .In RILe, the student policy π S and the trainer policy π T can be trained via any single-agent online reinforcement learning method.The training algorithm is given in Appendix D. Overall, the student agent aims to recover the optimal policy π * S defined as
+π * S = arg max π S E (s S ,a S )∼π S ∞ t=0 γ t [π T (s S t , a S t ) .(9)
+At the same time, the trainer agent aims to recover the optimal policy π * T as
+π * T = arg max π T E s T ∼π S a T ∼π T ∞ t=0 γ t [υ(D ϕ (s T t ))a T . (10)
+To prove that the student agent can learn expert-like behavior, we need to show that the trainer agent learns to give higher rewards to student experiences that match with the expert state-action pair distribution, as this would enable a student policy to eventually mimic expert behavior.
+
+Lemma 1: Given the discriminator D ϕ , the trainer agent optimizes its policy π θ T via policy gradients to provide rewards that guide the student agent to match expert's state-action distributions.
+
+Proof for Lemma 1 The assumptions are presented in Appendix A. The expert's state-action distribution is denoted by p expert (s, a).The role of the trainer is to provide a reward signal to the student that encourages the approximation of p expert (s, a) as closely as possible.
+
+We have D ϕ : S × A → [0, 1] as the discriminator, parameterized by ϕ, which outputs the likelihood that a given state-action pair (s, a) originates from the expert, as opposed to the student.The trainer's policy π θ T , parameterized by θ T , aims to maximize the likelihood under the discriminator's assessment, thus encouraging the student agent to generate state-action pairs drawn from a distribution resembling p expert (s, a).
+
+The Value and Q functions of the trainer, conditioned on the rewards provided by the discriminator, are defined in terms of expected cumulative discriminator rewards.The value function for the trainer's policy parameters θ T at state s t , simplified from s T t for better readability, is given by:
+V θ T (s t ) = E π θ T ∞ k=0 γ k r t+k | s t ,(11)
+where r t+k = υ(D ϕ (s t+k ))a t+k .Similarly, the Q-function for taking action a t in state s t and then following policy π θ T can be written as:
+Q θ T (s t , a t ) = D ϕ (s t ) + γE π θ T V θ T (s t+1 ) | s t , a t . (12) clip( π θ T (a t |s t ) π θ T old (a t |s t ) , 1 − ϵ, 1 + ϵ)A θ T old (s t , a t ) ,(13)
+where A θ T old (s t , a t ) is the advantage function computed as Q θ T old (s t , a t ) − V θ T old (s t ), defined with respect to the trainer's old policy parameters θ T old .
+
+By expressing the advantage using the reward from the discriminator, we explicitly tie the policy gradient updates to the discriminator's output, emphasizing the shaping of π θ S to match p expert (s, a):
+A θ T old (s t , a t ) = D ϕ (s t ) + γE π θ S V θ T old (s t+1 ) − V θ T old (s t ). (14)
+During each policy update, the objective in Equation 13is maximized, driving parameter updates to favor actions that elicit higher rewards from the discriminator -effectively the actions that better align with expert behavior:
+θ T ← θ T + α π ∇ θ T L CLIP (θ T ).(15)
+The update rule in Equation 15, driven by cumulative rewards from the discriminator, incrementally adapts the trainer's policy to reinforce student behaviors that are indistinguishable from those of the expert according to D ϕ .The trainer's policy is guided to facilitate the student's approximation of p expert (s, a), thereby fulfilling its role in the imitation learning process.
+
+
+Experiments
+
+We evaluate the performance of RILe by addressing three key questions:
+
+1. How does RILe's adaptive reward function evolve compared to baseline methods and how does this evolution enhance the learning process?
+
+2. Is RILe efficient and scalable to high-dimensional continuous control tasks?
+
+
+Can RILe use expert-data explicitly to imitate expert behavior?
+
+To answer the first question, we compare RILe's performance with AI(R)L baselines in a maze setting, where we demonstrate how the trainer agent modifies the reward function to guide the student during training.For the second question, we evaluate RILe's effectiveness in imitating motion-capture data within continuous robotic control tasks, using LocoMujoco [20] as the environment.To answer the last question, we use a simulated humanoid character from MuJoCo [21,22] to evaluate RILe's performance when expert data is explicitly used by the agents.Additional experimental results are provided in the Appendix, where we evaluate the robustness of the learned reward function in changing environments and analyze the noise resilience of our method.
+
+Baselines We compare RILe with four baseline methods: Behavioral cloning (BC [7,23]), adversarial imitation learning (GAIL [3]), adversarial inverse reinforcement learning (AIRL [6]) and inverse reinforcement learning (IQ-Learn [24]).
+
+
+Evolving Reward Function
+
+To evaluate the impact of RILe's trainer agent on the learning process compared to existing methods, we designed a maze experiment.The task is to navigate from a fixed start on the left side to a goal in the top-right corner, avoiding obstacles.
+
+Using a single expert demonstration, we trained RILe, GAIL, and AIRL.Fig. 3 shows how the student's reward function evolves during training with all three methods.For RILe, we plot the reward function learned by the trainer.For GAIL, we visualize the discriminator output, and for AIRL, the reward term under the discriminator.The columns represent reward plots at 25%, 50%, 75%, and 100% of training completion for each algorithm, respectively.We present the student agent's trajectory from the previous epoch on reward plots to demonstrate how reward functions adapt to the student agent's progress.
+
+The discriminator-based reward functions of GAIL and AIRL remain relatively static, largely independent of the student agent's current performance.This static behavior is because the discriminators in GAIL and AIRL focus on distinguishing expert data and progressively improve throughout training.
+
+In contrast, the trainer in RILe adapts itself based on the current learning progress of the student's policy.
+
+As the first column shows, when the student's trajectory does not resemble the expert, RILe's trainer encourage exploration towards the expert path.This indicates that the trainer can provide informative rewards despite potentially low discriminator feedback.Then, in the second column, as the student progresses, RILe's reward function adapts dynamically.When the student learns to reach the bottomright, the trainer shifts high rewards to the top-left, guiding the agent to explore that area.Third column shows as the student approaches the goal, the trainer increases rewards around it while maintaining rewards in specific areas (e.g., the left part) to prevent the agent from getting stuck.Finally, as the fourth column shows, the trainer focuses high rewards on the top-right area near the goal while maintaining a path of rewards that guides the student along the expert trajectory.
+
+RILe's evolving reward function demonstrates its ability to provide meaningful guidance even when the discriminator easily identifies non-expert policies.By adapting to the student's current capabilities, RILe creates a dynamic learning curriculum that encourages exploration and gradual improvement towards expert-like behavior.Our results demonstrate that the trainer effectively associates rewards with future behavior improvements, even if delayed.It provides incremental rewards for actions moving the student in the right direction, and adapts the reward function to match the student's abilities, gradually guiding them toward expert behavior.
+
+
+Motion-Capture Data Imitation for Robotic Continuous Control
+
+We evaluate RILe's performance on the LocoMujoco benchmark, which presents a challenging task of imitating motion-capture (MoCap) data for various robotic control tasks.This benchmark is particularly demanding due to its high dimensionality and the absence of action data in the MoCap recordings which precludes the use of methods like Behavioral Cloning and IQLearn that require complete state-action pairs.We study how explicitly incorporating expert data into RILe's training affects the trainer's ability to adapt to the student's needs, analyzing performance and convergence time when expert data is added to the agents' replay buffers.For this experiment, we used MuJoCo's Humanoid environment [22,21] and a single expert trajectory from [24].We varied the proportion of expert data in the replay buffers from 0% to 100%; for example, 25% means a quarter of the buffer is expert data and 75% is from agent interactions.
+
+As shown in Fig. 4, introducing expert data led to faster convergence but decreased performance.Notably, when environmental interactions were completely replaced by the expert data (100% case), the student's performance declined significantly.Excessive expert data appears to hinder the trainer's ability to adapt to the student, disrupting RILe's dynamic learning process.For comparison, we include results from IQ-Learn and Behavioral Cloning (BC), which rely explicitly on expert data.Despite their exclusive use of expert data, neither method matched RILe's performance, even when RILe used substantial amounts of expert data.
+
+Our findings underscore the importance of balancing environmental interactions and expert demonstrations in buffers in RILe.While some expert data accelerates learning, too much impedes the trainer's adaptability, underscoring the unique strength of RILe's interactive learning approach.
+
+
+Discussion
+
+Our experiments have demonstrated that RILe consistently outperforms baseline models across various settings, surpassing state-of-the-art adversarial IL/IRL methods.RILe's key strength lies in its adaptive learning approach, where the trainer agent dynamically adjusts the reward function based on the student's current capabilities.This enables more efficient learning, particularly in complex environments.
+
+However, RILe faces challenges, primarily in maintaining policy stability with a changing reward function.Our solution of freezing the trainer after the student achieves half the expert score is effective but potentially limiting.Additionally, the discriminator's tendency to overfit quickly presents another significant challenge.Future work should focus on establishing bounds for reward agent updates to enhance stability without compromising adaptability, developing a stronger theoretical understanding of RILe's convergence properties, and exploring discriminator-less approaches.
+
+Despite these challenges, RILe has demonstrated advantages in adaptability, robustness, and generalization, thereby making it a promising direction for future research in imitation learning and opening up new possibilities for dynamic and responsive learning processes.from the expert and 0.01 otherwise.These values were chosen over 1 and 0 because both AIRL and GAIL use the logarithm of the discriminator output to calculate rewards.
+
+Results are presented in Fig. 5.The value graphs (Fig. 5e-g) are attained by computing the value of each grid cell c i as a∈A D(c i , a) for AIRL and GAIL, and a∈A π T (c i , a) for RILe.Fig. 5a shows the expert trajectory.
+
+GAIL (Fig. 5c), AIRL (Fig. 5d) and IQLearn (Fig. 5e) fail to reach the goal, as their agents either become stuck or are directed into lava.
+
+In contrast, RILe (Fig. 5d) successfully reaches the goal, demonstrating its ability to navigate around imperfections in expert data.The difference in the value graphs between RILe and the baselines intuitively explains this outcome.In AIL and AIRL (Fig. 5f-g), the optimal paths, defined by the actions most rewarded by their discriminators, follow the noisy expert data perfectly.Similarly, in IQLearn, the agent tries to match expert state-actions as closely as possible, minimizing any deviation from the expert trajectory.In contrast, RILe's trainer agent, trained using RL, adds an extra degree of freedom in the adversarial IL/IRL setting.By providing rewards that maximize cumulative returns from the discriminator, rather than deriving the reward directly from its output, the value graph (Fig. 5f) can learn to circumvent the lava tile in order to follow the expert trajectory to the goal.Consequently, the optimal path of the student agent can overcome the sub-optimal state suggested by the noisy expert demonstration.Since the student agent is guided by the trainer to also match the expert trajectory, it remains close to this path after passing the lava tiles.
+
+
+B.2 Robustness to Noise in the Expert Data
+
+To evaluate the robustness of RILe and baseline methods to noise in the expert data, we conducted experiments in the MuJoCo Humanoid-v2 environment.Artificial noise sampled from a zero-mean Gaussian distribution with varying standard deviations (Σ) was added to a single expert trajectory, affecting either the actions or the states.The baselines used for comparison were GAIL [3], AIRL [6], RIL-Co [25], IC-GAIL [26], and IQ-Learn [24].
+
+As shown in Table 2, RILe consistently outperforms the baselines across different noise levels, demonstrating superior robustness even when a high amount of noise is present in the expert data (Σ = 0.5).These results indicate that RILe is less sensitive to imperfections in the expert demonstrations compared to existing methods.for each transition (s, a) in τ S do 7:
+
+Calculate student reward R S using trainer policy:
+R S ← π T(19) 8:
+Update π S using policy gradient with reward R S
+
+for each transition (s, a) in τ S do 13:
+
+Calculate trainer reward R T using discriminator:
+
+R T ← υ(D(s, a))a T
+
+Update π T using policy gradient with reward R T
+
+
+15:
+
+end for 16: end for
+
+
+
+GAIL + AIRL (terms in green) (d) RILe
+
+
+Figure 1 :
+1
+Figure 1: Overview of the related works.(a) Reinforcement Learning (RL): learning a policy that maximizes hand-defined reward function; (b) Inverse RL (IRL): learning a reward function from data.IRL has two stages: 1. training a policy with frozen reward function, and 2. updating the reward function by comparing the converged policy with data.These stages repeated several times; (C) Generative Adversarial Imitation Learning (GAIL) + Adversarial IRL (AIRL): using discriminator as a reward function.GAIL trains both policy and the discriminator at the same time.AIRL implements a new structure on the discriminator, seperating reward from environment dynamics by using two networks under the discriminator (see additional terms in green).(D) RILe: similar to IRL, learning a reward function from data.RILe learns the reward function at the same time with the policy, using discriminator as a guide for learning the reward.
+
+
+Figure 2 :
+2
+Figure 2: Framework overview.The framework consists of three key components: a student agent, a trainer agent, and a discriminator.The student agent learns a policy π S by interacting with an environment, and the trainer agent learns a reward function as a policy π T .(1) The student receives the environment state s S .(2) The student takes an action a S , forwards it to the environment which is updated based on a S .(3) The student forwards its state and action to the trainer, whose state is s T = (s S , a S ).(4) Trainer, π T , evaluates the state action pair of the student agent s T = (s S , a S ) and chooses an action a T that then becomes the reward of the student agent a T = r S .(5) The trainer agent forwards the s T = (s S , a S ) to the discriminator.(6) Discriminator compares student state-action pair with expert demonstrations (s D ). (7) Discriminator gives reward to the trainer, based on the similarity between student-and expert-behavior.
+
+
+Figure 3 :
+3
+Figure 3: Evolution of reward functions during training for (a) RILe, (b) GAIL, and (c) AIRL in a continuous maze environment.Columns show reward landscapes at 25%, 50%, 75%, and 100% of training completion (left to right).The expert's trajectory is shown in red, while the student agent's trajectory from the previous training epoch is in black.Color gradients represent reward values, with darker colors indicating lower rewards and brighter colors indicating higher rewards.Purple squares represent obstacles.RILe demonstrates a more adaptive reward function that evolves with the student's progress, while GAIL and AIRL maintain relatively static reward landscapes throughout training.
+
+
+Figure 4 :
+4
+Figure 4: Impact of explicit usage of expert data on RILe's performance.Red markers and yellow markers show normalized scores and normalized steps, respectively.Square markers show IQ-Learn and BC results for comparisons.The percentage of expert data in the buffers are presented around the figure.More expert data in buffers speeds convergence but can reduce final performance, especially at 100%, showing how the explicit usage of excess expert data hinders trainer-student adaptation in RILe
+
+
+
+
+(a) Expert traj.(b) RILe traj.(c) GAIL traj.(d) AIRL traj.(e) IQLearn traj.(f) RILe val.(g) GAIL val.(h) AIRL val.(i) IQLearn val.
+
+
+Figure 5 :
+5
+Figure 5: In a 5x5 grid environment with lava, (a) the expert trajectory is characterized by noisy data that passes through lava without resulting in death.(c) GAIL, (d) AIRL and (e) IQLearn learn to imitate the expert's path precisely, leading them to either get stuck near the lava or enter it and perish.(b)RILe avoids the noisy data, better mimics the expert in later stages, and successfully reaches the goal.Subfigures (f-i) display the value tables for RILe, GAIL, AIRL, and IQLearn respectively.The optimal path, derived from the reward of the trainer or discriminator, is highlighted with green lines.
+
+
+Figure 6 :Algorithm 1 5 :
+615
+Figure 6: Training reward curves for the MuJoCo Humanoid-v2 experiment comparing RILe, AIRL, GAIL, IQ-Learn*, and adapted AdapMen.AdapMen is combined with an adversarial discriminator to be able to train it without expert policy.
+
+
+Sample a batch of transitions from B 11 :
+11
+Train discriminator D to classify student and expert transitionsmax D E π S [log(D(s, a))] + E π E [log(1 − D(s, a))]
+
+
+Table 1 :
+1
+Test and validation results on seven LocoMujoco tasks.
+Test SeedsValidation SeedsRILe GAIL AIRLRILe GAIL AIRL ExpertAtlas Walk870.6 792.7 300.5895.4 918.6 3561000Atlas Carry850.8 669.3 256.4889.7 974.2 271.91000Talos Walk842.5 442.3 102.1884.7 675.5 103.41000Talos Carry220.1 186.3 134.2503.3 338.5 74.11000UnitreeH1 Walk 966.2 950.2 568.1980.7 965.1 716.21000UnitreeH1 Carry 788.3 634.6 130.5850.6 637.4 140.91000Humanoid Walk 831.3 181.4 80.1970.3 216.2 78.21000
+
+Table 1
+1
+presents the results for seven LocoMujoco tasks, comparing RILe with GAIL and AIRL across both test and validation seeds.The expert performance, set at 1000 for all tasks, serves as the upper benchmark.RILe demonstrates superior performance in all scenarios, particularly excelling in generalization to new initial conditions as evidenced by the test seed results.5.3 Impact of Expert Data on Trainer-Student Dynamics
+
+A Justification of RILeAssumptions:• The discriminator loss curve is complex and the discriminator function, D ϕ (s, a), is sufficiently expressive since it is parameterized by a neural network with adequate capacity.• For the trainer's and student's policy functions (π θ T ) and (π θ S ), and the Q-functions (Q θ S ), each is Lipschitz continuous with respect to its parameters with constants (L θ T ), (L θ S ), and(L Q ), respectively.This means for all (s, a) and for any pair of parameter settings (θ, θ ′ ) :A.1 Lemma 2:The discriminator D ϕ , parameterized by ϕ will converge to a function that estimates the probability of a state-action pair being generated by the expert policy, when trained on samples generated by both a student policy π θ S and an expert policy π E .Proof for Lemma 2:The training objective for the discriminator is framed as a binary classification problem over mini-batches from expert demonstrations and student-generated trajectories.The discriminator's loss function L D (ϕ) is the binary cross-entropy loss, which for a mini-batch of size n is defined as:where (s i , a i ) are sampled state-action pairs from the combined replay buffer D = D S ∪ D E , with corresponding labels y i indicating whether the pair is from the expert (y i = 1) or the student (y i = 0).The stochastic gradient descent update rule for optimizing L D (ϕ) is then given by:where η D is the learning rate for the discriminator.Through iterative updates, D ϕ (s, a) will converge to P (π E |s, a), provided the minimization of L D (ϕ) progresses according to the theoretical foundations of stochastic gradient descent.The convergence relies on the assumption that the student's policy π θ S and the expert policy π E induce stationary distributions of state-action pairs, such that the discriminator's data source is consistently representing both policies over time.By minimizing L D (ϕ), we seek ϕ * such that:Under typical conditions for convergence in stochastic gradient descent, the convergence to a local minimum or saddle point can be guaranteed.The discriminator's ability to distinguish between student and expert pairs improves as L D (ϕ) is minimized, implying that lim n batch →∞ Dϕ * (s, a) = P (π E |s, a), where n batch is the number of batches.B Additional Experiments B.1 Noisy Expert DataTo demonstrate the advantage of using RL to learn the reward function in RILe, as opposed to deriving the reward directly from the discriminator in AIL and AIRL, we designed a 5x5 MiniGrid experiment.The grid consists of 4 lava tiles that immediately kill the agent if it steps in it, representing terminal conditions.The goal condition of the environment is reaching the green tile.The expert demonstrations are imperfect, depicting an expert that passes through a lava tile without being killed and still reaches the green goal tile.Using this data, we trained the adversarial approaches with a perfect discriminator, which provides a reward of 0.99 if the visited state-action pair stems We evaluated the robustness of the reward functions learned by RILe and AIRL[6]through an experiment similar to that conducted by[27].Initially, both methods were trained to learn reward functions in a noise-free MuJoCo Humanoid-v2 environment.After training, these reward functions were frozen.Subsequently, new student agents were trained using these fixed reward functions in environments where Gaussian noise was added to the agents' actions, with varying noise levels.Table3presents the results of this evaluation.The reward function learned by RILe demonstrates superior robustness to noise, maintaining high performance even under increased noise levels.In contrast, the performance of agents using the reward function learned by AIRL decreases more significantly as noise increases.These findings indicate that the reward function learned by RILe is more resilient to environmental noise, contributing to better agent performance in noisy conditions.B.4 Reward CurvesWe compare the reward curves of RILe, GAIL[3], AIRL[6], IQ-Learn[24], and AdapMen[28]in the MuJoCo Humanoid-v2 experiment.Since the task involves learning from expert trajectories, we combined AdapMen with an adversarial discriminator to enable training without an expert policy.As shown in the reward curves, despite RILe having multiple components, it is the most efficient method.This efficiency is achieved through the dynamic guidance of the trainer during training, which adapts the reward function to meet the student's needs.C Compute ResourcesFor the training of RILe and baselines, following computational sources are employed:• AMD EPYC 7742 64-Core Processor • 1 x Nvidia A100 GPU • 32GB Memory D Algorithm
+Playing atari with deep reinforcement learning. V Mnih, K Kavukcuoglu, D Silver, A Graves, I Antonoglou, D Wierstra, M Riedmiller, arXiv:1312.56022013arXiv preprint
+
+A general reinforcement learning algorithm that masters chess, shogi, and go through self-play. D Silver, T Hubert, J Schrittwieser, I Antonoglou, M Lai, A Guez, M Lanctot, L Sifre, D Kumaran, T Graepel, Science. 36264192018
+
+Generative adversarial imitation learning. J Ho, S Ermon, Advances in neural information processing systems. 201629
+
+Deepmimic: Example-guided deep reinforcement learning of physics-based character skills. X B Peng, P Abbeel, S Levine, M Van De Panne, ACM Transactions On Graphics (TOG). 3742018
+
+Imitation learning: Progress, taxonomies and challenges. B Zheng, S Verma, J Zhou, I W Tsang, F Chen, IEEE Transactions on Neural Networks and Learning Systems. 2022
+
+Learning robust rewards with adverserial inverse reinforcement learning. J Fu, K Luo, S Levine, International Conference on Learning Representations. 2018
+
+A framework for behavioural cloning. M Bain, C Sammut, Machine Intelligence. 151995
+
+A reduction of imitation learning and structured prediction to no-regret online learning. S Ross, G Gordon, D Bagnell, Proceedings of the fourteenth international conference on artificial intelligence and statistics. JMLR Workshop and Conference Proceedings. the fourteenth international conference on artificial intelligence and statistics. JMLR Workshop and Conference Proceedings2011
+
+Deep q-learning from demonstrations. T Hester, M Vecerik, O Pietquin, M Lanctot, T Schaul, B Piot, D Horgan, J Quan, A Sendonaris, I Osband, Proceedings of the AAAI Conference on Artificial Intelligence. the AAAI Conference on Artificial Intelligence201832
+
+Imitation learning via off-policy distribution matching. I Kostrikov, O Nachum, J Tompson, International Conference on Learning Representations. 2020
+
+The magical benchmark for robust imitation. S Toyer, R Shah, A Critch, S Russell, Advances in Neural Information Processing Systems. 202033295
+
+Algorithms for inverse reinforcement learning. A Y Ng, S J Russell, Proceedings of the Seventeenth International Conference on Machine Learning. the Seventeenth International Conference on Machine Learning2000
+
+Apprenticeship learning via inverse reinforcement learning. P Abbeel, A Y Ng, Proceedings of the twenty-first international conference on Machine learning. the twenty-first international conference on Machine learning20041
+
+Maximum entropy inverse reinforcement learning. B D Ziebart, A L Maas, J A Bagnell, A K Dey, Proceedings of the AAAI Conference on Artificial Intelligence. the AAAI Conference on Artificial IntelligenceChicago, IL, USA20088
+
+Learning generalizable robotic reward functions from" in-the-wild" human videos. A S Chen, S Nair, C Finn, Robotics: Science and Systems. 2021
+
+Xirl: Cross-embodiment inverse reinforcement learning. K Zakka, A Zeng, P Florence, J Tompson, J Bohg, D Dwibedi, Conference on Robot Learning. PMLR2022
+
+A survey of inverse reinforcement learning: Challenges, methods and progress. S Arora, P Doshi, Artificial Intelligence. 2971035002021
+
+Guided cost learning: Deep inverse optimal control via policy optimization. C Finn, S Levine, P Abbeel, International conference on machine learning. PMLR2016
+
+Infinite time horizon maximum causal entropy inverse reinforcement learning. M Bloem, N Bambos, 53rd IEEE Conference on Decision and Control. 201414981371
+
+Locomujoco: A comprehensive imitation learning benchmark for locomotion. F Al-Hafez, G Zhao, J Peters, D Tateo, 6th Robot Learning Workshop. NeurIPS2023
+
+Openai gym. G Brockman, V Cheung, L Pettersson, J Schneider, J Schulman, J Tang, W Zaremba, 2016
+
+Mujoco: A physics engine for model-based control. E Todorov, T Erez, Y Tassa, 2012 IEEE/RSJ international conference on intelligent robots and systems. 2012
+
+Efficient reductions for imitation learning. S Ross, D Bagnell, Proceedings of the thirteenth international conference on artificial intelligence and statistics. JMLR Workshop and Conference Proceedings. the thirteenth international conference on artificial intelligence and statistics. JMLR Workshop and Conference Proceedings2010
+
+Iq-learn: Inverse soft-q learning for imitation. D Garg, S Chakraborty, C Cundy, J Song, S Ermon, Advances in Neural Information Processing Systems. 202134
+
+Robust imitation learning from noisy demonstrations. V Tangkaratt, N Charoenphakdee, M Sugiyama, International Conference on Artificial Intelligence and Statistics. PMLR, 2021. 
+
+Imitation learning from imperfect demonstration. Y.-H Wu, N Charoenphakdee, H Bao, V Tangkaratt, M Sugiyama, International Conference on Machine Learning. PMLR2019
+
+Receding horizon inverse reinforcement learning. Y Xu, W Gao, D Hsu, Advances in Neural Information Processing Systems. 202235892
+
+How to guide your learner: Imitation learning with active adaptive expert involvement. X.-H Liu, F Xu, X Zhang, T Liu, S Jiang, R Chen, Z Zhang, Y Yu, Proceedings of the 2023 International Conference on Autonomous Agents and Multiagent Systems. the 2023 International Conference on Autonomous Agents and Multiagent Systems2023

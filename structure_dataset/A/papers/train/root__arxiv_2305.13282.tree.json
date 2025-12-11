@@ -1,0 +1,1005 @@
+{
+  "doc_id": "corpus_258832820",
+  "units": [
+    {
+      "unit_id": 0,
+      "text": "Is Fine-tuning Needed? Pre-trained Language Models Are Near Perfect for Out-of-Domain Detection",
+      "type": "heading",
+      "level": 0,
+      "parent_id": null,
+      "subtype": "doc_title"
+    },
+    {
+      "unit_id": 1,
+      "text": "Introduction",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 2,
+      "text": "Despite recent successes, high-performing pretrained language models are still fragile under distribution shifts, making their applications to the real world challenging (Ribeiro et al., 2020). In most real-world settings, the train and test distributions are often not independent and identically distributed. Furthermore, test distributions are often non-stationary and can change over time. The problem of out-of-distribution (OOD) detection addresses the identification of anomalous data, enabling the model to abstain from prediction when it 1 https://github.com/Uppaal/lm-ood is not supposed to. This is especially important for high-risk settings like financial and medical applications, where unreliable predictions could incur great costs (Ulmer et al., 2020;Zhang et al., 2021).",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 3,
+      "text": "In literature, a de facto procedure is to fine-tune a pre-trained language model on the in-distribution (ID) data 2 , and then derive the OOD detector based on the adapted model (Zhou et al., 2021;Hendrycks et al., 2020;Xu et al., 2021). The fine-tuned model is hypothesized to produce embeddings that are customized to the ID data. Thus, prior work focuses on the design of fine-tuning and expects the adapted representations to be more useful for OOD detection. Despite its common use, the understanding of the role of fine-tuning and its necessity for OOD detection is largely lacking in the field.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 4,
+      "text": "Motivated by this, we revisit the common procedure and raise the unexplored question: is finetuning necessary at all, for OOD detection? To answer this question, we introduce a simple and effective procedure for OOD detection, which does not require any model fine-tuning on the ID data. Specifically, we explore distance-based metrics for detection, which measure the relative distances of samples in the representation space of a pre-trained language model. The operating hypothesis is that embeddings of ID samples are closer to each other than the OOD sample embeddings. To the best of our knowledge, we are the first to explore distancebased OOD detection methods directly on a pretrained language model, rather than the fine-tuned models adopted in previous works.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 5,
+      "text": "We show that our method based on a pre-trained language model achieves near-perfect performance in detecting out-of-domain shifts, favorably outperforming its fine-tuned counterparts. For example, for 20NewsGroups (ID) vs. RTE (OOD), OOD detection with the best fine-tuning loss (Khosla et al., 2020) yields an FPR95 of 24.8%, while a pre-trained language model can perfectly detect RTE as OOD with 0% FPR95. For comprehensive evaluations, we experiment on 8 diverse ID-OOD dataset pairs spanning semantic and background shifts, and show that the strong performance of using the pretrained model holds consistently. To better understand the strong performance, we further show that pre-trained models display strongly separated domain clusters, both qualitatively and quantitatively. The strong separation of domain clusters leads to the efficacy of distance-based OOD detection.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 6,
+      "text": "Even further, we systematically compare different fine-tuning objectives, and interestingly observe that the performance of distance-based OOD detection declines over the course of fine-tuning across all objectives, despite the increase in ID classification accuracy. To this end, we provide new insights that early stopping (Yao et al., 2007) can be a promising solution, if one desires a good tradeoff between OOD detection and ID classification performance.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 7,
+      "text": "Our contributions can be summarized as follows:",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 8,
+      "text": "1. We propose a simple and effective method for zero-shot 3 OOD detection, leveraging pretrained language models without fine-tuning on the ID data. Extensive experiments demonstrate its near-perfect performance (with 0% FPR95 in most cases), favorably outperforming its fine-tuned counterparts.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 9,
+      "text": "2. We conduct a comprehensive study to understand fine-tuning objectives and their impact on OOD detection. We offer new insights on their efficacy under various types of distribution shifts.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 10,
+      "text": "3. We perform qualitative and quantitative analysis on the embedding characteristics, explaining the strong performance of using a pretrained language model for OOD detection.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 11,
+      "text": "Preliminaries",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 12,
+      "text": "OOD Detection For a supervised multi-class classification task, the labeled training dataset D in = {(x i , y i )} N i=1 consists of samples from the joint distribution P X Y , where X is the input space and Y = {1, · · · , C} is the label space. Given a testtime sample x ′ , OOD detection aims to identify whether x ′ is in-distribution (ID) P in or not, where P in is the marginal of P X Y on X . Formally, we Arora et al. (2021) categorize OOD samples by the type of distribution shift they exhibit in NLP problems. According to Ren et al. (2019), the representations h(x) can be decomposed into two independent and disjoint components-semantic features and background features. Semantic features are discriminative and strongly correlated with labels for prediction, while background features contain population-level statistics and are invariant across labels.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 13,
+      "text": "Types of Distribution Shifts",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 11,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 14,
+      "text": "Based on the type of features in OOD samples, the distribution shift is categorized as semantic shift or background shift. An example of the semantic shift is the open-set classification problem that encounters novel classes at test time (Scheirer et al., 2012), where the semantic of x ′ is outside the support of Y. Background shift is often seen when the domain or style of texts changes in the input space X while Y remains the same (Pavlick and Tetreault, 2016). We comprehensively consider both types of shifts later in our experiments in Section 4.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 13,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 15,
+      "text": "Methodology",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 16,
+      "text": "In Section 3.1, we start by introducing OOD detection with pre-trained language models, which does not require any model fine-tuning on the ID dataset. We further consider OOD detection with model fine-tuning in Section 3.2.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 15,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 17,
+      "text": "OOD Detection with Pre-trained Models",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 15,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 18,
+      "text": "We consider a pre-trained language model backbone h : X → R d , which encodes an input x to a d-dimensional text embedding h(x).",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 19,
+      "text": "The goal of OOD detection is to identify samples that do not belong to P in . Note that the ID data is defined w.r.t. the downstream dataset D in of interest, instead of the pre-training data. Different from prior works, there is no fine-tuning/training on the ID samples, and the setup is thus labelled as zero-shot OOD detection.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 20,
+      "text": "We formulate the zero-shot OOD detector as a binary function mapping:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 21,
+      "text": "G λ (x; h) = in if S(x; h) ≥ λ out if S(x; h) < λ ,(1)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 17,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 22,
+      "text": "where S(x; h) is the OOD scoring function, and λ is the threshold. By convention, λ is chosen so that a high fraction of ID data (e.g., 95%) is above the threshold. We describe S(x; h) in details next. We employ distance-based methods for zeroshot OOD detection, which measure the relative distances of samples in representation space. To the best of our knowledge, we are the first to use distance-based OOD detection directly with a pretrained language model, while previous works use models adapted to the ID data. The operating hypothesis is that the embeddings of ID samples are closer to each other than the OOD sample embeddings. Modeling the learned representation space as a mixture of multivariate Gaussians, Lee et al. (2018) used the Maximum Mahalanobis distance (Mahalanobis, 2018) to all class centroids as the score for OOD detection:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 23,
+      "text": "S Maha (x; h) = min c∈Y (h(x) − µ c ) ⊤ Σ −1 (h(x) − µ c ) ,",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 17,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 24,
+      "text": "where Σ is the covariance matrix and µ c is the mean embedding of class c. Both Σ and µ c are estimated on the ID embeddings extracted from the pre-trained language model h(·).",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 25,
+      "text": "Using Mahalanobis distance for OOD detection requires some distributional assumptions on the representation space. This is circumvented through non-parametric density estimation using nearest neighbors (Sun et al., 2022). The distance between a query point and its k-th nearest neighbor in the ID data is used for OOD detection:",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 26,
+      "text": "S kNN (x, h) = −∥z − z k ∥ 2 ,",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 17,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 27,
+      "text": "where z and z k are the L 2 normalized embeddings, for the query point x and its k-th nearest neighbor. In Section 5, we evaluate zero-shot OOD detection performance using both parametric (Maha) and non-parametric (KNN) distance functions.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 17,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 28,
+      "text": "OOD Detection with Fine-tuning",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 15,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 29,
+      "text": "In contrast to the zero-shot OOD detection setup, an alternative strategy is to fine-tune the model on the ID dataset D in and then perform OOD detection w.r.t. the fine-tuned model. In what follows, we comprehensively consider three different fine-tuning objectives: (1) cross-entropy loss, (2) task-adaptive pretraining loss, and (3) supervised contrastive loss.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 28,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 30,
+      "text": "Cross-Entropy (CE)",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 28,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 31,
+      "text": "The cross-entropy loss is widely used for training neural networks, making it an ideal baseline for our study. Given a pre-trained model, we fine-tune with the CE loss:",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 30,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 32,
+      "text": "L CE = 1 N N i=1 − log e fy(x i ;θ) C j=1 e f j (x i ;θ)",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 30,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 33,
+      "text": "where f y is the logit output corresponding to the ground truth label y, and θ is the parameterization of the neural network.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 30,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 34,
+      "text": "Task-adaptive Pretraining (TAPT) Gururangan et al. (2020) show that multi-phase adaptive pretraining boosts downstream task performance of pre-trained language models. They introduce Task Adaptive Pre-Training (TAPT), which involves extending the unsupervised pre-training process (using the masked language modeling objective (Kenton and Toutanova, 2019)) with data for the downstream task, before fine-tuning to the same task using cross-entropy. TAPT improves generalization capabilities by providing a strong initialization for fine-tuning, and to the best of our knowledge, TAPT has not been used in the setting of OOD detection prior to our work.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 30,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 35,
+      "text": "Supervised Contrastive Learning (SupCon) By leveraging information on labels and increasing the number of positive pairs during contrastive training, SupCon (Khosla et al., 2020) has been shown to consistently outperform cross-entropy on largescale classification tasks (Gunel et al., 2020). The objective encourages embeddings of a class to be highly separated from other classes, boosting the performance of OOD detection on text classification tasks (Zhou et al., 2021). Formally,",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 30,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 36,
+      "text": "L SupCon = − N i=1 1 N |P (i)| p∈P (i) log exp(z ⊤ i z p /τ ) a∈A(i) exp (z ⊤ i z a /τ ) ,",
+      "type": "equation",
+      "level": 4,
+      "parent_id": 30,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 37,
+      "text": "where P (i) is the set of anchor instances from the same class as x i , A(i) is the set of all anchor instances, z i is the L 2 normalized sentence embedding for x i , and τ is the temperature. After fine-tuning, OOD detection is performed using a similar procedure as Equation 1, except that the scoring function S(x; h) is calculated using the fine-tuned model. While our primary focus is distance-based detection, we additionally consider two common output-based methods-maximum  With these datasets, we examine two main settings: out-of-domain (OoD) shift where ID and OOD examples come from different datasets (i.e., domains), and same-domain (SD) shift where ID and OOD examples come from the same domain but have disjoint sets of classes. In the OoD setting, we further categorize the ID-OOD pairs into the semantic shift and background shift. Particularly, IMDB and SST-2 are both sentiment analysis datasets that have the same set of classes but consist of examples from different domains. In the same-domain setting, we split the NewsCategory dataset, where we make disjoint sets of classes as ID and OOD (Appendix A).",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 30,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 38,
+      "text": "Models",
+      "type": "heading",
+      "level": 4,
+      "parent_id": 30,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 39,
+      "text": "We use RoBERTa (Liu et al., 2019), which is a commonly used pre-trained language model like BERT (Kenton and Toutanova, 2019). Both models have been used in prior work on OOD detection (Podolskiy et al., 2021;Hendrycks et al., 2020), but we choose RoBERTa as the diverse data it is pre-trained on has been shown to make it stronger for OOD detection (Zhou et al., 2021;Podolskiy et al., 2021;Hendrycks et al., 2020). We use embeddings of the beginning-of-sentence (BOS) token as the sentence representation, and compare this to alternate approaches in Appendix C. Following Zhou et al. (2021), we fine-tune RoBERTa-base on downstream datasets for 10 epochs. For SupCon, we use a joint objective with Cross Entropy, with weight α = 2 to the SupCon loss. For TAPT, we pre-train the model for 3 epochs on the ID data. For distance-based OOD detection, we use sentence embeddings from the penultimate layer. We fine-tune all layers using Adam, with batch size 4, learning rate 10 −5 , and weight decay 0.01. Further details of implementation and configurations are in Appendix G.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 38,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 40,
+      "text": "Evaluation Metrics We report the following standard metrics: (1) the false positive rate (FPR95) of OOD samples when the true positive rate of ID samples is at 95%, (2) the area under the receiver operating characteristic curve (AUROC), (3) the area under the precision-recall curve (AUPR), and (4) ID classification accuracy (ID ACC).",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 38,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 41,
+      "text": "Results and Analysis",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 42,
+      "text": "5.1 Out-of-domain detection with pre-trained language models is near perfect Table 2 shows the pre-trained model outperforming all its fine-tuned variants in the out-of-domain shift setting, and achieving near-perfect OOD detection on all ID-OOD pairs considered. In addition to comparisons with three fine-tuning objectives, we also compare with a competitive baseline proposed by Zhou et al. (2021), which fine-tunes a model with a novel contrastive objective. Taking 20NewsGroups (ID) vs. RTE (OOD) as an example, OOD detection with the best fine-tuning strategy (i.e., SupCon) yields an FPR95 of 24.8%. In sharp contrast, zero-shot OOD detection using the pre-trained language model can perfectly detect RTE as OOD with 0% FPR95. We investigate same-domain shift in-depth later in Section 5.3. Figure 1 sheds some light on the strong performance of pre-trained language models for out-ofdomain detection. In the leftmost figure, we observe that large pre-trained language models create separate domain clusters of sentence embeddings for ID and OOD data, matching the findings of Aharoni and Goldberg (2020). The strong separation of clusters boosts the performance of distance-based OOD detection. In contrast, fine-tuning induces a model to divide a single domain cluster into multiple class clusters. When a fine-tuned model encounters an OOD datapoint, it attempts to classify KNN (non-parametric)  it by mapping it to one of the existing ID class clusters. However, due to the distributional difference of the datapoint, the model is unable to perfectly map such a point and OOD points end up in the space between the ID class clusters most similar to it. Fine-tuned representations of the data thus make distance-based OOD detection more challenging.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 41,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 43,
+      "text": "Mahalanobis (parametric) ID→OOD Pair Training AUROC ↑ AUPR (In) ↑ AUPR (Out) ↑ FPR95 ↓ AUROC ↑ AUPR (In) ↑ AUPR (Out) ↑ FPR95 ↓",
+      "type": "equation",
+      "level": 2,
+      "parent_id": 41,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 44,
+      "text": "What's the best way of fine-tuning for OOD detection?",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 41,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 45,
+      "text": "While pre-trained models show strong out-ofdomain detection performance, they lack the classification ability on the ID dataset. This is expected since the models are not optimized for the downstream classification task. Thus, we raise the next question: How can we fine-tune the model to accurately classify ID data while having reasonable OOD detection performance?",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 44,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 46,
+      "text": "To answer this question, we comprehensively compare three fine-tuning objectives (c.f. Section 3.2), coupled with different OOD detection methods. Figure 2 depicts the effect of fine-tuning for OOD detection, for both semantic shift (top: 20NewsGroups vs. RTE) and background shift (middle: IMDB vs. SST-2). We highlight three key observations: (1) For distance-based methods, Figure 1: Comparison of data representations from the penultimate layer of pre-trained and fine-tuned models. From left to right: (1) Pre-trained model, (2) Fine-tuning with Cross-Entropy (CE), (3) Fine-tuning with TAPT, and (4) Fine-tuning with SupCon. The ID dataset, 20NewsGroups, is shown in maroon, while the OOD datasets RTE and SST-2 are in yellow and purple respectively. The pretrained model represents each domain as a separate cluster, strengthening distance-based OOD performance. Fine-tuning encourages the model to learn class-specific clusters, making distance based OOD detection more challenging.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 44,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 47,
+      "text": "the OOD detection performance worsens as the number of fine-tuning epochs increases, highlighting that early stopping is the key to strong OOD detection performance. For example, on 20News-Groups (ID) vs. RTE (OOD), the model trained with TAPT for 1 epoch yields an AUROC of 95.5% (with Mahalanobis), which declines to 91.9% after 10 epochs of fine-tuning. To the best of our knowledge, we are the first to show the importance of early stopping on fine-tuning language models for distance-based OOD detection.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 44,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 48,
+      "text": "(2) Irrespective of the fine-tuning objectives, distance-based OOD detection methods consistently outperform outputbased methods, particularly MSP using softmax confidence (Hendrycks and Gimpel, 2017) and energy score using logits (Liu et al., 2020). (3) Under semantic shift, out-of-domain detection using any of the three fine-tuning objectives displays similar performance on most ID-OOD pairs, bearing a large gap w.r.t. the pre-trained language model.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 44,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 49,
+      "text": "Linear Probing is Suboptimal",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 44,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 50,
+      "text": "To perform classification while preserving the OOD detection performance of a pre-trained model, one possible solution is linear probing (Alain and Bengio, 2016), i.e., fine-tuning the classification head to the downstream task, while keeping the weights of the pretrained model backbone unchanged. However, in Figure 6 (Appendix), we show that linear probing does not yield competitive classification performance. In particular, we observe the strongest fine-tuning objective (TAPT) only obtains an ID accuracy of 61% after 100 epochs of fine-tuning, compared to full network fine-tuning where an accuracy of 86% is achieved in 10 epochs.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 49,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 51,
+      "text": "Investigation on same-domain data shifts",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 41,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 52,
+      "text": "In this subsection, we further investigate a more challenging type of data shift, where the test samples are from the same domain and thus can be distributionally very close to the ID data. This is in contrast to our evaluations in Sections 5.1 and 5.2, where the OOD samples are from different domains. To simulate same-domain shifts, we split the NewsCategory dataset into two sets with disjoint classes: one for ID, and another for OOD. The domain for both sets of classes is identical, while the semantic label sets are different. The allocation of classes is described in Table 5 (Appendix A).",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 51,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 53,
+      "text": "Figure 2 (bottom) shows the effect of fine-tuning for detection in this challenging setup of samedomain shifts. A salient observation is that finetuning consistently improves OOD detection performance, across all training objectives. To better understand why the pre-trained model underperforms in this case, in Figure 3, we plot feature representations, before and after fine-tuning, respectively. As seen in the left of Figure 3, when both ID and OOD data are sampled from the same domain, their embeddings are highly overlapping. This explains the suboptimal performance of directly employing embeddings from the pre-trained language model. In contrast, fine-tuning creates stronger separability between ID and OOD data. Table 3 quantitatively confirms that fine-tuning leads to stronger ID-OOD separability (c.f. Equation 2).",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 51,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 54,
+      "text": "Deeper look at embedding quality",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 41,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 55,
+      "text": "We quantitatively measure the embeddings produced by both pre-trained and fine-tuned language models. We adopt the following three metrics as  (1) inter-class dispersion, which is the average cosine similarity among pairwise class centroids, (2) intra-class compactness, which measures the average cosine similarity between each feature embedding and its corresponding class centroid, and (3) ID-OOD separability, which functions as a measure of domain gap be-  Table 3: Effect of fine-tuning on ID-OOD separability, for same-domain (SD) shift with the NewsCategory dataset. Fine-tuning for a single epoch helps separate overlapping ID and OOD data into dispersed clusters.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 54,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 56,
+      "text": "tween ID and OOD. Formally,",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 54,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 57,
+      "text": "Disp.(↑) = 1 C C i=1 1 C − 1 C j=1 µ i · µ j 1{i ̸ = j} Comp.(↓) = 1 C C j=1 1 N N i=1 z i · µ j 1{y i = j} Sep.(↑) = 1 |D test out | x ′ ∈D test out max j∈Y z x ′ · µ j − 1 |D test in | x∈D test in max j∈Y z x · µ j ,(2)",
+      "type": "equation",
+      "level": 3,
+      "parent_id": 54,
+      "subtype": "formula"
+    },
+    {
+      "unit_id": 58,
+      "text": "where µ i is the average of embeddings for samples in class i, and z is the L 2 normalized embedding.  Table 4: Quality of ID embeddings generated by pretrained and fine-tuned models, quantified by accuracy on the ID test set, inter-class dispersion, and intraclass compactness. The fine-tuned models show wellseparated and compact class clusters, while the pretrained model shows a single domain cluster, a suboptimal setting for downstream classification. Finetuned models are trained for a single epoch. Table 4 shows us that fine-tuning encourages the model to embed the data into well-separated class clusters with high inter-class dispersion (measured in angular degrees). In contrast, the pre-trained model represents the entire domain as a homogeneous cluster containing data from all classes. Interestingly, the pre-trained model displays the strongest compactness, indicating the closeness among ID data points in the original representation space. Note that the ID accuracy is random for the pre-trained model, which is expected. Dispersion and compactness monotonically improve through fine-tuning, further indicating that finetuning encourages the model to project the data into well-separated and compact class-wise clusters. However, Figure 4 shows us that while finetuning improves ID-OOD separability for the samedomain shift, it has less impact on out-of-domain shifts. (Actual values and results for other objectives can be found in Appendix D.) This trend also echos our previous observations in Section 5.2 and Section 5.3, on OOD detection performance.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 54,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 59,
+      "text": "Related Work",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 60,
+      "text": "The problem of OOD detection is different from domain adaptation (Ramponi and Plank, 2020), where a model is trained to generalize to a known target domain with the same label space. It is also different from selective prediction where a model abstains only when its confidence is low, irrespective of domain (El-Yaniv et al., 2010;Geifman and El-Yaniv, 2017;Kamath et al., 2020). OOD Detection Methods A popular baseline is the calibration method Maximum Softmax Probability (MSP) (Hendrycks and Gimpel, 2017), that directly uses maximum class probability produced by the logits of a trained classifier. However, predictive confidence has been shown to be undesirably high for OOD samples, making MSP ineffective (Nguyen et al., 2015;Wei et al., 2022;Shen et al., 2021). Liu et al. (2020) propose using energy score for OOD detection, which better distinguishes in-and out-of-distribution samples than softmax scores. ReAct (Sun et al., 2021) improves the energy score by introducing a rectified activation, which reduces model overconfidence in OOD data. Sun and Li (2022)  OOD Detection in NLP In the realm of NLP, model confidence using sentence embeddings has been shown to be a strong baseline with pre-trained transformers (Hendrycks et al., 2020;Desai and Durrett, 2020). Contrastive learning (Khosla et al., 2020;Gao et al., 2021;Jin et al., 2022) minimizes intra-class variance, leading to stronger OOD detection, especially in low data regimes (Zeng et al., 2021), and with Mahalanobis distance (Zhou et al., 2021;Podolskiy et al., 2021). Detection performance has also been strengthened using data aug-mentation (Chen and Yu, 2021;Rawat et al., 2021), discriminative training (Zhan et al., 2021), mutual information maximization (Nimah et al., 2021), ensembles (Li et al., 2021) and prototypical networks in the few-shot setup (Tan et al., 2019). While most previous works perform fine-tuning on the ID data, we provide a comprehensive understanding on directly using the pre-trained model for zero-shot OOD detection.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 59,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 61,
+      "text": "Pre-trained vs Fine-tuned Pre-trained language models have been shown to learn implicit sentence representations, forming unsupervised domain clusters (Aharoni and Goldberg, 2020). Andreassen et al. (2021) and Kumar et al. (2021) showed that fine-tuning distorts pre-trained features, worsening accuracy on OOD generalization. However, to the best of our knowledge, we are the first to explore the effect of directly using pre-trained language models for OOD detection. Related to our work, Ming et al. (2022) show that pre-trained models can be used for zero-shot OOD detection. Different from ours, they perform OOD detection in the multi-modal space and calculate distances between the visual and textual representations.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 59,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 62,
+      "text": "Conclusion",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 63,
+      "text": "In this paper, we explore the simple and effective setting of zero-shot OOD detection with pre-trained langage models. Our work departs from prior literature that typically requires fine-tuning on the ID data. Extensive evaluations demonstrate that pre-trained models are near-perfect for OOD detection when the test data comes from a different domain. We additionally investigate the effect of fine-tuning on OOD detection, and identify strategies to achieve both strong OOD detection performance and ID accuracy. We perform both qualitative and quantitative analysis on the embedding characteristics, explaining the strong performance of our method. We hope our work will inspire future work to the strong promise of using pre-trained models for OOD detection.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 64,
+      "text": "Ethical Considerations",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 65,
+      "text": "Our project aims to improve the reliability and safety of large language models, which can be fragile under distribution shift (Ribeiro et al., 2020) and incur great costs (Ulmer et al., 2020;Zhang et al., 2021). By properly flagging anomalous data, our method can lead to direct benefits and societal impacts, particularly for safety-critical applications.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 66,
+      "text": "From a user's perspective, our method can help improve trust in the language models. Our study does not involve any human subjects or violation of legal compliance. We do not anticipate any potentially harmful consequences to our work. As detailed in Appendix A, all of our experiments are conducted using publicly available datasets. Our code has been released for reproducibility. Through our study and releasing our code, we hope to raise stronger research and societal awareness toward the problem of out-of-distribution detection in natural language processing.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 67,
+      "text": "Limitations",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 64,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 68,
+      "text": "We provide a comprehensive study on the efficacy of leveraging pre-trained language models for zeroshot OOD detection. Our method is thus limited to the setting of abstaining from prediction on all OOD data. This is more conservative than selective prediction, where the model must make predictions over as many ID & OOD points as possible while maintaining high accuracy. Despite this, OOD detection has lower risks to high-risk and safety-critical applications, where rare and anomalous data is more reasonably flagged to the expert. We believe our work provides new values and insights to the research community, especially on safe handling of distributional shifts when deploying pre-trained language models.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 67,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 69,
+      "text": "As discussed in our Ethical Considerations, the OOD detection problem is of significant use in high-risk settings, and should be incorporated into production-level pipelines. However, for the same reason, the OOD detection models must be also reliable to avoid any risk to the downstream applications.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 67,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 70,
+      "text": "References",
+      "type": "heading",
+      "level": 4,
+      "parent_id": 67,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 71,
+      "text": "A Preparation of Evaluation Benchmarks",
+      "type": "heading",
+      "level": 5,
+      "parent_id": 70,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 72,
+      "text": "For ID data, we use the train splits of the IMDB dataset on sentiment analysis (Maas et al., 2011), and the 20NewsGroups dataset on topic classification (Lang, 1995 We create two disjoint sets of classes, used as ID and OOD respectively. The domain for both sets of classes is identical, while the label sets differ. Notably, the NewsCategory dataset contains classes with similar semantics, for example 'Arts' and 'Arts & Culture'. To ensure the semantic distinction between the ID and OOD classes, we categorize semantically similar classes to be entirely in either ID or OOD sets. The allocation of classes is summarized in Table 5. The dataset also has a strong class imbalance, so we sample data points according to a multinomial distribution, following Lample and Conneau (2019). Figure 5 shows the class frequencies before and after sampling.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 71,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 73,
+      "text": "More statistics about each dataset is available in Table 6. The listed datasets are intended for research purposes only. We do not make any commercial use of them.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 71,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 74,
+      "text": "B Ablation on the Effect of Layers",
+      "type": "heading",
+      "level": 6,
+      "parent_id": 71,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 75,
+      "text": "The RoBERTa architecture consists of a backbone of multiple transformer layers, followed by a taskspecific head on top. For the classification task, this task-specific head consists of a dense layer followed by a classification projection layer. Zhou et al. (2021) use the features from after the dense layer for OOD detection. Instead, we use the features from before this layer. Table 7 shows the OOD detection performance using the representa-  tions from after the dense layer. Table 7 displays a worse performance than our main results in Table 2, where the representations from before the dense layer are used. Using the representations from before the task-specific head also makes zero-shot OOD detection possible, where the task-specific head is randomly initialized, but weights from the backbone of the pre-trained model are used.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 74,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 76,
+      "text": "C Generation of Sequence Embeddings",
+      "type": "heading",
+      "level": 7,
+      "parent_id": 74,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 77,
+      "text": "Our experiments in the main paper use sentence embeddings obtained from the beginning-of-sentence (BOS) token. This practice is standard for most BERT-like models, including RoBERTa, which we use for our experiments. Prior work has also shown that using the average of all token embeddings can lead to the formation of similar domain-based clusters (Aharoni and Goldberg, 2020).",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 76,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 78,
+      "text": "In this section, we compare this approach with the alternate approach of obtaining sequence embeddings as the average of all token embeddings in the sequence. Table 8 shows that both approaches yield almost identical performance on the OOD detection task.   Table 7: Comparison of fine-tuning objectives with distance-based methods, using the representations from after the dense layer and before the classification projection layer. Table 9 summarizes the epoch-wise performance when fine-tuning on ID data, for the setting of OoD semantic shift. Table 10 shows the same for OoD background shift, while Table 11 shows this for same-domain (SD) shift.",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 76,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 79,
+      "text": "D Detailed Performance of Fine-tuning for OOD Detection",
+      "type": "heading",
+      "level": 8,
+      "parent_id": 76,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 80,
+      "text": "E Effect of Temperature in SupCon",
+      "type": "heading",
+      "level": 9,
+      "parent_id": 79,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 81,
+      "text": "Contrastive loss is shown to be a hardness-aware loss function, penalizing hard negative samples by reducing tolerance to them (Wang and Liu, 2021). The temperature τ has been shown to control the tolerance to negative samples. As seen in Figure  7, low temperature leads to a uniform distribution with high separability in the learnt embedding space, but this can reduce tolerance to semantically similar samples, breaking underlying semantic structure. The temperature must be set optimally to balance the 'uniformity-tolerance' trade-off, having some tolerance to semantically similar examples. When IMDB is ID, we find OOD detection to be optimal at τ = 0.7, since the two classes of the   dataset share semantic similarities. However, with the 20NewsGroups topic classification task, we find a lower value of τ = 0.1 to be optimal. This is because a larger number of ID classes requires a stronger uniformity in the learnt distribution, and the weaker semantic similarities between classes assures that this uniformity does not hurt performance. Tables 14, 16 and 15 show the effects of varying the temperature parameter τ in the SupCon loss, on OOD detection, in the settings of OoD semantic shift, OoD background shift and same-domain shift. All models are fine-tuned for 10 epochs.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 80,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 82,
+      "text": "F Effect of k Figure 8 shows us that k = 1 is consistently the optimal k for kNN, across fine-tuning objectives and distribution shifts. The detection per-  formance remains strong until k reaches the ID class size, which is between 400 and 600 for 20NewsGroups. After this point, the nearest neighbour for an ID and OOD point will both be outside the nearest ID class cluster, making both distances more comparable and harder to distinguish. With pre-trained models, the performance remains strong as there is no concept of class clusters and a single domain cluster is instead present.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 80,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 83,
+      "text": "G Details on Implementation",
+      "type": "heading",
+      "level": 10,
+      "parent_id": 80,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 84,
+      "text": "We use RoBERTa from the HuggingFace library 4 , and use PyTorch to train our models. Hyperparameter search is performed through a grid search. Apart from the default parameters in the trainer module from HuggingFace, our selected hyperparameters are listed in Table 13.       However, in Table 12 we show results of a subset of experiments averaged over 3 runs. There is no significant difference between the results in Table 12 and   Limitations section in end of main paper.",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 83,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 85,
+      "text": "A2. Did you discuss any potential risks of your work?",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 83,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 86,
+      "text": "Ethical Considerations and Limitations sections in end of main paper.",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 83,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 87,
+      "text": "A3. Do the abstract and introduction summarize the paper's main claims?",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 83,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 88,
+      "text": "Section 1 contains all our main claims.",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 83,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 89,
+      "text": "A4. Have you used AI writing assistants when working on this paper?",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 83,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 90,
+      "text": "Left blank.",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 83,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 91,
+      "text": "B Did you use or create scientific artifacts?",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 83,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 92,
+      "text": "Section 4 B1. Did you cite the creators of artifacts you used?",
+      "type": "paragraph",
+      "level": 11,
+      "parent_id": 83,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 93,
+      "text": "Section 4 and Appendix A",
+      "type": "heading",
+      "level": 11,
+      "parent_id": 83,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 94,
+      "text": "B2. Did you discuss the license or terms for use and / or distribution of any artifacts?",
+      "type": "paragraph",
+      "level": 12,
+      "parent_id": 93,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 95,
+      "text": "Appendix A",
+      "type": "heading",
+      "level": 12,
+      "parent_id": 93,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 96,
+      "text": "B3. Did you discuss if your use of existing artifact(s) was consistent with their intended use, provided that it was specified? For the artifacts you create, do you specify intended use and whether that is compatible with the original access conditions (in particular, derivatives of data accessed for research purposes should not be used outside of research contexts)? Appendix A B4. Did you discuss the steps taken to check whether the data that was collected / used contains any information that names or uniquely identifies individual people or offensive content, and the steps taken to protect / anonymize it? We do not make use of any sensitive data, so there is no requirement to anonymize it.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 97,
+      "text": "B5. Did you provide documentation of the artifacts, e.g., coverage of domains, languages, and Section 5 C1. Did you report the number of parameters in the models used, the total computational budget (e.g., GPU hours), and computing infrastructure used? Appendix G",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 98,
+      "text": "The Responsible NLP Checklist used at ACL 2023 is adopted from NAACL 2022, with the addition of a question on AI writing assistance.",
+      "type": "paragraph",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 99,
+      "text": "Effect of fine-tuning on ID accuracy and OOD detection performance, across different objectives and detection methods. From left to right: (1) ID Accuracy, AUROC with (2) CE, (2) TAPT, and (3) SupCon losses. From top to bottom: OoD semantic shift, OoD background shift, and same-domain (SD) shift. The X-axis shows the number of fine-tuning epochs, with '0' indicating the pre-trained model. The Y-axis shows either the ID accuracy or the AUROC. Actual values can be found in Appendix D.",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 100,
+      "text": "Comparison of data representations in the penultimate layer of pre-trained vs. fine-tuned models for same-domain data shifts. Here we split the NewsCategory dataset into two parts with disjoint classes: one for ID, and another for OOD. ID data is shown in blue, while OOD data is in yellow. Left: Pretrained model. Right: Fine-tuned with cross-entropy loss. Fine-tuning encourages the model to separate the embeddings into individual class clusters.inMing et al. (2023):",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 101,
+      "text": "Effect of fine-tuning (w/ SupCon loss) on the ID-OOD separability. The X-axis shows the number of fine-tuning epochs, and the Y-axis shows ID-OOD separability (in angular degrees).",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 102,
+      "text": "utilize logit sparsification to enhance the vanilla energy score. More recently, detection methods that utilize distances of samples in representation space, have risen as a promising class of OOD detection methods in both the vision(Mandelbaum and Weinshall, 2017; Lee  et al., 2018; Sun et al., 2022; Ming et al., 2023) and  multi-modal (Ming et al., 2022)  regimes.",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 103,
+      "text": "Class frequencies of the NewsCategory dataset. The original frequencies in blue show a strong class imbalance, while the modified frequencies in orange are more balanced.",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 104,
+      "text": "ID accuracy with linear probing instead of fine-tuning, with 20NewsGroups. In comparison to fine-tuning with TAPT, where the accuracy after 10 epochs is 86%, linear probing with TAPT achieves an accuracy of about only 61% after 100 epochs.",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 105,
+      "text": "Effect of the temperature τ on representations trained with the SupCon loss. The ID data is 20NewsGroups. Left: τ = 0.1. Right: τ = 0.7.",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 106,
+      "text": "Settings of ID-OOD dataset pairs",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 107,
+      "text": "Comparison of OOD detection performance of pre-trained and fine-tuned models. Pre-trained language models are near-perfect OOD detectors in the out-of-domain setting, but worst in the same-domain shift setting.",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 108,
+      "text": "TrainingID-OOD Separability ↑",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 109,
+      "text": "Amit Mandelbaum and Daphna Weinshall. 2017.Distance-based confidence score for neural network classifiers. arXiv preprint arXiv:1709.09844.",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 110,
+      "text": "Division of classes in the NewsCategory dataset into disjoint ID and OOD sets.",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 111,
+      "text": "Artifacts used in our study. The dataset statistics report the values used in our study. For example, the values of the NewsCategory dataset are reported after sampling.",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 112,
+      "text": "Training Epoch ID Accuracy ↑ Dispersion ↑ Compactness ↓ ID-OOD AUROC ↑ FPR95 ↓ AUROC ↑ FPR95 ↓ AUROC ↑ FPR95 ↓ AUROC ↑ FPR95 ↓",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 113,
+      "text": "Effect of fine-tuning by various objectives on OOD detection performance. With 20NewsGroups as ID and RTE as OOD, this ID-OOD pair exhibits a out-of-domain semantic shift.AUROC ↑ FPR95 ↓ AUROC ↑ FPR95 ↓ AUROC ↑ FPR95 ↓ AUROC ↑ FPR95 ↓",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 114,
+      "text": "Effect of fine-tuning by various objectives on OOD detection performance. With IMDB as ID and SST-2 as OOD, this ID-OOD pair exhibits a out-of-domain background shift. The RoBERTa base model has approximately 125 million parameters, including those of the classification head. On a single NVIDIA GeForce RTX 2080 Ti GPU, training the model for 10 epochs takes approximately 8-12 hours, and OOD detection for a single dataset takes approximately 15 minutes. Over the scale of our experiments, we have used about 200 hours of GPU training time. Multiple Runs Following the protocol in Arora et al. (2021), we report results over a single run. AUROC ↑ FPR95 ↓ AUROC ↑ FPR95 ↓ AUROC ↑ FPR95 ↓ AUROC ↑ FPR95 ↓",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 115,
+      "text": "Effect of fine-tuning by various objectives on OOD detection performance. Using subsets of the NewsCategory as ID and OOD, this ID-OOD pair exhibits a same-domain shift.Figure 8: Effect of k in OOD detection using kNN, for the OoD semantic shift setting (20NewsGroups→RTE). Left: AUROC. Right: FPR95. ID→OOD Pair Training AUROC ↑ AUPR (In) ↑ AUPR (Out) ↑ FPR95 ↓ AUROC ↑ AUPR (In) ↑ AUPR (Out) ↑ FPR95 ↓",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 116,
+      "text": "Comparison of OOD detection performance of pre-trained and fine-tuned models, averaged over 3 runs. Number of pre-training epochs (for TAPT) 3 Contrastive loss weight (for SupCon)",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 117,
+      "text": "Hyperparameters used in our study. ( * ) Values depend on the dataset.",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 118,
+      "text": "Effect of the temperature τ in SupCon finetuning, on OOD detection, for OoD semantic shift (20NewsGroups→RTE).",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 119,
+      "text": "indicating that our experiments are stable across runs. Therefore, for the sake of computational resources and time, we stick to the single-run practice in our experiments. FPR95↓ AUROC↑ FPR95↓ AUROC↑ FPR95 AUROC↑ FPR95↓",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 120,
+      "text": "Effect of the temperature τ in SupCon finetuning, on OOD detection, for OoD background shift (IMDB→SST-2).",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 121,
+      "text": "Effect of the temperature τ in SupCon finetuning, on OOD detection, for same-domain shift with the NewsCategory dataset.ACL 2023 Responsible NLP ChecklistA For every submission:A1. Did you describe the limitations of your work?",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 122,
+      "text": "linguistic phenomena, demographic groups represented, etc.? Appendix A B6. Did you report relevant statistics like the number of examples, details of train / test / dev splits, etc. for the data that you used / created? Even for commonly-used benchmark datasets, include the number of examples in train / validation / test splits, as these provide necessary context for a reader to understand experimental results. For example, small differences in accuracy on large test sets may be significant, while on small test sets they may not be. Appendix A C Did you run computational experiments?",
+      "type": "figure",
+      "level": 13,
+      "parent_id": 95,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 123,
+      "text": "Did you discuss the experimental setup, including hyperparameter search and best-found hyperparameter values? Section 4 and Appendix G. C2C2. Did you discuss the experimental setup, including hyperparameter search and best-found hyperparameter values? Section 4 and Appendix G",
+      "type": "reference",
+      "level": 5,
+      "parent_id": 70,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 124,
+      "text": "error bars around results, summary statistics from sets of experiments), and is it transparent whether you are reporting the max, mean, etc. C3. Did you report descriptive statistics about your results. or just a single runC3. Did you report descriptive statistics about your results (e.g., error bars around results, summary statistics from sets of experiments), and is it transparent whether you are reporting the max, mean, etc. or just a single run?",
+      "type": "reference",
+      "level": 5,
+      "parent_id": 70,
+      "subtype": "bibentry"
+    }
+  ]
+}

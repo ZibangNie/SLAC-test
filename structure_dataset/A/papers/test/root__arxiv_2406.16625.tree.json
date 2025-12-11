@@ -1,0 +1,1261 @@
+{
+  "doc_id": "corpus_271217532",
+  "units": [
+    {
+      "unit_id": 0,
+      "text": "GATSBI: An Online GTSP-Based Algorithm for Targeted Surface Bridge Inspection and Defect Detection",
+      "type": "heading",
+      "level": 0,
+      "parent_id": null,
+      "subtype": "doc_title"
+    },
+    {
+      "unit_id": 1,
+      "text": "I. Introduction",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 2,
+      "text": "In this work, we are interested in designing a highlevel planner for an Unmanned Aerial Vehicle (UAV) that inspects a 3D surface for identifying visual defects.Currently, infrastructure inspection is performed manu-Fig.1: An example of V iew.Our goal is to ensure that each point on the surface is viewed by the onboard camera within the View region.The green box depicts the face of an infrastructure voxel, the blue cone depicts the viewing cone, and the red band on the cone depicts the viewing distance.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 3,
+      "text": "ally either by an inspector being suspended across the infrastructures surface or by the inspector piloting a UAV.The first is dangerous whereas the second prevents the inspector from completely focusing on detecting defects, such as cracks.Developing an autonomous inspection planner addresses these concerns.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 4,
+      "text": "Recently, a number of commercial solutions such as the ones from Skydio [1] and Exyn [2] and ongoing work in academia provide robust autonomy including SLAM and low-level planning (how to navigate from point A to point B).Our work on high-level planning (determining what the next waypoint B should be) is complementary to these works.Current forms of planning mostly consist of someone clicking on waypoints for the UAVs to fly to.As a result, we develop tools that autonomously solve the more general problem of inspecting infrastructure with no prior information about its geometry.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 5,
+      "text": "Inspection is closely related to coverage and exploration, which are problems that have been well-studied in the literature.However, coverage and exploration are not necessarily the best approaches for inspection.Given a 3D model of the environment (including the infrastructure), we can find a coverage path that covers all points on the infrastructure using an offline planner [3].In practice, we often do not have any prior model of the layout of the infrastructure.Even if a prior 3D model is available, it may be inaccurate due to changes in the environment surrounding the infrastructure as well as structural changes made to the infrastructure.In this work, we address the problem of designing targeted inspection plans as the 3D model of the environment is built online.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 6,
+      "text": "Frontier-based strategies [4] are typically used for exploring an initially unknown environment.A frontier is a boundary between explored and unexplored regions.The strategy chooses which of the frontiers to visit (and which path to follow to get to the chosen frontier) to help speed up exploration.The algorithm terminates when there are no more accessible unexplored regions.A bounding box placed around the infrastructure can restrict exploration when operating in an open environment.Exploring the infrastructure does not necessarily mean that the UAV will get inspection-quality images.Instead, an inspection planner that can take into account viewing and distance constraints may be more efficient.We present such a planner, termed GTSP-Based Algorithm for Targeted Surface Bridge Inspection (GATSBI), and show that it outperforms previous inspection strategies in efficiently inspecting the infrastructure (Section VI).",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 7,
+      "text": "GATSBI consists of six modules: semantic segmentation to find 3D points from a pointcloud that corresponds to the surface of the infrastructure, simultaneous localization and mapping (SLAM) to align each incoming 3D pointcloud, 3D occupancy grid mapping using the 3D pointcloud, a high-level planner for finding inspection paths for the UAV, a navigation algorithm for executing the planned path, and a crack detection neural network to detect defects.We use off-the-shelf modules for SLAM (LIO-SAM [5]), occupancy grid mapping (OctoMap [6]), solving GTSP (GLNS [7]), point-to-point navigation (MoveIt [8]), and crack detection (YOLO-World [9]).The specific point-to-point planner we use is RRT*.Since the distances generated by RRT* might be different than the Euclidean distance, we perform a lazy evaluation prior to navigation described in Section V.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 8,
+      "text": "Our key algorithmic contribution is the high-level planner module.Specifically, we show how to show how to reduce the inspection problem to a GTSP instance and the full pipeline that outperforms baseline strategies.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 9,
+      "text": "Our technique takes into account overlapping viewpoints that can view the same parts of the infrastructure and simultaneously selects where to take images and what order to visit those viewpoints.In summary, we make the following contributions:",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 10,
+      "text": "• Extend 1 our receding horizon algorithm, GATSBI [10], an efficient infrastructure inspection planner with no prior structural information;",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 11,
+      "text": "• Demonstrate that GATSBI outperforms a baseline inspection method that knows the infrastructure surface a priori by 38% through numerous simulations in AirSim using 3D models of infrastructure;",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 12,
+      "text": "II. Related Work",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 1,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 13,
+      "text": "In this section, we review some of the previous work in this domain.We first describe some of the recent work on the planning side and then describe recent work on crack detection and localization.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 14,
+      "text": "A. Planning",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 12,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 15,
+      "text": "As described earlier, frontier-based exploration is a widely-used method for 3D exploration of unknown environments [12]- [14].Other works proposed variants of frontier exploration focused on choosing the next frontier to visit [15], [16].Another popular approach is to model the exploration problem as one of information gathering and choose a path (or a frontier) that maximizes the information gain [17], [18].Additionally, there are Next-Best-View approaches [19]- [21] that, as the name suggests, plan the next-best location to take an image from to explore the environment.We refer the reader to a recent, comprehensive survey on multi-robot exploration by Li et al. [22].There is also work that uses GTSP for view planning [23], however, it focuses on only 2D space and does not take practical issues into consideration such as obstacle avoidance.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 14,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 16,
+      "text": "As shown in our conference paper [10], generic exploration strategies are inefficient when performing targeted infrastructure inspection.There has been work on designing inspection algorithms that plan paths that take into account the viewpoint considerations [24]- [27].When prior information is available, one can plan inspection paths carefully by considering the geometric model of the environment.Typically, algorithms use prior information, such as a low-resolution version of the environment, to create an inspection path and obtain high-resolution measurements of the environment [24], [26].Unlike these works, we consider a scenario where the robot has no prior environmental information and must plan using incrementally revealed data.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 14,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 17,
+      "text": "Bircher et al. [28] presented a receding horizon planner for exploration and inspection.Both algorithms use a Rapidly-Exploring Random Tree to generate a set of candidate paths in the known, free space of the environment.Then the algorithm selects a path based on a criterion that values how much information a path gains about the environment.The planner uses a receding horizon algorithm repeatedly invoked with new information.We follow a similar approach; however, their algorithm knows the inspection surface a priori, while our work only requires the UAV to see a portion of the infrastructure at the start of inspection.The environment is not known for their exploration algorithm but it is known for their inspection algorithm.GATSBI has no prior knowledge about the environment and minimal knowledge of the target inspection surface.Furthermore, we cluster potential viewpoints using GTSP which leads to further efficiency.Their inspection planner, Structural Inspection Planner (SIP) [11], is the baseline inspection strategy that GATSBI is compared against in Section VI.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 14,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 18,
+      "text": "Song et al. [27] recently proposed an online algorithm that consists of a high-level coverage planner and a lowlevel inspection planner.The low-level planner takes into account the viewpoint constraints and chooses a local path that gains additional information about the structure under inspection.Our work differentiates by guaranteeing the quality of inspection, not requiring a bounding box around the target infrastructure, and segmenting the infrastructure of interest from the environment which guarantees inspection of only the target infrastructure.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 14,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 19,
+      "text": "B. Crack Detection and Localization",
+      "type": "heading",
+      "level": 4,
+      "parent_id": 14,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 20,
+      "text": "Detecting defects in the infrastructure with artificial intelligence (AI) has gained interest recently.Deploying these systems on aerial robots requires consideration of accuracy, inference speed, and lack of data.Early defect detection methods use CNN-based approaches such as YOLO [29]- [31], Faster R-CNN [32], and SSD [33].more advanced methods have since used more complex architectures based on Graph Neural Networks [34] and Transformers [35].Although these approaches can provide good detection and localization accuracy, they also require huge training datasets, which may not be infeasible for specific defects such as cracks in bridges.Also, more complex and larger models increase inference time, making them less attractive for real-time applications.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 19,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 21,
+      "text": "The existing datasets for crack detection such as CrackTree260 [36], CrackLS315 [37], Stone331 [38], etc., contain only a few hundred images.Data augmentation and transfer learning [39] are commonly used to address the lack of data.Most networks for defect inspection predict a binary segmentation map [35], [40]- [45].Such pixel-to-pixel prediction networks can be computationally intensive and defect localization may need postprocessing.Bounding box predictors provide a good alternative [31], [46], [47], but the small size of the training data remains a challenge for these networks as well.To address these issues, we use a real-time openset detector, pre-trained on large-scale data with textbased prompts.Specifically, we use the YOLO-World [9] model with 'crack' as the prompt for crack detection and localization.Unlike the previous works, we do not fine-tune this network and demonstrate that it provides appreciable detection and localization over real-world images, without additional training or fine-tuning.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 19,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 22,
+      "text": "III. Problem Formulation",
+      "type": "heading",
+      "level": 5,
+      "parent_id": 19,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 23,
+      "text": "The goal of our unified system is to find infrastructure defects, specifically cracks that can be detected visually, using a UAV.Assuming we have a UAV with a 3D pointcloud sensor and RGB camera, our goal is find a path to inspect every point on the infrastructure surface while minimizing total flight distance.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 22,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 24,
+      "text": "We consider the scenario where the geometric model of the infrastructure may be unknown a priori.We assume that the UAV starts the algorithm at a location where at least some part of the infrastructure is visible.If this is not the case, we can run a frontier exploration strategy until the infrastructure is visible.We then plan an inspection path for the part of the infrastructure that is visible.As the UAV sees more of the infrastructure, we replan to find a better tour in a receding horizon fashion.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 22,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 25,
+      "text": "We use a 3D semantic, occupancy grid built using localized pointcloud data to represent the model of the infrastructure built online.GATSBI assigns each voxel in the occupancy grid a semantic label.The label indicates whether the voxel is free space v F ∈ V F ; is occupied space, part of the infrastructure, and previously inspected v BI ∈ V BI ; is occupied, part of the infrastructure, but not yet inspected v BN ∈ V BN ; and occupied but not a infrastructure voxel (i.e., obstacles) v O ∈ V O .Our goal is to inspect all the voxels that correspond to the infrastructure surface, i.e., to ensure that V BN = ∅.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 22,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 26,
+      "text": "A voxel v BN ∈ V BN is inspected if we inspect at least one of its six faces.A face is inspected if the center of that face falls within a cone given apex angle centered at the UAV camera and within a minimum and maximum range of the UAV camera.The apex angle represents the field of view of the camera that is rigidly attached to the UAV.The viewing distance is a minimum and maximum distance range that the UAV should inspect an infrastructure voxel to ensure quality images for inspection.Figure 1 shows an example of these viewing constraints.For the rest of the paper, we refer to the viewing cone and distance as V iew.The RGB camera is used to take pictures of the bridge once the UAV has reached a target V iew point.The problem we are trying to solve can be defined as follows:",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 22,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 27,
+      "text": "Problem 1",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 22,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 28,
+      "text": "Given a 3D occupancy map consisting of four sets of voxels (V F , V BI , V BN , V O ), find a minimum length path that inspects every voxel in V BN .",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 22,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 29,
+      "text": "We repeatedly solve Problem 1 as we gain new information until V BN = ∅.In the Section V, we show how to model this problem as a GTSP instance.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 22,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 30,
+      "text": "Given a collection of RGB images captured at each inspection point, we seek to localize defects along the visible surfaces of the infrastructure via two phases offline.The first phase uses a machine learning pipeline to propose potential defects and their locations within each image.In the next phase, a human expert accepts or rejects each proposed defect and determines if the defect requires repairs.We assume the existence, number, and locations of defects are unknown a priori.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 22,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 31,
+      "text": "IV. System Overview",
+      "type": "heading",
+      "level": 6,
+      "parent_id": 22,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 32,
+      "text": "In this section, we give an overview of the GATSBI algorithm.We show the full pipeline (Fig. 2) which broadly consists of three perception modules (segmentation, SLAM, and occupancy grid mapping) and two planning modules (high-level GTSP inspection planning and low-level point-to-point planning).Data captured during the flight is fed into the 6th module, crack detection.The main algorithmic contribution, the high-level planner, is described in the next section V.Here we describe all other off-the-shelf components that form the full system.",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 31,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 33,
+      "text": "A. Perception",
+      "type": "paragraph",
+      "level": 7,
+      "parent_id": 31,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 34,
+      "text": "Simultaneous Localization and Mapping",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 35,
+      "text": "To start, the raw pointcloud data is localized and mapped.Localizing the pointcloud allows for the alignment of each successive pointcloud to all previous ones which is subsequently used to build a map of the en-vironment.As the UAV flies to new areas, more and more of the environment gets mapped including the target infrastructure.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 34,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 36,
+      "text": "Segmentation",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 37,
+      "text": "We then use the localized 3D points to segment the infrastructure from the environment.Segmenting out the infrastructure allows the algorithm to differentiate between the infrastructure and obstacles in the environment.This allows only the infrastructure to be inspected as opposed to every object in the environment.The 3D points that lie on the segmented infrastructure are classified as infrastructure points.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 36,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 38,
+      "text": "Occupancy Grid Mapping",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 39,
+      "text": "These 3D localized infrastructure points are then used to create a 3D occupancy grid.The map produced by the SLAM module lies in continuous space whereas utilizing occupany grid mapping allows us to discretize the 3D space.In parallel, the complete point cloud (segmented infrastructure and non-segmented obstacle points) is used to generate an environmental 3D occupancy grid.Together, these two occupancy grids output a set of voxels: free V F , bridge V BI , bridge V BN , and obstacle V O .The algorithm uses the segmented voxels (V BI , V BN ) to plan inspection paths.The algorithm uses the other voxels (V O , V F ) to plan collision-free paths and take into account viewing constraints.An example of a 3D occupancy grid is shown in Fig. 3.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 38,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 40,
+      "text": "B. Planner",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 38,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 41,
+      "text": "High-Level GTSP Inspection Planning",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 42,
+      "text": "To inspect infrastructure, we need to inspect all voxels in V BN (as described in Section III).GATSBI works in a receding horizon fashion.The V BI set keeps track of inspected voxels.This avoids unnecessarily inspecting the same voxel more than once.Specifically, the UAV must view each voxel in V BN from some point on its path within V iew.We formulate this problem as a GTSP instance.The specific details on how we formulate it as a GTSP instance are described in Section V.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 41,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 43,
+      "text": "Low-Level Point-to-Point Planning",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 44,
+      "text": "Once a GTSP tour is received from the high-level planner, point-to-point planning is needed.The GTSP tour does not guarantee collision free paths, it only gives us points where all of the uninspected infrastructure surface can be inspected from.Using our 3D environmental occupancy grid, we can generate collision free paths between each point in the GTSP tour with a point-to-point planner.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 43,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 45,
+      "text": "C. Crack Detection",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 43,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 46,
+      "text": "While the UAV is flying on its inspection path, images from the flight are captured.We can use these images to detect defects in the infrastructure.For our purposes, we focus on crack detection specifically.The raw images can be input into a crack detection neural network where crack locations are output.Since we have a localization and mapping module, the exact location of these cracks can also be tagged in our environment map.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 45,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 47,
+      "text": "V. The GATSBI Planner",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 45,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 48,
+      "text": "We describe our high-level GTSP inspection planner.As shown in Figure 2, this is done in two steps: view point generation and GTSP-based view point selection.GTSP generalizes the Traveling Salesperson Problem and is NP-Hard [7].The input to GTSP consists of a weighted graph, G, where vertices are clustered into sets.The edges of the graph are the distances between the vertices.The objective is a minimum weight tour that visits at least one vertex in each set once.Next, we describe our GTSP setup details.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 47,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 49,
+      "text": "A. View Point Generation",
+      "type": "heading",
+      "level": 4,
+      "parent_id": 47,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 50,
+      "text": "For our implementation, vertices are the center-points of voxels v F that the UAV can fly to and clusters are the set of all v F a specific v BN can be inspected Each vertex in G corresponds to a candidate viewpoint.We check all pairs of v F ∈ V F and v BN ∈ V BN to see if v F lies within V iew of one of the faces of v BN .If so, we add a vertex in the graph G corresponding to the pair v F and v BN .",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 49,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 51,
+      "text": "Each free voxel that can inspect the same v BN will add one vertex each to the cluster corresponding to v BN .A simplified example of this graph setup is shown in Fig. 4. The GTSP tour will ensure the UAV visits at least one viewpoint in each cluster.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 49,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 52,
+      "text": "Next, we create an edge between every pair of vertices in G.The cost for each of these edges is initially the Euclidean distance between the two vertices.With the vertices, edges, and clusters, we create a GTSP instance and use the GTSP solver, GLNS [7], to find a path for the UAV.We use GTSP as our planner because it will guarantee at least one point corresponding to every V BN will be visited.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 49,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 53,
+      "text": "B. GTSP-Based View Point Selection",
+      "type": "heading",
+      "level": 5,
+      "parent_id": 49,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 54,
+      "text": "Before moving from one point to the next, we check the distance from the current location of the UAV to the next vertex in the GTSP path.Instead of Euclidean distance, we find the distance of the path between these points using an RRT* algorithm [48] with our environment occupancy grid.This ensures the path between these points is collision-free.If the difference between the RRT* distance and the Euclidean distance is greater than DD (discrepancy distance), we update the edge costs in the GTSP instance and replan the GTSP path.We replan as needed to ensure that the first edge in the returned tour is within DD of the Euclidean distance.We call this a lazy evaluation of edge costs.Computing the RRT* distance (which is a more accurate approximation of the actual travel distances) between every pair of vertices would be time-consuming.By checking the discrepancy lazily, we find a tour quickly while also not executing any edge where the actual distance is significantly larger than the expected distance.For our experiments, we set DD to be 125% of the Euclidean distance to account for some of the variances in paths generated using RRT* algorithms but still allow replanning when necessary.Update first edge cost in G with RRT* distance and re-solve GTSP 9: end while 10: Use RRT* as point-to-point planner for GTSP tour 11: Update V BI with latest inspected bridge voxels We track each newly visited cluster during the flight, corresponding to non-inspected infrastructure voxels.The camera captures an image at each visited point for inspection.Once inspected, GATSBI moves these from set (V BN ) to V BI .The plan is executed until either a time limit RP T elapses or the path is completed.We record raw sensor data during the flight and update the inspected and non-inspected voxels afterward.GATSBI terminates when V BN is empty, indicating all infrastructure is inspected.An overview of a single iteration of the GATSBI algorithm is shown in Algorithm 1.",
+      "type": "paragraph",
+      "level": 6,
+      "parent_id": 53,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 55,
+      "text": "Algorithm 1 Overview of single iteration of GATSBI",
+      "type": "heading",
+      "level": 6,
+      "parent_id": 53,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 56,
+      "text": "VI. Evaluation",
+      "type": "heading",
+      "level": 7,
+      "parent_id": 55,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 57,
+      "text": "In this section, we evaluate the algorithm in both simulation and hardware experiments.For the simulations, we compare it against SIP [11].Comparison against a baseline frontier-exploration algorithm and parameter tuning was done in our conference paper [10].First, we describe the common setup that was used in both simulations and experiments.",
+      "type": "paragraph",
+      "level": 8,
+      "parent_id": 56,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 58,
+      "text": "A. Setup",
+      "type": "heading",
+      "level": 8,
+      "parent_id": 56,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 59,
+      "text": "For both simulations and experiments, we generated the occupancy grid using 3D pointclouds and input them into Octomap.We implemented the RRT* algorithm using the MoveIt software package, which finds collision-free paths using the environmental 3D occupancy grid.We used a viewing cone with a 20°apex angle and a viewing distance of 2-5 meters, ensuring it was within the camera's FoV and safe for UAV flight as suggested by Dorafshan et al.For crack detection, we used YOLO-World to identify cracks in images captured during flight.",
+      "type": "paragraph",
+      "level": 9,
+      "parent_id": 58,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 60,
+      "text": "B. Simulations",
+      "type": "heading",
+      "level": 9,
+      "parent_id": 58,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 61,
+      "text": "We present simulation results to evaluate the performance of our proposed unified inspection system.We discuss the setup used to perform simulations and then discuss the inspection environments.Next, we compare GATSBI with SIP [11] first quantitatively and then qualitatively.",
+      "type": "paragraph",
+      "level": 10,
+      "parent_id": 60,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 62,
+      "text": "Simulation Setup",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 63,
+      "text": "We ran the simulations on a laptop with an Intel Core i9-8950HK CPU, 32 GB of RAM, and an Nvidia RTX 2080 Max-Q GPU running Ubuntu 18.04.All simulated experiments used ROS Melodic and AirSim.Our simulated inspection platform was an AirSim quadrotor equipped with a 512x512 depth camera and an RGB camera.AirSim provided pointcloud localization and built-in semantic segmentation to isolate the infrastructure in the RGB images.The segmented RGB images were aligned with the depth camera to create segmented depth images, which were then converted into 3D pointclouds.This common setup described above was used for the rest of the pipeline.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 62,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 64,
+      "text": "Environment Setup",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 65,
+      "text": "We performed experiments using five bridge scenes, a silo scene, and a chemical plant scene (Fig. 5).The steel bridge scene contained large hills on both ends of the bridge and trees far away from the bridge.However, the other scenes only contained the infrastructure itself.We chose these infrastructures (bridges and buildings) because they represent distinct types of infrastructure that are common to inspect. Figure 6 shows a path GATSBI generated and the UAV followed around the chemical plant scene.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 64,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 66,
+      "text": "Comparison with SIP",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 67,
+      "text": "We compared the inspection performance of GATSBI with SIP.SIP uses a triangular mesh of the target infrastructure and viewing parameters (camera FoV and minimum/maximum viewing distance) to generate viewpoints and paths for inspection.We tested SIP in AirSim, tracking the number of inspected infrastructure voxels during the flight.GATSBI, in contrast, generates a path dynamically as it observes more of the infrastructure, without prior knowledge of the infrastructure map.Both algorithms were evaluated in five scenes: arch bridge, covered bridge, box girder bridge, iron bridge, and silo tower.On average, GATSBI inspected 38% more voxels than SIP, but SIP generally completed inspections faster and with shorter flight distances due to its prior knowledge of the infrastructure mesh.The results are shown in Table I    Intuitively, SIP might seem better since it has prior access to the infrastructure's mesh, but GATSBI performs better for several reasons.First, using voxels allows us to define the inspection resolution more easily.A mesh being inspected does not guarantee all its voxels are inspected.Second, SIP does not consider collision-free navigation and may generate inefficient paths since it only knows the infrastructure's mesh, not other obstacles.Lastly, SIP does not check if the mesh can be navigated, potentially leading to unreachable inspection points.GATSBI, however, generates collision-free paths and selects viewpoints based on the entire environment map.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 66,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 68,
+      "text": "Figure 5 shows qualitative comparisons between the two methods.GATSBI observes the entire inspection surface, while SIP has coverage gaps (dotted-red boxes).GATSBI also inspects more complex structures that SIP fails to handle due to the complexity of the triangular mesh.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 66,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 69,
+      "text": "C. Real-World Experiments",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 66,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 70,
+      "text": "This section presents real-world experiments that evaluate the performance of GATSBI.Here, we show results with only GATSBI since our simulated experiments demonstrated that GATSBI outperformed SIP.Below, we present quantitative results that compare the computation time, flight time, and the number of voxels inspected with GATBSI.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 69,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 71,
+      "text": "Experiment Setup",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 72,
+      "text": "We conducted these experiments using a DJI Matrice M600 Pro (see Fig. 7), equipped with an NVIDIA Jetson TX2, Velodyne VLP-16 3D LiDAR, and GPS.Due to energy constraints, we used a practical version of GATSBI, as discussed in Section VII.The UAV's LiDAR created a bridge map, and GATSBI ran offline to determine the inspection path.Unlike simulations using depth camera pointclouds, we used 3D LiDAR pointclouds.Initial localization was achieved with DJI's GPS-based system, and for real-world noise, we used LIO-SAM [5] with GPS.We manually segmented the target infrastructure geographically, which sufficed for our experiments.The common setup was used for the rest of the pipeline.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 71,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 73,
+      "text": "UMD F3",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 74,
+      "text": "We tested GATSBI on a mock bridge at the Fearless Flight Facility (F3) at the University of Maryland, College Park (see Fig. 7).The UAV flew around the bridge with a viewing cone angle of 0°and a distance range of 2-5 meters, inspecting all 15 bridge voxels.The target inspection path and actual flown path are shown in Fig. 8, with the white line indicating the direct path between inspection points and the orange line showing the actual flown path.Pink cones represent inspection points.This experiment demonstrates GATSBI's effectiveness for realworld infrastructure inspection.The GATSBI algorithm's computation time was 0.32 seconds, GTSP time was 8.25 seconds, and flight time was 772 seconds, confirming that the algorithm time is not a bottleneck.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 73,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 75,
+      "text": "College Park Bridge",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 76,
+      "text": "We tested our method on real infrastructure using the same hardware setup.Due to Washington DC's nofly zone, we collected data on the ground by placing the DJI M600 Pro in a cart and walking it around a bridge in College Park, Maryland (see Fig. 9).The data was processed through our pipeline, producing a SLAM pointcloud and a segmented bridge octomap (see Fig. 10).These were used by our practical GATSBI algorithm to generate inspection paths.We modified GATSBI to inspect each voxel face separately.Figure 11 shows three example paths: the first with a 0°viewing cone angle at 2-5 meters, the second with the same angle at 8-10 meters (avoiding a tree), and the third with a 20°angle at 2-5 meters.Multiple arrows at each inspection point indicate multiple faces inspected due to the viewing cone angle.",
+      "type": "paragraph",
+      "level": 2,
+      "parent_id": 75,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 77,
+      "text": "D. Crack Detection Results",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 75,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 78,
+      "text": "For crack detection, we use pre-trained YOLO-World [9] large model (YOLOw-l) conditioned on the text prompt 'crack'.This crack detection model effectively acts in a zero-shot manner for this task.We run this model  on some images from the College Park Bridge, as shown in Figure 12.Here we show results with a confidence threshold of 0.008.We found that YOLO-World can appreciably detect and localize the cracks in the bridge.In some cases, some false positives may occur which may have a high likelihood of containing cracks, such as the pillars in Figure 12d.Note that these results were obtained using a pre-trained model and were not fine-tuned for crack detection, highlighting its generalizability.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 77,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 79,
+      "text": "E. Code Release",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 77,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 80,
+      "text": "We provide the GATSBI code as well as two ROS packages that integrate MoveIt in our GitHub repository 3 .The GATSBI code is used to run our inspection planner on target infrastructure.One of the ROS packages integrates MoveIt with AirSim's ROS wrapper allowing the use of MoveIt in the AirSim simulation environment.The second ROS package integrates MoveIt with DJI's SDK allowing the use of MoveIt with DJI multirotors in real environments.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 79,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 81,
+      "text": "VII. Conclusion",
+      "type": "heading",
+      "level": 4,
+      "parent_id": 79,
+      "subtype": "sectionheader"
+    },
+    {
+      "unit_id": 82,
+      "text": "We present GATSBI, a 3D infrastructure inspection planner.We evaluate the performance of the algorithm through AirSim simulations and real-world hardware experiments with a UAV equipped with a 3D LiDAR and an RGB camera.The simulations show that GATSBI outperforms SIP [11].The hardware experiments show that GATSBI is a viable solution to real-world infrastructure inspection.In particular, we show that the algorithm is efficient in the sense that it targets inspectable voxels rather than simply exploring a volume.The simulations and experiments also demonstrate that the algorithm can run in real-time.In future work, we intend to improve our real-world experiments.In particular, we are looking into implementing a multi-agent solution to account for limited battery-life of UAV's.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 83,
+      "text": "Fig.2: Flow diagram of GATSBI.The algorithm creates an occupancy map of the environment using incoming 3D pointclouds.Then, it segments the points corresponding to the infrastructure into another point cloud using the RGB camera images.It then makes another occupancy map of only the infrastructure using the segmented point cloud.GATSBI uses both the environment and infrastructure occupancy maps to generate viewpoints, points in free space where the UAV can inspect the infrastructure.It sends these to the GTSP instance to make a tour and then a local path planner to get the flight path.",
+      "type": "figure",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 84,
+      "text": "Fig.2: Flow diagram of GATSBI.The algorithm creates an occupancy map of the environment using incoming 3D pointclouds.Then, it segments the points corresponding to the infrastructure into another point cloud using the RGB camera images.It then makes another occupancy map of only the infrastructure using the segmented point cloud.GATSBI uses both the environment and infrastructure occupancy maps to generate viewpoints, points in free space where the UAV can inspect the infrastructure.It sends these to the GTSP instance to make a tour and then a local path planner to get the flight path.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 85,
+      "text": "Fig. 3: Full voxel map containing V BI (inspected infrastructure voxels), V BN (uninspected infrastructure voxels), and V O (obstacle voxels).",
+      "type": "figure",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 86,
+      "text": "Fig. 3: Full voxel map containing V BI (inspected infrastructure voxels), V BN (uninspected infrastructure voxels), and V O (obstacle voxels).",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 87,
+      "text": "Fig. 4: Example GTSP setup for two infrastructure voxels.Each inspectable infrastructure voxel (x and y) can have multiple potential inspection viewpoints (vertices v i -v m ).All the vertices for a single infrastructure voxel are clustered together (red and green ovals).The edges between these vertices are initially their Euclidean distance.",
+      "type": "figure",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 88,
+      "text": "Fig. 4: Example GTSP setup for two infrastructure voxels.Each inspectable infrastructure voxel (x and y) can have multiple potential inspection viewpoints (vertices v i -v m ).All the vertices for a single infrastructure voxel are clustered together (red and green ovals).The edges between these vertices are initially their Euclidean distance.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 89,
+      "text": "Fig. 5: Qualitative comparison between GATSBI (top) and SIP [11] (bottom) in the seven simulation environments.Top row shows RGB images of the seven different environments.Middle row shows the high-resolution reconstruction after GATSBI's inspection flight.Bottom row shows the high-resolution reconstruction after SIP's reconstruction flight along with coverage gaps shown in the red-dotted boxes.",
+      "type": "figure",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 90,
+      "text": "Fig. 5: Qualitative comparison between GATSBI (top) and SIP [11] (bottom) in the seven simulation environments.Top row shows RGB images of the seven different environments.Middle row shows the high-resolution reconstruction after GATSBI's inspection flight.Bottom row shows the high-resolution reconstruction after SIP's reconstruction flight along with coverage gaps shown in the red-dotted boxes.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 91,
+      "text": "Fig. 7: Left: The mock bridge used for the UMD F3 experiments.Right: DJI M600 Pro mid-flight during inspection.",
+      "type": "figure",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 92,
+      "text": "Fig. 7: Left: The mock bridge used for the UMD F3 experiments.Right: DJI M600 Pro mid-flight during inspection.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 93,
+      "text": "Fig. 8: Flight path and target inspection path on the realworld mock bridge.",
+      "type": "figure",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 94,
+      "text": "Fig. 8: Flight path and target inspection path on the realworld mock bridge.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 95,
+      "text": "Fig. 9: Left: Google Earth image of College Park Bridge.Right: Ground View of College Park Bridge.",
+      "type": "figure",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 96,
+      "text": "Fig. 9: Left: Google Earth image of College Park Bridge.Right: Ground View of College Park Bridge.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 97,
+      "text": "Fig. 10: SLAM pointcloud and segmented bridge Octomap of real-world College Park Bridge.",
+      "type": "figure",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 98,
+      "text": "Fig. 10: SLAM pointcloud and segmented bridge Octomap of real-world College Park Bridge.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 99,
+      "text": "Fig. 11: Output from practical GATSBI algorithm on realworld College Park bridge in 3 different viewing cone scenarios.",
+      "type": "figure",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 100,
+      "text": "Fig. 11: Output from practical GATSBI algorithm on realworld College Park bridge in 3 different viewing cone scenarios.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 101,
+      "text": ".",
+      "type": "figure",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 102,
+      "text": ".",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 103,
+      "text": "Table showing the number of inspectable voxels that were inspected by GATSBI and SIP for five scenes as well as the total algorithm runtime and flight distance.For a direct comparison, we measured the percentage of voxels inspected by GATSBI at the time and distance when SIP finished.For instance, if SIP finished in 30 minutes or flew 200 meters, we compared the number of voxels GATSBI inspected at 30 minutes or 200 meters.These results are shown in TableII.When equalized for time, GATSBI inspected 34% more voxels on average than SIP.When equalized for distance, GATSBI inspected 35",
+      "type": "figure",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 104,
+      "text": "Table showing the number of inspectable voxels that were inspected by GATSBI and SIP for five scenes as well as the total algorithm runtime and flight distance.For a direct comparison, we measured the percentage of voxels inspected by GATSBI at the time and distance when SIP finished.For instance, if SIP finished in 30 minutes or flew 200 meters, we compared the number of voxels GATSBI inspected at 30 minutes or 200 meters.These results are shown in TableII.When equalized for time, GATSBI inspected 34% more voxels on average than SIP.When equalized for distance, GATSBI inspected 35",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 105,
+      "text": "Table comparing the percentage of inspectable voxels that were inspected by GATSBI and SIP for five scenes when equalizing for time and distance.",
+      "type": "figure",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "figurecaption"
+    },
+    {
+      "unit_id": 106,
+      "text": "Table comparing the percentage of inspectable voxels that were inspected by GATSBI and SIP for five scenes when equalizing for time and distance.",
+      "type": "paragraph",
+      "level": 5,
+      "parent_id": 81,
+      "subtype": "body"
+    },
+    {
+      "unit_id": 107,
+      "text": "References",
+      "type": "heading",
+      "level": 1,
+      "parent_id": 0,
+      "subtype": "references"
+    },
+    {
+      "unit_id": 108,
+      "text": "Skydio 2+™ and x2™ -skydio inc.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 109,
+      "text": "12: Crack detection results over real-world College Park bridge images.",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 110,
+      "text": "Industrial drone technology. Exyn Technologies",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 111,
+      "text": "3D Sensor-Based UAV Localization for Bridge Inspection. B Kakillioglu, J Wang, S Velipasalar, A Janani, E Koch, 2019 53rd Asilomar Conference on Signals, Systems, and Computers. 2019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 112,
+      "text": "A frontier-based approach for autonomous exploration. B Yamauchi, Proceedings 1997 IEEE International Symposium on Computational Intelligence in Robotics and Automation CIRA'97.'Towards New Computational Principles for Robotics and Automation. 1997 IEEE International Symposium on Computational Intelligence in Robotics and Automation CIRA'97.'Towards New Computational Principles for Robotics and AutomationIEEE1997",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 113,
+      "text": "Lio-sam: Tightly-coupled lidar inertial odometry via smoothing and mapping. T Shan, B Englot, D Meyers, W Wang, C Ratti, R Daniela, IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEE2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 114,
+      "text": "OctoMap: An efficient probabilistic 3D mapping framework based on octrees. A Hornung, K M Wurm, M Bennewitz, C Stachniss, W Burgard, Autonomous Robots. 2013",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 115,
+      "text": "GLNS: An Effective Large Neighborhood Search Heuristic for the Generalized Traveling Salesman Problem. S L Smith, F Imeson, Computers & Operations Research. 872017",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 116,
+      "text": "Reducing the Barrier to Entry of Complex Robotic Software: a MoveIt! Case Study. D Coleman, I Sucan, S Chitta, N Correll, arXiv:1404.37852014arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 117,
+      "text": "Yolo-world: Real-time open-vocabulary object detection. T Cheng, L Song, Y Ge, W Liu, X Wang, Y Shan, Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)June 202416911",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 118,
+      "text": "Gatsbi: An online gtsp-based algorithm for targeted surface bridge inspection. H Dhami, K Yu, T Williams, V Vajipey, P Tokekar, 2023 International Conference on Unmanned Aircraft Systems (ICUAS). 2023",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 119,
+      "text": "Structural inspection path planning via iterative viewpoint resampling with application to aerial robotics. A Bircher, K Alexis, M Burri, P Oettershagen, S Omari, T Mantel, R Siegwart, Robotics and Automation (ICRA), 2015 IEEE International Conference on. May 2015",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 120,
+      "text": "A 3D Frontier-Based Exploration Tool for MAVs. C Zhu, R Ding, M Lin, Y Wu, 2015 IEEE 27th International Conference on Tools with Artificial Intelligence (ICTAI). IEEE2015",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 121,
+      "text": "A Novel Frontier-Based Exploration Algorithm for Mobile Robots. D L Da Silva Lubanco, M Pichler-Scheder, T Schlechter, 2020 6th International Conference on Mechatronics and Robotics Engineering (ICMRE). IEEE2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 122,
+      "text": "Robot exploration in unknown cluttered environments when dealing with uncertainty. F Niroui, B Sprenger, G Nejat, 2017 IEEE International Symposium on Robotics and Intelligent Sensors (IRIS). IEEE2017",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 123,
+      "text": "Fast Frontier-based Information-driven Autonomous Exploration with an MAV. A Dai, S Papatheodorou, N Funk, D Tzoumanikas, S Leutenegger, arXiv:2002.044402020arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 124,
+      "text": "Autonomous indoor 3d exploration with a micro-aerial vehicle. S Shen, N Michael, V Kumar, 2012 IEEE international conference on robotics and automation. IEEE2012",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 125,
+      "text": "Communication-Efficient Planning and Mapping for Multi-Robot Exploration in Large Environments. M Corah, C O'meadhra, K Goel, N Michael, IEEE Robotics and Automation Letters. 422019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 126,
+      "text": "Combining Geometric and Information-Theoretic Approaches for Multi-Robot Exploration. A P Premkumar, K Yu, P Tokekar, arXiv:2004.068562020arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 127,
+      "text": "A solution to the next best view problem for automated surface acquisition. R Pito, IEEE Transactions. 21101999",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 128,
+      "text": "Pred-nbv: Predictionguided next-best-view planning for 3d object reconstruction. H Dhami, V D Sharma, P Tokekar, 2023 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). 2023",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 129,
+      "text": "Map-nbv: Multi-agent prediction-guided next-best-view planning for active 3d object reconstruction. 2024",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 130,
+      "text": "Exploration and Mapping with Groups of Robots: Recent Trends. A Q Li, Current Robotics Reports. 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 131,
+      "text": "Algorithms for visibility-based monitoring with robot teams. P Tokekar, A K Budhiraja, V Kumar, 2016",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 132,
+      "text": "Adaptive View Planning for Aerial 3D Reconstruction. C Peng, V Isler, 2019 International Conference on Robotics and Automation (ICRA). IEEE2019",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 133,
+      "text": "Active planning for underwater inspection and the benefit of adaptivity. G A Hollinger, B Englot, F S Hover, U Mitra, G S Sukhatme, The International Journal of Robotics Research. 3212013",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 134,
+      "text": "Submodular Trajectory Optimization for Aerial 3D Scanning. M Roberts, D Dey, A Truong, S Sinha, S Shah, A Kapoor, P Hanrahan, N Joshi, Proceedings of the IEEE. the IEEE2017",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 135,
+      "text": "Online coverage and inspection planning for 3d modeling. S Song, D Kim, S Jo, Autonomous Robots. 2020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 136,
+      "text": "Receding horizon path planning for 3d exploration and surface inspection. A Bircher, M Kamel, K Alexis, H Oleynikova, R Siegwart, Autonomous Robots. 4222018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 137,
+      "text": "A deep learning approach for road damage detection from smartphone images. A Alfarrarjeh, D Trivedi, S H Kim, C Shahabi, 2018 IEEE International Conference on Big Data (Big Data. IEEE2018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 138,
+      "text": "Road damage detection and classification using deep neural networks (yolov4) with smartphone images. M Faramarzi, 2020Available at SSRN 3627382",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 139,
+      "text": "Computer vision and normalizing flow-based defect detection. Z Kuang, X Tie, L Ying, S Jin, arXiv:2012.067372020arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 140,
+      "text": "Deep learning-based crack damage detection using convolutional neural networks. Y.-J Cha, W Choi, O Büyüköztürk, Computer-Aided Civil and Infrastructure Engineering. 3252017",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 141,
+      "text": "Road damage detection and classification using deep neural networks with smartphone images. H Maeda, Y Sekimoto, T Seto, T Kashiyama, H Omata, Computer-Aided Civil and Infrastructure Engineering. 33122018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 142,
+      "text": "Superpixel perception graph neural network for intelligent defect detection. H Shang, Q Yang, C Sun, X Chen, R Yan, arXiv:2210.075392022arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 143,
+      "text": "Crackformer: Transformer network for fine-grained crack detection. H Liu, X Miao, C Mertz, C Xu, H Kong, Proceedings of the IEEE/CVF International Conference on Computer Vision. the IEEE/CVF International Conference on Computer Vision2021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 144,
+      "text": "Cracktree: Automatic crack detection from pavement images. Q Zou, Y Cao, Q Li, Q Mao, S Wang, Pattern Recognition Letters. 3332012",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 145,
+      "text": "Deepcrack: Learning hierarchical convolutional features for crack detection. Q Zou, Z Zhang, Q Li, X Qi, Q Wang, S Wang, IEEE Transactions on Image Processing. 2832018",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 146,
+      "text": "Optimized deep encoder-decoder methods for crack segmentation. J König, M D Jenkins, M Mannion, P Barrie, G Morison, Digital Signal Processing. 1081029072021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 147,
+      "text": "S2d2net: An improved approach for robust steel surface defects diagnosis with small sample learning. V Nath, C Chattopadhyay, 2021 IEEE International Conference on Image Processing (ICIP). IEEE2021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 148,
+      "text": "Draem-a discriminatively trained reconstruction embedding for surface anomaly detection. V Zavrtanik, M Kristan, D Skočaj, Proceedings of the IEEE/CVF International Conference on Computer Vision. the IEEE/CVF International Conference on Computer Vision2021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 149,
+      "text": "End-to-end training of a two-stage neural network for defect detection. J Božič, D Tabernik, D Skočaj, 2020 25th International Conference on Pattern Recognition (ICPR).",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 150,
+      "text": "Segmentationbased deep-learning approach for surface-defect detection. D Tabernik, S Šela, J Skvarč, D Skočaj, Journal of Intelligent Manufacturing. 3132020",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 151,
+      "text": "A new mobile convolutional neural network-based approach for pixel-wise road surface crack detection. G Dogan, B Ergen, Measurement. 1951111192022",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 152,
+      "text": "Automatic recognition and analysis system of asphalt pavement cracks using interleaved low-rank group convolution hybrid deep network and segnet fusing dense condition random field. G Li, Q Liu, W Ren, W Qiao, B Ma, J Wan, Measurement. 1701086932021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 153,
+      "text": "Crack detection as a weaklysupervised problem: towards achieving less annotation-intensive crack detectors. Y Inoue, H Nagayoshi, 2020 25th International Conference on Pattern Recognition (ICPR). IEEE2021",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 154,
+      "text": "A new knowledge distillation network for incremental few-shot surface defect detection. C Sun, L Gao, X Li, Y Gao, arXiv:2209.005192022arXiv preprint",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 155,
+      "text": "Automatic surface crack detection using segmentation-based deep-learning approach. D Joshi, T P Singh, G Sharma, Engineering Fracture Mechanics. 2681084672022",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    },
+    {
+      "unit_id": 156,
+      "text": "Sampling-based algorithms for optimal motion planning. S Karaman, E Frazzoli, 2011",
+      "type": "reference",
+      "level": 2,
+      "parent_id": 107,
+      "subtype": "bibentry"
+    }
+  ]
+}

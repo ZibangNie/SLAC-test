@@ -1,0 +1,382 @@
+PREDICTING CORPORATE RISK BY JOINTLY MODELING COMPANY NETWORKS AND DIALOGUES IN EARNINGS CONFERENCE CALLS
+
+
+Yunxin Sang sangyunxin@gmail.com 
+Shanghai Jiao Tong University
+Shanghai Jiao Tong University
+
+
+Yang Bao baoyang@sjtu.edu.cn 
+Shanghai Jiao Tong University
+Shanghai Jiao Tong University
+
+
+PREDICTING CORPORATE RISK BY JOINTLY MODELING COMPANY NETWORKS AND DIALOGUES IN EARNINGS CONFERENCE CALLS
+Company Risk Prediction · Earnings Conference Call · Company Network · Graph Neural Network
+Earnings conference calls are significant information events for volatility forecasting, which is essential for financial risk management and asset pricing. Although some recent volatility forecasting models have utilized the textual content of conference calls, the dialogue structures of conference calls and company relationships are almost ignored in extant literature. To bridge this gap, we propose a new model called Temporal Virtual Graph Neural Network (TVGNN) for volatility forecasting by jointly modeling conference call dialogues and company networks. Our model differs from existing models in several important ways. First, we propose to exploit more dialogue structures by encoding position, utterance, speaker role, and Q&A segments. Second, we propose to encode the market states for volatility forecasting by extending the Gated Recurrent Units (GRU). Third, we propose a new method for constructing temporal company networks in which the messages can only flow from temporally preceding to successive nodes, and extend the Graph Attention Networks (GAT) for modeling company relationships. We collect conference call transcripts of S&P500 companies from 2008 to 2019, and construct a dataset of conference call dialogues with additional information on dialogue structures and company networks. Empirical results on our dataset demonstrate the superiority of our model over competitive baselines for volatility forecasting. We also conduct supplementary analyses to examine the effectiveness of our model's key components and interpretability.
+
+Introduction
+
+Volatility is a statistical measure of variation in a stock's returns over time, which plays an essential role in financial risk management and asset pricing (Poon and Granger, 2003). Due to its importance for financial risk assessment, volatility forecasting has attracted attention from various stakeholders such as researchers, investors, analysts, and other market participants. Volatility forecasting models are traditionally built using the related numerical feature variables (e.g., historical volatility), but recent studies have shown that the textual information of corporate disclosures could provide incremental information over the numerical variables for volatility forecasting (Kogan et al., 2009). In this line of research, annual reports and earnings conference calls are the two most examined types of corporate disclosures for financial risk prediction (Matsumoto et al., 2011;Bao and Datta, 2014). Compared with the mandated annual reports, earnings conference calls have become an increasingly important form of voluntary disclosure that is more casual and spontaneous. Specifically, public companies usually hold quarterly conference calls to communicate their financial and operational results to interested parties such as investors and analysts. Each conference call typically contains two segments, i.e., the presentation and Q&A (Question and Answer). The management executives (e.g., CEO, CFO, or other executives) will first provide their interpretation of the firm's performance in the presentation session, and the buy-side or sell-side analysts could ask questions, request more details, and perhaps question management's interpretation in a follow-up Q&A session. Due to the less constrained fashion and direct interaction between managers and analysts, earnings conference calls have been recognized as significant information events to the market (Matsumoto arXiv:2206.06174v3 [cs.CL] 17 Aug 2022et al., 2011. For example, the disclosure of a higher-than-expected loss by Advanced Micro Devices, Inc (AMD). during its earnings conference call in the first quarter of 2017 caused its shares to plunge 16.1% after the conference call.
+
+Although the extant literature has documented the information value of earnings conference calls and attempted to utilize their textual contents for volatility forecasting, two essential types of information, i.e., the dialogue structures and company relationships, are almost ignored in extant literature. On the one hand, the earnings conference call could affect the risk perceptions of market participants not only by what is said (i.e., utterance) but also by who said it (e.g., speaker role) and how it is said (e.g., position and segment information) (Qin and Yang, 2019;Theil et al., 2019). For example, the management executives who hold inside information might be reluctant to disclose negative information during the presentation segment or dodge questions during the Q&A segment, while the analysts outside the company might ask acute questions based on their own or the institution's position, which often reflects the market's attitude towards the company. On the other hand, the relationships between companies also play a crucial role in volatility forecasting because the risk could transmit from one company to another in the company network (Sawhney et al., 2020). For example, the bankruptcy of Lehman Brothers (the fourth-largest U.S. investment bank at the time) quickly triggered a chain reaction leading to a subsequent global financial crisis in 2008.
+
+To address the aforementioned issues, we propose a new model called Temporal Virtual Graph Neural Network (TVGNN) for volatility forecasting by jointly modeling conference call dialogues and company networks. Our model differs from existing models in several important ways:
+
+1. We propose to exploit more dialogue structures by encoding position, utterance, speaker role, and Q&A segments.
+
+2. We propose to encode the market states for volatility forecasting by extending the Gated Recurrent Units (GRU).
+
+3. We propose a new method for constructing temporal company networks in which the messages can only flow from temporally preceding to successive nodes, and extend the Graph Attention Networks (GAT) for modeling company relationships.
+
+We collect conference call transcripts of S&P500 companies from 2008 to 2019, and construct a dataset of conference call dialogues with additional information on dialogue structures and company networks. Empirical results on our dataset demonstrate the superiority of our model over competitive baselines for volatility forecasting. We also conduct supplementary analyses to examine the effectiveness of our model's key components and interpretability.
+
+
+Related Work
+
+This study is related to two main areas, including graph neural networks and financial risk prediction.
+
+
+Graph Neural Network
+
+Graph data is ubiquitous and useful for many real-world applications. But the non-Euclidean graph data contains rich relational information and cannot be well handled by traditional neural networks. To tackle this problem, researchers proposed graph neural networks (GNN) to learn better representations of graphs via message passing. The early GNN models (Gori et al., 2005;Scarselli et al., 2008) update the node embedding iteratively based on Banach's fixed point theorem, which is inefficient. Bruna et al. (2013) proposed the graph convolutional networks (GCN), and Kipf and Welling (2016) improved the GCN's computational efficiency by computing convolutional kernels with Chebyshev polynomials and renormalization techniques. Recently, a variety of graph neural networks are proposed, such as Graph Isomorphism Network (Xu et al., 2018), Graph Attention Network (GAT) (Veličković et al., 2018), and Graphormer (Ying et al., 2021). These standard GNN models focused on static graphs with fixed nodes and edges, whereas many practical applications involve dynamic graphs with changing nodes or edges. A simple way to deal with dynamic graphs is to convert them into static graphs. For example, Liben-Nowell and Kleinberg (2007) converted dynamic graphs to static graphs by adding the adjacency matrices of graphs at different time steps, and Hisano (2018) modeled the temporal information using the formation and dissolution matrices of previous k time steps. Aside from that, it is more natural to separately model the graphs at different time steps and then aggregate the results. For example, Yao et al. (2016) used graph neural networks to model the graph snapshots at each time step, and then weighted these snapshots based on their time difference from the current time step. Departing from existing models, we propose a new graph construction method and extend the GAT model for handling temporal company network.
+
+
+Finanical Risk Prediction
+
+Volatility forecasting is an essential task for risk assessment in financial markets. Traditional volatility forecasting models are built solely based on the numerical feature variables, but recent studies have shown that the textual information of corporate disclosures could provide incremental information over the numerical variables (Kogan et al., 2009). In this line of research, annual reports and earnings conference calls are the two most examined types of corporate disclosures for financial risk prediction (Matsumoto et al., 2011;Bao and Datta, 2014). For example, Kogan et al. (2009) are among the first to predict stock return volatility using corporate annual reports. More recent studies have demonstrated that the earnings conference calls are more informative due to their less constrained fashion and direct interactions between managers and analysts. For example, Qin and Yang (2019) proposed a multi-modal deep regression model to capture textual and audio features in earnings conference calls for financial risk prediction. Theil et al. (2019) utilized a hierarchical recurrent neural network to model the textual features of the presentation and Q&A segments separately. Li et al. (2020) collected textual and audio data from the earnings conference calls of S&P 1500 companies from 2015 to 2018 and aligned the two modalities to construct a dataset for financial risk prediction. Yang et al. (2020) developed a transformer-based multi-task architecture to learn the textual and audio features for predicting stock return volatility. Yang et al. (2022) proposed two new training tasks (i.e., numeral category classification and magnitude comparison) for better capturing the numerical information for volatility forecasting. It is worth noting that the aforementioned studies mainly focus on the modeling of textual and audio modalities but ignore the valuable information on dialogue structure and company relationships. To address these limitations, Ye et al. (2020) proposed a multi-round question-and-answer attention network (MRQA) to model the dialogue structure (e.g., the sentence importance and association). Sawhney et al. (2020) are among the first to exploit the inter-company relationships using the GCN model for financial risk prediction (Sawhney et al., 2020). However, they construct companies that held earnings conference calls on different dates in an undirected graph, causing temporal information leakage in which the model can utilize the information that occurs after the target event to make predictions. Differing from existing models, we exploit more dialogue structures by encoding position, utterance, speaker role, and Q&A segments and propose a new method for constructing temporal company networks with no temporal information leakage.
+
+
+Methodology
+
+In this section, we first formulate our volatility forecasting problem and then elaborate on our proposed model.
+
+
+Problem Formulation
+
+We follow Kogan et al. (2009) to measure the financial risk using stock return volatility. In most cases, the higher the volatility, the riskier the stock. Formally, we define the stock return volatility y [t,t+τ ] from the trading day t to t + τ as the standard deviation of returns τ i=0 (r t+i − r) 2 /τ , where r t is the adjusted return of the given stock on the trading day t, r is the average of the adjusted returns from t to t + τ , and τ is the size of time window for calculating volatility. The adjusted stock return is defined as r t = p t /p t−1 − 1, where p t is the adjusted closing price of the stock on the trading day t. According to the post-announcement drift phenomenon, a stock's cumulative abnormal returns tend to drift in the direction of an earnings surprise for several weeks following an earnings announcement (Ball and Brown, 1968). Hence, we set the time windows τ of stock return volatility as 3, 7, and 15 days. We formulate our volatility forecasting problem as a supervised regression task. Specifically, given the sentence sequence S i = [s i,1 , s i,2 , · · · , s i,N ] of the earnings conference call held by the company c i on the day t, we aim to predict the company's stock return volatility y [t+1,t+τ ] from the day t + 1 to t + τ .
+
+
+Proposed Model
+
+As shown in Figure 1, Our proposed TVGNN (Temporal Virtual Graph Neural Network) model contains three main modules, including:
+
+1. Sentence Encoder: This module extracts the textual information of the earnings conference call and incorporates dialogue structural features to output a vector representation for each sentence.
+
+2. Dialogue Encoder: This module captures the contextual relationship of sentences in earnings conference calls and encodes the entire dialogue into a vector.
+
+3. Company Network Encoder: This is the key module of our model, consisting of company network construction, market encoder, and network encoder. First, we construct company networks based on company relationships, guaranteeing no temporal information leakage. The market encoder then models the market state at each time At last, the obtained company representations are fed into an output layer for the downstream task.
+
+
+Sentence Encoder
+
+We use a pre-trained model MPNet (Song et al., 2020) to encode sentences. The sequence of encoded sentences is denoted as S i = [s i,1 , · · · , s i,j , · · · , s i,N ], where the s i,j is the encoded vector of the j-th sentence in the earnings conference call of company c i . According to the position encoding in BERT (Devlin et al., 2019), we use four structural embeddings to represent the dialogue structure of an earnings conference call:
+
+1. Position embedding pos i,j encodes the order of sentences in the dialogue. 2. Utterance embedding uttr i,j encodes to which utterance the sentences subordinate. All sentences spoken by a speaker at once are called an utterance. 3. Role embedding role i,j encodes the speaker's role information of a given sentence. There are two roles in an earnings conference call: executives and analysts. 4. Part embedding part i,j encodes in which parts the sentence appears. An earnings conference call consists of two parts: presentation and Q&A.
+
+Finally, we concatenate the structural embeddings to the sentence vector s i,j :
+x i,j = s i,j ⊕ pos i,j ⊕ uttr i,j ⊕ role i,j ⊕ part i,j(1)
+In this way, we obtain a sequence of sentence vectors X i = [x i,1 , x i,2 , · · · , x i,N ] that incorporates dialogue structural information, where each vector x i,j ∈ R d .
+
+
+Dialogue Encoder
+
+The key to text modeling is to model the contextual relationships. To obtain contextual information, we update sentence vectors with a Transformer encoder (Vaswani et al., 2017). Following BERT, we add a trainable [CLS] vector a to the input sequence X i to obtain the representation of a given earnings conference call. Then the input sequence becomes X i = [a, x i,1 , x i,2 , · · · , x i,N ]. After L-layer Transformer encoders, we take a (L) in the output sequence as the representation of the earnings conference call, denoted as v i .
+
+
+Company Network Encoder
+
+The company network encoder contains two submodules: a market encoder and a network encoder that model market state and company networks, respectively.
+
+In this section, we first describe how to construct company networks. Then, we introduce how to apply the market encoder and the network encoder on the constructed company network to model the market state and the company relationships.
+
+Company Network Construction Assume there are M companies holding their earnings conference calls in a given quarter (natural quarter), we treat each company as a node in the graph, and the node v i corresponds to company c i . If there are some kinds of relationships existing between c i and c j and the date t cj when c i holds its earnings conference call in the given quarter is not earlier than t cj , a weighted directed edge is connected between nodes v i and v j . The weight of the edge is defined as follows.
+Ai,j = 1 (tc i −tc j +1)
+if vi is connected with vj and tc i − tc j >= 0 0
+
+otherwise (2) The weight defined in Equation (2) ensures that the weight of the edge between two nodes decreases as the interval between the two corresponding companies' earnings conference calls increases.
+
+The constructed company network is a directed static graph. The network's directed edges prevent temporal information leakage, i.e., information can only flow from temporally preceding nodes to temporally following nodes, which is critical for a temporal prediction task.
+
+Finally, we assign c i obtained from the dialogue encoder as the initial embedding of the node v i .
+
+
+Market Encoder
+
+The capital asset pricing model points out that the return of an asset consists of the risk-free return of the market and the return of the asset (Blume and Friend, 1973). Therefore, when predicting the risk of a given company, we should consider the impact of both the events (earnings conference calls) of the company and the market state. Thus, we design the market encoder to model the market state m ti at day t i .
+
+Suppose there are T different dates [t 1 , · · · , t i , · · · , t T ] for holding an earnings conference call in a given quarter. The dates are sorted in chronological order. The set of companies holding earnings conference call at t i are denoted as V ti .
+
+The market state of t i can be represented as the sum of all events (earnings conference calls) happening in the market at t i . Thus, we can calculate the market state m ti by a global attention module:
+m ti = vj ∈Vt i β j v j (3) k j = v j w T k (4) e j = w q k T j √ d (5) β j = e j vu∈Vt i e u(6)
+where β j is the attention sore of node v j ∈ V ti , w q is a trainable parameter.
+
+The market state m ti is affected not only by the events at day t i , but also by the market state of the past. Thus, we use a Gated Recurrent Unit Network (GRU) (Li et al., 2015) to model the historial market state. Since the larger the time interval, the weaker the effect of the previous market state on the current market state, we define a coefficient ∆ ti = σ( w d ti−ti−1+1 ) which represents the time interval between t i and t i−1 , to adjust the value of the reset gate in the GRU:
+z ti = σ(m ti w T 1 + a ti−1 w T 2 ) (7) r ti = σ(m ti w T 1 + a ti−1 w T 2 ) (8) a ti = tanh(m ti w T 1 + (∆ ti • r ti • h ti−1 )w T 2 ) (9) a ti = (1 − z ti ) • a ti−1 + z ti •ã ti (10) m ti = a ti w T a + b a(11)
+where σ is an activation function.
+
+Network Encoder We use a graph attention network with symmetric normalized adjacency matrix (Wang et al., 2021) to update node embedding so that each company node can capture the topology of the company network. Assume using L-layer graph attention networks, the update formula of the company node embedding at the l-layer is as follows.
+g (l−1) i = v (l−1) i + m (l) t(ci) (12) v (l) i = σ( vj ∈N (vi) γ ij D ij g (l−1) j w T 0 + g (l−1) i w T 1 )(13)
+where equation (12)  t(c i ) to obtain the input vector g (l−1) i for the l-th layer of graph attention networks. γ ij is the attention score between v i and v j , calculated by
+γ ij = exp{LeakyReLU{[(v i ⊕ v j )w T 1 ](e ij w T 2 )}} r∈N (vi) exp{LeakyReLU{[(v i ⊕ v r )w T 1 ](e ir w T 2 )}}(14)
+where w T 1 and w T 2 are trainable parameters. Compared to the vanilla graph attention network, we introduce the edge feature e ij into the formula of attention score. Because the edge features commonly measure the strength of connections, we map it to a scalar coefficient to adjust the attention scores.
+
+Finally, the company network encoder combines the market encoder and network encoder. The constructed company network and the company embedding are input into the company network encoder. For the ith-layer company network encoder, it alternately uses a market encoder and a network encoder to update the company node embedding. In fact, the company encoder can be seen as a model that adds temporal virtual nodes to the company nodes and then uses extended GRU and GAT to update node embedding.
+
+
+Output Layer
+
+We use a multilayer perceptron as the output layer to predict stock return volatility:
+y i = σ(v (L) i w T 1 + b 1 )w 2 + b 2(15)
+where w 1 , w 2 , b 1 , b 2 are trainable parameters, σ is an activation function.
+
+
+Experiments
+
+In this section, we first describe our dataset and baselines and then present the experimental results.
+
+
+Dataset
+
+To evaluate model performance, we construct a new conference call dialogue dataset with additional information on dialogue structures (e.g., position, untterance, speaker role and segment information) and company networks. Specifically, we collect the earnings conference call transcripts of the S&P500 companies from 2008 to 2019 from the website of SeekingAlpha, and use the Text-based Network Industry Classifications (TNIC) dataset (Hoberg and Phillips, 2016) for constructing the compnay network. TNIC computes company pairwise similarity scores based on the product descriptions in 10-K files (Hoberg and Phillips, 2016). We add edges for two companies with a similarity score greater than 0.15. Since the TNIC dataset is updated annually based on the latest 10-K files, we use the TNIC dataset from the previous year to extract the company relationships to avoid temporal information leakage.
+
+We split the dataset by time, using samples before 2016 as the training set, samples from 2016 as the validation set, and samples after 2016 as the test set. For a natural quarter, all samples are constructed as a company network, , with each node labeled with the corresponding company's stock return volatility.  
+
+
+Baselines
+
+In order to verify the effectiveness of TVGNN, we compare it with baselines proposed in recent related studies. The baselines are shown below.
+
+1. v past (Kogan et al., 2009). v past is a simple but very effective benchmark model, which directly uses the return volatility v [t−τ,t−1] as the prediction v [t+1,t+τ ] , without using any other information. 2. HAN (Yang et al., 2016). The model is a widely used long document encoder that employs two BiGRU to capture contextual relationships at the word and sentence levels, as well as a simple attention module to obtain encoding at each level. The obtained document encoding is then used for downstream tasks. 3. ProFET (Theil et al., 2019). This model simply considers the dialogue structure of earnings conference calls and respectively models the presentation and Q&A part by a BiLSTM and an attention module. We use the text modeling part of ProFET for experiments. 4. MDRM (Qin and Yang, 2019). The model employs a BiLSTM to extract textual and audio features from earnings conference calls, which are then fused by another BiLSTM to predict the company's risk. We use the text modeling part of this model for experiments. 5. HTML . The model repectively uses a pre-trained language model to extract word encoding and Praat to extract audio features. The features are then fused to obtain a multi-modal encoding at the sentence level. The model is trained in a multi-task framework with an auxiliary task of predicting the return of the company's stock on a given day. We use the text modeling and the multi-task part of the model for experiments. 6. MRQA (Ye et al., 2020). The model uses a BiLSTM to encode the textual features of earnings conference calls.
+
+It uses a reinforced sentence selector to select important sentences in the Q&A, and a reinforced bidirectional attention network to capture the interaction between questions and answers. The model directly models the dialogue structure of earnings conference calls.
+
+
+Experimental Settings
+
+We use the Mean Square Error (MSE) as the loss function and evaluation metric:
+MSE = M i (ŷ i − y i ) 2 /M(16)
+where M is the number of samples. For robustness, we also use the R 2 metric to measure the performance improvement over the simplest baseline v past :
+R 2 = 1 − MSE/MSE vpast(17)
+We use the Adam optimizer for training models (Kingma and Ba, 2014), and tune the hyperparameters of our TVGNN model on the validation set using the MSE metric. The tuned hyperparameters are as follows: the learning rate is 5e-4, the weight decay is 1e-7, the hidden state is 64, the number of layers of dialogue encoder is 2, the number of attention heads of dialogue encoder is 8, the number of layers of company network is 3, and the number of attention head of company network encoder is 1. We use the default hyperparameters for all baselines as in their original papers and stop the training if the MSE score on the validation set does not decrease in 10 epochs. Table 1 shows the result of the comparison experiment, we can see that TVGNN performs best in the company risk prediction tasks for the three time windows. Compared to the best baseline models, TVGNN respectively improves 14.19%, 9.01%, and 6.92% for τ = 3, 7, 15. On the overall performance MSE, TVGNN improves 13.26% at the basis of the best baseline HTML, demonstrating the effectiveness of TVGNN. Additionally, as the time window gets longer, the difference between vpast and other baselines gets smaller. For τ = 15, all baselines are worse than v past , indicating that the additional effect of the earnings conference calls transcripts gradually diminishes as the time window becomes longer, which is consistent with the Earning Momentum (Ball and Brown, 1968). The impact of a company's earnings information on its stock price fades over time. In our experiment, the effect lasts no longer than 15 days.
+
+
+Experimental Results
+
+
+Supplementary Analysis
+
+We further conduct supplementary analysis to examine our model's key modules, nowcasting, and model interpretability.
+
+
+Ablation Study
+
+We conduct the ablation study to examine the effectiveness of our TVGNN model's four modules, including the sentence encoder, dialogue encoder, market encoder, and network encoder. The results of the ablation study are shown in Table 1, in which the "+" symbol indicates that the model variant contains the corresponding module. Our main findings are:
+
+1. Adding each module can improve the model's performance in company risk prediction, demonstrating the effectiveness of the four modules in TVGNN.
+
+2. It is difficult for a model to improve on all three tasks without introducing new data. When tau = 3 and tau = 7, variant 2 outperforms variant 1, but when tau = 15, it outperforms variant 1. While variant 3 outperforms variant 2 on all three tasks by incorporating company networks.
+
+3. Modeling the market state can improve the model's performance on the task τ = 15. TVGNN with the market encoder outperforms variant 3 on tau = 15. 
+
+
+Nowcasting
+
+In the previous analysis, we constructed the static company graph and updated our TVGNN model on a quarterly basis. But in the real-world application, we may need to perform the prediction immediately. Hence, to better use our model in practice, we propose two learning approaches: TVGNN-T and TVGNN-T (fine-tune). For the experiment, we first split the sample in the first quarter of 2017 into training/validation/testing sets in chronological order with the ratio of 7:1:2 and trained the following models to forecast volatility on the split testing set.
+
+1. TVGNN: This model is is the same as the one in Table 1, using the training sets before 2017 to train.
+
+2. TVGNN-T: This model is trained and validated using the splitted training and validation sets in the first quarter of 2017.
+
+3. TVGNN-T (fine-tune): Based on TVGNN in 1, this model is trained using the splitted training sets in the first quarter of 2017.
+
+As can be seen in Table 3, the TVGNN-T model performs worse because it is trained on a small sample, while the TVGNN and TVGNN-T (fine-tune) models benefit from the extensive training sample. Also, the TVGNN-T (fine-tune) outperforms TVGNN for nowcasting because it uses the smaller but more timely samples during the first quarter of 2017. 
+
+
+Interpretability
+
+To examine the model interpretability, we use the GNNExplainer to identify the important subgraph that influences the prediction (Ying et al., 2019). We conducted a case study of Oracle, whose cloud business soared and increased its dividend in the first quarter of 2017. The important 1-hop subgraph of ORCL (Oracle) identified by GNNExplainer is shown in Figure 2. The details of the nodes are shown in Table 4. The edge width in the subgraph represents the edge's important score. Despite the fact that all of the companies in the subgraph are in the information technology sector, not all of them have a significant impact on the risk of other companies. The prediction of our TVGNNŷ τ =3 for ORCL (Cisco) is mainly influenced by CTXS, HPE, CSCO, FTNT, and FFIV. All five companies are Oracle partners, and they all sell Oracle products in their cloud services. Furthermore, each node in the graph has a self-loop, which represents the impact of the company's event, i.e., the earnings conference call, on the risk of the company. We can see that the risk of JNPR (Juniper Networks) and FTNT (Fortinet) is influenced more by their earnings conference calls, whereas the rest is influenced more by other companies in the company network. This is because JNPR and FTNT released some shocking financial information during their earnings conference calls. JNPR posted a disappointing profit outlook, causing its stock to plunge 7.5% after the earnings conference call. FTNT's stock, on the other hand, jumped 10.8% after its earnings conference call, as its performance in 2016 gave investors confidence in its 2017 performance.
+
+
+Conclusion
+
+In this paper, we propose a model called TVGNN for volatility forecasting by jointly modeling conference call dialogues and company networks. We make methodological contributions by designing a new method to construct company networks and developing a new model based on graph neural networks to model earnings conference calls, market state, and company networks. Empirical results on our constructed dataset demonstrate the superiority of our proposed model over competitive baselines from the extant literature. We also conduct supplementary analysis to examine our model's key modules, nowcasting, and model interpretability. 
+
+Figure 1 :
+1The Architecture of TVGNN step. Finally, the network encoder employs a graph neural network to fuse all information and update the company representations.
+
+(a) τ = 3 15 Figure 3 :
+3153(b) τ = 7 (c) τ = The Distribution of Labels. The distribution of labels in different splits is consistent.
+
+Table 1 :
+1Experimental ResultsModel 
+MSE 
+MSE 3 MSE 7 MSE 15 
+
+
+Table 2 :
+2Ablation Experimental ResultVariant 
+Sentence 
+Encoder 
+
+Dialogue 
+Encoder 
+
+Market 
+Encoder 
+
+Network 
+Encoder 
+MSE 
+MSE 3 MSE 7 MSE 15 
+
+1 
++ 
+0.4162 0.6616 0.3354 0.2517 
+2 
++ 
++ 
+0.4116 0.6451 0.3193 0.2704 
+3 
++ 
++ 
++ 
+0.3700 0.6065 0.2773 0.2261 
+TVGNN 
++ 
++ 
++ 
++ 
+0.3605 0.5980 0.2818 0.2017 
+
+
+
+Table 3 :
+3NowcastingModel 
+MSE 
+MSE 3 MSE 7 MSE 15 
+
+TVGNN 
+0.3819 0.5694 0.3103 0.2659 
+TVGNN-T 
+0.5847 0.7721 0.5962 0.3857 
+TVGNN-T (fine-tune) 0.3708 0.5586 0.2961 0.2576 
+
+
+
+Table 4 :
+4Selected Companies for Case StudySymbol 
+Security. 
+GICS Sub-Industry 
+v τ =3 
+
+ORCL 
+Oracle 
+Application Software 
+-3.2365 
+CTXS 
+Citrix 
+Application Software 
+-3.1539 
+FFIV 
+F5 
+Communications Equipment 
+-2.9807 
+FTNT 
+Fortinet 
+Systems Software 
+-2.5418 
+JNPR 
+Juniper Networks 
+Communications Equipment 
+-3.6766 
+CSCO 
+Cisco 
+Communications Equipment 
+-4.6155 
+HPE 
+Hewlett Packard Enterprise Technology Hardware, Storage & Peripherals -3.0791 
+ANSS 
+Ansys 
+Application Software 
+-4.1327 
+PTC 
+PTC 
+Application Software 
+-3.7511 
+MSFT 
+Microsoft 
+Systems Software 
+-5.3507 
+CRM 
+Salesforce 
+Application Software 
+-3.7586 
+
+
+
+An empirical evaluation of accounting income numbers. R Ball, P Brown, Journal of accounting research. R. Ball and P. Brown. An empirical evaluation of accounting income numbers. Journal of accounting research, pages 159-178, 1968.
+
+Simultaneously discovering and quantifying risk types from textual risk disclosures. Y Bao, A Datta, 10.1287/mnsc.2014.1930Management Science. 606Y. Bao and A. Datta. Simultaneously discovering and quantifying risk types from textual risk disclosures. Management Science, 60(6):1371-1391, 2014. doi: 10.1287/mnsc.2014.1930.
+
+A new look at the capital asset pricing model. The journal of finance. M E Blume, I Friend, 28M. E. Blume and I. Friend. A new look at the capital asset pricing model. The journal of finance, 28(1):19-33, 1973.
+
+J Bruna, W Zaremba, A Szlam, Y Lecun, arXiv:1312.6203Spectral networks and locally connected networks on graphs. arXiv preprintJ. Bruna, W. Zaremba, A. Szlam, and Y. LeCun. Spectral networks and locally connected networks on graphs. arXiv preprint arXiv:1312.6203, 2013.
+
+Bert: pre-training of deep bidirectional transformers for language understanding. J Devlin, M.-W Chang, K Lee, K Toutanova, Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (NAACL). the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (NAACL)J. Devlin, M.-W. Chang, K. Lee, and K. Toutanova. Bert: pre-training of deep bidirectional transformers for language understanding. In Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (NAACL), pages 4171-4186, 2019.
+
+A new model for learning in graph domains. M Gori, G Monfardini, F Scarselli, Proceedings. 2005 IEEE international joint conference on neural networks. 2005 IEEE international joint conference on neural networks2M. Gori, G. Monfardini, and F. Scarselli. A new model for learning in graph domains. In Proceedings. 2005 IEEE international joint conference on neural networks, volume 2, pages 729-734, 2005.
+
+Semi-supervised graph embedding approach to dynamic link prediction. R Hisano, International Workshop on Complex Networks. SpringerR. Hisano. Semi-supervised graph embedding approach to dynamic link prediction. In International Workshop on Complex Networks, pages 109-121. Springer, 2018.
+
+Text-based network industries and endogenous product differentiation. G Hoberg, G Phillips, Journal of Political Economy. 1245G. Hoberg and G. Phillips. Text-based network industries and endogenous product differentiation. Journal of Political Economy, 124(5):1423-1465, 2016.
+
+Adam: a method for stochastic optimization. D P Kingma, J Ba, arXiv:1412.6980arXiv preprintD. P. Kingma and J. Ba. Adam: a method for stochastic optimization. arXiv preprint arXiv:1412.6980, 2014.
+
+Semi-supervised classification with graph convolutional networks. T N Kipf, M Welling, arXiv:1609.02907arXiv preprintT. N. Kipf and M. Welling. Semi-supervised classification with graph convolutional networks. arXiv preprint arXiv:1609.02907, 2016.
+
+Predicting risk from financial reports with regression. S Kogan, D Levin, B R Routledge, J S Sagi, N A Smith, Proceedings of Human Language Technologies: The 2009 Annual Conference of the North American Chapter of the Association for Computational Linguistics (NAACL). Human Language Technologies: The 2009 Annual Conference of the North American Chapter of the Association for Computational Linguistics (NAACL)S. Kogan, D. Levin, B. R. Routledge, J. S. Sagi, and N. A. Smith. Predicting risk from financial reports with regression. In Proceedings of Human Language Technologies: The 2009 Annual Conference of the North American Chapter of the Association for Computational Linguistics (NAACL), pages 272-280, 2009.
+
+Maec: a multimodal aligned earnings conference call dataset for financial risk prediction. J Li, L Yang, B Smyth, R Dong, Proceedings of the 29th ACM International Conference on Information & Knowledge Management (CIKM). the 29th ACM International Conference on Information & Knowledge Management (CIKM)J. Li, L. Yang, B. Smyth, and R. Dong. Maec: a multimodal aligned earnings conference call dataset for financial risk prediction. In Proceedings of the 29th ACM International Conference on Information & Knowledge Management (CIKM), pages 3063-3070, 2020.
+
+Y Li, D Tarlow, M Brockschmidt, R Zemel, arXiv:1511.05493Gated graph sequence neural networks. arXiv preprintY. Li, D. Tarlow, M. Brockschmidt, and R. Zemel. Gated graph sequence neural networks. arXiv preprint arXiv:1511.05493, 2015.
+
+The link-prediction problem for social networks. D Liben-Nowell, J Kleinberg, Journal of the American society for information science and technology. 587D. Liben-Nowell and J. Kleinberg. The link-prediction problem for social networks. Journal of the American society for information science and technology, 58(7):1019-1031, 2007.
+
+What makes conference calls useful? the information content of managers' presentations and analysts' discussion sessions. D Matsumoto, M Pronk, E Roelofsen, 10.2308/accr-10034The Accounting Review. 864D. Matsumoto, M. Pronk, and E. Roelofsen. What makes conference calls useful? the information content of managers' presentations and analysts' discussion sessions. The Accounting Review, 86(4):1383-1414, 2011. doi: 10.2308/accr-10034.
+
+Forecasting volatility in financial markets: a review. S.-H Poon, C W Granger, Journal of Economic Literature. 412S.-H. Poon and C. W. Granger. Forecasting volatility in financial markets: a review. Journal of Economic Literature, 41 (2):478-539, 2003.
+
+What you say and how you say it matters: predicting stock volatility using verbal and vocal cues. Y Qin, Y Yang, Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics (ACL). the 57th Annual Meeting of the Association for Computational Linguistics (ACL)Y. Qin and Y. Yang. What you say and how you say it matters: predicting stock volatility using verbal and vocal cues. In Proceedings of the 57th Annual Meeting of the Association for Computational Linguistics (ACL), pages 390-401, 2019.
+
+Voltage: volatility forecasting via text audio fusion with graph convolution networks for earnings calls. R Sawhney, P Khanna, A Aggarwal, T Jain, P Mathur, R Shah, Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP). the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP)R. Sawhney, P. Khanna, A. Aggarwal, T. Jain, P. Mathur, and R. Shah. Voltage: volatility forecasting via text audio fusion with graph convolution networks for earnings calls. In Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP), pages 8001-8013, 2020.
+
+The graph neural network model. F Scarselli, M Gori, A C Tsoi, M Hagenbuchner, G Monfardini, IEEE Transactions on Neural Networks. 201F. Scarselli, M. Gori, A. C. Tsoi, M. Hagenbuchner, and G. Monfardini. The graph neural network model. IEEE Transactions on Neural Networks, 20(1):61-80, 2008.
+
+Mpnet: masked and permuted pre-training for language understanding. K Song, X Tan, T Qin, J Lu, T.-Y Liu, Advances in Neural Information Processing Systems. 33K. Song, X. Tan, T. Qin, J. Lu, and T.-Y. Liu. Mpnet: masked and permuted pre-training for language understanding. Advances in Neural Information Processing Systems, 33:16857-16867, 2020.
+
+Profet: predicting the risk of firms from event transcripts. C K Theil, S Broscheit, H Stuckenschmidt, Proceedings of the 28th International Joint Conference on Artificial Intelligence (IJCAI). the 28th International Joint Conference on Artificial Intelligence (IJCAI)C. K. Theil, S. Broscheit, and H. Stuckenschmidt. Profet: predicting the risk of firms from event transcripts. In Proceedings of the 28th International Joint Conference on Artificial Intelligence (IJCAI), pages 5211-5217, 2019.
+
+Attention is all you need. A Vaswani, N Shazeer, N Parmar, J Uszkoreit, L Jones, A N Gomez, Ł Kaiser, I Polosukhin, Advances in Neural Information Processing Systems 30: Annual Conference on Neural Information Processing Systems (NIPS). A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł. Kaiser, and I. Polosukhin. Attention is all you need. In Advances in Neural Information Processing Systems 30: Annual Conference on Neural Information Processing Systems (NIPS), pages 5998-6008, 2017.
+
+Graph attention networks. P Veličković, G Cucurull, A Casanova, A Romero, P Liò, Y Bengio, 6th International Conference on Learning Representations (ICLR). P. Veličković, G. Cucurull, A. Casanova, A. Romero, P. Liò, and Y. Bengio. Graph attention networks. In 6th International Conference on Learning Representations (ICLR), 2018.
+
+Bag of tricks for node classification with graph neural networks. Y Wang, J Jin, W Zhang, Y Yu, Z Zhang, D Wipf, arXiv:2103.13355arXiv preprintY. Wang, J. Jin, W. Zhang, Y. Yu, Z. Zhang, and D. Wipf. Bag of tricks for node classification with graph neural networks. arXiv preprint arXiv:2103.13355, 2021.
+
+How powerful are graph neural networks?. K Xu, W Hu, J Leskovec, S Jegelka, arXiv:1810.00826arXiv preprintK. Xu, W. Hu, J. Leskovec, and S. Jegelka. How powerful are graph neural networks? arXiv preprint arXiv:1810.00826, 2018.
+
+Html: hierarchical transformer-based multi-task learning for volatility prediction. T L J Yang, B Ng, R Smyth, Dong, Proceedings of The Web Conference 2020. The Web Conference 2020Yang, T. L. J. Ng, B. Smyth, and R. Dong. Html: hierarchical transformer-based multi-task learning for volatility prediction. In Proceedings of The Web Conference 2020, pages 441-451, 2020.
+
+Numhtml: numeric-oriented hierarchical transformer model for multi-task financial forecasting. J Yang, R Li, Y Dong, B Zhang, Smyth, arXiv:2201.01770arXiv preprintYang, J. Li, R. Dong, Y. Zhang, and B. Smyth. Numhtml: numeric-oriented hierarchical transformer model for multi-task financial forecasting. arXiv preprint arXiv:2201.01770, 2022.
+
+Hierarchical attention networks for document classification. D Yang, C Yang, X Dyer, A He, E Smola, Hovy, Proceedings of the 2016 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (NAACL). the 2016 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (NAACL)Yang, D. Yang, C. Dyer, X. He, A. Smola, and E. Hovy. Hierarchical attention networks for document classification. In Proceedings of the 2016 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (NAACL), pages 1480-1489, 2016.
+
+Link prediction based on common-neighbors for dynamic social network. L Yao, L Wang, L Pan, K Yao, Procedia Computer Science. 83L. Yao, L. Wang, L. Pan, and K. Yao. Link prediction based on common-neighbors for dynamic social network. Procedia Computer Science, 83:82-89, 2016.
+
+Financial risk prediction with multi-round q&a attention network. Z Ye, Y Qin, W Xu, Proceedings of the 29th International Joint Conference on Artificial Intelligence (IJCAI). the 29th International Joint Conference on Artificial Intelligence (IJCAI)Z. Ye, Y. Qin, and W. Xu. Financial risk prediction with multi-round q&a attention network. In Proceedings of the 29th International Joint Conference on Artificial Intelligence (IJCAI), pages 4576-4582, 2020.
+
+Do transformers really perform badly for graph representation?. C Ying, T Cai, S Luo, S Zheng, G Ke, D He, Y Shen, T.-Y Liu, Advances in Neural Information Processing Systems. 342021C. Ying, T. Cai, S. Luo, S. Zheng, G. Ke, D. He, Y. Shen, and T.-Y. Liu. Do transformers really perform badly for graph representation? Advances in Neural Information Processing Systems, 34, 2021.
+
+Gnnexplainer: generating explanations for graph neural networks. D Ying, J Bourgeois, M You, J Zitnik, Leskovec, Advances in neural information processing systems. 32Ying, D. Bourgeois, J. You, M. Zitnik, and J. Leskovec. Gnnexplainer: generating explanations for graph neural networks. Advances in neural information processing systems, 32, 2019.
+
+A Dataset Statistics Table 5 shows the descriptive statistics of our dataset. Figure 3 shows the volatility distribution in the training, validation, and testing sets. Dataset Statistics. 5A Dataset Statistics Table 5 shows the descriptive statistics of our dataset. Figure 3 shows the volatility distribution in the training, validation, and testing sets. Table 5: Dataset Statistics

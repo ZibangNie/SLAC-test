@@ -1,0 +1,486 @@
+The Gamma Lasso
+26 Nov 2013
+
+Matt Taddy 
+The University of Chicago Booth School
+
+
+The Gamma Lasso
+26 Nov 2013B89DBE641FBB0A4FE262EBE18EEAA82CarXiv:1308.5623v4[stat.AP]
+Business faculty.chicagobooth.edu/matt.taddyThis article describes a very fast algorithm for obtaining continuous regularization paths corresponding to cost functions spanning the range of concavity between L 0 and L 1 norms.The 'gamma lasso' heuristic does L 1 (lasso) penalized regression estimation on a grid of decreasing penalties, but adapts coefficient-specific weights to decrease as a function of the estimated coefficient in the previous path segment.Our particular weight-updating scheme is motivated from a Bayesian model, and is related to estimation under log penalties.This very simple recipe is used to illustrate the large and difficult literature on concave penalization, with the hope that we can make the ideas more accessible to practitioners.The construction also leads us to a plug-in estimator for degrees of freedom; this is applied in model selection, and in experimentation our information criteria perform as well as cross-validation.The work is illustrated in linear regression simulations and in application of logistic regression to evaluate hockey players.
+
+Introduction
+
+For regression in high-dimensions it is useful to regularize estimation with a penalty on coefficient size.One minimizes the negative log likelihood plus a sum of cost functions applied to each coefficient's distance from zero.When these cost functions have a non-differentiable spike at zero, the optimal solution can be sparse.The curvature of the penalty away from zero dictates the weight of shrinkage imposed on the nonzero coefficients: zero curvature is an L 1 penalty, as used in the common lasso regression framework (Tibshirani, 1996), and as curvature goes towards −∞ one approaches the L 0 penalty of subset selection.
+
+Imagine that you are a data analyst familiar with classical methods, such as hypothesis testing, looking to try some of these more modern sparse regularized regression techniques.
+
+Strictly concave penalties, with negative curvature instead of lasso's zero second derivative, are tempting because they provide near-unbiased estimation for large signals.That is, if βj = 0 then it will be close to the result for maximum likelihood estimation (MLE) on in-the-model coefficients.Unfortunately, you will discover that computation is difficult with these strictly concave penalties.Most available software takes far longer to run than convex alternatives and the solvers are not generally globally convergent.At the extreme, solving for L 0 regularized coefficients is NP hard.In contrast, the lasso has a very fast forward stepwise procedure (Efron et al., 2004), easy-to-estimate degrees of freedom (Zou et al., 2007), and is far more widely used in practice.These conveniences are due to the estimator stability that results from lasso's nondiminishing bias.How do you decide what to use, and is it possible to quickly evaluate the range of options between L 0 and L 1 costs?
+
+We introduce in Section 2 the 'gamma lasso' (GL) algorithm.The purpose of the article is then twofold.First, to advertise a very fast and stable estimation framework that inherits many of the desirable properties of concave penalized estimation: algorithm details are in Section 6, simple Monte-Carlo and information criterion model selection are in Section 9, and all methods are implemented in the gamlr package for R. Second, by reading the large and difficult literature on concave regularization in the context of our simple algorithm, we seek to provide an intuitive overview on practical application of these techniques.This includes Bayesian interpretations in Section 3, consistency and unbiasedness properties in Section 4, types and benefits of estimator stability in Section 5, available estimation routines in Section 7, and model complexity (degrees of freedom) in Section 8.This mixture of goals follows from our personal use of the GL routine, both as a workhorse in applications and as a tool for explaining non-convex penalized estimation to non-experts.
+
+The ideas are illustrated via linear regression simulations in Section 10 and in logistic regression to evaluate the ability of hockey players in Section 11.Section 12 closes with a brief discussion.
+
+
+The gamma lasso
+
+Denote the data matrix of p covariates for n observations as X = [x 1 • • • x n ] , where x i = [x i1 , . . ., x ip ] , and the associated response as y = [y 1 , . . ., y n ] .Since the size of penalized β j depends upon the units of x ij , it is common to scale the coefficient by sd j , the standard deviation of the j th column of X; this is achieved if x ij is replaced by x ij /sd j throughout.
+
+Write η i = α + x i β as the linear equation for observation i, and denote with l(α, β) = l(η) an unregularized objective proportional to the negative log likelihood.In Gaussian (linear) regression with independent normal errors, l(η) is the sum-of-squares 0.5 i (y i − η i ) 2 and in binomial (logistic) regression, l(η)
+= − i [η i y i − log(1 + e η i )] for y i ∈ [0, 1].
+The gamma lasso in Algorithm 1, for 'scale' γ ≥ 0, yields paths of penalized coefficient estimates β1 . . .βT (and intercepts α1 . . .αT ) corresponding to L 1 penalties λ 1 > λ 2 . . .> λ T multiplied against adaptive coefficient-specific weight adjustments ω 1 . . .ω T .
+
+Algorithm 1 The gamma lasso
+
+Initialize ω 1 = 1 and λ 1 > 0 with step size 0 < δ < 1.
+
+for t = 1 . . .T :
+α, β t = argmin α,β j ∈R l(α, β) + n j λ t ω t j |β j |(1)ω t+1 j = 1 + γ| βt j | −1 j = 1 . . . p(2)λ t+1 = δλ t
+Outputs from this type of algorithm -a p × T field of β estimates obtained while moving from high to low penalization -are referred to as regularization paths.LARS (Efron et al., 2004) is a well-known example.The approach is nice not only because it leads to a full range of candidates for model selection (as in Section 9), but also because βt at λ t provide hot-starts for βt+1 at the next penalty level.If the paths are near continuous (see Section 5), estimation over the full path can be faster than cold-start solution for a single penalty specification.
+
+To start such paths, λ 1 is commonly set to infimum λ such that ( 1) is minimized at β = 0.
+
+Write g j ( β) for the j th coefficient gradient of l(α, β)
+(see A.1) evaluated at estimates [α, β],
+where it is implied that α has been set to minimize l(α, β).The initial value is available analytically as
+λ 1 = n −1 max{|g j (0)|, j = 1 . . . p},(3)
+the maximum mean absolute gradient for the null model with β = 0. Given a path-length T , λ T is specified as a ratio of λ 1 (e.g., λ T = 0.01λ 1 ) and the step-size δ is implied as a consequence.
+
+Behavior of the GL paths along a given λ sequence is governed by γ, which we refer to as the penalty scale (see Section 3).Under γ = 0 the weights are ω t j = 1 for all j, t and Algorithm 1 is just the usual lasso.At the other extreme, γ = ∞ yields a subset selection routine where a coefficient is unpenalized in all segments after it first becomes nonzero.Figure 1 shows solutions as a function of λ t in a simple problem.Moving from the lasso (γ = 0) to more concavity (larger γ), the estimates are less shrunk towards zero.As a result, selection of models along the λ paths becomes less stable: small specification jitter implies larger changes in β for a chosen λ (however note that even at γ = 10 the paths appear to be continuous).
+−4 −3 −2 −1 0 1 −1 0 1 2 3 3 3 3 2 2 1 gamma = 0 −4 −3 −2 −1 0 1 −1 0 1 2 3 3.2 3 3 2 2 1 gamma = 2 −4 −3 −2 −1 0 1 −1 0 1 2 3 3.4 3 3 2.2 2 1 gamma = 10 log lambda coefficient
+Figure 1: Gamma lasso estimation on n = 10 3 observations of y i = 4 + 3x 1i − x 2i + ε i , where ε i ind ∼ N(0, 1) and {x 1i , x 2i , x 3i } are marginally standard normal with correlation of 0.9 between covariates (x 3i is spurious).The penalty path has T = 100 segments, λ 1 = n −1 | i x 1i y i |, and δ = 0.01 1/99 .Degrees of freedom are on top and vertical lines mark AIC and BIC selected models (see Sections 8-9).
+
+
+Bayesian motivation
+
+Consider the Bayesian lasso (Park and Casella, 2008), where each β j is assigned an independent Laplace distribution prior with scale τ j > 0,
+β j ∼ La (τ j ) = τ j 2 exp [−τ j |β j | ] .(4)
+Typically, scale parameters τ 1 = . . .= τ p are set as a single shared value, say nλ/φ where φ is the exponential family dispersion (e.g.Gaussian variance σ 2 or 1 for the binomial).Posterior maximization under the prior in ( 4) is then lasso estimation.In a fully Bayesian analysis, λ is assigned a hyperprior and coefficient estimates are integrated over its posterior.
+
+Instead of working from shared scale, assume an independent gamma Ga(s, 1/γ) hyperprior with 'shape' s and 'scale' γ for each τ j , such that E[τ j ] = sγ and var(τ j ) = sγ 2 .Then the joint prior for both coefficient and scale is
+π(β j , τ j ) = La (β j ; τ j ) Ga τ j ; s, γ −1 = 1 2Γ(s) τ j γ s exp −τ j (γ −1 + |β j |) .
+(5)
+
+The gamma hyperprior is conjugate here, implying a Ga (s + 1, 1/γ + |β j |) posterior for τ j | β j with conditional posterior mode (MAP) at τj = γs/(1 + γ|β j |).
+
+Write s = nλ/(γφ), such that E[τ j ] = nλ/φ and var(τ j ) = γE[τ j ].Then the MAP scale estimate is τj = ω j (nλ/φ) with ω j = (1 + γ|β j |) −1 , and the gamma lasso of Algorithm 1 appears through a sequence of MAP estimates under the joint prior in (5).
+
+At each λ t :
+
+• use the most recent coefficient estimate to fix τ t j = (nλ t /φ)/(1 + γ|β t−1 j |).
+
+• find βt to maximize the posterior under La(τ t j ) coefficient priors.
+
+While clearly easier to compute, this sequential 'greedy' MAP seems a poor cousin to an actual joint MAP estimate -i.e., that which maximizes the posterior for both τ and β.For example, our estimates are sensitive to path step-size: as δ → 1 GL approaches the joint MAP, and it gets further from this solution as δ decreases.However, we'll see later that hedging away from joint optimality has useful stabilization effects in addition to making for much faster analysis.
+
+First, we need to look a bit deeper at MAP estimation under our Bayesian model.
+
+
+Log penalization
+
+Consider joint MAP estimation of [τ , β] under the prior in ( 5), where we've suppressed α for simplicity.By taking negative logs and removing constants, this is equivalent to solving
+min β j ∈R, τ j ∈R + φ −1 l(β) + j τ j (γ −1 + |β j |) − s log(τ j ) .(6)
+By concentrating-out of τ , it is straightforward to show that ( 6) is equivalent to the objective
+min β j ∈R, τ j ∈R + φ −1 l(β) + j s log(1 + γ|β j |)(7)
+PROPOSITION 3.1.β solves (7) if and only if it is also in the solution to (6).
+
+Proof.The conditional posterior mode for each τ j given β j is τ (β j ) = γs/(1 + γ|β j |).Any joint solution [ β, τ ] for (6) thus consists of τj = τ ( βj ); otherwise, it is always possible to decrease the objective by replacing τj .Setting each τ j = τ (β j ) in ( 6) and removing constant terms yields (7).Moreover, the solution to (6) solves (7): otherwise, there would need to be a point on the profile slice of (6) defined by τ j = τ ( βj ) that is lower than its minimum.
+
+Cost function c(β j ) = s log(1 + γ|β j |), where s, γ > 0, is referred to as the log penalty;
+
+it is concave with curvature −s/(γ −1 + |β j |) 2 and spans the range from L 0 (γ → ∞) to L 1 (γ → 0) costs.It appears under a variety of parameterizations and names in the literature;
+
+see Mazumder et al. (2011) and applications in Friedman (2008), Candes et al. (2008), Cevher (2009), Taddy (2013b) and Armagan et al. (2013).The penalty is illustrated in Figure 2.
+
+
+Generalized double Pareto priors
+
+For a Bayesian it is odd to be solving for τ rather than marginalizing over its uncertainty.
+
+However, recognizing the functional form of a gamma density in (5), π(β j , τ j ) integrates over τ j to yield the marginal prior π(β j ) = 0.5s (1 + γ|β j |) −(s+1) .This is the generalized double Pareto density, as in Armagan et al. (2013).Since − log π(β j ) ∝ (s + 1) log(1 + γ|β j |), the profile MAP solution to (6), which is also the log penalized estimator from (7), gains additional interpretation as the marginal MAP for β under Ga(s − 1, 1/γ) hyperpriors on each τ j .
+
+
+Diminishing bias
+
+The defining distinction between the gamma lasso and the standard lasso is that cost gradient for each β j is decreasing as a function of the size of its effect on the likelihood.This occurs algorithmically: if the signal is strong enough that βt j is nonzero at λ t , the penalty at segment t + 1 is deflated by the factor 1/(1 + γ|β t j |) at the next path segment (see also (8), the GL two-step thresholding operator).Consider the log penalty that occurs as λ t → λ t−1 .Under our GL parametrization, the log penalty curvature is −nλγ/(1 + γ|β j |) 2 : it is strictly decreasing with |β j | and goes to zero as |β j | → ∞.This can be observed in the left panel of Figure 2, and larger γ causes the penalty to flatten faster.
+
+We refer to this property of diminishing penalty curvature as 'unbiasedness for large signals'.It is the reason why one would use concave penalization instead of L 1 or convex alternatives.Theoretically, it is the primary necessary condition for a penalized estimator to have oracle properties: a class of results showing that coefficient estimates under large n will be the same as if you knew which should be zero.Fan and Li (2001) introduce the framework, Fan and Peng (2004) allow p to grow slowly with n, and Armagan et al. (2013) provide results specific to log penalization.Oracle properties make strong assumptions about near-sparsity of true β, but they form a popular approximation framework for evaluating high-dimensional estimators.
+
+There are also a variety of practical reasons for seeking diminishing bias.First, having large signals estimated without attenuation can increase model sparsity.This is useful from a purely computational perspective whenever storage is an issue, say, with distributed massive data analysis (Taddy, 2013a).In causal inference procedures, where penalized projection from
+
+x on y is intended to control for confounding variables rather than for pure prediction, Belloni et al. (2012) advocate use of unbiased coefficient estimates.Finally, many practitioners familiar with classical methods (and versions of subset selection) will seek out low-bias estimates, regardless of the application.
+
+
+Stability and Continuity
+
+The benefits of Section 4 come at a price: if the penalty is concave, the negative log posterior is not necessarily convex.This can be seen in the right two panels of Figure 2: the objectives are concave approaching the origin, and can even become bi-modal.
+
+The obvious effect of a non-convexity is computational: the models take longer to fit.The genius of LARS and the lasso is that entire regularization paths are easy to calculate because estimates change slowly along those paths.In contrast, the previous segment βt−1 will not be a good hot-start for βt if the solution paths have discontinuity jumps.This causes a corresponding jump in computation time; for example, Figure 3 shows timings growing rapidly after this threshold (around 1 < γ < 10) for the hockey data of Section 11.Here the cost difference is mere seconds, but in larger n and p applications the jumps become prohibitively expensive.Given these issues, the benefits of concave penalties (i.e., the diminishing bias of Section 4) are only worthwhile so long as we are able to remain stable.The rest of this section looks first at what this means in terms of our Bayesian model and second at how sub-optimality of the gamma lasso as a joint MAP actually stabilizes the procedure.
+
+
+Prior variance
+
+For orthogonal inputs, the penalized objective becomes concave only if negative log likelihood coordinate curvature h j = ∂2 l(β)/∂β 2 j , which does not depend upon y for exponential families, is less than the absolute value of the curvature on the cost function for β j .Absolute curvature for the log penalty is sγ 2 at the origin, and less elsewhere, such that the objective in ( 7) is guaranteed convex if sγ 2 < h j .For correlated inputs, one has objective convexity if the minimum eigenvalue of H, the Hessian matrix of second derivatives of l(β), is greater than sγ 2 . 1 Recognizing γ 2 s as the variance of a Ga(s, γ −1 ) distribution, the above can be given a clear Bayesian interpretation in the context of our model from Section 3: the joint MAP is stable (changes little under small data jitter) if the prior variance on each τ j coefficient scale is less than the minimum eigenvalue of the likelihood information matrix H.For Gaussian regression with standardized orthogonal covariates, h j = i x 2 ij = n and we get a simple rule: the joint MAP is stable if prior variance on each τ j is less than the number of observations.For logistic regression you need var(τ j ) < n/4 to get the same guarantee.And for marginal rather than joint MAP estimation you need var(τ j ) + γ 2 less than n or n/4.
+
+
+Stability of the gamma lasso
+
+A rigorous definition of stability can be expressed in terms of the continuity of estimators as a function of y, the observed response.In particular, Lipschitz continuity of such functions is of primary importance in estimation; e.g., for unbiased risk assessment as in Stein (1981).
+
+Many popular concave cost functions, such as the SCAD penalty of Fan and Li (2001) and the MC+ penalty of Zhang (2010), have been engineered to be Lipschitz continuous (at least under certain parameterizations).It turns out that gamma lasso estimators have this property.
+
+Say f (b) is the implicit function for β as a function of the MLE b. f is said to be Lipschitz
+continuous if |f (b 1 )−f (b 2 )| ≤ L|b 1 −b 2 | for some finite constant L on all b 1 , b 2 in the domain of f .
+If the MLE b is itself Lipschitz with respect to y, then we'll say that the estimator is Lipschitz stable.Consider the single-coefficient two step path [ β0 , β1 ] on [λ, δλ] for 0 < δ < 1, such that β0 is the lasso estimate under τ = λ and β1 is the lasso estimate under τ = δλ/(1 + γ| β0 |).
+
+Given MLE b we can re-write β1 as
+f (b) = b − δλ 1 + γ(b − λ) + + (8)
+where γ, λ, δ > 0, λ < ∞, δ < 1.We call this the gamma-lasso thresholding operator.
+
+PROPOSITION 5.1.For γ < ∞ the GL thresholding operator in ( 8) is Lipschitz continuous.
+Proof. Take two arbitrary MLE b 1 > b 2 > 0; other configurations work similarly. If f (b 1 ) = f (b 2 ) = 0 the condition holds trivially. If f (b 1 ) > f (b 2 ) > 0, then |f (b 1 ) − f (b 2 )| = b 1 − b 2 + δλ(A 1 − A 2 )/[(1 + A 1 )(1 + A 2 )] ≤ (1 + δλγ)|b 1 − b 2 |, where A k = γ(b k − λ) + . Finally, if f (b 1 ) > 0, f (b 2 ) = 0 then w.l.o.g. write b 1 = δλ + , b 2 = δλ, for = |b 1 − b 2 | > 0, so that |f (b 1 ) − f (b 2 )| = + δλ 1 − 1 1 + γ(δλ + − λ) + .(9)
+For ≤ (1−δ)λ, (9) becomes .Otherwise ( 9) is less than +δλ (γ /(1 + γ )) < (1+δγλ) .
+
+Note the connection between path continuity and estimator stability: if there are jumps in a solution path as a function of λ, then Lipschitz continuity is impossible.To see this, note that one could choose b 1 and b 2 arbitrarily close but on either side of the discontinuity threshold λ.
+
+For this reason it is clear that Lipschitz continuity does not hold for γ = ∞.
+
+
+Implementation via coordinate descent
+
+We use Coordinate descent (CD; e.g., Luenberger and Ye, 2008) to minimize (1) at each step along the path.CD is a local optimization algorithm that cycles through minimization of the conditional objective for individual parameters when the remaining parameters are fixed.It is conceptually simple, easy to code, and well-suited to optimizations with hot-start initialization.
+
+Algorithms of this type have have become dominant in L 1 penalized estimation since the work by Friedman et al. (2007) and Wu and Lange (2008).
+
+Our CD routine, outlined in Algorithm 2, is a solver for penalized weighted least squares problems as defined in equation ( 10) below.This applies directly in Gaussian regression, and for non-Gaussian models we follow Friedman et al. (2010) and apply CD inside an outer loop of iteratively re-weighted least-squares (IRLS; e.g., Green, 1984).Given current parameter values β, the Newton-Raphson update for maximum likelihood estimation is
+β = β − H −1 g,
+where H is the information matrix with elements h jk = ∂ 2 l/∂β j ∂β k | β and g is coefficient gradient (see Appendix A.1).For exponential family linear models we can write H = X VX
+and g = X V(z − η), where V = diag(v), v = [v 1 . . . v n ] are 'weights', z = [z 1 . . . z n ] are
+transformed 'response', and ηi = α + x i β.In Gaussian regression, v i = 1, z i = ηi − y i , and the update is an exact solution.For binomial regression,
+v i = q i (1 − q i ) and z i = ηi − (y i − q i )/v i ,
+where
+q i = (1 + exp[−η i ]) −1 is the estimated probability of success.
+This yields β = (X VX) −1 X Vz, such that the Newton update solves a weighted leastsquares problem.Adding L 1 costs, the minimization objective from (1) becomes
+argmin α,β 1 ...βp∈R i v i 2 (α + x i β − z i ) 2 + n j ω j λ|β j |. (10)
+Our solver iterates between CD on (10) and, for non-Gaussian models, updates to v and z.
+
+Each t th segment IRLS routine initializes [α, β] at solutions for λ t−1 , or at [α, 0] for t = 1.In the gamlr implementation, a full pass update of all parameters is done only at the first CD iteration; otherwise coordinates with currently inactive (zero) βj are not updated.Once the descent converges for this active set, IRLS v and z are updated and we begin a new CD loop with a full pass update.The routine stops when maximum squared change in β j scaled by its information over one of these full pass updates is less than some tolerance threshold, thresh.
+
+The default in gamlr uses a relative tolerance of 10 −7 times null model deviance.2
+
+Algorithm 2 Coordinate descent
+
+Set
+vh j = i v i (x ij − xj ) 2 and vx j = i v i x ij for j = 1 . . . p.
+while max j=1...p vh j ∆ 2 j > thresh:
+
+for j=1. . .p:
+set vg j = − i x ij v i (z i − ηi ) and ghb = vg j − vh j βj if |ghb| < nλ t ω t j : ∆ j = − βj else: ∆ j = −(vg j − sign(ghb)nλ t ω t j )/vh j . update βj + = ∆ j , α + = −vx j ∆ j
+, and η = α + X β.
+
+
+Descent convergence
+
+Despite the non-differentiability of |β j | at zero, Tseng (2001) establishes local convergence for CD on (10) as a consequence of penalty separability: the non-differentiable part of our objective is a sum of functions on only a single coordinate.Thus CD solves each weighted least squares problem, and the full algorithm converges if IRLS does.For non-Gaussian models this is not always guaranteed, but divergence is rare and we find the algorithm reliable in practice.
+
+
+Software
+
+The algorithm is implemented in c as part of the gamlr package for R.This software is available with documentation on cran.r-project.org and versioned source code is at github.com/mataddy/gamlr.Usage of gamlr mirrors that of its convex penalty ana-logue glmnet (Friedman et al., 2010), the fantastic and widely used package for costs between L 1 and L 2 norms.In the lasso case (γ = 0), the two algorithms are essentially equivalent.
+
+
+Related estimators
+
+Many algorithms have been contributed to accompany the literature on concave regularization.
+
+For example, aforementioned SCAD and MC+ penalties are implemented for least-squares in SIS and plus R packages, respectively.This software is more prototypical than the industrial strength tools (like glmnet) available for convex regularization.
+
+The recent SparseNet framework of Mazumder et al. (2011) contributes a fast class of coordinate descent routines for generic concave penalized path estimation.The algorithm uses CD to first fit a lasso path and, for each λ on this path, adapts coefficient estimates along a second grid of increasing concavity specifications (analogous to increasing values of our γ).An implementation for Zhang's MC+ penalty is in the sparsenet package for R, and it is the best available software we've found.Indeed, we find very similar runtimes for sparsenet and roughly equivalent loops of gamlr over multiple γ; neither is consistently faster across problems.The advantage of gamlr is that each different γ specification can be run in parallel (and you only need use one γ if you wish), whereas the sparsenet algorithm moves through a grid of both λ and γ in order to avoid minor modes in the nonconvex penalized objective.
+
+The SparseNet authors argue that it is important in CD to solve exactly the coordinatewise objective at each update.This will make the solution less sensitive (but not insensitive)
+
+to initial values.Thus if the bimodal objective in the right-most panel of Figure 2 represents a coordinate update, one should make sure to find the major mode out near β = 4.For log penalization, Taddy (2013b) finds these exact solutions by solving a simple quadratic equation.
+
+Unfortunately, even this simple exact method becomes prohibitively expensive for p and n above a few thousand (unless, like in SparseNet, you derive good hot-starts from a joint [γ, λ] grid).The gamma lasso only ever attempts to solve convex optimization problems along the path, so convergence to minor modes is a non-issue.
+
+It turns out that the GL algorithm is quite closely related to the 'local linear approximation'
+
+(LLA) routines that are criticized as sub-optimal in Mazumder et al. (2011).Of course, when the objective itself is uncertain (and needs to be chosen via model selection) the properties of the entire path (e.g.stability) are more important than a single point being optimal under a fixed specification.Indeed, a new literature (Loh and Wainwright, 2013;Wang et al., 2013) holds that, under limited penalty concavity, all local solutions should be within statistical precision of the global solution.These papers are technically difficult and the ideas are early in development, but they support the simple point that one should not worry too much about global solutions under a fixed penalty when the optimal specification of that penalty is itself unknown.Despite this issue, Zou and Li (2008) present numerical and theoretical evidence that simple LLA does well in practice.For us, the relevant contribution of Zou and Li is their one-step implementation of LLA and its analysis: each GL path segment executes a version of this one-step LLA algorithm.One-step estimation is a general technique (e.g., Bickel, 1975) which amounts to taking as your estimator the first step of an iterative approximation to some objective function.In general, one-step estimators are usually accompanied by results claiming that they can be 'as good' asymptotically as the full-step solution if the initial estimates are 'good enough'.Since the efficiency of regularization paths depends upon segment solutions being good starts for the next segment, they form a natural setting for such techniques.
+
+In the context of LLA for the log penalty, one-step estimation implies solving β to minimize deviance under penalties λ|β j |/(1 + γ β0 j ), where β0 are some initial estimates of the coefficients.For Zou and Li, β 0 is set to the MLE (or left unspecified), whereas in the gamma lasso we set it to the previous path segment's estimate.The theoretical framework of one-step estimation, and results from Zou and Li in particular, apply directly to our GL estimator (note that the adaptive lasso of Zou (2006) can also be cast as a one-step LLA).This includes oracle properties if the regularization parameter is appropriately chosen.The Zou and Li result on continuity is more general than our simple statement in Section 5: one-step LLA is continuous if and only if c (β) is continuous for |β| > 0.
+
+
+Degrees of freedom
+
+An estimation algorithm's degrees of freedom (df ) is a key property in determining its tendency to over or under fit.We use it in Section 9 as the basis for selecting the optimal model along a fitted regularization path, so it is a key ingredient for practical application of the GL algorithm.
+
+In an unpenalized linear model, the degrees of freedom is just the number of estimated parameters.More generally, it can be defined as (e.g.Efron et al., 2004) df = σ −2 i cov(ŷ i , y i ) where ŷi is the estimated prediction rule for observation y i and σ 2 is residual variance.Given an estimator that is Lipschitz continuous with respect to y, as demonstrated in Section 5 (or in Zou and Li, 2008) for our GL path segments, the SURE framework of Stein (1981) applies and we get a more workable version of this definition, df = E [ i ∂ ŷi /∂y i ].
+
+Consider the case of a single coefficient β estimated via least-squares under L 1 penalization τ .Write gradient at zero g = − i x i y i and curvature h = i x 2 i and set ς = −sign(g).Then the prediction rule for y given x is ŷ = x(ς/h)(|g| − τ ) + with derivative ∂ ŷ/∂y = x 2 i /h1 [|g|<τ ] , yielding the SURE degrees of freedom expression df = E 1 [|g|<τ ] .For many orthogonal covariates, we get ŷ = j x j (ς j /h j )(|g j | − τ j ) + and the degrees of freedom becomes We'll use the same tactic of plugging-in observed gradient.However, for the GL algorithm each τ j is a function of y.Moreover, unlike g j , our observed τj have been optimized to fit the data and thus plugging them into (11) would yield a biased (low) estimate of df .Fortunately, interpreting the GL algorithm as an estimator for the Bayesian hierarchical model of Section 3, we do have a guess for each τ j that is independent from the data: our Ga(s, 1/γ) hyperprior.
+df = j E 1 [|g j |<τ j ] .(11
+This implies the gamma lasso estimator for degrees of freedom
+df t = j Ga(|g j |; nλ t /(γφ), 1/γ). (12)
+The number of unpenalized coefficients (e.g., 1 for α) is always added to this to get total df .
+
+For Gaussian regression, where φ is unknown, we just use the fitted mean square error φt = i (y i − ŷi ) 2 /n.Under (12) as γ → 0, df t → p, the lasso df of Zou et al.As γ → ∞, df t becomes p and we assign full model df for all steps of the GL subset selection algorithm.
+
+In the non-orthogonal case, g j = g j (0) becomes a function of all of the elements of β.One option would be to plug-in the null model gradients (i.e. for all zero coefficients), but with any multicollinearity this yields too-large df values (e.g., almost immediately df ≈ p in our simulations of Section 10).Instead we use the most recent g j at which βt j = 0, such that the effect of previously in-the-model variables has been remove from our plug-in gradient.This appears to work well in practice, requires no extra computation (since we already need these values in CD), and has the advantage of maintaining df = p for γ = 0.
+
+
+Selection
+
+Penalized estimation does not perform model selection.Rather, its value is as a technique to quickly enumerate, along regularization paths, a set of plausible candidate models.In the simplest setting, the models are indexed by a single penalty size parameter, say λ.This acts as a squelch: it suppresses noise to focus on the true input signal.The model selection problem is then to choose λ so that models estimated under that squelch are neither over nor under fit.
+
+
+Cross validation
+
+The simplest metric of a model's quality is how well it predicts for data that you have not observed drawn from the same (assumed independent across observations) generating process as the sample S = [X, y].We measure this in terms of deviance under the assumed likelihood: −2 times the fitted log likelihood minus the log likelihood for a saturated model (with p = n free parameters).Since evaluation on actually unobserved data is impossible, it is common to use K-fold cross-validation (CV; see Efron, 2004, for an overview) to estimate predictive performance: split the sample into K evenly-sized disjoint subsets (folds) S k , and K times fit a regularization path given S \ S k .Predictions for data in the left-out fold are used to calculate 'out-of-sample' (OOS) deviance along each regularization path.Given CV results, one selects λ according to some criterion and re-fits the model on the entire dataset under this penalty.
+
+The usual rules are either λ min , the penalty with minimum average OOS error, or λ 1se , the largest penalty with average OOS error no more than 1 standard error away from that at λ min (to account for downward bias in deviance at λ min as an estimator of true prediction deviance).
+
+CV is super useful, and some form of it features in most applied problems, but it does have some serious weaknesses.As a basic point, K should be bigger than 2-3 (5-10 is typical); if a single path-fit is expensive then doing it K times will be impractical.More subtly, in contemporary Big data problems the data is distributed: it is too large to store on a single machine.Analysts can use conditional independence factorization to work in parallel on data subsets (e.g., Taddy, 2013a), but a computational bottleneck results if you need to communicate across such subsets for OOS experimentation.Thus there are settings where we'll need to replace CV with performance estimates that can be derived from a single model fit.
+
+
+Information Criteria
+
+An alternative approach to measuring predictive performance follows Mallows (1973, see also Efron 2004) in estimating true OOS error via the 'Information Criterion',
+IC(k) = 2l(α, β) + k × df (13)
+where k is a complexity penalty.We are able plug-in the df t degrees of freedom heuristic from (12) here, and the IC-selected model is that which minimizes the criterion in (13).
+
+The two most common information criteria specifications are the AIC's k = 2 (derived from information theoretic arguments in Akaike, 1973) or the BIC's k = log(n) (derived from approximation to marginal likelihood for a Bayesian model in Schwarz, 1978).Our experience is that the BIC-selected model works better for OOS prediction in big-p/small-n applications, but it does tend to yield very simple models and the AIC will be preferred if you need to tell a story about weak signals or if n p (e.g., as in Section 11).See Flynn et al. (2013) for discussion of the AIC and its adaptation for selection in high-dimensional penalized regression.
+
+Note that with both IC and CV it is best to use 'stable' models.For IC, Section 8 outlines how the required df can be approximated easily only for models that are Lipschitz continuous.
+
+And Breiman (1996) argues that CV does a poor job of evaluating unstable models: it evaluates average performance of given λ as a squelch, but this is a good guess at the performance of a single particular fit (which is what we actually have) only if models estimated at this λ are not too variable across samples -that is, if the model is stable.Thus a simple argument for stability is as follows: regularization paths enumerate candidate models that we must choose amongst, and we have good tools for such choice only if the paths are continuous.
+
+
+Laplace approximation to the marginal likelihood
+
+An alternative interpretation for information criteria is as Laplace approximation ( de Bruijn, 1958) to the negative log of the marginal likelihood p(y|λ) = θ p(y|θ)dP λ (θ), where θ is the set of model parameters and P λ (θ) is its prior distribution parametrized by λ.For this interpretation of the BIC to apply informally here, θ is a parametrization of Xβ in the subspace that results after constraining j |β j | and P λ (θ) is the unit information Gaussian prior centered at MLE θ with variance −∂ 2 log p(y|θ)/∂θ 2 j | θ.See Kass and Raftery (1995) and Spiegelhalter et al. (2002) for discussion and references on the connection between Bayes and IC.
+
+A more direct approach to Bayesian model selection would just approximate the marginal likelihood for one of models in Section 3: β p(y|β)dP λ (β).Unfortunately, Laplace approximation to this integral -replacing the integrand with a normal centered at β -is inappropriate if the posterior is not differentiable at some βj = 0. Zhou et al. (2012) propose 'empirical Bayes factors' (EBF) that approximate instead β A p(y|β A )dP λ (β A ), the marginal likelihood over only active-set β A = {β j : βj = 0}. 3However we find in simulation that this technique, which is much more computationally intensive, does worse than simple BIC using plug-in df t .
+
+
+Simulation
+
+Our first example uses data simulated independently from the following p-covariate regression.
+
+x ∼ N (0, Σ) , Σ jk = 0.9 |j−k| , z j ind ∼ Bin(0.5) for j = 1 . . .p,
+y = N(µ, σ 2 ) where µ = (x * z) β, β j = 1 j exp − j 10(14)
+, and σ = 1.25sd(µ).
+
+Here, sd(µ) is the sample standard deviation over simulated µ 1 . . .µ n .The true process in ( 14)
+
+is not sparse; the β j are actually diminishing in absolute size very slowly.However x is highly correlated across dimensions and it is useless to estimate the coefficients for large j.
+
+Figures 4 through 6 illustrate an example analysis of this data, with n = 1000 and p = 2000.
+
+The paths are initialized at λ 1 = n −1 max{|g j (0)|} p j=1 ≈ 0.5 as in Section 2, and each segment decreases as λ t = δλ t−1 for δ = 0.1 1 99 , through a grid of 100 values down to λ 100 ≈ 0.05.
+
+Coefficient penalties were divided by the corresponding covariate standard deviation.
+
+The shapes of the regularization paths in Figure 4 show the effect of increasing penalty concavity (via increasing γ), moving from the lasso (γ = 0) through the larger shoulders of γ = 2 and on to γ = 10, where estimates move very quickly to the active-set MLE once a variable is in-the-model.Degrees of freedom, calculated as in (12), are along the top of each plot; equal λ have higher df t for higher γ since there is less shrinkage of βj = 0.The minimum BIC model is marked upon each path plot with a vertical dashed line; it moves to the right (higher λ) as γ increases, selecting sparser models under more concave penalties.
+
+AIC and BIC values along the paths are plotted in Figure 5. Minimum AIC models are not marked in Figure 4 because it always selected the most complicated model.The BIC curves resemble the 5-fold CV deviance curves in Figure 6, and if one views OOS experiments as a gold-standard then this comparison favors BIC over AIC.In Figure 6, dots mark mean OOS deviance and the bars spread ± 1 standard error for this statistic.The two CV selection rules, minimum-average λ min (left vertical lines) and 1 standard error λ 1se (right vertical lines), are near each other and select similar models; both are closer to the BIC than it is to the AIC.
+
+A full comparison of selection methods and concavities is shown in Figure 7, which evalu- γ = 0 γ = 2 γ = 10 q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q −3.0 −2.5 −2.0 −1.5 −1.0 2.8 3.0 3.2 3.4
+
+3.6 q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q aic bic q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q −3.0 −2.5 −2.0 −1.5 −1.0 2.8 3.0 3.2 3.4
+
+3.6 q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q −3.0 −2.5 −2.0 −1.5 −1.0 2.8 3.0 3.2 3.4
+
+3.6 q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q log lambda BIC / n 3.8 q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q 294 109 14 2 1 −3.0 −2.5 −2.0 −1.5 −1.0 2.6 3.0 3.4 3.8 q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q 312.6 136.4 19.9 3.4 1 −3.0 −2.5 −2.0 −1.5 −1.0 2.6 3.0 3.4 3.8 q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q 349.2 222.8 63 8 1 log lambda mean square error γ = 0 γ = 2 γ = 10 q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q 0.0 0.1 0.2 0.3 0.4 EBF AIC BIC CV1se CVmin q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q 0.0 0.1 0.2 0.3 0.4 EBF AIC BIC CV1se CVmin q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q 0.0 ated fits on 1000 simulations from ( 14), with n = 1000 and p = 2000, and their out-of-sample R 2 (one minus fitted over null deviance) on another 1000 simulations of the same size.For these simulations we again use a grid of 100 segments, but smaller λ 100 = 0.01λ 1 .BIC performs as well as CV, with R 2 falling between λ min (better) and λ 1se (worse) rules.The AIC does far worse here, and actually selects models with majority negative OOS R 2 for γ > 0. We also show the EBF of Zhou et al. (2012), which does about as well as the AIC. 4e do see a slight improvement in performance from γ = 0 to γ = 2: 10% gain in average R 2 from 0.225 to 0.25 for BIC selected models (significant given standard errors of about 8e-4).γ = 10 also has higher average R 2 (0.245 for BIC), but at the expense of more variation around the mean.In some settings the performance gain will be larger and in others it will be smaller.
+
+The benefits are probably not worth the trouble of full optimization under a concave penalty, but may be enough to motivate the cheap concavity offered by a gamma lasso with small γ.
+
+
+Hockey players
+
+Our next illustration investigates use of logistic regression to evaluate the performance of hockey players.This is an extension of the analysis in Gramacy et al. (2013).The current version includes data about who was on the ice for every goal in the National Hockey League log lambda binomial deviance q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q 1528 901 368 62 15 gamma = 0 (lasso) −10 −9 −8 −7 −6 1.155 1.165 1.175 1.185 log lambda binomial deviance q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q 1623.2 968.4 384.1.185 log lambda binomial deviance q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q q 1921.6 552.6 107 17.4 gamma = 10 log lambda binomial deviance Our 'regression plus-minus' model for player contribution is then, for goal i, logit [p(home team scored goal
+i)] = α + u φ + x β,(15)
+where u is a length-7 vector of indicators for various special-teams scenarios (e.g., a home team power play) and x is a vector of player effects: x ij = 1 if player j was on the home team and on ice for goal i, x ij = −1 for away player j on ice for goal i, and x ij = 0 for everyone not on the ice.Thus the β j coefficients in (15) correspond to the effect of an individual player on the log odds that, given a goal has been scored, the goal was scored by their team.This effect is 'partial' in that it controls for who else was on the ice (and special-teams events)5 , and since β j do not change from season to season these are 'career effects'.
+
+We estimate gamma lasso paths of β for the model in ( 15), with α and φ left unpenalized, from λ 1 ≈ exp[−6] set as in (3) down to λ 100 = 0.01λ 1 .The penalties were not scaled by covariate standard deviation, since this would have favored players with little ice time.The algorithm was run for log 10 γ = −5 . . .5, plus the γ = 0 lasso.6Joint [γ, λ] surfaces for AIC and BIC are in Figure 8.The BIC is minimized at higher λ and γ (10 and e −6.5 ) than the AIC (1 −5 and e −9.5 ), implying more sparsity but with less bias on nonzero β. for the AIC and at 100 for the BIC (this is also the threshold start of higher compute times in Figure 3).Figure 9 shows paths on either side of γ = 1, which appears to exist near a stability threshold: γ ≤ 1 paths are smooth but for γ = 10 the estimates jump from zero.
+
+The low-BIC models for this data are very sparse.At γ = 1, the BIC optimal log(λ) = −6.9yields only 21 players with nonzero βj ; these stars (all effects are positive) are shown in Figure 11.This is due in large part to design multicollinearity: since hockey players work on lines and are often matched against lines from the opposing team, it is tough to isolate the performance of individuals.With concave penalties imposing little bias on large signals, a few stars are assigned the aggregate effect of their team-mates and common opponents.
+
+The AIC favors denser models with more bias.The minimum-AIC lasso (γ = 0) model identifies 904 nonzero player effects; the 20 largest (in absolute value) are in Figure 12.Such estimates will be useful to hockey analysts who wish to evaluate more than just a few key players.The increased bias also conforms to our prior expectation that single players cannot have an overly large effect on the game.Indeed, the 20-fold CV results in Figure 10   12 Discussion
+
+We have found the gamma lasso algorithm to be useful and effective in application.Despite an abundance of theoretical and empirical evidence showing that concave penalties are superior to L 1 costs (for example, see the references in Section 7), our experience is that it is tough to do much better than the simple lasso.And it is easy to do worse.The stable and fast gamma lasso algorithm provides an appealing middle ground.
+
+Despite our advocacy of the GL algorithm, this article was designed to be more of a review than an outline of new methods.Our discussion finds that the GL is very closely related to many different techniques in the dense literature on concave regularization: it approximates MAP estimation of a Bayesian model, or deviance minimization under log penalties, and is really 'just' a pathwise implementation of one-step LLA (or the adaptive lasso).A central point of our review is that it is important to understand the entire regularization path (especially its continuity).This is especially true under concave penalties, where due to multi-modality the solutions depend (through hot-starts) on the route the path takes.The point is made even more explicit in GL estimation, where the size of the gap λ t−1 − λ t changes the solution at λ t .
+
+Finally, any regularization path algorithm merely builds a set of candidate models.Selection amongst these models is an essential extra step.In our case, we are selecting the 'stopping point' t and corresponding βt .Heuristic degrees of freedom for GL paths, and resulting AIC/BIC metrics, allow such selection through an intuitive extension of lasso methods.CV is great, and easiest to explain to non-statisticians, but it nice to have a fast analytic alternative.
+
+
+A Appendix
+
+A.1 Gradient and curvature
+
+The simplified negative log likelihood objective in Gaussian regression is l(α, β) = 0.5 i (y i − η i ) 2 with gradient and coordinate curvature
+g j (β) = ∂l ∂β j = − i x ij (y i − η i ), h j (β) = ∂ 2 l ∂β 2 j = i x 2 ij .
+In logistic regression, set y i = 1 for 'success' and y i = 0 for 'failure' and write q i = (1 + exp[−η i ]) −1 as the probability of success.Then l(α, β) = i −y i η i + log(1 + exp[η i ]) and
+g j (β) = ∂l ∂β j = − i x ij (y i − q i ), h j (β) = ∂ 2 l ∂β 2 j = i
+x 2 ij q i (1 − q i ).
+
+
+A.2 Quasi-Newton acceleration
+
+Acceleration is applied to θ = [α, β], the set of both penalized and unpenalized parameters.
+
+This move is accepted only if it leads to a decrease in the objective, such that there is no effect on algorithm convergence.Suppose that θ( 0
+
+Figure 2 :
+2
+Figure 2: Log penalties c(β) = s log(1 + γ|β|) and penalized objectives (β − B) 2 + c(β).
+
+
+Figure 3 :
+3
+Figure3: Timings for the hockey data fits of Section 11 on a length-100 grid with λ 100 = 0.01λ 1 .This used a high absolute convergence tolerance of 10 −10 ; results are less dramatic under default settings.
+
+
+7. 1
+1
+Local linear approximation and one-step estimatorsA local linear approximation replaces the concave cost function c in a penalized deviance with its tangent at the current estimate, c ( β)β.The approximate objective is then a standard lasso (solvable by, say, the CD of Section 6), and one iterates between updating c ( β) and solving the implied L 1 penalized minimization problem.Candes et al. (2008) apply LLA to the log penalty, in which case c (β) = sγ/(1+γ|β|).The method is simple and locally convergent, but it is especially sensitive to initial starting location.Consider approximating the log penalized objectives of Figure2with LLA l(β) + c (0)|β|: the approximation will minimize at β = 0 until |l (β)| > c (0), even when the true objective β = 0 local minimum is much lower.Thus in a path estimation algorithm, LLA sticks at zero until it jumps all the way out to near the MLE.
+
+
+)
+
+Zou et al. (2007) plug sample gradients into (11) to derive p = j |g j | < τ j =| βj | = 0, the number of nonzero coefficients, as an unbiased estimator of model degrees of freedom.
+
+
+Figure 4 :
+4
+Figure4: Regularization paths for a single run of our simulated linear regression example, on γ = 0, 2, 10 from left.Vertical lines mark the BIC selection, and degrees of freedom df t are along the top.
+
+
+Figure 5 :
+5
+Figure 5: BIC (with AIC in light gray) for our simulated linear regression example, on γ = 0, 2, 10.
+
+
+Figure 6 :
+6
+Figure 6: 5-fold CV results for our simulated data example.Points-and-bars show mean OOS deviance ±1se.Minimum and 1se selection rules are marked with dotted lines.
+
+
+Figure 7 :
+7
+Figure 7: Out-of-sample simulation experiment results.
+
+
+(Figure 8 :Figure 9 :
+89
+Figure8: Hockey example AIC and BIC for 100 log(λ) from -6 to -10.6 in models with log 10 γ = −5 . . . 5 and lasso γ = 0. 'X' mark the minima on the images, which have lasso on the bottom edge.Line plots show minimum IC across γ, with a dashed line for null model IC (with α and φ only).
+
+
+Figure 10 :
+10
+Figure 10: Hockey example 20-fold CV: mean OOS deviance ±1se, with minimum and 1se selection rules marked with black dotted lines.Dashed (orange) lines show AIC and BIC selections.
+
+
+
+
+Figure 8 also contains profiles of BIC or AIC minima across γ: values are low for γ ≤ 1, but jump dramatically at 10
+
+
+Figure 12 :
+12
+Figure12: 20 largest player effects (of 904 nonzero) in the lasso model at AIC optimal log(λ) = −9.5.
+
+
+
+
+to-previous parameter estimates.Write M ( θ(t) ) as the implied CD update mapθ(t) → θ(t+1) , such that the algorithm converges at θ − M ( θ) = 0.With u = θ(−1) − θ(−2) and v = θ(0) − θ(−1), a secant approximation to the gradient of M is ∂M/∂ θl ≈ v l /u l .An approximate Newton-Raphson step to solve for the root of θ − M ( θ)updates each coordinate l )/(1 − v l /u l )which can be re-written as θl = (1 − w l ) θ= u l /(u l − v l ).
+
+
+
+
+support lower λ: AIC selections are near the minimum OOS deviance, and BIC selections are well to the right of the 1se OOS deviance rule.Comparing these results to those of Section 10, where the BIC was clearly superior, illustrates that no single model selection rule is uniformly best.Rather, AIC and BIC provide informal bounds on model complexity; use your knowledge of the application-at-hand (and OOS experiments if possible) to make a final decision.Figure 11: All 21 non-zero player effects in the γ = 1 model at BIC optimal log(λ) = −6.9.
+PETER_FORSBERGMARIAN_HOSSAPAVEL_DATSYUKHENRIK_SEDIN0.7680.2760.2680.221NICKLAS_LIDSTROMZDENO_CHARASIDNEY_CROSBY DANIEL_ALFREDSSON0.1370.1340.1150.114DAN_BOYLENATHAN_HORTONJOE_THORNTONJONATHAN_TOEWS0.1140.0970.0920.085ALEX_OVECHKINRYAN_GETZLAFCHRIS_KUNITZJASON_ARNOTT0.0750.0660.0520.039ALEX_TANGUAY VINCENT_LECAVALIER MARIAN_GABORIKZACH_PARISE0.0360.0330.0190.015ROBERTO_LUONGO0.002NINO_NIEDERREITERPETER_FORSBERGRAITIS_IVANANSBRAD_MARCHAND-0.9550.873-0.5680.560PATRICK_ROYMARTIN_GELINASERIC_FEHRTHOMAS_POCK0.5110.4880.486-0.476KENT_MANDERVILLEJONATHAN_TOEWSMARIAN_HOSSASTEVEN_GOERTZEN-0.4710.4660.453-0.442MATHIEU_BIRONSIDNEY_CROSBYRYAN_HOLLWEGTIM_TAYLOR-0.4390.433-0.430-0.419SCOTT_LACHANCEPAVEL_DATSYUKALEXANDER_SEMINDALTON_PROUT-0.4180.4160.4080.407
+If ν is an eigenvalue of H, then (H − νI)v = 0 for some nonzero v; the negative log posterior Hessian at zero is H − sγ
+I and (H − sγ 2 I + sγ 2 I − νI)v = 0 so that ν − sγ 2 is an eigenvalue of the minimization objective.
+Under high collinearity one can accelerate convergence via a quasi-Newton step (e.g., Lange, 2010) as in Appendix A.2, but given path hot starts this is usually not worth the extra overhead.
+Yuan and Lin (2005) take a similar approach under a different prior on shared Laplace scale τ , and derive this active set integral as an upper bound on true marginal likelihood.
+We use posterior MAP for σ2 in the Zhou et al. formulas. Note that this is a misapplication of the EBF procedure: GL paths only approximate minimization of the log penalized objective for which the EBF was derived.
+Since goalies stay on-ice for long periods (often entire games) their β j act as a control for overall team quality. Thus a skater (non-goalie) β j only need be nonzero if that player is significantly above or below the team average.
+On this data, γ = ∞ subset selection yields perfect separation and infinite likelihood.
+
+Information theory and the maximum likelihood principle. H Akaike, 2nd International Symposium on Information Theory. B Petrov, F Csaki, BudapestAkademiai Kiado1973
+
+Generalized double pareto shrinkage. A Armagan, D B Dunson, J Lee, Statistica Sinica. 2013To appear in
+
+. A Armagan, D B Dunson, J Lee, W U Bajwa, N Strawn, Biometrika. 2013Posterior consistency in linear models under shrinkage priors. To appear in
+
+Inference on treatment effects after selection amongst high-dimensional controls. A Belloni, V Chernozhukov, C Hansen, MIT Department of Economics Working Paper. 2012
+
+One-step Huber estimates in the linear model. P J Bickel, Journal of the American Statistical Association. 701975
+
+Heuristics of instability and stabilization in model selection. L Breiman, The Annals of Statistics. 2461996
+
+Enhancing sparsity by reweighted L1 minimization. E J Candes, M B Wakin, S P Boyd, Journal of Fourier Analysis and Applications. 142008
+
+Learning with compressible priors. V Cevher, Neural Information Processing Systems (NIPS). 2009
+
+N G Bruijn, Asymptotic Methods in Analysis. Dover1958
+
+The estimation of prediction error: Covariance penalties and cross-validation. B Efron, Journal of the American Statistical Association. 992004
+
+. B Efron, T Hastie, I Johnstone, R Tibshirani, Annals of Statistics. 322004Least angle regression
+
+Variable selection via nonconcave penalized likelihood and its oracle properties. J Fan, R Li, Journal of the American Statistical Association. 962001
+
+Nonconcave penalized likelihood with a diverging number of parameters. J Fan, H Peng, The Annals of Statistics. 322004
+
+Efficiency for regularization parameter selection in penalized likelihood estimation of misspecified models. C Flynn, H Clifford, S Jefferey, Journal of the American Statistical Association. 1082013
+
+Pathwise coordinate optimization. J Friedman, T Hastie, H Hofling, R Tibshirani, The Annals of Applied Statistics. 12007
+
+Regularization paths for generalized linear models via coordinate descent. J Friedman, T Hastie, R Tibshirani, Journal of Statistical Software. 332010
+
+Fast sparse regression and classification. J H Friedman, 2008Dept. of Statistics, Stanford UniversityTechnical Report
+
+Estimating player contribution in hockey with regularized logistic regression. R B Gramacy, S T Jensen, M Taddy, Journal of Quantitative Analysis in Sports. 92013
+
+Iteratively reweighted least squares for maximum likelihood estimation, and some robust and resistant alternatives. P J Green, Journal of the Royal Statistical Society, Series B. 461984
+
+Bayes factors. R E Kass, A E Raftery, Numerical Analysis for Statisticians. K Lange, Springer1995. 2010902nd ed.
+
+P.-L Loh, M J Wainwright, arXiv:1305.2436Regularized m-estimators with nonconvexity: Statistical and algorithmic theory for local optima. 2013
+
+D G Luenberger, Y Ye, Springer, C L Mallows, Linear and Nonlinear Programming. 2008. 1973153rd ed.
+
+SparseNet : Coordinate descent with nonconvex penalties. R Mazumder, J H Friedman, T Hastie, Journal of the American Statistical Association. 1062011
+
+The Bayesian lasso. T Park, G Casella, Journal of the American Statistical Association. 1032008
+
+Estimating the dimension of a model. G Schwarz, The Annals of Statistics. 64614641978
+
+Bayesian measures of model complexity and fit. D J Spiegelhalter, N G Best, B P Carlin, A Van Der Linde, Journal of the Royal Statistical Society: Series B (Statistical Methodology). 642002
+
+Estimation of the mean of a multivariate normal distribution. C M Stein, The Annals of Statistics. 91981
+
+. M Taddy, arXiv:1311.61392013aDistributed multinomial regression
+
+Multinomial inverse regression for text analysis. M Taddy, Journal of the American Statistical Association. 1082013b
+
+Regression shrinkage and selection via the lasso. R Tibshirani, Journal of the Royal Statistical Society, Series B. 581996
+
+Convergence of a block coordinate descent method for nondifferentiable minimization. P Tseng, Journal of Optimization Theory and Applications. 1092001
+
+Optimal computational and statistical rates of convergence for sparse nonconvex learning problems. Z Wang, H Liu, T Zhang, arXiv:1306.490602013
+
+Coordinate descent algorithms for lasso penalized regression. T T Wu, K Lange, The Annals of Applied Statistics. 22008
+
+Efficient empirical bayes variable selection and estimation in linear models. M Yuan, Y Lin, Journal of the American Statistical Association. 1002005
+
+Nearly unbiased variable selection under minimax concave penalty. C.-H Zhang, Annals of Statistics. 382010
+
+Path following and empirical Bayes model selection for sparse regression. H Zhou, A Armagan, D B Dunson, arXiv:1201.35822012
+
+The adaptive lasso and its oracle properties. H Zou, Journal of the American Statistical Association. 1012006
+
+On the degrees of freedom of the lasso. H Zou, T Hastie, R Tibshirani, The Annals of Statistics. 352007
+
+One-step sparse estimates in nonconcave penalized likelihood models. H Zou, R Li, The Annals of Statistics. 3642008
