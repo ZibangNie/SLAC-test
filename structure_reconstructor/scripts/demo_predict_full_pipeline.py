@@ -31,12 +31,12 @@ ROOT = Path(r"D:\code\Github\SLAC-test\structure_reconstructor")
 RUN_DIR = ROOT / "runs" / "debug_run"
 
 # 要预测的原始文档（txt 或 pdf）——自己改成你要测的那篇
-INPUT_PATH = Path(r"D:\code\Github\SLAC-test\data\A_structure\laws\test.txt")
+INPUT_PATH = Path(r"C:\Users\86173\Desktop\申请\论文集\test.txt")
 # 也可以用 pdf：
 # INPUT_PATH = Path(r"D:\code\Github\SLAC-test\demo_inputs\demo.pdf")
 
 # 输出路径
-OUT_DIR = Path(r"D:\code\Github\SLAC-test\demo_outputs")
+OUT_DIR = Path(r"C:\Users\86173\Desktop\申请\论文集")
 OUT_JSON = OUT_DIR / "demo.pred.tree.json"
 OUT_DOCX = OUT_DIR / "demo.pred.docx"
 OUT_PNG = OUT_DIR / "demo.pred.png"

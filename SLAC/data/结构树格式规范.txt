@@ -1,0 +1,230 @@
+1) 顶层 JSON 结构
+{
+  "doc_id": "doc_001",
+  "doc_name": "Document title if available, else unknown_title",
+  "language": "zh|en|other",
+  "units": [ ... ]
+}
+
+顶层字段约束
+doc_id：必填字符串，文档唯一 ID。
+doc_name：必填字符串。
+优先用原文明显标题行；无标题用 "unknown_title"。
+language：必填，枚举："zh" | "en" | "other".
+units：必填数组，按文本出现顺序排列（单位内部文本必须保持原文顺序）。
+
+2) unit 结构（必填字段 + 可选字段）
+每个 unit 必须包含以下字段：
+
+{
+  "unit_id": 0,
+  "text": "...",
+  "type": "title|heading|paragraph|list-item|other",
+  "level": 0,
+  "parent_id": null
+}
+必填字段语义
+unit_id：int，从 0 开始严格递增（与数组顺序一致）。
+text：原文连续片段（允许合并相邻片段，允许按语义拆分，但必须不改写、不翻译、不增删）。
+type：枚举（禁止其他值）：
+    "title"：整篇文档主标题（最多 1 个，见约束）
+    "heading"：章节/小节标题
+    "paragraph"：正文段落（或语义合并段）
+    "list-item"：列表条目
+    "other"：无法可靠归类但必须保留的内容（例如混乱抽取的表格/页眉页脚/公式等）
+level：int，定义为树深度 depth（见第 3 节）。
+parent_id：父节点 unit_id；根为 null。
+
+其他字段
+num_prefix：结构标记/编号/条目符号，形态不限，原样保留（可为 null）。例："1.2.3", "（一）", "第十二条", "(a)", "-", "•", "Article 3"。
+marker_type：枚举：decimal|roman|chinese_num|article|alpha|bullet|unknown
+unit_hash：字符串（推荐 md5/sha1；用于去重、对齐、调试）
+
+3) 树与层级约束（必须严格执行）
+
+3.1 唯一根
+parent_id = null 的 unit 必须且只能有 1 个，称为 root。
+root 必须满足：level = 0。
+root 必须是 units 数组中的第一个单元（unit_id=0）
+
+
+3.2 parent 顺序约束（强约束，保证可线性解析）
+对任意非根节点：parent_id 必须是已出现的 unit，即 parent_id < unit_id。
+这条保证：父节点一定先于子节点出现，树不会有环。
+
+3.3 level=depth（你已同意，这里写成硬规则）
+对任意非根节点，必须满足：
+level = units[parent_id].level + 1
+禁止出现 “父子同层” 或 “一次跳多级” 的 level。
+
+4) 单元切分与类型判定规则（执行指南）
+4.1 text 的合法性（你原规范保持）
+必须来自原文连续片段；允许：
+去除首尾空白
+合并相邻片段时插入单个换行分隔
+禁止改写/总结/翻译/新增不存在内容。
+
+4.2 list-item（采用方案A，挂载规则写死）
+对每个 type="list-item"：
+parent_id 优先指向最近的“引导段落”：
+最近的 paragraph（且位于列表开始前、语义上引导该列表）
+若无，则最近的 heading/title
+若仍无，则挂到 root
+可选：若你能检测缩进或编号层级，则填 list_level；否则不填也可。
+
+4.3 other 类型（与你的现实一致）
+表格、页眉页脚、公式等在文本抽取中可能混乱，无法可靠区分时，统一 type="other"。
+不强制细分 table/footer/caption（避免引入噪声标签）。
+
+
+Validator 检查清单（建议你做成自动校验）
+
+A. 顶层检查
+doc_id 为非空字符串
+doc_name 为非空字符串
+language ∈ {zh,en,other}
+units 为非空数组
+
+B. unit 逐条检查
+unit_id 从 0 开始、严格递增、无重复
+type 在枚举集合内
+parent_id 为 null 或 int
+level 为 int 且 ≥0
+num_prefix 若存在：必须出现在 text 开头（允许前导空白后再匹配）
+
+C. 树结构硬约束
+parent_id=null 的节点数量 =1
+root 的 level=0
+对所有非根：0 ≤ parent_id < unit_id
+对所有非根：level = parent.level + 1
+对所有节点：能够确认构成一棵树
+
+D. 语义一致性软约束（建议报警但不强制失败）
+title 节点数量建议 ≤1（如多行标题应合并）
+list-item 的 parent 推荐不是另一个 list-item（除非你启用了 list_level 嵌套规则）
+heading 下紧跟大量 other（可能是抽取污染）可报警
+单元极短/极长比例异常报警（用于发现分段问题）
+
+
+示例：
+{
+  "doc_id": "doc_001",
+  "doc_name": "Safety Operating Procedure",
+  "language": "en",
+  "units": [
+    {
+      "unit_id": 0,
+      "text": "This document is uncontrolled when printed.",
+      "type": "other",
+      "level": 0,
+      "parent_id": null,
+      "unit_hash": "md5:0c5a8c2a7b2f9f4f9d2a2b1c2d3e4f50"
+    },
+    {
+      "unit_id": 1,
+      "text": "Safety Operating Procedure",
+      "type": "title",
+      "level": 1,
+      "parent_id": 0,
+      "unit_hash": "md5:3a6f1d4c2b9e5f0a1c2d3e4f5a6b7c8d"
+    },
+    {
+      "unit_id": 2,
+      "text": "Preface",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 1,
+      "unit_hash": "md5:9b1c2d3e4f5a6b7c8d0e1f2a3b4c5d6e"
+    },
+    {
+      "unit_id": 3,
+      "text": "This procedure describes the minimum safety requirements for routine operations.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 2,
+      "unit_hash": "md5:1f2e3d4c5b6a79808f9e0d1c2b3a4f5e"
+    },
+    {
+      "unit_id": 4,
+      "text": "1. Scope",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 1,
+      "num_prefix": "1.",
+      "marker_type": "decimal",
+      "unit_hash": "md5:aa11bb22cc33dd44ee55ff6677889900"
+    },
+    {
+      "unit_id": 5,
+      "text": "This document applies to all personnel working in the designated area.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 4,
+      "unit_hash": "md5:0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+    },
+    {
+      "unit_id": 6,
+      "text": "1.1 Definitions",
+      "type": "heading",
+      "level": 3,
+      "parent_id": 4,
+      "num_prefix": "1.1",
+      "marker_type": "decimal",
+      "unit_hash": "md5:1234567890abcdef1234567890abcdef"
+    },
+    {
+      "unit_id": 7,
+      "text": "“Hazard” means a source of potential harm or adverse health effect.",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 6,
+      "unit_hash": "md5:fedcba0987654321fedcba0987654321"
+    },
+    {
+      "unit_id": 8,
+      "text": "The following controls must be implemented:",
+      "type": "paragraph",
+      "level": 4,
+      "parent_id": 6,
+      "unit_hash": "md5:00112233445566778899aabbccddeeff"
+    },
+    {
+      "unit_id": 9,
+      "text": "- Wear protective gloves at all times.",
+      "type": "list-item",
+      "level": 5,
+      "parent_id": 8,
+      "num_prefix": "-",
+      "marker_type": "bullet",
+      "unit_hash": "md5:11112222333344445555666677778888"
+    },
+    {
+      "unit_id": 10,
+      "text": "- Ensure proper ventilation is active before starting work.",
+      "type": "list-item",
+      "level": 5,
+      "parent_id": 8,
+      "num_prefix": "-",
+      "marker_type": "bullet",
+      "unit_hash": "md5:88887777666655554444333322221111"
+    },
+    {
+      "unit_id": 11,
+      "text": "2. Responsibilities",
+      "type": "heading",
+      "level": 2,
+      "parent_id": 1,
+      "num_prefix": "2.",
+      "marker_type": "decimal",
+      "unit_hash": "md5:13579bdf2468ace013579bdf2468ace0"
+    },
+    {
+      "unit_id": 12,
+      "text": "Supervisors are responsible for ensuring staff comply with this procedure.",
+      "type": "paragraph",
+      "level": 3,
+      "parent_id": 11,
+      "unit_hash": "md5:0ace2468bdf135790ace2468bdf13579"
+    }
+  ]
+}
