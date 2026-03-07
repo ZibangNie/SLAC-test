@@ -14,6 +14,9 @@ from slac_refiner.models.refiner import BoundaryRefinerModel
 from slac_refiner.models.losses import RefinerLoss
 
 
+LOCAL_BGE_M3_DIR = r"D:\code\Github\SLAC-test\SLAC\refiner\slac_refiner\models\bge-m3\snapshots\5617a9f61b028005a4858fdac845db406aefb181"
+
+
 def main():
     data_path = r"D:\code\Github\SLAC-test\SLAC\refiner\data\interim\atoms_b0\refiner_train_demo.jsonl"
 
@@ -22,7 +25,7 @@ def main():
     batch = next(iter(loader))
 
     model = BoundaryRefinerModel(
-        atom_model_name=r"D:\code\Github\SLAC-test\SLAC\refiner\slac_refiner\models\bge-m3\snapshots\5617a9f61b028005a4858fdac845db406aefb181",
+        atom_model_name=LOCAL_BGE_M3_DIR,
         atom_max_length=64,
         atom_freeze=True,
         doc_hidden_size=768,
@@ -36,7 +39,6 @@ def main():
         insert_pos_weight=4.0,
         alpha_insert=1.0,
         alpha_edit=1.0,
-        alpha_offset=0.5,
         beta_cost=0.05,
         lambda_del=1.0,
         lambda_ins=1.0,
@@ -49,14 +51,12 @@ def main():
     print("loss_total =", float(loss_out.loss.item()))
     print("loss_insert =", float(loss_out.loss_insert.item()))
     print("loss_edit =", float(loss_out.loss_edit.item()))
-    print("loss_offset =", float(loss_out.loss_offset.item()))
     print("loss_cost_reg =", float(loss_out.loss_cost_reg.item()))
     print("stats =", loss_out.stats)
 
     assert torch.isfinite(loss_out.loss)
     assert torch.isfinite(loss_out.loss_insert)
     assert torch.isfinite(loss_out.loss_edit)
-    assert torch.isfinite(loss_out.loss_offset)
     assert torch.isfinite(loss_out.loss_cost_reg)
 
     print("Refiner loss test passed.")

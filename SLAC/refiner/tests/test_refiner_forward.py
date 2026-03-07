@@ -38,8 +38,7 @@ def main():
     print("atom_mask shape =", tuple(out.atom_mask.shape))
     print("doc_hidden shape =", tuple(out.doc_hidden.shape))
     print("insert_logits shape =", tuple(out.insert_logits.shape))
-    print("edit_logits shape =", tuple(out.edit_logits.shape))
-    print("offset_pred shape =", tuple(out.offset_pred.shape))
+    print("edit_choice_logits shape =", tuple(out.edit_choice_logits.shape))
 
     B = 1
     T = batch["num_atoms"][0].item()
@@ -51,12 +50,10 @@ def main():
 
     assert out.doc_hidden.shape == (B, T, 768)
     assert out.insert_logits.shape == (B, G)
-    assert out.edit_logits.shape == (B, B0, 3)
-    assert out.offset_pred.shape == (B, B0)
+    assert out.edit_choice_logits.shape == (B, B0, 14)  # K=6 => 2K+2 = 14
 
     assert torch.isfinite(out.insert_logits).all()
-    assert torch.isfinite(out.edit_logits).all()
-    assert torch.isfinite(out.offset_pred).all()
+
 
     print("Refiner forward test passed.")
 

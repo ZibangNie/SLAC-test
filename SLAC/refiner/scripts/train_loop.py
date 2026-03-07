@@ -20,15 +20,37 @@ from slac_refiner.datasets.collate import refiner_collate_fn
 from slac_refiner.models.refiner import BoundaryRefinerModel
 from slac_refiner.models.losses import RefinerLoss
 from slac_refiner.decoding.dp_edit_decode import batch_decode
+from slac_refiner.decoding.projector import rebuild_chunks_from_boundary_vector, ProjectorConfig
 from slac_refiner.eval.metrics import (
     boundary_prf,
     edit_action_accuracy,
     insert_accuracy,
+    insert_prf,
+    shift_mae,
+    chunk_length_stats_from_spans,
     aggregate_metric_dicts,
 )
 
 
 LOCAL_BGE_M3_DIR = r"D:\code\Github\SLAC-test\SLAC\refiner\slac_refiner\models\bge-m3\snapshots\5617a9f61b028005a4858fdac845db406aefb181"
+
+DEFAULT_PROJECTOR_CFG = ProjectorConfig(
+    max_chunk_atoms=64,
+    min_chunk_atoms=2,
+    max_chunk_chars=1600,
+    min_chunk_chars=20,
+    max_chunk_tokens=384,
+    min_chunk_tokens=48,
+)
+
+SMOKE_PROJECTOR_CFG = ProjectorConfig(
+    max_chunk_atoms=64,
+    min_chunk_atoms=1,
+    max_chunk_chars=1600,
+    min_chunk_chars=1,
+    max_chunk_tokens=384,
+    min_chunk_tokens=1,
+)
 
 
 def parse_args():
@@ -112,12 +134,17 @@ def train_one_epoch(model, loader, criterion, optimizer):
 
 
 @torch.no_grad()
-def evaluate(model, loader):
+def evaluate(model, loader, projector_cfg):
     model.eval()
 
     boundary_metrics = []
     edit_metrics = []
-    insert_metrics = []
+    insert_acc_metrics = []
+    insert_prf_metrics = []
+    shift_metrics = []
+    length_metrics = []
+
+    K = 6
 
     for batch in loader:
         batch = move_batch_to_device(batch, model.device)
@@ -126,10 +153,9 @@ def evaluate(model, loader):
         dec = batch_decode(
             b0=batch["b0"],
             g0_positions=batch["g0_positions"],
-            edit_logits=outputs.edit_logits,
-            offset_pred=outputs.offset_pred,
+            edit_choice_logits=outputs.edit_choice_logits,
             insert_logits=outputs.insert_logits,
-            K=6,
+            K=K,
             insert_threshold=0.5,
             min_sep=1,
             lambda_del=1.0,
@@ -140,39 +166,58 @@ def evaluate(model, loader):
         B = batch["b0"].shape[0]
 
         for i in range(B):
-            pred_b = dec.pred_b[i]
-            gold_b = batch["b_gold"][i].tolist()
-
+            raw_pred_b = dec.pred_b[i]
             pred_edit = dec.pred_edit_labels[i]
             pred_insert = dec.pred_insert_labels[i]
 
-            # 从 dataset 原始样本中无法直接拿 gold_edit，这里用当前 batch 还原
-            g0_positions = [int(x) for x in batch["g0_positions"][i].tolist() if int(x) >= 0]
-            edit_cls = batch["edit_cls"][i].tolist()
-            edit_offset = batch["edit_offset"][i].tolist()
+            gold_b = batch["b_gold"][i].tolist()
+            gold_insert = batch["insert_labels"][i].tolist()
+
+            atoms_text = batch["atoms_text"][i]
+            gap_scores = outputs.insert_logits[i].detach().cpu().tolist()
+
+            projected = rebuild_chunks_from_boundary_vector(
+                atoms_text=atoms_text,
+                b=raw_pred_b,
+                cfg=projector_cfg,
+                gap_scores=gap_scores,
+            )
+            pred_b = projected["projected_b"]
+            spans_eval = projected["spans_after_merge"]
+
+            # 从 edit_choice 还原 gold_edit
+            g0_positions_i = [int(x) for x in batch["g0_positions"][i].tolist() if int(x) >= 0]
+            edit_choice_i = batch["edit_choice"][i].tolist()
 
             gold_edit = []
-            for g, c, off in zip(g0_positions, edit_cls, edit_offset):
-                if c == 0:
-                    y = "KEEP"
-                elif c == 1:
-                    y = "DEL"
-                elif c == 2:
-                    y = f"SHIFT:{int(off)}"
-                else:
-                    continue
-                gold_edit.append({"g": g, "y": y})
+            for g, choice in zip(g0_positions_i, edit_choice_i):
+                choice = int(choice)
 
-            gold_insert = batch["insert_labels"][i].tolist()
+                if choice < 0:
+                    continue
+
+                if choice == 0:
+                    y = "DEL"
+                else:
+                    k = (choice - 1) - K
+                    y = "KEEP" if k == 0 else f"SHIFT:{k}"
+
+                gold_edit.append({"g": g, "y": y})
 
             boundary_metrics.append(boundary_prf(pred_b, gold_b))
             edit_metrics.append(edit_action_accuracy(pred_edit, gold_edit))
-            insert_metrics.append(insert_accuracy(pred_insert, gold_insert))
+            insert_acc_metrics.append(insert_accuracy(pred_insert, gold_insert))
+            insert_prf_metrics.append(insert_prf(pred_insert, gold_insert))
+            shift_metrics.append(shift_mae(pred_edit, gold_edit))
+            length_metrics.append(chunk_length_stats_from_spans(spans_eval))
 
     return {
         "boundary": aggregate_metric_dicts(boundary_metrics),
         "edit": aggregate_metric_dicts(edit_metrics),
-        "insert": aggregate_metric_dicts(insert_metrics),
+        "insert_acc": aggregate_metric_dicts(insert_acc_metrics),
+        "insert_prf": aggregate_metric_dicts(insert_prf_metrics),
+        "shift": aggregate_metric_dicts(shift_metrics),
+        "length": aggregate_metric_dicts(length_metrics),
     }
 
 
@@ -225,7 +270,10 @@ def main():
 
     for epoch in range(1, args.epochs + 1):
         train_stats = train_one_epoch(model, train_loader, criterion, optimizer)
-        dev_stats = evaluate(model, dev_loader)
+
+        # 现在这个 demo 很小，用 smoke projector 配置更合理；
+        # 后面换真实 llm_gold dev 时改回 DEFAULT_PROJECTOR_CFG
+        dev_stats = evaluate(model, dev_loader, projector_cfg=SMOKE_PROJECTOR_CFG)
 
         boundary_f1 = dev_stats["boundary"].get("f1", 0.0)
         if boundary_f1 > best_f1:
@@ -236,7 +284,10 @@ def main():
         print("  train loss =", train_stats["loss"])
         print("  dev boundary =", dev_stats["boundary"])
         print("  dev edit =", dev_stats["edit"])
-        print("  dev insert =", dev_stats["insert"])
+        print("  dev insert_acc =", dev_stats["insert_acc"])
+        print("  dev insert_prf =", dev_stats["insert_prf"])
+        print("  dev shift =", dev_stats["shift"])
+        print("  dev length =", dev_stats["length"])
         print("  best boundary f1 =", best_f1)
 
 

@@ -17,6 +17,9 @@ from slac_refiner.models.refiner import BoundaryRefinerModel
 from slac_refiner.models.losses import RefinerLoss
 
 
+LOCAL_BGE_M3_DIR = r"D:\code\Github\SLAC-test\SLAC\refiner\slac_refiner\models\bge-m3\snapshots\5617a9f61b028005a4858fdac845db406aefb181"
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Run one training step for Boundary Refiner.")
     parser.add_argument("--data", type=str, required=True)
@@ -49,8 +52,6 @@ def main():
     )
     batch = next(iter(loader))
 
-    LOCAL_BGE_M3_DIR = r"D:\code\Github\SLAC-test\SLAC\refiner\slac_refiner\models\bge-m3\snapshots\5617a9f61b028005a4858fdac845db406aefb181"
-
     model = BoundaryRefinerModel(
         atom_model_name=LOCAL_BGE_M3_DIR,
         atom_max_length=64,
@@ -66,7 +67,6 @@ def main():
         insert_pos_weight=4.0,
         alpha_insert=1.0,
         alpha_edit=1.0,
-        alpha_offset=0.5,
         beta_cost=0.05,
         lambda_del=1.0,
         lambda_ins=1.0,
@@ -94,11 +94,9 @@ def main():
     print("loss_total =", float(loss_out.loss.item()))
     print("loss_insert =", float(loss_out.loss_insert.item()))
     print("loss_edit =", float(loss_out.loss_edit.item()))
-    print("loss_offset =", float(loss_out.loss_offset.item()))
     print("loss_cost_reg =", float(loss_out.loss_cost_reg.item()))
     print("grad_norm =", gnorm)
 
-    # 冻结检查
     atom_trainable = any(p.requires_grad for p in model.atom_encoder.backbone.parameters())
     print("atom_encoder_trainable =", atom_trainable)
 

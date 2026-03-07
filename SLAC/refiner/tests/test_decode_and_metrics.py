@@ -18,6 +18,7 @@ from slac_refiner.eval.metrics import (
     insert_accuracy,
     chunk_length_stats_from_spans,
 )
+from slac_refiner.decoding.projector import rebuild_chunks_from_boundary_vector, ProjectorConfig
 
 
 LOCAL_BGE_M3_DIR = r"D:\code\Github\SLAC-test\SLAC\refiner\slac_refiner\models\bge-m3\snapshots\5617a9f61b028005a4858fdac845db406aefb181"
@@ -47,8 +48,7 @@ def main():
     dec = batch_decode(
         b0=batch["b0"],
         g0_positions=batch["g0_positions"],
-        edit_logits=out.edit_logits,
-        offset_pred=out.offset_pred,
+        edit_choice_logits=out.edit_choice_logits,
         insert_logits=out.insert_logits,
         K=6,
         insert_threshold=0.5,
@@ -77,17 +77,42 @@ def main():
     print("gold_insert =", gold_insert)
 
     atoms_text = batch["atoms_text"][0]
-    rebuilt = rebuild_chunks_from_boundary_vector(atoms_text, pred_b)
+    projector_cfg = ProjectorConfig(
+        max_chunk_atoms=64,
+        min_chunk_atoms=2,
+        max_chunk_chars=1600,
+        min_chunk_chars=20,
+        max_chunk_tokens=384,
+        min_chunk_tokens=48,
+    )
 
-    print("rebuilt spans =", rebuilt["spans"])
-    print("rebuilt units =")
-    for u in rebuilt["units"]:
+    # 用当前 insert logits 作为 gap_scores 的近似来源
+    gap_scores = out.insert_logits[0].detach().cpu().tolist()
+
+    rebuilt = rebuild_chunks_from_boundary_vector(
+        atoms_text=atoms_text,
+        b=pred_b,
+        cfg=projector_cfg,
+        gap_scores=gap_scores,
+    )
+
+    # print("rebuilt spans =", rebuilt["spans"])
+    # print("rebuilt units =")
+    # for u in rebuilt["units"]:
+    #     print(u)
+
+    print("spans before =", rebuilt["spans_before"])
+    print("spans after split =", rebuilt["spans_after_split"])
+    print("spans after merge =", rebuilt["spans_after_merge"])
+    print("projected_b =", rebuilt["projected_b"])
+    print("projected units =")
+    for u in rebuilt["projected_units"]:
         print(u)
 
     m_boundary = boundary_prf(pred_b, gold_b)
     m_edit = edit_action_accuracy(pred_edit, gold_edit)
     m_insert = insert_accuracy(pred_insert, gold_insert)
-    m_len = chunk_length_stats_from_spans(rebuilt["spans"])
+    m_len = chunk_length_stats_from_spans(rebuilt["spans_after_merge"])
 
     print("boundary metrics =", m_boundary)
     print("edit metrics =", m_edit)

@@ -14,6 +14,21 @@ EDIT_LABEL2ID = {
     "SHIFT": 2,
 }
 
+K_DEFAULT = 6
+
+
+def _choice_from_label(y: str, K: int) -> int:
+    if y == "DEL":
+        return 0
+    if y == "KEEP":
+        return 1 + K   # k=0
+    if y.startswith("SHIFT:"):
+        k = int(y.split(":", 1)[1])
+        if not (-K <= k <= K):
+            raise ValueError(f"SHIFT offset out of range: {k}, K={K}")
+        return 1 + (k + K)
+    raise ValueError(f"Unknown edit label: {y}")
+
 
 def _vector_to_gaps(b: Sequence[int]) -> List[int]:
     return [i for i, x in enumerate(b) if int(x) == 1]
@@ -75,22 +90,12 @@ class RefinerDenoiseDataset(Dataset):
                 f"G0={g0_positions}, edit_keys={sorted(edit_map.keys())}"
             )
 
-        edit_cls: List[int] = []
-        edit_offset: List[int] = []
+        K = int(s.get("meta", {}).get("K", K_DEFAULT))
+        edit_choice: List[int] = []
 
         for g in g0_positions:
             y = edit_map[g]
-            if y == "KEEP":
-                edit_cls.append(EDIT_LABEL2ID["KEEP"])
-                edit_offset.append(0)
-            elif y == "DEL":
-                edit_cls.append(EDIT_LABEL2ID["DEL"])
-                edit_offset.append(0)
-            elif y.startswith("SHIFT:"):
-                edit_cls.append(EDIT_LABEL2ID["SHIFT"])
-                edit_offset.append(_parse_shift(y))
-            else:
-                raise ValueError(f"Unknown edit label: {y}")
+            edit_choice.append(_choice_from_label(y, K))
 
         return {
             "sample_id": s["sample_id"],
@@ -101,8 +106,7 @@ class RefinerDenoiseDataset(Dataset):
             "b0": torch.tensor(b0, dtype=torch.long),
             "insert_labels": torch.tensor(insert_labels, dtype=torch.float),
             "g0_positions": torch.tensor(g0_positions, dtype=torch.long),
-            "edit_cls": torch.tensor(edit_cls, dtype=torch.long),
-            "edit_offset": torch.tensor(edit_offset, dtype=torch.long),
+            "edit_choice": torch.tensor(edit_choice, dtype=torch.long),
             # debug / eval convenience
             "b_gold": torch.tensor([int(x) for x in s["b_gold"]], dtype=torch.long),
         }

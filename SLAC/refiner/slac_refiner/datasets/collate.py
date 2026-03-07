@@ -47,14 +47,9 @@ def refiner_collate_fn(batch: List[Dict]) -> Dict:
         pad_value=-1,
     )
 
-    edit_cls, edit_cls_mask = _pad_1d_long(
-        [x["edit_cls"] for x in batch],
-        pad_value=-100,   # CrossEntropy ignore_index
-    )
-
-    edit_offset, edit_offset_mask = _pad_1d_long(
-        [x["edit_offset"] for x in batch],
-        pad_value=0,
+    edit_choice, edit_choice_mask = _pad_1d_long(
+        [x["edit_choice"] for x in batch],
+        pad_value=-100,  # CE ignore_index
     )
 
     return {
@@ -71,8 +66,6 @@ def refiner_collate_fn(batch: List[Dict]) -> Dict:
         "insert_mask": insert_mask,
         "g0_positions": g0_positions,
         "g0_mask": g0_mask,
-        "edit_cls": edit_cls,
-        "edit_cls_mask": edit_cls_mask,
-        "edit_offset": edit_offset,
-        "edit_offset_mask": edit_offset_mask,
+        "edit_choice": edit_choice,
+        "edit_choice_mask": edit_choice_mask,
     }

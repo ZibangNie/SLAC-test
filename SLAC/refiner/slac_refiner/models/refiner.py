@@ -16,9 +16,8 @@ class RefinerForwardOutput:
     atom_embeddings: torch.Tensor   # [B, T, D_atom]
     atom_mask: torch.Tensor         # [B, T]
     doc_hidden: torch.Tensor        # [B, T, H]
-    insert_logits: torch.Tensor     # [B, G]
-    edit_logits: torch.Tensor       # [B, B0, 3]
-    offset_pred: torch.Tensor       # [B, B0]
+    insert_logits: torch.Tensor
+    edit_choice_logits: torch.Tensor
 
 
 class BoundaryRefinerModel(nn.Module):
@@ -54,6 +53,7 @@ class BoundaryRefinerModel(nn.Module):
 
         self.heads = RefinerHeads(
             hidden_size=doc_hidden_size,
+            K=6,
             dropout=doc_dropout,
         )
 
@@ -113,6 +113,5 @@ class BoundaryRefinerModel(nn.Module):
             atom_mask=atom_mask,
             doc_hidden=doc_out.h,
             insert_logits=head_out.insert_logits,
-            edit_logits=head_out.edit_logits,
-            offset_pred=head_out.offset_pred,
+            edit_choice_logits=head_out.edit_choice_logits,
         )

@@ -39,80 +39,43 @@ def _safe_log(x: float, eps: float = 1e-12) -> float:
 def _build_candidates_for_one_boundary(
     g: int,
     num_gaps: int,
-    edit_logit_row: torch.Tensor,   # [3]
-    offset_pred_val: float,
+    edit_choice_logit_row: torch.Tensor,   # [2K+2]
     K: int,
     lambda_del: float,
     lambda_shift: float,
 ) -> List[Dict]:
-    """
-    Build candidates for one initial boundary g.
-
-    Candidate schema:
-      {
-        "kind": "DEL" | "KEEP" | "SHIFT",
-        "pos": Optional[int],     # None for DEL
-        "score": float,
-        "label": str,
-      }
-
-    Current MVP scoring:
-    - class probability from edit_logits
-    - if SHIFT, use offset_pred to prefer positions close to round(offset_pred)
-    - subtract edit costs
-    """
-    probs = torch.softmax(edit_logit_row, dim=-1).detach().cpu().tolist()
-    p_keep = float(probs[EDIT_KEEP])
-    p_del = float(probs[EDIT_DEL])
-    p_shift = float(probs[EDIT_SHIFT])
+    log_probs = torch.log_softmax(edit_choice_logit_row, dim=-1).detach().cpu().tolist()
 
     candidates: List[Dict] = []
 
-    # DEL
+    # class 0 = DEL
     candidates.append(
         {
             "kind": "DEL",
             "pos": None,
-            "score": _safe_log(p_del) - lambda_del,
+            "score": float(log_probs[0] - lambda_del),
             "label": "DEL",
         }
     )
 
-    # KEEP == SHIFT(0), but keep it explicit because spec says SHIFT(0)=KEEP
-    keep_score = _safe_log(max(p_keep, 1e-12))
-    candidates.append(
-        {
-            "kind": "KEEP",
-            "pos": g,
-            "score": keep_score,
-            "label": "KEEP",
-        }
-    )
-
-    # SHIFT(k), k != 0
-    # We use offset_pred as a soft preference center.
-    # score = log p_shift - lambda_shift*|k| - gamma*|k - offset_pred|
-    # gamma is a simple shaping weight for current regression head.
-    gamma = 0.5
-
-    for k in range(-K, K + 1):
-        if k == 0:
-            continue
+    # classes 1..2K+1 correspond to k in [-K..K]
+    for cls_idx in range(1, 2 * K + 2):
+        k = cls_idx - 1 - K
         pos = g + k
         if not (0 <= pos < num_gaps):
             continue
 
-        score = (
-            _safe_log(max(p_shift, 1e-12))
-            - lambda_shift * abs(k)
-            - gamma * abs(k - float(offset_pred_val))
-        )
+        score = float(log_probs[cls_idx] - lambda_shift * abs(k))
+
+        label = "KEEP" if k == 0 else f"SHIFT:{k}"
+        kind = "KEEP" if k == 0 else "SHIFT"
+
         candidates.append(
             {
-                "kind": "SHIFT",
+                "kind": kind,
                 "pos": pos,
-                "score": float(score),
-                "label": f"SHIFT:{k}",
+                "score": score,
+                "label": label,
             }
         )
 
@@ -122,8 +85,7 @@ def _build_candidates_for_one_boundary(
 def _dp_monotonic_edit_decode(
     b0: Sequence[int],
     g0_positions: Sequence[int],
-    edit_logits: torch.Tensor,   # [B0, 3]
-    offset_pred: torch.Tensor,   # [B0]
+    edit_choice_logits: torch.Tensor,
     K: int = 6,
     lambda_del: float = 1.0,
     lambda_shift: float = 0.25,
@@ -153,8 +115,7 @@ def _dp_monotonic_edit_decode(
         cand_j = _build_candidates_for_one_boundary(
             g=g,
             num_gaps=num_gaps,
-            edit_logit_row=edit_logits[j],
-            offset_pred_val=float(offset_pred[j].item()),
+            edit_choice_logit_row=edit_choice_logits[j],
             K=K,
             lambda_del=lambda_del,
             lambda_shift=lambda_shift,
@@ -262,14 +223,13 @@ def _decode_insert_with_suppression(
 def decode_one(
     b0: Sequence[int],
     g0_positions: Sequence[int],
-    edit_logits: torch.Tensor,     # [B0, 3]
-    offset_pred: torch.Tensor,     # [B0]
-    insert_logits: torch.Tensor,   # [G]
+    edit_choice_logits: torch.Tensor,   # [B0, 2K+2]
+    insert_logits: torch.Tensor,        # [G]
     K: int = 6,
     insert_threshold: float = 0.5,
     min_sep: int = 1,
     lambda_del: float = 1.0,
-    lambda_ins: float = 1.0,       # reserved for later extension
+    lambda_ins: float = 1.0,
     lambda_shift: float = 0.25,
 ) -> Dict:
     num_gaps = len(b0)
@@ -278,8 +238,7 @@ def decode_one(
     edit_boundary_positions, pred_edit_labels = _dp_monotonic_edit_decode(
         b0=b0,
         g0_positions=g0_positions,
-        edit_logits=edit_logits,
-        offset_pred=offset_pred,
+        edit_choice_logits=edit_choice_logits,
         K=K,
         lambda_del=lambda_del,
         lambda_shift=lambda_shift,
@@ -306,11 +265,10 @@ def decode_one(
 
 
 def batch_decode(
-    b0: torch.Tensor,              # [B, G]
-    g0_positions: torch.Tensor,    # [B, B0], padded with -1
-    edit_logits: torch.Tensor,     # [B, B0, 3]
-    offset_pred: torch.Tensor,     # [B, B0]
-    insert_logits: torch.Tensor,   # [B, G]
+    b0: torch.Tensor,
+    g0_positions: torch.Tensor,
+    edit_choice_logits: torch.Tensor,   # [B, B0, 2K+2]
+    insert_logits: torch.Tensor,
     K: int = 6,
     insert_threshold: float = 0.5,
     min_sep: int = 1,
@@ -332,8 +290,7 @@ def batch_decode(
         out = decode_one(
             b0=b0_i,
             g0_positions=g0_i,
-            edit_logits=edit_logits[i],
-            offset_pred=offset_pred[i],
+            edit_choice_logits=edit_choice_logits[i],
             insert_logits=insert_logits[i],
             K=K,
             insert_threshold=insert_threshold,

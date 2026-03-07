@@ -8,15 +8,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-SHIFT_CLASS_ID = 2
-
-
 @dataclass
 class RefinerLossOutput:
     loss: torch.Tensor
     loss_insert: torch.Tensor
     loss_edit: torch.Tensor
-    loss_offset: torch.Tensor
     loss_cost_reg: torch.Tensor
     stats: Dict[str, float]
 
@@ -81,63 +77,43 @@ class RefinerLoss(nn.Module):
         return (raw * valid).sum() / denom
 
     def compute_edit_loss(
-        self,
-        edit_logits: torch.Tensor,     # [B, B0, 3]
-        edit_cls: torch.Tensor,        # [B, B0], long, ignore=-100
+            self,
+            edit_choice_logits: torch.Tensor,  # [B, B0, 2K+2]
+            edit_choice: torch.Tensor,  # [B, B0], long, ignore=-100
     ) -> torch.Tensor:
-        B, N, C = edit_logits.shape
+        B, N, C = edit_choice_logits.shape
         raw = F.cross_entropy(
-            edit_logits.reshape(B * N, C),
-            edit_cls.reshape(B * N),
+            edit_choice_logits.reshape(B * N, C),
+            edit_choice.reshape(B * N),
             ignore_index=-100,
             reduction="mean",
         )
         return raw
 
-    def compute_offset_loss(
-        self,
-        offset_pred: torch.Tensor,     # [B, B0]
-        edit_offset: torch.Tensor,     # [B, B0]
-        edit_cls: torch.Tensor,        # [B, B0]
-        edit_cls_mask: torch.Tensor,   # [B, B0]
-    ) -> torch.Tensor:
-        shift_mask = (edit_cls == SHIFT_CLASS_ID) & edit_cls_mask
-        if shift_mask.sum() == 0:
-            return offset_pred.new_zeros(())
-
-        pred = offset_pred[shift_mask]
-        gold = edit_offset[shift_mask].to(offset_pred.dtype)
-        return F.smooth_l1_loss(pred, gold, reduction="mean")
-
     def compute_cost_regularizer(
-        self,
-        insert_logits: torch.Tensor,   # [B, G]
-        edit_logits: torch.Tensor,     # [B, B0, 3]
-        edit_cls_mask: torch.Tensor,   # [B, B0]
+            self,
+            insert_logits: torch.Tensor,  # [B, G]
+            edit_choice_logits: torch.Tensor,  # [B, B0, 2K+2]
+            edit_choice_mask: torch.Tensor,  # [B, B0]
+            K: int = 6,
     ) -> torch.Tensor:
-        """
-        Lightweight expectation-style regularizer:
-          E[cost] ≈
-            lambda_ins * sum(sigmoid(insert_logits))
-          + lambda_del * P(DEL)
-          + lambda_shift * P(SHIFT)
-
-        This is only a soft prior, not the final decode-time cost.
-        """
-        # insert expected cost
         p_ins = torch.sigmoid(insert_logits)
         ins_cost = self.lambda_ins * p_ins.mean()
 
-        # edit expected cost
-        p_edit = torch.softmax(edit_logits, dim=-1)  # [B, B0, 3]
-        p_del = p_edit[..., 1]
-        p_shift = p_edit[..., 2]
+        p = torch.softmax(edit_choice_logits, dim=-1)  # [B,B0,2K+2]
+        p_del = p[..., 0]
 
-        valid = edit_cls_mask.to(edit_logits.dtype)
+        shift_cost = 0.0
+        valid = edit_choice_mask.to(edit_choice_logits.dtype)
         denom = valid.sum().clamp(min=1.0)
 
+        # classes 1..2K+1 correspond to k in [-K..K]
+        for cls_idx in range(1, 2 * K + 2):
+            k = cls_idx - 1 - K
+            shift_cost = shift_cost + self.lambda_shift * abs(k) * p[..., cls_idx]
+
+        shift_cost = (shift_cost * valid).sum() / denom
         del_cost = self.lambda_del * (p_del * valid).sum() / denom
-        shift_cost = self.lambda_shift * (p_shift * valid).sum() / denom
 
         return ins_cost + del_cost + shift_cost
 
@@ -149,31 +125,24 @@ class RefinerLoss(nn.Module):
         )
 
         loss_edit = self.compute_edit_loss(
-            edit_logits=outputs.edit_logits,
-            edit_cls=batch["edit_cls"].to(outputs.edit_logits.device),
-        )
-
-        loss_offset = self.compute_offset_loss(
-            offset_pred=outputs.offset_pred,
-            edit_offset=batch["edit_offset"].to(outputs.offset_pred.device),
-            edit_cls=batch["edit_cls"].to(outputs.offset_pred.device),
-            edit_cls_mask=batch["edit_cls_mask"].to(outputs.offset_pred.device),
+            edit_choice_logits=outputs.edit_choice_logits,
+            edit_choice=batch["edit_choice"].to(outputs.edit_choice_logits.device),
         )
 
         if self.beta_cost > 0:
             loss_cost_reg = self.compute_cost_regularizer(
                 insert_logits=outputs.insert_logits,
-                edit_logits=outputs.edit_logits,
-                edit_cls_mask=batch["edit_cls_mask"].to(outputs.edit_logits.device),
+                edit_choice_logits=outputs.edit_choice_logits,
+                edit_choice_mask=batch["edit_choice_mask"].to(outputs.edit_choice_logits.device),
+                K=6,
             )
         else:
             loss_cost_reg = outputs.insert_logits.new_zeros(())
 
         total = (
-            self.alpha_insert * loss_insert
-            + self.alpha_edit * loss_edit
-            + self.alpha_offset * loss_offset
-            + self.beta_cost * loss_cost_reg
+                self.alpha_insert * loss_insert
+                + self.alpha_edit * loss_edit
+                + self.beta_cost * loss_cost_reg
         )
 
         with torch.no_grad():
@@ -181,7 +150,6 @@ class RefinerLoss(nn.Module):
                 "loss_total": float(total.item()),
                 "loss_insert": float(loss_insert.item()),
                 "loss_edit": float(loss_edit.item()),
-                "loss_offset": float(loss_offset.item()),
                 "loss_cost_reg": float(loss_cost_reg.item()),
             }
 
@@ -189,7 +157,6 @@ class RefinerLoss(nn.Module):
             loss=total,
             loss_insert=loss_insert,
             loss_edit=loss_edit,
-            loss_offset=loss_offset,
             loss_cost_reg=loss_cost_reg,
             stats=stats,
         )
