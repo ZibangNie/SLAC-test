@@ -7,6 +7,10 @@ import torch
 import torch.nn as nn
 from transformers import AutoModel, AutoTokenizer
 
+from transformers import AutoModel, AutoTokenizer
+import os
+import os
+os.environ["HF_HUB_OFFLINE"] = "1"
 
 @dataclass
 class AtomEncoderOutput:
@@ -30,19 +34,28 @@ class AtomEncoder(nn.Module):
         - masked mean pooling over last_hidden_state
         - freeze by default
     """
+
     def __init__(
-        self,
-        model_name: str = "BAAI/bge-m3",
-        max_length: int = 128,
-        freeze: bool = True,
-        device: str | None = None,
+            self,
+            model_name: str = r"D:\code\Github\SLAC-test\SLAC\refiner\slac_refiner\models\bge-m3\snapshots\5617a9f61b028005a4858fdac845db406aefb181",
+            max_length: int = 128,
+            freeze: bool = True,
+            device: str | None = None,
+            local_files_only: bool = True,
     ):
         super().__init__()
         self.model_name = model_name
         self.max_length = max_length
+        self.local_files_only = local_files_only
 
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.backbone = AutoModel.from_pretrained(model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_name,
+            local_files_only=local_files_only,
+        )
+        self.backbone = AutoModel.from_pretrained(
+            model_name,
+            local_files_only=local_files_only,
+        )
 
         self.hidden_size = int(self.backbone.config.hidden_size)
 
@@ -55,6 +68,7 @@ class AtomEncoder(nn.Module):
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device_str = device
         self.to(device)
+        print(f"[AtomEncoder] loading model from: {model_name}")
 
     @property
     def device(self) -> torch.device:
