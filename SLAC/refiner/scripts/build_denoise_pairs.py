@@ -86,26 +86,39 @@ def load_docs_from_file(path: Path) -> Iterator[Dict]:
 
 def extract_gold_units(raw_doc: Dict) -> List[Dict]:
     """
-    Assumption:
-    - preferred field: gold_units
-    - fallback field: chunk0_units
+    Accept multiple raw schemas.
 
-    gold_units means the teacher chunks from LLM gold data.
+    Priority:
+    1) gold_units
+    2) chunk0_units
+    3) units   <- for your real LLM-annotated structured / semi-structured files
+
+    We treat these units as teacher chunks for denoising pretraining.
     """
     units = raw_doc.get("gold_units")
     if units is None:
         units = raw_doc.get("chunk0_units")
+    if units is None:
+        units = raw_doc.get("units")
 
     if units is None:
-        raise ValueError("Raw doc must contain either 'gold_units' or 'chunk0_units'")
+        raise ValueError("Raw doc must contain one of: gold_units / chunk0_units / units")
 
     out = []
     for i, u in enumerate(units):
         if not isinstance(u, dict):
-            raise ValueError(f"gold_units[{i}] must be a dict")
-        text = str(u.get("text", ""))
+            raise ValueError(f"units[{i}] must be a dict")
+
+        text = str(u.get("text", "")).strip()
+        if not text:
+            continue
+
         unit_id = int(u.get("unit_id", i))
         out.append({"unit_id": unit_id, "text": text})
+
+    if len(out) == 0:
+        raise ValueError("No non-empty units found in raw doc")
+
     return out
 
 
@@ -128,7 +141,12 @@ def convert_noisy_spans_to_json(spans):
 
 def process_one_doc(raw_doc: Dict, args: argparse.Namespace, sample_idx: int) -> Dict | None:
     doc_id = str(raw_doc.get("doc_id", f"doc_{sample_idx:06d}"))
-    domain = str(raw_doc.get("domain", "llm_gold"))
+    domain = "llm_gold"
+
+    language = raw_doc.get("lang")
+    if language is None:
+        language = raw_doc.get("language", "other")
+    language = str(language)
 
     gold_units = extract_gold_units(raw_doc)
     gold_result = build_gold_atoms_and_boundaries(gold_units)
@@ -175,6 +193,7 @@ def process_one_doc(raw_doc: Dict, args: argparse.Namespace, sample_idx: int) ->
             "noisy_boundary_count": int(sum(b_noisy)),
             "atom_count": len(atoms),
             "noise_stats": noise["stats"],
+            "language": language,
         },
         # debug field; later you can remove if you want a cleaner training JSONL
         "b_gold": b_gold,

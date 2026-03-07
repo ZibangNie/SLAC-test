@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Dict, List
 
+from tqdm import tqdm
+
 import torch
 from torch.utils.data import DataLoader
 
@@ -111,12 +113,14 @@ def move_batch_to_device(batch: Dict, device: torch.device) -> Dict:
     return out
 
 
-def train_one_epoch(model, loader, criterion, optimizer):
+def train_one_epoch(model, loader, criterion, optimizer, epoch: int):
     model.train()
     total_loss = 0.0
     total_steps = 0
 
-    for batch in loader:
+    pbar = tqdm(loader, desc=f"train epoch {epoch}", leave=False)
+
+    for batch in pbar:
         batch = move_batch_to_device(batch, model.device)
 
         optimizer.zero_grad(set_to_none=True)
@@ -127,6 +131,13 @@ def train_one_epoch(model, loader, criterion, optimizer):
 
         total_loss += float(loss_out.loss.item())
         total_steps += 1
+
+        avg_loss = total_loss / max(total_steps, 1)
+        pbar.set_postfix({
+            "loss": f"{avg_loss:.4f}",
+            "ins": f"{float(loss_out.loss_insert.item()):.4f}",
+            "edit": f"{float(loss_out.loss_edit.item()):.4f}",
+        })
 
     return {
         "loss": total_loss / max(total_steps, 1),
@@ -146,7 +157,9 @@ def evaluate(model, loader, projector_cfg):
 
     K = 6
 
-    for batch in loader:
+    pbar = tqdm(loader, desc="dev", leave=False)
+
+    for batch in pbar:
         batch = move_batch_to_device(batch, model.device)
         outputs = model(batch)
 
@@ -185,23 +198,19 @@ def evaluate(model, loader, projector_cfg):
             pred_b = projected["projected_b"]
             spans_eval = projected["spans_after_merge"]
 
-            # 从 edit_choice 还原 gold_edit
             g0_positions_i = [int(x) for x in batch["g0_positions"][i].tolist() if int(x) >= 0]
             edit_choice_i = batch["edit_choice"][i].tolist()
 
             gold_edit = []
             for g, choice in zip(g0_positions_i, edit_choice_i):
                 choice = int(choice)
-
                 if choice < 0:
                     continue
-
                 if choice == 0:
                     y = "DEL"
                 else:
                     k = (choice - 1) - K
                     y = "KEEP" if k == 0 else f"SHIFT:{k}"
-
                 gold_edit.append({"g": g, "y": y})
 
             boundary_metrics.append(boundary_prf(pred_b, gold_b))
@@ -269,11 +278,11 @@ def main():
     best_f1 = -1.0
 
     for epoch in range(1, args.epochs + 1):
-        train_stats = train_one_epoch(model, train_loader, criterion, optimizer)
+        train_stats = train_one_epoch(model, train_loader, criterion, optimizer, epoch)
 
         # 现在这个 demo 很小，用 smoke projector 配置更合理；
         # 后面换真实 llm_gold dev 时改回 DEFAULT_PROJECTOR_CFG
-        dev_stats = evaluate(model, dev_loader, projector_cfg=SMOKE_PROJECTOR_CFG)
+        dev_stats = evaluate(model, dev_loader, projector_cfg=DEFAULT_PROJECTOR_CFG)
 
         boundary_f1 = dev_stats["boundary"].get("f1", 0.0)
         if boundary_f1 > best_f1:
