@@ -37,7 +37,7 @@ class AtomEncoder(nn.Module):
 
     def __init__(
             self,
-            model_name: str = r"D:\code\Github\SLAC-test\SLAC\refiner\slac_refiner\models\bge-m3\snapshots\5617a9f61b028005a4858fdac845db406aefb181",
+            model_name: str = r"/root/autodl-tmp/models/bge-m3/bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181",
             max_length: int = 128,
             freeze: bool = True,
             device: str | None = None,
