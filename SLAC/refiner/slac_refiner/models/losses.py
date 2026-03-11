@@ -35,7 +35,11 @@ class RefinerLoss(nn.Module):
     def __init__(
         self,
         insert_pos_weight: float = 16.0,
+<<<<<<< HEAD
         alpha_insert: float = 4.0,
+=======
+        alpha_insert: float = 1.0,
+>>>>>>> origin/refiner
         alpha_edit: float = 1.0,
         alpha_offset: float = 0.5,
         beta_cost: float = 0.0,
