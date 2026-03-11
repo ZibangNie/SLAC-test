@@ -348,13 +348,17 @@ def indices_from_boundary_vector(b: Sequence[int]) -> List[int]:
 @dataclass
 class NoiseConfig:
     K: int = 6
-    p_shift: float = 0.45
-    p_insert: float = 0.30
-    p_delete: float = 0.25
+    p_shift: float = 0.50
+    p_insert: float = 0.15
+    p_delete: float = 0.40
     discrete_laplace_scale: float = 2.0
-    max_insert_frac: float = 0.25
-    max_delete_frac: float = 0.25
-    max_shift_frac: float = 0.40
+    max_insert_frac: float = 0.15
+    max_delete_frac: float = 0.40
+    max_shift_frac: float = 0.50
+
+    burst_delete_prob: float = 0.35
+    burst_delete_min: int = 2
+    burst_delete_max: int = 4
 
 
 @dataclass
@@ -419,22 +423,41 @@ def apply_noise_to_gold(b_gold: List[int], cfg: NoiseConfig, rng: random.Random)
     occupied = set(current.keys())
 
     max_del = min(len(gold_positions), max(0, int(round(len(gold_positions) * cfg.max_delete_frac))))
-    del_count = 0
-    if max_del > 0:
-        del_count = rng.randint(0, max_del)
-        del_count = min(del_count, sum(1 for _ in gold_positions))
-    if del_count > 0:
-        del_candidates = gold_positions[:]
-        rng.shuffle(del_candidates)
-        for g in del_candidates[:del_count]:
-            current.pop(g, None)
-            occupied.discard(g)
+
+    # 先做单点 delete，概率由 p_delete 控制
+    delete_set = set()
+    for g in gold_positions:
+        if rng.random() < cfg.p_delete:
+            delete_set.add(g)
+
+    # 再做 burst delete：连续删 2~4 个相邻真边界，制造长块缺多个边界的场景
+    if gold_positions and rng.random() < cfg.burst_delete_prob:
+        num_gold = len(gold_positions)
+        span = rng.randint(cfg.burst_delete_min, cfg.burst_delete_max)
+        span = min(span, num_gold)
+        if span > 0:
+            start_idx = rng.randint(0, max(0, num_gold - span))
+            burst = gold_positions[start_idx:start_idx + span]
+            for g in burst:
+                delete_set.add(g)
+
+    # 控制总 delete 数量不要超过上限
+    delete_list = sorted(delete_set)
+    if len(delete_list) > max_del:
+        rng.shuffle(delete_list)
+        delete_list = delete_list[:max_del]
+
+    for g in delete_list:
+        current.pop(g, None)
+        occupied.discard(g)
 
     remaining_gold_boundaries = [pos for pos, src in current.items() if src is not None and pos == src]
     max_shift = min(len(remaining_gold_boundaries), max(0, int(round(len(gold_positions) * cfg.max_shift_frac))))
-    shift_count = 0
-    if max_shift > 0:
-        shift_count = rng.randint(0, max_shift)
+    shift_count = min(
+        max_shift,
+        sum(1 for _ in remaining_gold_boundaries if rng.random() < cfg.p_shift)
+    )
+
     shifted_ops: List[Tuple[int, int]] = []
     if shift_count > 0:
         shift_candidates = remaining_gold_boundaries[:]
@@ -462,9 +485,11 @@ def apply_noise_to_gold(b_gold: List[int], cfg: NoiseConfig, rng: random.Random)
 
     candidate_insert_positions = [i for i in range(num_gaps) if i not in occupied]
     max_ins = min(len(candidate_insert_positions), max(0, int(round(max(1, num_gaps) * cfg.max_insert_frac))))
-    insert_count = 0
-    if max_ins > 0:
-        insert_count = rng.randint(0, max_ins)
+    insert_count = min(
+        max_ins,
+        sum(1 for _ in candidate_insert_positions if rng.random() < cfg.p_insert)
+    )
+
     inserted_spurious: List[int] = []
     if insert_count > 0:
         rng.shuffle(candidate_insert_positions)
@@ -701,6 +726,9 @@ def build_refiner_sample(
             max_insert_frac=args.max_insert_frac,
             max_delete_frac=args.max_delete_frac,
             max_shift_frac=args.max_shift_frac,
+            burst_delete_prob=args.burst_delete_prob,
+            burst_delete_min=args.burst_delete_min,
+            burst_delete_max=args.burst_delete_max,
         ),
         rng=rng,
     )
@@ -835,13 +863,17 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--no_blankline_split", dest="blankline_split", action="store_false")
 
     ap.add_argument("--K", type=int, default=6)
-    ap.add_argument("--p_shift", type=float, default=0.45)
-    ap.add_argument("--p_insert", type=float, default=0.30)
-    ap.add_argument("--p_delete", type=float, default=0.25)
+    ap.add_argument("--p_shift", type=float, default=0.50)
+    ap.add_argument("--p_insert", type=float, default=0.15)
+    ap.add_argument("--p_delete", type=float, default=0.40)
     ap.add_argument("--discrete_laplace_scale", type=float, default=2.0)
-    ap.add_argument("--max_insert_frac", type=float, default=0.25)
-    ap.add_argument("--max_delete_frac", type=float, default=0.25)
-    ap.add_argument("--max_shift_frac", type=float, default=0.40)
+    ap.add_argument("--max_insert_frac", type=float, default=0.15)
+    ap.add_argument("--max_delete_frac", type=float, default=0.40)
+    ap.add_argument("--max_shift_frac", type=float, default=0.50)
+
+    ap.add_argument("--burst_delete_prob", type=float, default=0.35)
+    ap.add_argument("--burst_delete_min", type=int, default=2)
+    ap.add_argument("--burst_delete_max", type=int, default=4)
 
     ap.add_argument("--min_chunk_tokens", type=int, default=48)
     ap.add_argument("--max_chunk_tokens", type=int, default=384)
