@@ -95,7 +95,7 @@ def build_model(args):
 def build_criterion():
     return RefinerLoss(
         insert_pos_weight=16.0,
-        alpha_insert=4.0,
+        alpha_insert=3.0,
         alpha_edit=1.0,
         alpha_offset=0.5,
         beta_cost=0.05,

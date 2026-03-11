@@ -65,7 +65,7 @@ def main():
 
     criterion = RefinerLoss(
         insert_pos_weight=16.0,
-        alpha_insert=4.0,
+        alpha_insert=3.0,
         alpha_edit=1.0,
         beta_cost=0.05,
         lambda_del=1.0,
