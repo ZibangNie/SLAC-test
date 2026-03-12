@@ -75,6 +75,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--lambda_shift", type=float, default=0.25)
 
     p.add_argument("--max_docs", type=int, default=None)
+
+    p.add_argument("--max_atoms_full_decode", type=int, default=2200)
+    p.add_argument("--max_atoms_greedy_only", type=int, default=3200)
+    p.add_argument("--disable_autocast", action="store_true")
     return p.parse_args()
 
 
@@ -304,17 +308,36 @@ def build_single_doc_batch(atoms: Sequence[str], b_dense: Sequence[int], device:
 
 
 @torch.no_grad()
-def forward_one_doc(model: BoundaryRefinerModel, atoms: Sequence[str], b_dense: Sequence[int]) -> Dict[str, Any]:
+def forward_one_doc(
+    model: BoundaryRefinerModel,
+    atoms: Sequence[str],
+    b_dense: Sequence[int],
+    use_autocast: bool = True,
+) -> Dict[str, Any]:
     batch, g0_positions = build_single_doc_batch(atoms, b_dense, model.device)
-    outputs = model(batch)
+
+    with torch.inference_mode():
+        if use_autocast and torch.cuda.is_available():
+            with torch.cuda.amp.autocast(dtype=torch.float16):
+                outputs = model(batch)
+        else:
+            outputs = model(batch)
 
     num_gaps = max(0, len(atoms) - 1)
     valid_b0 = len(g0_positions)
 
+    insert_logits = outputs.insert_logits[0, :num_gaps].detach().cpu()
+    edit_choice_logits = outputs.edit_choice_logits[0, :valid_b0].detach().cpu()
+
+    # 尽快释放 GPU 上的 forward outputs 引用
+    del outputs
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
     return {
         "g0_positions": g0_positions,
-        "insert_logits": outputs.insert_logits[0, :num_gaps].detach().cpu(),
-        "edit_choice_logits": outputs.edit_choice_logits[0, :valid_b0].detach().cpu(),
+        "insert_logits": insert_logits,
+        "edit_choice_logits": edit_choice_logits,
     }
 
 
@@ -681,7 +704,12 @@ def run_greedy_candidate(
     final_insert_gaps: List[Dict[str, Any]] = []
 
     for _ in range(max(1, int(args.refine_passes))):
-        raw = forward_one_doc(model, atoms, b_cur)
+        raw = forward_one_doc(
+            model=model,
+            atoms=atoms,
+            b_dense=b_cur,
+            use_autocast=(not args.disable_autocast),
+        )
         g0_positions = raw["g0_positions"]
         edit_choice_logits = raw["edit_choice_logits"]
         insert_logits = raw["insert_logits"]
@@ -776,7 +804,12 @@ def run_sample_candidate(
     doc_seed = (int(hashlib.md5(str(doc["doc_id"]).encode("utf-8")).hexdigest()[:8], 16) + int(seed)) % (2**31)
 
     for pass_idx in range(max(1, int(args.refine_passes))):
-        raw = forward_one_doc(model, atoms, b_cur)
+        raw = forward_one_doc(
+            model=model,
+            atoms=atoms,
+            b_dense=b_cur,
+            use_autocast=(not args.disable_autocast),
+        )
         g0_positions = raw["g0_positions"]
         edit_choice_logits = raw["edit_choice_logits"]
         insert_logits = raw["insert_logits"]
@@ -919,6 +952,9 @@ def main() -> None:
             num_docs += 1
             if num_docs % 10 == 0 or num_docs == len(docs):
                 print(f"[infer_bestofn] processed {num_docs}/{len(docs)} docs, total_candidates={num_candidates}")
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
     score_summary = {
         "num_docs": num_docs,
