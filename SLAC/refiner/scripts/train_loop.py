@@ -34,7 +34,7 @@ from slac_refiner.eval.metrics import (
 )
 
 
-LOCAL_BGE_M3_DIR = r"D:\code\Github\SLAC-test\SLAC\refiner\slac_refiner\models\bge-m3\snapshots\5617a9f61b028005a4858fdac845db406aefb181"
+LOCAL_BGE_M3_DIR = r"/root/autodl-tmp/models/bge-m3/bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181"
 
 DEFAULT_PROJECTOR_CFG = ProjectorConfig(
     max_chunk_atoms=64,
@@ -67,6 +67,8 @@ def parse_args():
     parser.add_argument("--window_size", type=int, default=16)
     parser.add_argument("--seed", type=int, default=13)
     parser.add_argument("--save_dir", type=str, default=None)
+    parser.add_argument("--insert_loss_weight", type=float, default=4.0)
+    parser.add_argument("--insert_pos_weight", type=float, default=16.0)
     return parser.parse_args()
 
 
@@ -92,8 +94,8 @@ def build_model(args):
 
 def build_criterion():
     return RefinerLoss(
-        insert_pos_weight=4.0,
-        alpha_insert=1.0,
+        insert_pos_weight=16.0,
+        alpha_insert=3.0,
         alpha_edit=1.0,
         alpha_offset=0.5,
         beta_cost=0.05,

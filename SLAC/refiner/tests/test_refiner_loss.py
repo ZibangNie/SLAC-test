@@ -14,7 +14,7 @@ from slac_refiner.models.refiner import BoundaryRefinerModel
 from slac_refiner.models.losses import RefinerLoss
 
 
-LOCAL_BGE_M3_DIR = r"D:\code\Github\SLAC-test\SLAC\refiner\slac_refiner\models\bge-m3\snapshots\5617a9f61b028005a4858fdac845db406aefb181"
+LOCAL_BGE_M3_DIR = r"/root/autodl-tmp/models/bge-m3/bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181"
 
 
 def main():
@@ -36,8 +36,8 @@ def main():
     )
 
     criterion = RefinerLoss(
-        insert_pos_weight=4.0,
-        alpha_insert=1.0,
+        insert_pos_weight=16.0,
+        alpha_insert=3.0,
         alpha_edit=1.0,
         beta_cost=0.05,
         lambda_del=1.0,

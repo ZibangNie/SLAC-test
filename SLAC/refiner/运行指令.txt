@@ -1,0 +1,126 @@
+python /root/autodl-tmp/SLAC-test/SLAC/refiner/scripts/train_loop.py \
+  --train /root/autodl-tmp/data/refiner/refiner_train_llm_gold_small.jsonl \
+  --dev /root/autodl-tmp/data/refiner/refiner_dev_llm_gold_small.jsonl \
+  --epochs 5 \
+  --batch_size 1 \
+  --lr 1e-4 \
+  --weight_decay 1e-2 \
+  --doc_layers 2 \
+  --window_size 16 \
+  --seed 13 \
+  --save_dir /root/autodl-tmp/runs/refiner/checkpoints_llm_gold_small_d2w16 \
+  2>&1 | tee /root/autodl-tmp/runs/refiner/logs/train_loop_d2w16.log
+
+
+3.10 d1w8-1024
+conda activate SLAC
+source /root/autodl-tmp/env_refiner.sh
+cd /root/autodl-tmp/SLAC-test
+
+unset PYTORCH_CUDA_ALLOC_CONF
+unset PYTORCH_ALLOC_CONF
+export PYTORCH_ALLOC_CONF=backend:native,max_split_size_mb:64
+
+mkdir -p /root/autodl-tmp/runs/refiner/checkpoints_real_core1024_d1w8
+mkdir -p /root/autodl-tmp/runs/refiner/logs
+
+python /root/autodl-tmp/SLAC-test/SLAC/refiner/scripts/train_loop.py \
+  --train /root/autodl-tmp/SLAC-test/SLAC/refiner/data/refiner_real_dataset_core1024/refiner_train.jsonl \
+  --dev /root/autodl-tmp/SLAC-test/SLAC/refiner/data/refiner_real_dataset_core1024/refiner_dev.jsonl \
+  --epochs 6 \
+  --batch_size 1 \
+  --lr 8e-5 \
+  --weight_decay 1e-2 \
+  --doc_layers 1 \
+  --window_size 8 \
+  --seed 13 \
+  --save_dir /root/autodl-tmp/runs/refiner/checkpoints_real_core1024_d1w8 \
+  2>&1 | tee /root/autodl-tmp/runs/refiner/logs/train_real_core1024_d1w8.log
+
+
+
+d1w8的epoch4结果
+epoch=4
+  train loss = 1.2194560364426104
+  dev boundary = {'tp': 49.1642371234208, 'fp': 11.040816326530612, 'fn': 36.72400388726919, 'precision': 0.7903728101534223, 'recall': 0.4872707206854683, 'f1': 0.5893958833904541}
+  dev edit = {'correct': 73.76967930029154, 'total': 106.67930029154519, 'acc': 0.6782062235433335}
+  dev insert_acc = {'correct': 240.85908649173956, 'total': 251.6530612244898, 'acc': 0.9502997496601436}
+  dev insert_prf = {'tp': 0.07191448007774538, 'fp': 0.09426627793974733, 'fn': 10.699708454810496, 'precision': 0.06162941367023, 'recall': 0.006264216800179618, 'f1': 0.010263901700582407}
+  dev shift = {'count': 17.53449951409135, 'mae': 1.30963648546526}
+  dev length = {'num_chunks': 61.20505344995141, 'mean_atoms_per_chunk': 4.7592145177820715, 'min_atoms_per_chunk': 1.8270165208940718, 'max_atoms_per_chunk': 12.117589893100098}
+  best boundary f1 = 0.5990693384825455
+
+
+3.11 insert改进之后的指令（insert任务明显增强，但best boundary下降）
+conda activate SLAC
+source /root/autodl-tmp/env_refiner.sh
+cd /root/autodl-tmp/SLAC-test
+
+unset PYTORCH_CUDA_ALLOC_CONF
+unset PYTORCH_ALLOC_CONF
+export PYTORCH_ALLOC_CONF=backend:native,max_split_size_mb:64
+
+mkdir -p /root/autodl-tmp/runs/refiner/checkpoints_real_core1024_insboost_d1w8
+mkdir -p /root/autodl-tmp/runs/refiner/logs
+
+python /root/autodl-tmp/SLAC-test/SLAC/refiner/scripts/train_loop.py \
+  --train /root/autodl-tmp/SLAC-test/SLAC/refiner/data/refiner_real_dataset_core1024_insboost/refiner_train.jsonl \
+  --dev /root/autodl-tmp/SLAC-test/SLAC/refiner/data/refiner_real_dataset_core1024_insboost/refiner_dev.jsonl \
+  --epochs 6 \
+  --batch_size 1 \
+  --lr 8e-5 \
+  --weight_decay 1e-2 \
+  --doc_layers 1 \
+  --window_size 8 \
+  --seed 13 \
+  --save_dir /root/autodl-tmp/runs/refiner/checkpoints_real_core1024_insboost_d1w8 \
+  2>&1 | tee /root/autodl-tmp/runs/refiner/logs/train_real_core1024_insboost_d1w8.log
+
+
+
+3.11insert回调之后的指令
+conda activate SLAC
+source /root/autodl-tmp/env_refiner.sh
+cd /root/autodl-tmp/SLAC-test
+
+python /root/autodl-tmp/SLAC-test/SLAC/refiner/data/build_refiner_from_real_dataset.py \
+  --input_root /root/autodl-tmp/SLAC-test/SLAC/refiner/data/real_dataset_canonical \
+  --output_root /root/autodl-tmp/SLAC-test/SLAC/refiner/data/refiner_real_dataset_canonical_insbalance \
+  --p_shift 0.45 \
+  --p_insert 0.12 \
+  --p_delete 0.35 \
+  --max_insert_frac 0.12 \
+  --max_delete_frac 0.35 \
+  --max_shift_frac 0.45 \
+  --burst_delete_prob 0.25 \
+  --burst_delete_min 2 \
+  --burst_delete_max 3
+
+python /root/autodl-tmp/SLAC-test/SLAC/refiner/data/build_refiner_core1024_and_longstress.py \
+  --input_root /root/autodl-tmp/SLAC-test/SLAC/refiner/data/refiner_real_dataset_canonical_insbalance \
+  --core_output_root /root/autodl-tmp/SLAC-test/SLAC/refiner/data/refiner_real_dataset_core1024_insbalance \
+  --long_output_root /root/autodl-tmp/SLAC-test/SLAC/refiner/data/refiner_real_dataset_longstress_insbalance \
+  --max_atoms 1024
+
+cat /root/autodl-tmp/SLAC-test/SLAC/refiner/data/refiner_real_dataset_core1024_insbalance/stats/summary.json
+cat /root/autodl-tmp/SLAC-test/SLAC/refiner/data/refiner_real_dataset_longstress_insbalance/stats/summary.json
+
+unset PYTORCH_CUDA_ALLOC_CONF
+unset PYTORCH_ALLOC_CONF
+export PYTORCH_ALLOC_CONF=backend:native,max_split_size_mb:64
+
+mkdir -p /root/autodl-tmp/runs/refiner/checkpoints_real_core1024_insbalance_d1w8
+mkdir -p /root/autodl-tmp/runs/refiner/logs
+
+python /root/autodl-tmp/SLAC-test/SLAC/refiner/scripts/train_loop.py \
+  --train /root/autodl-tmp/SLAC-test/SLAC/refiner/data/refiner_real_dataset_core1024_insbalance/refiner_train.jsonl \
+  --dev /root/autodl-tmp/SLAC-test/SLAC/refiner/data/refiner_real_dataset_core1024_insbalance/refiner_dev.jsonl \
+  --epochs 6 \
+  --batch_size 1 \
+  --lr 8e-5 \
+  --weight_decay 1e-2 \
+  --doc_layers 1 \
+  --window_size 8 \
+  --seed 13 \
+  --save_dir /root/autodl-tmp/runs/refiner/checkpoints_real_core1024_insbalance_d1w8 \
+  2>&1 | tee /root/autodl-tmp/runs/refiner/logs/train_real_core1024_insbalance_d1w8.log

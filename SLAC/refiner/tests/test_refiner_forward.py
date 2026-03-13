@@ -21,7 +21,7 @@ def main():
     batch = next(iter(loader))
 
     model = BoundaryRefinerModel(
-        atom_model_name=r"D:\code\Github\SLAC-test\SLAC\refiner\slac_refiner\models\bge-m3\snapshots\5617a9f61b028005a4858fdac845db406aefb181",
+        atom_model_name=r"/root/autodl-tmp/models/bge-m3/bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181",
         atom_max_length=64,
         atom_freeze=True,
         doc_hidden_size=768,
