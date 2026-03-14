@@ -1,10 +1,3 @@
-"""
-Main end-to-end refiner pipeline runner.
-
-Pipeline:
-raw file -> read -> normalize/clean -> rule chunk0 -> build refiner input
--> refiner inference -> export refined chunks
-"""
 from __future__ import annotations
 
 import argparse
@@ -13,162 +6,236 @@ import subprocess
 import sys
 import traceback
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
+from ..configs.loader import (
+    filter_allowed_keys,
+    get_runner_config,
+    load_pipeline_config,
+    merge_resolved_args,
+    namespace_from_dict,
+    preparse_config_arg,
+)
 from ..utils.io import dump_json, ensure_dir
 from ..utils.log_utils import setup_logger
 
 
-def parse_args() -> argparse.Namespace:
+DEFAULTS: Dict[str, Any] = {
+    "input_paths": None,
+    "output_dir": None,
+    "recursive": False,
+    "domain": None,
+
+    "skip_stage1": False,
+    "skip_stage2": False,
+    "reuse_atoms_b0_jsonl": None,
+
+    "dump_structure_doc": False,
+    "dump_chunk0_json": False,
+    "dump_intermediate_records": False,
+
+    "pdf_max_pages": 0,
+    "pdf_min_font_size": 5.0,
+    "pdf_max_weird_ratio_span": 0.35,
+    "pdf_drop_tiny_spans": True,
+    "pdf_garbled_page_weird_ratio": 0.25,
+    "pdf_garbled_min_len": 10,
+    "pdf_ocr_on_images": True,
+    "pdf_ocr_always_on_images": False,
+    "pdf_ocr_dpi": 300,
+    "pdf_ocr_lang": "chi_sim+eng",
+    "pdf_ocr_backend": "tesseract",
+    "pdf_enable_pdftotext": True,
+    "pdf_ocr_when_text_short": 120,
+    "pdf_image_area_ratio_for_ocr": 0.35,
+
+    "collapse_inner_whitespace": False,
+    "drop_blank_lines": False,
+    "max_consecutive_blank_lines": 2,
+
+    "drop_decorative_lines": True,
+    "drop_page_number_lines": True,
+    "drop_repeated_short_lines": True,
+    "repeated_short_line_min_repeats": 3,
+    "repeated_short_line_max_len": 80,
+    "drop_isolated_noise_lines": True,
+    "noise_line_max_len": 3,
+
+    "toc_detection": True,
+    "min_strong_marker_ratio": 0.02,
+    "max_weak_marker_ratio": 0.45,
+    "allow_single_number_heading": True,
+    "max_single_heading_number": 199,
+    "strict_validate": True,
+
+    "atom_max_tokens": 120,
+    "atom_max_chars": 480,
+    "atom_min_tokens": 8,
+    "atom_min_chars": 20,
+    "fix_empty_units": True,
+    "prefer_merge_empty_to_left": False,
+
+    "ckpt": "/root/autodl-tmp/runs/refiner/week2_mixed_llmgold_x4_e3/checkpoints/epoch_8.pt",
+    "doc_layers": 1,
+    "window_size": 8,
+    "k_shift": 6,
+    "refine_passes": 2,
+    "temperatures": [0.90, 1.00],
+    "insert_thresholds": [0.45, 0.50],
+    "seeds": [11, 22, 33],
+    "include_identity": False,
+    "include_greedy": False,
+
+    "candidate_select_policy": "greedy_first",
+    "export_leaf_records": True,
+    "export_doc_catalog": True,
+
+    "infer_script": None,
+}
+
+
+
+def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    config_arg, remaining = preparse_config_arg(argv)
+    raw_cfg, loaded_cfg_path = load_pipeline_config(config_arg)
+    runner_cfg = get_runner_config(raw_cfg, "run_refiner_pipeline")
+    config_values, unknown_cfg_keys = filter_allowed_keys(runner_cfg, set(DEFAULTS.keys()))
+
     p = argparse.ArgumentParser(
         description=(
             "End-to-end refiner pipeline runner: "
-            "txt -> rule chunk0 -> atoms_b0 -> frozen refiner infer -> refined_chunks"
-        )
+            "raw docs (pdf/docx/txt/json) -> rule chunk0 -> atoms_b0 -> "
+            "frozen refiner infer -> refined outputs"
+        ),
+        argument_default=argparse.SUPPRESS,
     )
 
-    # -----------------------------
-    # Input / Output
-    # -----------------------------
-    p.add_argument(
-        "--input_paths",
-        nargs="+",
-        default=None,
-        help="Input txt/text/md files or directories. Required unless --reuse_atoms_b0_jsonl is provided.",
-    )
-    p.add_argument(
-        "--output_dir",
-        required=True,
-        help="Unified output directory for the full refiner pipeline.",
-    )
-    p.add_argument(
-        "--recursive",
-        action="store_true",
-        help="Recursively scan directories for txt-like files in stage 1.",
-    )
-    p.add_argument(
-        "--encoding",
-        default=None,
-        help="Optional explicit text encoding for stage 1.",
-    )
-    p.add_argument(
-        "--domain",
-        default=None,
-        help="Optional domain tag, e.g. rail.",
-    )
+    p.add_argument("--config", help="Optional pipeline config YAML path.")
+    p.add_argument("--input_paths", nargs="+")
+    p.add_argument("--output_dir")
+    p.add_argument("--recursive", action="store_true")
+    p.add_argument("--domain")
 
-    # -----------------------------
-    # Stage control
-    # -----------------------------
-    p.add_argument(
-        "--skip_stage1",
-        action="store_true",
-        help="Skip rule chunk0 / atoms_b0 building stage.",
-    )
-    p.add_argument(
-        "--skip_stage2",
-        action="store_true",
-        help="Skip refiner inference/export stage.",
-    )
-    p.add_argument(
-        "--reuse_atoms_b0_jsonl",
-        default=None,
-        help="Use an existing atoms_b0.jsonl instead of generating a new one.",
-    )
+    p.add_argument("--skip_stage1", action="store_true")
+    p.add_argument("--skip_stage2", action="store_true")
+    p.add_argument("--reuse_atoms_b0_jsonl")
 
-    # -----------------------------
-    # Stage 1 dump flags
-    # -----------------------------
     p.add_argument("--dump_structure_doc", action="store_true")
     p.add_argument("--dump_chunk0_json", action="store_true")
     p.add_argument("--dump_intermediate_records", action="store_true")
 
-    # -----------------------------
-    # Normalize config (stage 1)
-    # -----------------------------
+    # PDF
+    p.add_argument("--pdf_max_pages", type=int)
+    p.add_argument("--pdf_min_font_size", type=float)
+    p.add_argument("--pdf_max_weird_ratio_span", type=float)
+    p.add_argument("--disable_pdf_drop_tiny_spans", action="store_true")
+    p.add_argument("--pdf_garbled_page_weird_ratio", type=float)
+    p.add_argument("--pdf_garbled_min_len", type=int)
+    p.add_argument("--disable_pdf_ocr_on_images", action="store_true")
+    p.add_argument("--pdf_ocr_always_on_images", action="store_true")
+    p.add_argument("--pdf_ocr_dpi", type=int)
+    p.add_argument("--pdf_ocr_lang")
+    p.add_argument("--pdf_ocr_backend")
+    p.add_argument("--disable_pdf_enable_pdftotext", action="store_true")
+    p.add_argument("--pdf_ocr_when_text_short", type=int)
+    p.add_argument("--pdf_image_area_ratio_for_ocr", type=float)
+
+    # normalize
     p.add_argument("--collapse_inner_whitespace", action="store_true")
     p.add_argument("--drop_blank_lines", action="store_true")
-    p.add_argument("--max_consecutive_blank_lines", type=int, default=2)
+    p.add_argument("--max_consecutive_blank_lines", type=int)
 
-    # -----------------------------
-    # Clean config (stage 1)
-    # -----------------------------
+    # clean
     p.add_argument("--disable_drop_decorative_lines", action="store_true")
     p.add_argument("--disable_drop_page_number_lines", action="store_true")
     p.add_argument("--disable_drop_repeated_short_lines", action="store_true")
-    p.add_argument("--repeated_short_line_min_repeats", type=int, default=3)
-    p.add_argument("--repeated_short_line_max_len", type=int, default=80)
+    p.add_argument("--repeated_short_line_min_repeats", type=int)
+    p.add_argument("--repeated_short_line_max_len", type=int)
     p.add_argument("--disable_drop_isolated_noise_lines", action="store_true")
-    p.add_argument("--noise_line_max_len", type=int, default=3)
+    p.add_argument("--noise_line_max_len", type=int)
 
-    # -----------------------------
-    # Segment config (stage 1)
-    # -----------------------------
+    # segment
     p.add_argument("--disable_toc_detection", action="store_true")
-    p.add_argument("--min_strong_marker_ratio", type=float, default=0.02)
-    p.add_argument("--max_weak_marker_ratio", type=float, default=0.45)
+    p.add_argument("--min_strong_marker_ratio", type=float)
+    p.add_argument("--max_weak_marker_ratio", type=float)
     p.add_argument("--disable_allow_single_number_heading", action="store_true")
-    p.add_argument("--max_single_heading_number", type=int, default=199)
+    p.add_argument("--max_single_heading_number", type=int)
     p.add_argument("--disable_strict_validate", action="store_true")
 
-    # -----------------------------
-    # Atomizer config (stage 1)
-    # -----------------------------
-    p.add_argument("--atom_max_tokens", type=int, default=120)
-    p.add_argument("--atom_max_chars", type=int, default=480)
-    p.add_argument("--atom_min_tokens", type=int, default=8)
-    p.add_argument("--atom_min_chars", type=int, default=20)
+    # atomizer
+    p.add_argument("--atom_max_tokens", type=int)
+    p.add_argument("--atom_max_chars", type=int)
+    p.add_argument("--atom_min_tokens", type=int)
+    p.add_argument("--atom_min_chars", type=int)
     p.add_argument("--disable_fix_empty_units", action="store_true")
     p.add_argument("--prefer_merge_empty_to_left", action="store_true")
 
-    # -----------------------------
-    # Stage 2 refiner infer config
-    # -----------------------------
-    p.add_argument(
-        "--ckpt",
-        default="/root/autodl-tmp/runs/refiner/week2_mixed_llmgold_x4_e3/checkpoints/epoch_8.pt",
-        help="Frozen refiner checkpoint path.",
-    )
-    p.add_argument("--doc_layers", type=int, default=1)
-    p.add_argument("--window_size", type=int, default=8)
-    p.add_argument("--k_shift", type=int, default=6)
-    p.add_argument("--refine_passes", type=int, default=2)
-    p.add_argument("--temperatures", nargs="+", type=float, default=[0.90, 1.00])
-    p.add_argument("--insert_thresholds", nargs="+", type=float, default=[0.45, 0.50])
-    p.add_argument("--seeds", nargs="+", type=int, default=[11, 22, 33])
+    # stage2
+    p.add_argument("--ckpt")
+    p.add_argument("--doc_layers", type=int)
+    p.add_argument("--window_size", type=int)
+    p.add_argument("--k_shift", type=int)
+    p.add_argument("--refine_passes", type=int)
+    p.add_argument("--temperatures", nargs="+", type=float)
+    p.add_argument("--insert_thresholds", nargs="+", type=float)
+    p.add_argument("--seeds", nargs="+", type=int)
     p.add_argument("--include_identity", action="store_true")
     p.add_argument("--include_greedy", action="store_true")
-
-    # -----------------------------
-    # Export policy (stage 2)
-    # -----------------------------
     p.add_argument(
         "--candidate_select_policy",
-        default="greedy_first",
         choices=["greedy_first", "best_teacher_stats"],
     )
     p.add_argument("--disable_export_leaf_records", action="store_true")
+    p.add_argument("--disable_export_doc_catalog", action="store_true")
+    p.add_argument("--infer_script")
 
-    # -----------------------------
-    # Script path override
-    # -----------------------------
-    p.add_argument(
-        "--rule_runner_script",
-        default=None,
-        help="Optional override for module path execution is not needed; reserved for future use.",
-    )
-    p.add_argument(
-        "--infer_runner_script",
-        default=None,
-        help="Optional override for module path execution is not needed; reserved for future use.",
-    )
-    p.add_argument(
-        "--infer_script",
-        default=None,
-        help="Optional override for SLAC/refiner/scripts/infer_bestofn.py path, passed to stage 2.",
-    )
+    cli_values = vars(p.parse_args(remaining))
+    resolved = merge_resolved_args(DEFAULTS, config_values, cli_values)
 
-    return p.parse_args()
+    if cli_values.get("disable_pdf_drop_tiny_spans"):
+        resolved["pdf_drop_tiny_spans"] = False
+    if cli_values.get("disable_pdf_ocr_on_images"):
+        resolved["pdf_ocr_on_images"] = False
+    if cli_values.get("disable_pdf_enable_pdftotext"):
+        resolved["pdf_enable_pdftotext"] = False
+
+    if cli_values.get("disable_drop_decorative_lines"):
+        resolved["drop_decorative_lines"] = False
+    if cli_values.get("disable_drop_page_number_lines"):
+        resolved["drop_page_number_lines"] = False
+    if cli_values.get("disable_drop_repeated_short_lines"):
+        resolved["drop_repeated_short_lines"] = False
+    if cli_values.get("disable_drop_isolated_noise_lines"):
+        resolved["drop_isolated_noise_lines"] = False
+
+    if cli_values.get("disable_toc_detection"):
+        resolved["toc_detection"] = False
+    if cli_values.get("disable_allow_single_number_heading"):
+        resolved["allow_single_number_heading"] = False
+    if cli_values.get("disable_strict_validate"):
+        resolved["strict_validate"] = False
+    if cli_values.get("disable_fix_empty_units"):
+        resolved["fix_empty_units"] = False
+
+    if cli_values.get("disable_export_leaf_records"):
+        resolved["export_leaf_records"] = False
+    if cli_values.get("disable_export_doc_catalog"):
+        resolved["export_doc_catalog"] = False
+
+    resolved["config"] = str(loaded_cfg_path) if loaded_cfg_path is not None else config_arg
+    resolved["_unknown_config_keys"] = unknown_cfg_keys
+
+    if not resolved.get("output_dir"):
+        p.error("Missing required output: --output_dir (or set run_refiner_pipeline.output_dir in config).")
+
+    if not resolved.get("skip_stage1"):
+        if not resolved.get("input_paths") and not resolved.get("reuse_atoms_b0_jsonl"):
+            p.error(
+                "Stage 1 needs --input_paths unless you set --reuse_atoms_b0_jsonl "
+                "or configure run_refiner_pipeline.input_paths."
+            )
+
+    return namespace_from_dict(resolved)
 
 
 def ensure_output_subdirs(output_dir: Path) -> dict[str, Path]:
@@ -192,12 +259,13 @@ def build_stage1_cmd(args: argparse.Namespace, stage1_output_dir: Path) -> List[
         "--output_dir", str(stage1_output_dir),
     ]
 
+    if args.config:
+        cmd.extend(["--config", args.config])
+
     if args.input_paths:
         cmd.extend(["--input_paths", *args.input_paths])
     if args.recursive:
         cmd.append("--recursive")
-    if args.encoding is not None:
-        cmd.extend(["--encoding", args.encoding])
     if args.domain is not None:
         cmd.extend(["--domain", args.domain])
 
@@ -208,39 +276,63 @@ def build_stage1_cmd(args: argparse.Namespace, stage1_output_dir: Path) -> List[
     if args.dump_intermediate_records:
         cmd.append("--dump_intermediate_records")
 
+    # pdf config
+    cmd.extend(["--pdf_max_pages", str(args.pdf_max_pages)])
+    cmd.extend(["--pdf_min_font_size", str(args.pdf_min_font_size)])
+    cmd.extend(["--pdf_max_weird_ratio_span", str(args.pdf_max_weird_ratio_span)])
+    if not args.pdf_drop_tiny_spans:
+        cmd.append("--disable_pdf_drop_tiny_spans")
+    cmd.extend(["--pdf_garbled_page_weird_ratio", str(args.pdf_garbled_page_weird_ratio)])
+    cmd.extend(["--pdf_garbled_min_len", str(args.pdf_garbled_min_len)])
+    if not args.pdf_ocr_on_images:
+        cmd.append("--disable_pdf_ocr_on_images")
+    if args.pdf_ocr_always_on_images:
+        cmd.append("--pdf_ocr_always_on_images")
+    cmd.extend(["--pdf_ocr_dpi", str(args.pdf_ocr_dpi)])
+    cmd.extend(["--pdf_ocr_lang", args.pdf_ocr_lang])
+    cmd.extend(["--pdf_ocr_backend", args.pdf_ocr_backend])
+    if not args.pdf_enable_pdftotext:
+        cmd.append("--disable_pdf_enable_pdftotext")
+    cmd.extend(["--pdf_ocr_when_text_short", str(args.pdf_ocr_when_text_short)])
+    cmd.extend(["--pdf_image_area_ratio_for_ocr", str(args.pdf_image_area_ratio_for_ocr)])
+
+    # normalize config
     if args.collapse_inner_whitespace:
         cmd.append("--collapse_inner_whitespace")
     if args.drop_blank_lines:
         cmd.append("--drop_blank_lines")
     cmd.extend(["--max_consecutive_blank_lines", str(args.max_consecutive_blank_lines)])
 
-    if args.disable_drop_decorative_lines:
+    # clean config
+    if not args.drop_decorative_lines:
         cmd.append("--disable_drop_decorative_lines")
-    if args.disable_drop_page_number_lines:
+    if not args.drop_page_number_lines:
         cmd.append("--disable_drop_page_number_lines")
-    if args.disable_drop_repeated_short_lines:
+    if not args.drop_repeated_short_lines:
         cmd.append("--disable_drop_repeated_short_lines")
     cmd.extend(["--repeated_short_line_min_repeats", str(args.repeated_short_line_min_repeats)])
     cmd.extend(["--repeated_short_line_max_len", str(args.repeated_short_line_max_len)])
-    if args.disable_drop_isolated_noise_lines:
+    if not args.drop_isolated_noise_lines:
         cmd.append("--disable_drop_isolated_noise_lines")
     cmd.extend(["--noise_line_max_len", str(args.noise_line_max_len)])
 
-    if args.disable_toc_detection:
+    # segment config
+    if not args.toc_detection:
         cmd.append("--disable_toc_detection")
     cmd.extend(["--min_strong_marker_ratio", str(args.min_strong_marker_ratio)])
     cmd.extend(["--max_weak_marker_ratio", str(args.max_weak_marker_ratio)])
-    if args.disable_allow_single_number_heading:
+    if not args.allow_single_number_heading:
         cmd.append("--disable_allow_single_number_heading")
     cmd.extend(["--max_single_heading_number", str(args.max_single_heading_number)])
-    if args.disable_strict_validate:
+    if not args.strict_validate:
         cmd.append("--disable_strict_validate")
 
+    # atomizer config
     cmd.extend(["--atom_max_tokens", str(args.atom_max_tokens)])
     cmd.extend(["--atom_max_chars", str(args.atom_max_chars)])
     cmd.extend(["--atom_min_tokens", str(args.atom_min_tokens)])
     cmd.extend(["--atom_min_chars", str(args.atom_min_chars)])
-    if args.disable_fix_empty_units:
+    if not args.fix_empty_units:
         cmd.append("--disable_fix_empty_units")
     if args.prefer_merge_empty_to_left:
         cmd.append("--prefer_merge_empty_to_left")
@@ -266,12 +358,17 @@ def build_stage2_cmd(args: argparse.Namespace, atoms_b0_jsonl: Path, stage2_outp
         "--candidate_select_policy", args.candidate_select_policy,
     ]
 
+    if args.config:
+        cmd.extend(["--config", args.config])
+
     if args.include_identity:
         cmd.append("--include_identity")
     if args.include_greedy:
         cmd.append("--include_greedy")
-    if args.disable_export_leaf_records:
+    if not args.export_leaf_records:
         cmd.append("--disable_export_leaf_records")
+    if not args.export_doc_catalog:
+        cmd.append("--disable_export_doc_catalog")
     if args.infer_script is not None:
         cmd.extend(["--infer_script", args.infer_script])
 
@@ -340,6 +437,12 @@ def main() -> None:
         jsonl_file=False,
     )
 
+    if getattr(args, "_unknown_config_keys", None):
+        logger.warning(
+            "Ignored unknown config keys for run_refiner_pipeline: %s",
+            args._unknown_config_keys,
+        )
+
     summary: dict = {
         "status": "running",
         "args": vars(args),
@@ -355,9 +458,6 @@ def main() -> None:
     }
 
     try:
-        # -----------------------------
-        # Determine atoms_b0 source
-        # -----------------------------
         if args.reuse_atoms_b0_jsonl is not None:
             atoms_b0_jsonl = Path(args.reuse_atoms_b0_jsonl).expanduser().resolve()
             if not atoms_b0_jsonl.exists():
@@ -415,7 +515,9 @@ def main() -> None:
 
             refined_chunks_jsonl = out_dirs["stage2"] / "refined_chunks.jsonl"
             selected_candidates_jsonl = out_dirs["stage2"] / "selected_candidates.jsonl"
+            refined_boundaries_jsonl = out_dirs["stage2"] / "refined_boundaries.jsonl"
             leaf_records_jsonl = out_dirs["stage2"] / "leaf_records.jsonl"
+            doc_catalog_jsonl = out_dirs["stage2"] / "doc_catalog.jsonl"
 
             if not refined_chunks_jsonl.exists():
                 raise FileNotFoundError(
@@ -426,8 +528,12 @@ def main() -> None:
             summary["artifacts"]["refined_chunks_jsonl"] = str(refined_chunks_jsonl)
             if selected_candidates_jsonl.exists():
                 summary["artifacts"]["selected_candidates_jsonl"] = str(selected_candidates_jsonl)
+            if refined_boundaries_jsonl.exists():
+                summary["artifacts"]["refined_boundaries_jsonl"] = str(refined_boundaries_jsonl)
             if leaf_records_jsonl.exists():
                 summary["artifacts"]["leaf_records_jsonl"] = str(leaf_records_jsonl)
+            if doc_catalog_jsonl.exists():
+                summary["artifacts"]["doc_catalog_jsonl"] = str(doc_catalog_jsonl)
 
             logger.info("Stage 2 success. refined_chunks.jsonl = %s", refined_chunks_jsonl)
 

@@ -1,12 +1,6 @@
-"""
-Run only reading/cleaning/rule-based chunk0 generation.
-
-Useful for debugging hard segmentation quality before refiner.
-"""
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import traceback
 from pathlib import Path
@@ -16,97 +10,206 @@ from ..assemble.build_refiner_input import (
     RefinerInputBuildConfig,
     build_refiner_input_from_structure_doc,
 )
+from ..configs.loader import (
+    filter_allowed_keys,
+    get_runner_config,
+    load_pipeline_config,
+    merge_resolved_args,
+    namespace_from_dict,
+    preparse_config_arg,
+)
 from ..preprocess.clean_text import CleanTextConfig, clean_document_record
 from ..preprocess.normalize_text import NormalizeConfig, normalize_document_record
-from ..readers.txt_reader import iter_txt_documents
+from ..readers import iter_documents
+from ..readers.pdf_reader import PDFReaderConfig
 from ..segment.chunk0_adapter import attach_chunk0_units
 from ..segment.rule_segmenter import RuleSegmenterConfig, segment_document_record
 from ..utils.io import dump_json, dump_jsonl, ensure_dir
 from ..utils.log_utils import log_doc_event, setup_logger
 
 
-def parse_args() -> argparse.Namespace:
+DEFAULTS: Dict[str, Any] = {
+    "input_paths": None,
+    "output_dir": None,
+    "recursive": False,
+    "domain": None,
+
+    "dump_structure_doc": False,
+    "dump_intermediate_records": False,
+    "dump_chunk0_json": False,
+
+    "pdf_max_pages": 0,
+    "pdf_min_font_size": 5.0,
+    "pdf_max_weird_ratio_span": 0.35,
+    "pdf_drop_tiny_spans": True,
+    "pdf_garbled_page_weird_ratio": 0.25,
+    "pdf_garbled_min_len": 10,
+    "pdf_ocr_on_images": True,
+    "pdf_ocr_always_on_images": False,
+    "pdf_ocr_dpi": 300,
+    "pdf_ocr_lang": "chi_sim+eng",
+    "pdf_ocr_backend": "tesseract",
+    "pdf_enable_pdftotext": True,
+    "pdf_ocr_when_text_short": 120,
+    "pdf_image_area_ratio_for_ocr": 0.35,
+
+    "collapse_inner_whitespace": False,
+    "drop_blank_lines": False,
+    "max_consecutive_blank_lines": 2,
+
+    "drop_decorative_lines": True,
+    "drop_page_number_lines": True,
+    "drop_repeated_short_lines": True,
+    "repeated_short_line_min_repeats": 3,
+    "repeated_short_line_max_len": 80,
+    "drop_isolated_noise_lines": True,
+    "noise_line_max_len": 3,
+
+    "toc_detection": True,
+    "min_strong_marker_ratio": 0.02,
+    "max_weak_marker_ratio": 0.45,
+    "allow_single_number_heading": True,
+    "max_single_heading_number": 199,
+    "strict_validate": True,
+
+    "atom_max_tokens": 120,
+    "atom_max_chars": 480,
+    "atom_min_tokens": 8,
+    "atom_min_chars": 20,
+    "fix_empty_units": True,
+    "prefer_merge_empty_to_left": False,
+}
+
+
+
+def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    config_arg, remaining = preparse_config_arg(argv)
+    raw_cfg, loaded_cfg_path = load_pipeline_config(config_arg)
+    runner_cfg = get_runner_config(raw_cfg, "run_rule_chunk0_only")
+    config_values, unknown_cfg_keys = filter_allowed_keys(runner_cfg, set(DEFAULTS.keys()))
+
     p = argparse.ArgumentParser(
-        description="Run txt -> normalize -> clean -> rule segment -> chunk0 -> atoms_b0 pipeline."
+        description=(
+            "Run raw docs (pdf/docx/txt/json) -> normalize -> clean -> "
+            "rule segment -> chunk0 -> atoms_b0 pipeline."
+        ),
+        argument_default=argparse.SUPPRESS,
     )
 
-    p.add_argument(
-        "--input_paths",
-        nargs="+",
-        required=True,
-        help="Input txt/text/md files or directories.",
-    )
-    p.add_argument(
-        "--output_dir",
-        required=True,
-        help="Output directory for pipeline artifacts.",
-    )
-    p.add_argument(
-        "--recursive",
-        action="store_true",
-        help="Recursively scan directories for txt-like files.",
-    )
-    p.add_argument(
-        "--encoding",
-        default=None,
-        help="Optional explicit text encoding. If omitted, fallback decoding is used.",
-    )
+    p.add_argument("--config", help="Optional pipeline config YAML path.")
+    p.add_argument("--input_paths", nargs="+")
+    p.add_argument("--output_dir")
+    p.add_argument("--recursive", action="store_true")
+    p.add_argument("--domain")
 
-    # Output controls
-    p.add_argument(
-        "--dump_structure_doc",
-        action="store_true",
-        help="Dump per-doc structure_doc json.",
-    )
-    p.add_argument(
-        "--dump_intermediate_records",
-        action="store_true",
-        help="Dump per-doc normalized/cleaned/segment intermediate records.",
-    )
-    p.add_argument(
-        "--dump_chunk0_json",
-        action="store_true",
-        help="Dump per-doc chunk0-enriched structure json.",
-    )
+    p.add_argument("--dump_structure_doc", action="store_true")
+    p.add_argument("--dump_intermediate_records", action="store_true")
+    p.add_argument("--dump_chunk0_json", action="store_true")
 
-    # Domain / metadata
-    p.add_argument(
-        "--domain",
-        default=None,
-        help="Optional domain tag to include in atoms_b0 output, e.g. rail.",
-    )
+    # PDF
+    p.add_argument("--pdf_max_pages", type=int)
+    p.add_argument("--pdf_min_font_size", type=float)
+    p.add_argument("--pdf_max_weird_ratio_span", type=float)
+    p.add_argument("--disable_pdf_drop_tiny_spans", action="store_true")
+    p.add_argument("--pdf_garbled_page_weird_ratio", type=float)
+    p.add_argument("--pdf_garbled_min_len", type=int)
+    p.add_argument("--disable_pdf_ocr_on_images", action="store_true")
+    p.add_argument("--pdf_ocr_always_on_images", action="store_true")
+    p.add_argument("--pdf_ocr_dpi", type=int)
+    p.add_argument("--pdf_ocr_lang")
+    p.add_argument("--pdf_ocr_backend")
+    p.add_argument("--disable_pdf_enable_pdftotext", action="store_true")
+    p.add_argument("--pdf_ocr_when_text_short", type=int)
+    p.add_argument("--pdf_image_area_ratio_for_ocr", type=float)
 
-    # Normalize config
+    # normalize
     p.add_argument("--collapse_inner_whitespace", action="store_true")
     p.add_argument("--drop_blank_lines", action="store_true")
-    p.add_argument("--max_consecutive_blank_lines", type=int, default=2)
+    p.add_argument("--max_consecutive_blank_lines", type=int)
 
-    # Clean config
+    # clean
     p.add_argument("--disable_drop_decorative_lines", action="store_true")
     p.add_argument("--disable_drop_page_number_lines", action="store_true")
     p.add_argument("--disable_drop_repeated_short_lines", action="store_true")
-    p.add_argument("--repeated_short_line_min_repeats", type=int, default=3)
-    p.add_argument("--repeated_short_line_max_len", type=int, default=80)
+    p.add_argument("--repeated_short_line_min_repeats", type=int)
+    p.add_argument("--repeated_short_line_max_len", type=int)
     p.add_argument("--disable_drop_isolated_noise_lines", action="store_true")
-    p.add_argument("--noise_line_max_len", type=int, default=3)
+    p.add_argument("--noise_line_max_len", type=int)
 
-    # Segment config
+    # segment
     p.add_argument("--disable_toc_detection", action="store_true")
-    p.add_argument("--min_strong_marker_ratio", type=float, default=0.02)
-    p.add_argument("--max_weak_marker_ratio", type=float, default=0.45)
+    p.add_argument("--min_strong_marker_ratio", type=float)
+    p.add_argument("--max_weak_marker_ratio", type=float)
     p.add_argument("--disable_allow_single_number_heading", action="store_true")
-    p.add_argument("--max_single_heading_number", type=int, default=199)
+    p.add_argument("--max_single_heading_number", type=int)
     p.add_argument("--disable_strict_validate", action="store_true")
 
-    # Atomizer config
-    p.add_argument("--atom_max_tokens", type=int, default=120)
-    p.add_argument("--atom_max_chars", type=int, default=480)
-    p.add_argument("--atom_min_tokens", type=int, default=8)
-    p.add_argument("--atom_min_chars", type=int, default=20)
+    # atomizer
+    p.add_argument("--atom_max_tokens", type=int)
+    p.add_argument("--atom_max_chars", type=int)
+    p.add_argument("--atom_min_tokens", type=int)
+    p.add_argument("--atom_min_chars", type=int)
     p.add_argument("--disable_fix_empty_units", action="store_true")
     p.add_argument("--prefer_merge_empty_to_left", action="store_true")
 
-    return p.parse_args()
+    cli_values = vars(p.parse_args(remaining))
+    resolved = merge_resolved_args(DEFAULTS, config_values, cli_values)
+
+    # Map negative CLI flags -> canonical boolean keys
+    if cli_values.get("disable_pdf_drop_tiny_spans"):
+        resolved["pdf_drop_tiny_spans"] = False
+    if cli_values.get("disable_pdf_ocr_on_images"):
+        resolved["pdf_ocr_on_images"] = False
+    if cli_values.get("disable_pdf_enable_pdftotext"):
+        resolved["pdf_enable_pdftotext"] = False
+
+    if cli_values.get("disable_drop_decorative_lines"):
+        resolved["drop_decorative_lines"] = False
+    if cli_values.get("disable_drop_page_number_lines"):
+        resolved["drop_page_number_lines"] = False
+    if cli_values.get("disable_drop_repeated_short_lines"):
+        resolved["drop_repeated_short_lines"] = False
+    if cli_values.get("disable_drop_isolated_noise_lines"):
+        resolved["drop_isolated_noise_lines"] = False
+
+    if cli_values.get("disable_toc_detection"):
+        resolved["toc_detection"] = False
+    if cli_values.get("disable_allow_single_number_heading"):
+        resolved["allow_single_number_heading"] = False
+    if cli_values.get("disable_strict_validate"):
+        resolved["strict_validate"] = False
+    if cli_values.get("disable_fix_empty_units"):
+        resolved["fix_empty_units"] = False
+
+    resolved["config"] = str(loaded_cfg_path) if loaded_cfg_path is not None else config_arg
+    resolved["_unknown_config_keys"] = unknown_cfg_keys
+
+    if not resolved.get("input_paths"):
+        p.error("Missing required input: --input_paths (or set run_rule_chunk0_only.input_paths in config).")
+    if not resolved.get("output_dir"):
+        p.error("Missing required output: --output_dir (or set run_rule_chunk0_only.output_dir in config).")
+
+    return namespace_from_dict(resolved)
+
+
+def build_pdf_reader_config(args: argparse.Namespace) -> PDFReaderConfig:
+    return PDFReaderConfig(
+        max_pages=args.pdf_max_pages,
+        min_font_size=args.pdf_min_font_size,
+        max_weird_ratio_span=args.pdf_max_weird_ratio_span,
+        drop_tiny_spans=args.pdf_drop_tiny_spans,
+        garbled_page_weird_ratio=args.pdf_garbled_page_weird_ratio,
+        garbled_min_len=args.pdf_garbled_min_len,
+        ocr_on_images=args.pdf_ocr_on_images,
+        ocr_always_on_images=args.pdf_ocr_always_on_images,
+        ocr_dpi=args.pdf_ocr_dpi,
+        ocr_lang=args.pdf_ocr_lang,
+        ocr_backend=args.pdf_ocr_backend,
+        enable_pdftotext=args.pdf_enable_pdftotext,
+        ocr_when_text_short=args.pdf_ocr_when_text_short,
+        image_area_ratio_for_ocr=args.pdf_image_area_ratio_for_ocr,
+        page_separator="\n\n\f\n\n",
+    )
 
 
 def build_normalize_config(args: argparse.Namespace) -> NormalizeConfig:
@@ -125,13 +228,13 @@ def build_normalize_config(args: argparse.Namespace) -> NormalizeConfig:
 
 def build_clean_config(args: argparse.Namespace) -> CleanTextConfig:
     return CleanTextConfig(
-        drop_decorative_lines=not args.disable_drop_decorative_lines,
-        drop_page_number_lines=not args.disable_drop_page_number_lines,
-        drop_repeated_short_lines=not args.disable_drop_repeated_short_lines,
+        drop_decorative_lines=args.drop_decorative_lines,
+        drop_page_number_lines=args.drop_page_number_lines,
+        drop_repeated_short_lines=args.drop_repeated_short_lines,
         repeated_short_line_min_repeats=args.repeated_short_line_min_repeats,
         repeated_short_line_max_len=args.repeated_short_line_max_len,
         repeated_short_line_min_alpha_ratio=0.0,
-        drop_isolated_noise_lines=not args.disable_drop_isolated_noise_lines,
+        drop_isolated_noise_lines=args.drop_isolated_noise_lines,
         noise_line_max_len=args.noise_line_max_len,
         keep_blank_lines=True,
         max_consecutive_blank_lines=args.max_consecutive_blank_lines,
@@ -146,16 +249,16 @@ def build_segment_config(args: argparse.Namespace) -> RuleSegmenterConfig:
         min_unit_text_chars=3,
         min_strong_marker_ratio=args.min_strong_marker_ratio,
         max_weak_marker_ratio=args.max_weak_marker_ratio,
-        allow_single_number_heading=not args.disable_allow_single_number_heading,
+        allow_single_number_heading=args.allow_single_number_heading,
         max_single_heading_number=args.max_single_heading_number,
         title_scan_limit=30,
-        enable_toc_detection=not args.disable_toc_detection,
+        enable_toc_detection=args.toc_detection,
         toc_early_line_window=200,
         toc_dot_leader_ratio=0.22,
         toc_trailing_page_ratio=0.22,
         table_like_min_separators=2,
         numeric_heavy_token_ratio=0.60,
-        strict_validate=not args.disable_strict_validate,
+        strict_validate=args.strict_validate,
     )
 
 
@@ -169,10 +272,10 @@ def build_refiner_input_config(args: argparse.Namespace) -> RefinerInputBuildCon
         split_en_sentences=True,
         dot_in_cjk=True,
         line_fallback=True,
-        fix_empty_units=not args.disable_fix_empty_units,
+        fix_empty_units=args.fix_empty_units,
         prefer_merge_empty_to_right=not args.prefer_merge_empty_to_left,
         require_nonempty_atoms=True,
-        strict_validate=not args.disable_strict_validate,
+        strict_validate=args.strict_validate,
     )
 
 
@@ -255,10 +358,9 @@ def process_one_document(
         cfg=segment_cfg,
         logger=logger,
     )
-
     structure_doc = segment_record["structure_doc"]
 
-    # 4) attach chunk0 units
+    # 4) attach chunk0
     structure_doc_with_chunk0 = attach_chunk0_units(
         structure_doc,
         include_title=True,
@@ -278,7 +380,6 @@ def process_one_document(
         },
     )
 
-    # ---- optional dumps ----
     if dump_intermediate_records:
         dump_json(
             out_dirs["intermediate"] / f"{doc_file}.normalized.json",
@@ -325,6 +426,7 @@ def process_one_document(
     summary = {
         "doc_id": doc_id,
         "source_path": source_path,
+        "source_type": doc_record.get("source_type"),
         "status": "success",
         "language": structure_doc.get("language"),
         "doc_name": structure_doc.get("doc_name"),
@@ -376,7 +478,14 @@ def main() -> None:
         console=False,
         jsonl_file=True,
     )
+    
+    if getattr(args, "_unknown_config_keys", None):
+        logger.warning(
+            "Ignored unknown config keys for run_rule_chunk0_only: %s",
+            args._unknown_config_keys,
+        )
 
+    pdf_cfg = build_pdf_reader_config(args)
     normalize_cfg = build_normalize_config(args)
     clean_cfg = build_clean_config(args)
     segment_cfg = build_segment_config(args)
@@ -386,12 +495,11 @@ def main() -> None:
     atoms_b0_records: List[Dict[str, Any]] = []
 
     try:
-        docs_iter = iter_txt_documents(
+        docs_iter = iter_documents(
             input_paths=args.input_paths,
-            root=None,
-            encoding=args.encoding,
-            errors="strict",
             recursive=args.recursive,
+            pdf_work_dir=out_dirs["intermediate"] / "pdf_reader_cache",
+            pdf_cfg=pdf_cfg,
         )
 
         for doc_record in docs_iter:
@@ -413,6 +521,7 @@ def main() -> None:
                     dump_intermediate_records=args.dump_intermediate_records,
                     dump_chunk0_json=args.dump_chunk0_json,
                 )
+
                 run_summary["num_docs_success"] += 1
                 run_summary["docs"].append(result["summary"])
                 atoms_b0_records.append(result["refiner_input_record"])
@@ -450,7 +559,6 @@ def main() -> None:
                     extra_json=err_summary,
                 )
 
-        # Aggregate outputs
         dump_jsonl(
             out_dirs["root"] / "atoms_b0.jsonl",
             atoms_b0_records,
