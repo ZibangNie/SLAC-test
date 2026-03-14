@@ -478,7 +478,7 @@ def main() -> None:
         console=False,
         jsonl_file=True,
     )
-    
+
     if getattr(args, "_unknown_config_keys", None):
         logger.warning(
             "Ignored unknown config keys for run_rule_chunk0_only: %s",
