@@ -1,0 +1,379 @@
+Boundary Refiner Week 2 Best Checkpoint 使用文档
+1. 当前模型身份
+模型名称
+
+Boundary Refiner - Week 2 current best
+
+checkpoint 路径
+/root/autodl-tmp/runs/refiner/week2_mixed_llmgold_x4_e3/checkpoints/epoch_8.pt
+来源
+
+这是在 Week 1 final checkpoint 基础上继续训练得到的 Week 2 模型：
+
+Week 1 base ckpt：
+
+/root/autodl-tmp/runs/refiner/checkpoints_real_core1024_insbalance_d1w8/epoch_6.pt
+
+Week 2 continuation：
+
+训练集：mixed_train.jsonl
+
+验证集：mixed_dev.jsonl
+
+额外训练 3 个 epoch
+
+当前最佳：epoch_8.pt
+
+当前定位
+
+这是一个边界修正模型（Boundary Refiner），不是端到端全文结构解析器。
+它的职责是：
+
+给定已有 seed chunk 边界 b0，在 atoms 坐标系上做 KEEP / DEL / SHIFT / INSERT 修正，得到更合理的 chunk 边界。
+
+2. 适用场景
+
+适合：
+
+已经有一版规则切分 / 硬编码切分 / seed chunk0
+
+希望在 seed 边界上做局部修正
+
+文档类型接近：
+
+标准
+
+规范
+
+技术文档
+
+铁路工程文本
+
+法规/条文型文档
+
+不适合直接拿来做：
+
+原始 PDF 直接全文结构抽取
+
+没有 seed 边界时的从零分段
+
+纯树结构恢复
+
+3. 模型结构契约
+
+使用这个 checkpoint 时，模型结构必须保持一致：
+
+doc_layers = 1
+
+window_size = 8
+
+doc_hidden_size = 768
+
+doc_heads = 12
+
+atom_max_length = 64
+
+atom encoder = BGE-M3 / XLM-R backbone
+
+K shift = 6
+
+也就是说，加载 epoch8 时不能改动这些核心结构参数。
+
+4. 推荐使用流程
+流程总览
+原始文本 / 文档
+-> 规则切分得到 chunk0_units
+-> build_atoms_b0.py
+-> 生成 atoms + unit2atom_span + b0
+-> infer_bestofn.py / greedy decode
+-> 得到 refined boundaries
+-> 投影回 chunks
+5. 推理输入格式
+
+epoch8 的标准推理输入不是原始 txt，也不是树 JSON，
+而是 atoms+b0 格式 JSONL。
+
+每行一个文档，顶层建议包含这些字段：
+
+{
+  "doc_id": "example_doc",
+  "domain": "rail",
+  "chunk0_units": [
+    {"unit_id": 0, "text": "1 Scope"},
+    {"unit_id": 1, "text": "This standard specifies ..."}
+  ],
+  "atoms": [
+    "1 Scope",
+    "This standard specifies ...",
+    "It applies to ..."
+  ],
+  "unit2atom_span": [
+    {"unit_id": 0, "start_atom": 0, "end_atom": 1},
+    {"unit_id": 1, "start_atom": 1, "end_atom": 3}
+  ],
+  "b0": [1, 0],
+  "meta": {
+    "source": "chunk0_seed"
+  }
+}
+字段说明
+doc_id
+
+文档唯一 ID。
+
+chunk0_units
+
+seed 分块结果，也就是当前已有的粗粒度分段。
+
+atoms
+
+更细粒度原子单元列表。
+通常是句子、短行、条目、结构锚点等。
+
+unit2atom_span
+
+说明每个 chunk0_unit 对应哪些 atoms。
+
+b0
+
+初始边界向量，长度必须满足：
+
+len(b0) = len(atoms) - 1
+
+解释：
+
+b0[g] = 1 表示在 atom g 和 atom g+1 之间有边界
+
+b0[g] = 0 表示没有边界
+
+6. 如何生成标准输入
+
+如果你已经有 chunk0_units，推荐直接用：
+
+python SLAC/refiner/scripts/build_atoms_b0.py \
+  --input path/to/chunk0.jsonl \
+  --output path/to/atoms_b0.jsonl
+
+这个脚本会生成：
+
+atoms
+
+unit2atom_span
+
+b0
+
+7. 推理输出格式
+
+推荐使用 infer_bestofn.py。
+它输出的核心文件是：
+
+all_candidates.jsonl
+
+每一行一个候选，结构类似：
+
+{
+  "doc_id": "example_doc",
+  "candidate_id": "greedy",
+  "candidate_type": "greedy",
+  "teacher_ckpt": ".../epoch_8.pt",
+  "decode_cfg": {
+    "temperature": 1.0,
+    "insert_threshold": 0.5,
+    "seed": 0,
+    "k_shift": 6,
+    "refine_passes": 2
+  },
+  "input_stats": {
+    "num_atoms": 120,
+    "num_units": 18,
+    "num_seed_boundaries": 17
+  },
+  "prediction": {
+    "b0_sparse": [3, 9, 15],
+    "b_pred_sparse": [3, 8, 16],
+    "edit_trace": [
+      {"g0": 3, "action": "KEEP", "shift": 0, "to": 3, "prob": 0.88},
+      {"g0": 9, "action": "SHIFT", "shift": -1, "to": 8, "prob": 0.73},
+      {"g0": 15, "action": "SHIFT", "shift": 1, "to": 16, "prob": 0.67}
+    ],
+    "insert_gaps": [
+      {"gap": 22, "prob": 0.61}
+    ]
+  },
+  "teacher_stats": {
+    "mean_edit_prob": 0.74,
+    "mean_insert_prob": 0.61,
+    "num_deleted": 0,
+    "num_inserted": 1,
+    "num_shifted": 2,
+    "sum_abs_shift": 2
+  },
+  "chunk_stats": {
+    "num_chunks": 19
+  }
+}
+8. 输出字段解释
+prediction.b_pred_sparse
+
+这是最重要的字段。
+表示 refined 边界位置列表。
+
+如果：
+
+"b_pred_sparse": [3, 8, 16]
+
+表示边界在：
+
+atom 3 和 4 之间
+
+atom 8 和 9 之间
+
+atom 16 和 17 之间
+
+prediction.edit_trace
+
+表示模型对原始 seed 边界做了什么编辑：
+
+KEEP
+
+DEL
+
+SHIFT
+
+prediction.insert_gaps
+
+表示模型额外插入了哪些新边界。
+
+9. 如何从输出恢复最终 chunks
+
+给定：
+
+atoms
+
+b_pred_sparse
+
+就可以恢复最终 chunk spans。
+
+规则：
+
+从 atom 0 开始
+
+每遇到一个边界 g，就在 [current_start, g+1) 处切开
+
+最后一段一直到 len(atoms)
+
+例如：
+
+atoms = [a0, a1, a2, a3, a4]
+
+b_pred_sparse = [1, 3]
+
+则最终 chunks 是：
+
+[a0, a1]
+
+[a2, a3]
+
+[a4]
+
+10. 当前推荐推理命令（使用 epoch8）
+
+如果你已经有 atoms_b0.jsonl，可直接推理：
+
+source /root/autodl-tmp/env_refiner.sh
+conda activate SLAC
+cd /root/autodl-tmp/SLAC-test
+
+export CKPT_PATH="/root/autodl-tmp/runs/refiner/week2_mixed_llmgold_x4_e3/checkpoints/epoch_8.pt"
+export INPUT_JSONL="/path/to/atoms_b0.jsonl"
+export OUT_DIR="/path/to/infer_epoch8"
+
+unset PYTORCH_CUDA_ALLOC_CONF
+export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
+export TOKENIZERS_PARALLELISM=false
+
+python SLAC/refiner/scripts/infer_bestofn.py \
+  --input_jsonl "$INPUT_JSONL" \
+  --ckpt "$CKPT_PATH" \
+  --output_dir "$OUT_DIR" \
+  --doc_layers 1 \
+  --window_size 8 \
+  --k_shift 6 \
+  --refine_passes 2 \
+  --temperatures 0.90 1.00 \
+  --insert_thresholds 0.45 0.50 \
+  --seeds 11 22 33 \
+  --include_identity \
+  --include_greedy
+11. 训练输入格式（以后继续训练时）
+
+如果以后还要继续训练 epoch8，训练样本 JSONL 每行至少应包含：
+
+{
+  "sample_id": "rail_llm_gold::doc_x::v0",
+  "doc_id": "doc_x",
+  "atoms": ["...", "..."],
+  "atoms_text": ["...", "..."],
+  "b0": [0, 1, 0, 0],
+  "b_gold": [1, 0, 0, 1],
+  "labels": {
+    "edit": [
+      {"g": 1, "y": "SHIFT:-1"},
+      {"g": 4, "y": "KEEP"}
+    ],
+    "insert": [0, 0, 1, 0]
+  },
+  "sample_weight": 1.0
+}
+训练关键字段
+b0
+
+seed 边界。
+
+b_gold
+
+目标边界。
+
+labels.edit
+
+只对 g0_positions 上的原边界定义动作标签。
+
+labels.insert
+
+对所有 gap 定义是否插入边界。
+
+sample_weight
+
+可选样本权重。没有时默认 1.0。
+
+12. 当前已知限制
+1. 不是全文解析器
+
+epoch8 不是“给原文直接输出树结构”的模型。
+它是 seed boundary refiner。
+
+2. 当前 best 是 mixed-dev best
+
+epoch8 的“最佳”定义基于当前 mixed dev，而不是：
+
+longstress best
+
+铁路专项人工评审 best
+
+3. 长文和铁路专项评测还没正式跑
+
+所以当前文档里应该标明：
+
+Week 2 current best checkpoint; dedicated longstress and railway-specific evaluation pending.
+
+13. 当前建议结论
+
+如果你时间非常紧，现在完全可以这样做：
+
+把 epoch_8.pt 冻结为当前版本
+
+后续功能都默认基于它继续做
+
+在文档和汇报里写清楚它的来源和限制
+
+这是合理的，不会影响你后续推进工程功能
