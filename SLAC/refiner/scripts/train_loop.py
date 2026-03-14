@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import random
 import sys
 from pathlib import Path
@@ -33,7 +32,6 @@ from slac_refiner.eval.metrics import (
     aggregate_metric_dicts,
 )
 
-
 LOCAL_BGE_M3_DIR = r"/root/autodl-tmp/models/bge-m3/bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181"
 
 DEFAULT_PROJECTOR_CFG = ProjectorConfig(
@@ -45,30 +43,29 @@ DEFAULT_PROJECTOR_CFG = ProjectorConfig(
     min_chunk_tokens=48,
 )
 
-SMOKE_PROJECTOR_CFG = ProjectorConfig(
-    max_chunk_atoms=64,
-    min_chunk_atoms=1,
-    max_chunk_chars=1600,
-    min_chunk_chars=1,
-    max_chunk_tokens=384,
-    min_chunk_tokens=1,
-)
-
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Minimal train loop for Boundary Refiner")
+    parser = argparse.ArgumentParser(description="Train loop for Boundary Refiner (supports continuation finetune).")
     parser.add_argument("--train", type=str, required=True)
     parser.add_argument("--dev", type=str, required=True)
-    parser.add_argument("--epochs", type=int, default=3)
+    parser.add_argument("--epochs", type=int, default=2, help="Additional epochs to run from init_ckpt.")
     parser.add_argument("--batch_size", type=int, default=1)
-    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--weight_decay", type=float, default=1e-2)
-    parser.add_argument("--doc_layers", type=int, default=2)
-    parser.add_argument("--window_size", type=int, default=16)
+    parser.add_argument("--doc_layers", type=int, default=1)
+    parser.add_argument("--window_size", type=int, default=8)
     parser.add_argument("--seed", type=int, default=13)
     parser.add_argument("--save_dir", type=str, default=None)
-    parser.add_argument("--insert_loss_weight", type=float, default=4.0)
+    parser.add_argument("--log_dir", type=str, default=None)
+
     parser.add_argument("--insert_pos_weight", type=float, default=16.0)
+    parser.add_argument("--alpha_insert", type=float, default=3.0)
+    parser.add_argument("--alpha_edit", type=float, default=1.0)
+    parser.add_argument("--beta_cost", type=float, default=0.05)
+
+    parser.add_argument("--init_ckpt", type=str, default=None)
+    parser.add_argument("--sample_weight_field", type=str, default=None)
+
     return parser.parse_args()
 
 
@@ -92,13 +89,13 @@ def build_model(args):
     return model
 
 
-def build_criterion():
+def build_criterion(args):
     return RefinerLoss(
-        insert_pos_weight=16.0,
-        alpha_insert=3.0,
-        alpha_edit=1.0,
+        insert_pos_weight=args.insert_pos_weight,
+        alpha_insert=args.alpha_insert,
+        alpha_edit=args.alpha_edit,
         alpha_offset=0.5,
-        beta_cost=0.05,
+        beta_cost=args.beta_cost,
         lambda_del=1.0,
         lambda_ins=1.0,
         lambda_shift=0.25,
@@ -113,6 +110,25 @@ def move_batch_to_device(batch: Dict, device: torch.device) -> Dict:
         else:
             out[k] = v
     return out
+
+
+def load_init_ckpt(model, ckpt_path: str | None) -> int:
+    if ckpt_path is None:
+        return 0
+
+    ckpt = torch.load(ckpt_path, map_location="cpu")
+    state_dict = ckpt["model_state_dict"] if isinstance(ckpt, dict) and "model_state_dict" in ckpt else ckpt
+
+    missing, unexpected = model.load_state_dict(state_dict, strict=False)
+    if missing:
+        raise RuntimeError(f"Missing keys when loading checkpoint: {missing[:20]}")
+    if unexpected:
+        raise RuntimeError(f"Unexpected keys when loading checkpoint: {unexpected[:20]}")
+
+    ckpt_epoch = int(ckpt.get("epoch", 0)) if isinstance(ckpt, dict) else 0
+    print(f"[init_ckpt] loaded model from {ckpt_path}")
+    print(f"[init_ckpt] checkpoint epoch = {ckpt_epoch}")
+    return ckpt_epoch
 
 
 def train_one_epoch(model, loader, criterion, optimizer, epoch: int):
@@ -158,7 +174,6 @@ def evaluate(model, loader, projector_cfg):
     length_metrics = []
 
     K = 6
-
     pbar = tqdm(loader, desc="dev", leave=False)
 
     for batch in pbar:
@@ -232,27 +247,37 @@ def evaluate(model, loader, projector_cfg):
     }
 
 
-def maybe_save(model, save_dir: str | None, epoch: int, dev_metrics: Dict):
+def maybe_save(model, optimizer, save_dir: str | None, epoch: int, dev_metrics: Dict, args):
     if save_dir is None:
         return
-
     save_path = Path(save_dir)
     save_path.mkdir(parents=True, exist_ok=True)
 
     ckpt = {
         "epoch": epoch,
         "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
         "dev_metrics": dev_metrics,
+        "train_args": vars(args),
     }
     torch.save(ckpt, save_path / f"epoch_{epoch}.pt")
+
+
+def append_epoch_log(log_dir: str | None, row: Dict):
+    if log_dir is None:
+        return
+    p = Path(log_dir)
+    p.mkdir(parents=True, exist_ok=True)
+    with (p / "train_history.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def main():
     args = parse_args()
     set_seed(args.seed)
 
-    train_ds = RefinerDenoiseDataset(args.train)
-    dev_ds = RefinerDenoiseDataset(args.dev)
+    train_ds = RefinerDenoiseDataset(args.train, sample_weight_field=args.sample_weight_field)
+    dev_ds = RefinerDenoiseDataset(args.dev, sample_weight_field=args.sample_weight_field)
 
     train_loader = DataLoader(
         train_ds,
@@ -268,8 +293,9 @@ def main():
     )
 
     model = build_model(args)
-    criterion = build_criterion()
+    start_epoch_base = load_init_ckpt(model, args.init_ckpt)
 
+    criterion = build_criterion(args)
     trainable_params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(
         trainable_params,
@@ -278,18 +304,30 @@ def main():
     )
 
     best_f1 = -1.0
+    start_epoch = start_epoch_base + 1
+    end_epoch = start_epoch_base + args.epochs
 
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch, end_epoch + 1):
         train_stats = train_one_epoch(model, train_loader, criterion, optimizer, epoch)
-
-        # 现在这个 demo 很小，用 smoke projector 配置更合理；
-        # 后面换真实 llm_gold dev 时改回 DEFAULT_PROJECTOR_CFG
         dev_stats = evaluate(model, dev_loader, projector_cfg=DEFAULT_PROJECTOR_CFG)
 
         boundary_f1 = dev_stats["boundary"].get("f1", 0.0)
         if boundary_f1 > best_f1:
             best_f1 = boundary_f1
-            maybe_save(model, args.save_dir, epoch, dev_stats)
+            maybe_save(model, optimizer, args.save_dir, epoch, dev_stats, args)
+
+        row = {
+            "epoch": epoch,
+            "train_loss": train_stats["loss"],
+            "dev_boundary": dev_stats["boundary"],
+            "dev_edit": dev_stats["edit"],
+            "dev_insert_acc": dev_stats["insert_acc"],
+            "dev_insert_prf": dev_stats["insert_prf"],
+            "dev_shift": dev_stats["shift"],
+            "dev_length": dev_stats["length"],
+            "best_boundary_f1": best_f1,
+        }
+        append_epoch_log(args.log_dir, row)
 
         print(f"epoch={epoch}")
         print("  train loss =", train_stats["loss"])

@@ -33,6 +33,7 @@ def refiner_collate_fn(batch: List[Dict]) -> Dict:
     doc_ids = [x["doc_id"] for x in batch]
     num_atoms = torch.tensor([x["num_atoms"] for x in batch], dtype=torch.long)
     num_gaps = torch.tensor([x["num_gaps"] for x in batch], dtype=torch.long)
+    sample_weight = torch.stack([x["sample_weight"] for x in batch]).float()
 
     b0, b0_mask = _pad_1d_long([x["b0"] for x in batch], pad_value=0)
     b_gold, b_gold_mask = _pad_1d_long([x["b_gold"] for x in batch], pad_value=0)
@@ -49,15 +50,16 @@ def refiner_collate_fn(batch: List[Dict]) -> Dict:
 
     edit_choice, edit_choice_mask = _pad_1d_long(
         [x["edit_choice"] for x in batch],
-        pad_value=-100,  # CE ignore_index
+        pad_value=-100,
     )
 
     return {
         "sample_ids": sample_ids,
         "doc_ids": doc_ids,
-        "atoms_text": atoms_text,      # 后续 AtomEncoder/tokenizer 再接
+        "atoms_text": atoms_text,
         "num_atoms": num_atoms,
         "num_gaps": num_gaps,
+        "sample_weight": sample_weight,
         "b0": b0,
         "b0_mask": b0_mask,
         "b_gold": b_gold,

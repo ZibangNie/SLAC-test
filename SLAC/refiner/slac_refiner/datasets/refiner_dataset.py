@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, List, Sequence
+from typing import Any, Dict, List, Sequence
 
 import torch
 from torch.utils.data import Dataset
@@ -34,10 +34,13 @@ def _vector_to_gaps(b: Sequence[int]) -> List[int]:
     return [i for i, x in enumerate(b) if int(x) == 1]
 
 
-def _parse_shift(y: str) -> int:
-    if not y.startswith("SHIFT:"):
-        raise ValueError(f"Invalid SHIFT label: {y}")
-    return int(y.split(":", 1)[1])
+def _get_nested_field(obj: Dict[str, Any], field: str, default: Any = None) -> Any:
+    cur: Any = obj
+    for part in field.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return default
+        cur = cur[part]
+    return cur
 
 
 class RefinerDenoiseDataset(Dataset):
@@ -47,11 +50,14 @@ class RefinerDenoiseDataset(Dataset):
     - b0 over all gaps
     - insert_labels over all gaps
     - g0_positions over initial boundaries only
-    - edit_cls / edit_offset aligned to g0_positions
+    - edit_choice aligned to g0_positions
+    - optional sample_weight
     """
-    def __init__(self, jsonl_path: str):
+
+    def __init__(self, jsonl_path: str, sample_weight_field: str | None = None):
         self.path = Path(jsonl_path)
         self.samples: List[Dict] = []
+        self.sample_weight_field = sample_weight_field
 
         with self.path.open("r", encoding="utf-8") as f:
             for line_no, line in enumerate(f, start=1):
@@ -90,12 +96,17 @@ class RefinerDenoiseDataset(Dataset):
                 f"G0={g0_positions}, edit_keys={sorted(edit_map.keys())}"
             )
 
-        K = int(s.get("meta", {}).get("K", K_DEFAULT))
+        K = int(_get_nested_field(s, "meta.K", K_DEFAULT))
         edit_choice: List[int] = []
 
         for g in g0_positions:
             y = edit_map[g]
             edit_choice.append(_choice_from_label(y, K))
+
+        if self.sample_weight_field:
+            sample_weight = float(_get_nested_field(s, self.sample_weight_field, 1.0))
+        else:
+            sample_weight = float(s.get("sample_weight", 1.0))
 
         return {
             "sample_id": s["sample_id"],
@@ -107,6 +118,6 @@ class RefinerDenoiseDataset(Dataset):
             "insert_labels": torch.tensor(insert_labels, dtype=torch.float),
             "g0_positions": torch.tensor(g0_positions, dtype=torch.long),
             "edit_choice": torch.tensor(edit_choice, dtype=torch.long),
-            # debug / eval convenience
             "b_gold": torch.tensor([int(x) for x in s["b_gold"]], dtype=torch.long),
+            "sample_weight": torch.tensor(sample_weight, dtype=torch.float),
         }
