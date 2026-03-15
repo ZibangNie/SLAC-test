@@ -10,7 +10,7 @@ from SLAC.retrieval.dataio.readers import load_chunk_records, load_leaf_records,
 from SLAC.retrieval.dataio.writers import write_json
 from SLAC.retrieval.index.embedder import build_embedder
 from SLAC.retrieval.preprocess.query_planner import QueryPlanner
-from SLAC.retrieval.preprocess.query_schema import QueryInput
+from SLAC.retrieval.schemas.query_schema import QueryInput
 from SLAC.retrieval.retrieve.anchor_retriever import AnchorRetriever
 from SLAC.retrieval.retrieve.chunk_aggregator import aggregate_hits_to_chunk_candidates
 from SLAC.retrieval.retrieve.chunk_dense_retriever import ChunkDenseRetriever
@@ -67,8 +67,8 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # load data/meta
-    chunks = load_chunk_records(build_dir / "data" / "refined_chunks.jsonl")
-    leaves = load_leaf_records(build_dir / "data" / "leaf_records.jsonl")
+    chunks = load_chunk_records(build_dir / "meta" / "chunk_lookup.jsonl")
+    leaves = load_leaf_records(build_dir / "meta" / "leaf_lookup.jsonl")
     adjacency_rows = _load_tree_adjacency(build_dir / "meta" / "tree_adjacency.jsonl")
     quality_gates = _load_quality_gates(build_dir / "meta" / "quality_gates.json")
 
