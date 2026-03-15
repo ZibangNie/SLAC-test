@@ -141,8 +141,14 @@ def summarize_tree_quality(chunks: List[ChunkRecord]) -> Dict[str, float]:
     missing_next = 0
 
     for c in chunks:
-        if c.depth > 0 and not c.parent_id:
+        # 根节点常见形态：
+        # - parent_id is None
+        # - chunk_index == 0 或 path 为空
+        looks_like_root = (c.parent_id is None) and (c.chunk_index == 0 or len(c.path) == 0)
+
+        if (not looks_like_root) and (c.parent_id is None):
             missing_parent += 1
+
         if c.prev_chunk_id is None:
             missing_prev += 1
         if c.next_chunk_id is None:
