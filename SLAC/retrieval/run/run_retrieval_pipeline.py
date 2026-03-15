@@ -158,6 +158,7 @@ def main():
             chunk_hits=chunk_hits,
             anchor_hits=anchor_hits,
             leaf_to_chunk=leaf_to_chunk,
+            query_intent=plan.intent,
             fused_topn=int(cfg["retrieve"]["fused_candidate_topn"]),
         )
 

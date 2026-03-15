@@ -23,16 +23,29 @@ def _role_from_hit_type(hit_type: str) -> str:
 
 
 def _sort_for_pack(candidates: List[RetrievalCandidate]) -> List[RetrievalCandidate]:
+    direct_priority = {
+        "hybrid_direct": 0,
+        "leaf_direct": 1,
+        "chunk_direct": 2,
+        "anchor_direct": 3,
+    }
+
     def key(c: RetrievalCandidate):
-        direct_first = 0 if _role_from_hit_type(c.hit_type) == "direct" else 1
-        parent_second = 0 if c.hit_type in {"parent_expand", "ancestor_expand"} else 1
+        role = _role_from_hit_type(c.hit_type)
+        role_group = 0 if role == "direct" else 1
+
+        direct_rank = direct_priority.get(c.hit_type, 9)
+        parent_rank = 0 if c.hit_type in {"parent_expand", "ancestor_expand"} else 1
+
         rrf = float(c.meta.get("rrf_score", 0.0))
         base_score = max(float(c.best_leaf_score or 0.0), float(c.best_chunk_score or 0.0))
         anchor_exact = 0 if c.meta.get("anchor_exact_match", False) else 1
         expand_priority = int(c.meta.get("expansion_priority", 999))
+
         return (
-            direct_first,
-            parent_second,
+            role_group,
+            direct_rank,
+            parent_rank,
             anchor_exact,
             -rrf,
             -base_score,
