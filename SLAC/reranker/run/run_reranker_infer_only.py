@@ -3,13 +3,11 @@ from __future__ import annotations
 import argparse
 import copy
 import json
-import math
+import re
 import statistics
-import sys
 import time
-from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, List
 
 import yaml
 
@@ -25,7 +23,12 @@ from SLAC.reranker.models.bge_reranker_v2_m3 import (
     BGERerankerConfig,
     BGERerankerV2M3,
 )
-from SLAC.reranker.io.validators import RERANKED_CANDIDATE_SCHEMA_VERSION
+from SLAC.reranker.pipeline.build_pairs import group_records_by_query_id
+from SLAC.reranker.pipeline.rank_candidates import (
+    build_scored_records,
+    truncate_scored_records,
+)
+from SLAC.reranker.pipeline.score_pairs import score_query_records
 
 
 DEFAULT_CONFIG: Dict[str, Any] = {
@@ -47,9 +50,6 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     },
     "ranking": {
         "output_top_n": 50,
-    },
-    "io": {
-        "filename_policy": "query_level",
     },
     "debug": {
         "dump_scored_pairs": True,
@@ -81,12 +81,50 @@ def load_yaml_config(path: str | Path | None) -> Dict[str, Any]:
     return deep_update(DEFAULT_CONFIG, user_cfg)
 
 
-def stable_sigmoid(x: float) -> float:
-    if x >= 0:
-        z = math.exp(-x)
-        return 1.0 / (1.0 + z)
-    z = math.exp(x)
-    return z / (1.0 + z)
+def _safe_int(value: Any, default: int = 0) -> int:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        value = value.strip()
+        if value == "":
+            return default
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
+
+
+def sanitize_filename_component(text: str, default: str = "unknown") -> str:
+    text = text.strip()
+    if not text:
+        return default
+    text = re.sub(r"[^\w\-.]+", "_", text)
+    text = re.sub(r"_+", "_", text).strip("._")
+    return text or default
+
+
+def input_file_tag(input_file: Path) -> str:
+    name = input_file.name
+    if name.endswith(".reranker_input.jsonl"):
+        name = name[: -len(".reranker_input.jsonl")]
+    else:
+        name = input_file.stem
+    return sanitize_filename_component(name, default="input")
+
+
+def derive_output_stem(input_file: Path, query_id: str, total_query_groups: int) -> str:
+    file_tag = input_file_tag(input_file)
+    query_tag = sanitize_filename_component(query_id, default="query")
+    if total_query_groups == 1:
+        return file_tag
+    return f"{file_tag}.{query_tag}"
 
 
 def parse_args() -> argparse.Namespace:
@@ -113,6 +151,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--strict_schema", action="store_true")
     parser.add_argument("--no_normalize", action="store_true")
     parser.add_argument("--fail_fast", action="store_true")
+    parser.add_argument("--no_dump_scored_pairs", action="store_true")
     return parser.parse_args()
 
 
@@ -143,125 +182,10 @@ def apply_cli_overrides(cfg: Dict[str, Any], args: argparse.Namespace) -> Dict[s
         out["common"]["normalize"] = False
     if args.fail_fast:
         out["debug"]["fail_fast"] = True
+    if args.no_dump_scored_pairs:
+        out["debug"]["dump_scored_pairs"] = False
 
     return out
-
-
-def sort_key_retrieval(rec: dict) -> Tuple[int, str]:
-    return (
-        int(rec.get("retrieve_rank_fused", 10**9)),
-        str(rec.get("chunk_id", "")),
-    )
-
-
-def sort_key_rerank(rec: dict) -> Tuple[float, int, str]:
-    return (
-        -float(rec["rerank_score_norm"]),
-        int(rec.get("retrieve_rank_fused", 10**9)),
-        str(rec.get("chunk_id", "")),
-    )
-
-
-def select_candidate_pool(records: List[dict], cfg: Dict[str, Any]) -> List[dict]:
-    """
-    Candidate pool policy:
-    1) sort by retrieval fused rank
-    2) keep top-N direct and top-N expanded separately
-    3) union + dedupe
-    4) clip to max_pairs_per_query by retrieval fused rank
-    """
-    direct_top_n = int(cfg["candidate_pool"]["direct_top_n"])
-    expanded_top_n = int(cfg["candidate_pool"]["expanded_top_n"])
-    max_pairs = int(cfg["candidate_pool"]["max_pairs_per_query"])
-    dedupe_key = str(cfg["candidate_pool"].get("dedupe_key", "chunk_id"))
-
-    sorted_records = sorted(records, key=sort_key_retrieval)
-    direct = [r for r in sorted_records if r.get("role") == "direct"]
-    expanded = [r for r in sorted_records if r.get("role") == "expanded"]
-    other = [r for r in sorted_records if r.get("role") not in {"direct", "expanded"}]
-
-    def clip(items: List[dict], n: int) -> List[dict]:
-        if n is None or n <= 0:
-            return items
-        return items[:n]
-
-    selected_raw = clip(direct, direct_top_n) + clip(expanded, expanded_top_n)
-
-    # If one side is empty, let "other" backfill before global clipping.
-    if not direct or not expanded:
-        selected_raw.extend(other)
-
-    deduped: List[dict] = []
-    seen = set()
-    for rec in sorted(selected_raw, key=sort_key_retrieval):
-        key = rec.get(dedupe_key) or rec.get("chunk_id")
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(rec)
-
-    if max_pairs > 0:
-        deduped = deduped[:max_pairs]
-
-    return deduped
-
-
-def group_by_query_id(records: List[dict]) -> Dict[str, List[dict]]:
-    groups: Dict[str, List[dict]] = defaultdict(list)
-    for rec in records:
-        groups[rec["query_id"]].append(rec)
-    return dict(groups)
-
-
-def derive_output_stem(input_file: Path, query_id: str, total_query_groups: int) -> str:
-    name = input_file.name
-    if total_query_groups == 1 and name.endswith(".reranker_input.jsonl"):
-        return name[: -len(".reranker_input.jsonl")]
-    return query_id
-
-
-def clean_record_for_output(rec: dict) -> dict:
-    out = {}
-    for k, v in rec.items():
-        if k in {"_line_no", "_source_file"}:
-            continue
-        out[k] = v
-    return out
-
-
-def build_scored_records(
-    selected_records: List[dict],
-    raw_scores: List[float],
-    runtime_info: dict,
-    *,
-    normalize: bool,
-) -> List[dict]:
-    if len(selected_records) != len(raw_scores):
-        raise ValueError("selected_records and raw_scores size mismatch")
-
-    scored: List[dict] = []
-    for rec, score_raw in zip(selected_records, raw_scores):
-        score_norm = stable_sigmoid(float(score_raw))
-        base = clean_record_for_output(rec)
-        base["schema_version"] = RERANKED_CANDIDATE_SCHEMA_VERSION
-        base["record_type"] = "query_chunk_scored"
-        base["rerank_score_raw"] = float(score_raw)
-        base["rerank_score_norm"] = float(score_norm)
-        base["rerank_score"] = float(score_norm if normalize else score_raw)
-        base["rerank_score_field"] = "rerank_score_norm" if normalize else "rerank_score_raw"
-        base["rerank_backend"] = runtime_info["backend"]
-        base["rerank_model_ref"] = runtime_info["model_ref"]
-        base["rerank_device"] = runtime_info["device"]
-        base["rerank_batch_size"] = runtime_info["batch_size"]
-        base["rerank_max_length"] = runtime_info["max_length"]
-        base["rerank_torch_dtype"] = runtime_info["torch_dtype"]
-        scored.append(base)
-
-    scored = sorted(scored, key=sort_key_rerank)
-    for idx, rec in enumerate(scored, start=1):
-        rec["rerank_rank"] = idx
-        rec["retrieve_rank_delta"] = int(rec["retrieve_rank_fused"]) - idx
-    return scored
 
 
 def make_event(level: str, message: str, **kwargs: Any) -> dict:
@@ -272,105 +196,6 @@ def make_event(level: str, message: str, **kwargs: Any) -> dict:
     }
     event.update(kwargs)
     return event
-
-
-def process_one_input_file(
-    input_file: Path,
-    output_dir: Path,
-    reranker: BGERerankerV2M3,
-    cfg: Dict[str, Any],
-    log_path: Path,
-) -> List[dict]:
-    strict_schema = bool(cfg["common"]["strict_schema"])
-    normalize = bool(cfg["common"]["normalize"])
-    output_top_n = int(cfg["ranking"]["output_top_n"])
-
-    records = load_reranker_input_file(input_file, strict=strict_schema)
-    append_jsonl(
-        log_path,
-        make_event(
-            "INFO",
-            "loaded reranker input file",
-            input_file=str(input_file),
-            num_records=len(records),
-        ),
-    )
-
-    candidate_sidecar_path = maybe_candidate_sidecar_path(input_file)
-    if candidate_sidecar_path is not None:
-        candidate_sidecar = load_candidate_sidecar(candidate_sidecar_path)
-        records = attach_candidate_sidecar_metadata(records, candidate_sidecar)
-        append_jsonl(
-            log_path,
-            make_event(
-                "INFO",
-                "attached candidate sidecar metadata",
-                input_file=str(input_file),
-                candidate_sidecar=str(candidate_sidecar_path),
-                num_sidecar_records=len(candidate_sidecar),
-            ),
-        )
-
-    query_groups = group_by_query_id(records)
-    query_summaries: List[dict] = []
-
-    queries_dir = output_dir / "queries"
-    queries_dir.mkdir(parents=True, exist_ok=True)
-
-    for query_id, group in query_groups.items():
-        t0 = time.time()
-        selected = select_candidate_pool(group, cfg)
-        pairs = [(r["query_text"], r["passage_text"]) for r in selected]
-        raw_scores = reranker.score_pairs(pairs)
-        scored = build_scored_records(
-            selected,
-            raw_scores,
-            reranker.runtime_info,
-            normalize=normalize,
-        )
-
-        if output_top_n > 0:
-            scored = scored[:output_top_n]
-            for idx, rec in enumerate(scored, start=1):
-                rec["rerank_rank"] = idx
-                rec["retrieve_rank_delta"] = int(rec["retrieve_rank_fused"]) - idx
-
-        output_stem = derive_output_stem(input_file, query_id, len(query_groups))
-        output_file = queries_dir / f"{output_stem}.reranked_candidates.jsonl"
-        write_jsonl(output_file, scored)
-
-        latency_sec = time.time() - t0
-        top1 = scored[0] if scored else None
-        summary = {
-            "query_id": query_id,
-            "input_file": str(input_file),
-            "output_file": str(output_file),
-            "num_input_candidates": len(group),
-            "num_selected_for_rerank": len(selected),
-            "num_output_candidates": len(scored),
-            "top1_chunk_id": top1["chunk_id"] if top1 else None,
-            "top1_doc_id": top1["doc_id"] if top1 else None,
-            "top1_rerank_score_norm": top1["rerank_score_norm"] if top1 else None,
-            "latency_sec": round(latency_sec, 4),
-        }
-        query_summaries.append(summary)
-
-        append_jsonl(
-            log_path,
-            make_event(
-                "INFO",
-                "finished query rerank",
-                query_id=query_id,
-                input_file=str(input_file),
-                output_file=str(output_file),
-                num_input_candidates=len(group),
-                num_selected_for_rerank=len(selected),
-                num_output_candidates=len(scored),
-                latency_sec=round(latency_sec, 4),
-            ),
-        )
-
-    return query_summaries
 
 
 def build_run_summary(
@@ -408,6 +233,130 @@ def build_run_summary(
     }
 
 
+def process_one_input_file(
+    *,
+    input_file: Path,
+    output_dir: Path,
+    reranker: BGERerankerV2M3,
+    cfg: Dict[str, Any],
+    log_path: Path,
+) -> List[dict]:
+    strict_schema = bool(cfg["common"]["strict_schema"])
+    normalize = bool(cfg["common"]["normalize"])
+    output_top_n = _safe_int(cfg["ranking"].get("output_top_n"), 50)
+    dump_scored_pairs = bool(cfg["debug"]["dump_scored_pairs"])
+
+    records = load_reranker_input_file(
+        input_file,
+        strict=strict_schema,
+    )
+    append_jsonl(
+        log_path,
+        make_event(
+            "INFO",
+            "loaded reranker input file",
+            input_file=str(input_file),
+            num_records=len(records),
+        ),
+    )
+
+    candidate_sidecar_path = maybe_candidate_sidecar_path(input_file)
+    if candidate_sidecar_path is not None:
+        candidate_sidecar = load_candidate_sidecar(candidate_sidecar_path)
+        records = attach_candidate_sidecar_metadata(records, candidate_sidecar)
+        append_jsonl(
+            log_path,
+            make_event(
+                "INFO",
+                "attached candidate sidecar metadata",
+                input_file=str(input_file),
+                candidate_sidecar=str(candidate_sidecar_path),
+                num_sidecar_records=len(candidate_sidecar),
+            ),
+        )
+
+    query_groups = group_records_by_query_id(records)
+
+    queries_dir = output_dir / "queries"
+    debug_dir = output_dir / "debug"
+    queries_dir.mkdir(parents=True, exist_ok=True)
+    if dump_scored_pairs:
+        debug_dir.mkdir(parents=True, exist_ok=True)
+
+    file_summaries: List[dict] = []
+
+    for query_id, group in query_groups.items():
+        query_t0 = time.time()
+
+        scoring_bundle = score_query_records(
+            query_records=group,
+            reranker=reranker,
+            candidate_pool_cfg=cfg["candidate_pool"],
+        )
+
+        scored_records_full = build_scored_records(
+            selected_records=scoring_bundle["selected_records"],
+            raw_scores=scoring_bundle["raw_scores"],
+            runtime_info=scoring_bundle["runtime_info"],
+            normalize=normalize,
+        )
+        scored_records = truncate_scored_records(
+            scored_records=scored_records_full,
+            output_top_n=output_top_n,
+        )
+
+        output_stem = derive_output_stem(
+            input_file=input_file,
+            query_id=query_id,
+            total_query_groups=len(query_groups),
+        )
+
+        reranked_output_file = queries_dir / f"{output_stem}.reranked_candidates.jsonl"
+        write_jsonl(reranked_output_file, scored_records)
+
+        debug_scored_pairs_file = None
+        if dump_scored_pairs:
+            debug_scored_pairs_file = debug_dir / f"{output_stem}.scored_pairs.jsonl"
+            write_jsonl(debug_scored_pairs_file, scoring_bundle["scored_pair_records"])
+
+        query_latency_sec = round(time.time() - query_t0, 4)
+        top1 = scored_records[0] if scored_records else None
+
+        summary = {
+            "query_id": query_id,
+            "input_file": str(input_file),
+            "reranked_output_file": str(reranked_output_file),
+            "debug_scored_pairs_file": str(debug_scored_pairs_file) if debug_scored_pairs_file else None,
+            "num_input_candidates": scoring_bundle["selection_stats"]["num_input_candidates"],
+            "num_selected_for_rerank": scoring_bundle["selection_stats"]["num_selected_total"],
+            "num_output_candidates": len(scored_records),
+            "top1_chunk_id": top1.get("chunk_id") if top1 else None,
+            "top1_doc_id": top1.get("doc_id") if top1 else None,
+            "top1_rerank_score_norm": top1.get("rerank_score_norm") if top1 else None,
+            "latency_sec": query_latency_sec,
+            "selection_stats": scoring_bundle["selection_stats"],
+            "score_stats": scoring_bundle["score_stats"],
+        }
+        file_summaries.append(summary)
+
+        append_jsonl(
+            log_path,
+            make_event(
+                "INFO",
+                "finished query rerank",
+                query_id=query_id,
+                input_file=str(input_file),
+                reranked_output_file=str(reranked_output_file),
+                num_input_candidates=summary["num_input_candidates"],
+                num_selected_for_rerank=summary["num_selected_for_rerank"],
+                num_output_candidates=summary["num_output_candidates"],
+                latency_sec=summary["latency_sec"],
+            ),
+        )
+
+    return file_summaries
+
+
 def main() -> int:
     args = parse_args()
     cfg = apply_cli_overrides(load_yaml_config(args.config), args)
@@ -443,8 +392,8 @@ def main() -> int:
         model_path=cfg["common"].get("model_path"),
         device=str(cfg["common"]["device"]),
         torch_dtype=str(cfg["common"]["torch_dtype"]),
-        batch_size=int(cfg["common"]["batch_size"]),
-        max_length=int(cfg["common"]["max_length"]),
+        batch_size=_safe_int(cfg["common"].get("batch_size"), 8),
+        max_length=_safe_int(cfg["common"].get("max_length"), 1024),
         trust_remote_code=False,
     )
     reranker = BGERerankerV2M3(reranker_cfg)
@@ -508,17 +457,19 @@ def main() -> int:
         ),
     )
 
-    print(json.dumps(
-        {
-            "status": "ok",
-            "num_input_files": len(input_files),
-            "num_queries": len(all_query_summaries),
-            "summary_path": str(summary_path),
-            "runtime": reranker.runtime_info,
-        },
-        ensure_ascii=False,
-        indent=2,
-    ))
+    print(
+        json.dumps(
+            {
+                "status": "ok",
+                "num_input_files": len(input_files),
+                "num_queries": len(all_query_summaries),
+                "summary_path": str(summary_path),
+                "runtime": reranker.runtime_info,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0
 
 

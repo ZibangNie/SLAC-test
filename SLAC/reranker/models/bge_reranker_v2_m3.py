@@ -4,7 +4,7 @@ import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Sequence, Tuple
+from typing import List, Sequence, Tuple
 
 
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -31,7 +31,10 @@ class BGERerankerV2M3:
     def __init__(self, config: BGERerankerConfig):
         self.config = config
         self.backend: str | None = None
-        self.model_ref: str = self._resolve_model_ref(config.model_path, config.model_name)
+        self.model_ref, self.model_ref_source = self._resolve_model_ref(
+            model_path=config.model_path,
+            model_name=config.model_name,
+        )
 
         self._flag_reranker = None
         self._tokenizer = None
@@ -42,12 +45,46 @@ class BGERerankerV2M3:
         self._init_backend()
 
     @staticmethod
-    def _resolve_model_ref(model_path: str | None, model_name: str) -> str:
+    def _looks_like_hf_model_dir(path: Path) -> bool:
+        if not path.exists() or not path.is_dir():
+            return False
+
+        has_config = (path / "config.json").exists()
+        has_model = any(
+            (path / name).exists()
+            for name in [
+                "model.safetensors",
+                "model.safetensors.index.json",
+                "pytorch_model.bin",
+                "pytorch_model.bin.index.json",
+            ]
+        )
+
+        # tokenizer 文件不是绝对必须，但通常应存在
+        has_tokenizer = any(
+            (path / name).exists()
+            for name in [
+                "tokenizer.json",
+                "tokenizer_config.json",
+                "vocab.txt",
+                "spiece.model",
+                "sentencepiece.bpe.model",
+            ]
+        )
+
+        return has_config and has_model and has_tokenizer
+
+    @classmethod
+    def _resolve_model_ref(cls, model_path: str | None, model_name: str) -> tuple[str, str]:
+        """
+        只有当 model_path 真的是可加载的 HuggingFace 本地模型目录时，才优先使用它。
+        否则回退到 model_name，避免把空占位目录误判成模型目录。
+        """
         if model_path:
-            p = Path(model_path)
-            if p.exists():
-                return str(p)
-        return model_name
+            p = Path(model_path).expanduser()
+            if cls._looks_like_hf_model_dir(p):
+                return str(p), "model_path"
+        return model_name, "model_name"
 
     @staticmethod
     def _sigmoid(x: float) -> float:
@@ -63,12 +100,24 @@ class BGERerankerV2M3:
         try:
             from FlagEmbedding import FlagReranker  # type: ignore
 
-            use_fp16 = (
-                self.config.device.startswith("cuda")
-                and self.config.torch_dtype.lower() in {"float16", "fp16", "half"}
+            use_fp16 = False
+            if self.config.device.startswith("cuda"):
+                try:
+                    import torch  # type: ignore
+
+                    use_fp16 = bool(
+                        torch.cuda.is_available()
+                        and self.config.torch_dtype.lower() in {"float16", "fp16", "half"}
+                    )
+                except Exception:
+                    use_fp16 = False
+
+            self._flag_reranker = FlagReranker(
+                self.model_ref,
+                use_fp16=use_fp16,
             )
-            self._flag_reranker = FlagReranker(self.model_ref, use_fp16=use_fp16)
             self.backend = "flagembedding"
+            self._device = self.config.device
             return
         except Exception as exc:  # pragma: no cover
             flag_error = exc
@@ -138,6 +187,7 @@ class BGERerankerV2M3:
 
         results: List[float] = []
         bs = max(1, int(self.config.batch_size))
+
         for start in range(0, len(pairs), bs):
             batch = pairs[start : start + bs]
             payload = [[q, p] for q, p in batch]
@@ -184,6 +234,7 @@ class BGERerankerV2M3:
         return {
             "backend": self.backend,
             "model_ref": self.model_ref,
+            "model_ref_source": self.model_ref_source,
             "device": self._device if self._device is not None else self.config.device,
             "batch_size": int(self.config.batch_size),
             "max_length": int(self.config.max_length),

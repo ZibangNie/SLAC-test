@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import re
 import statistics
 import time
 from pathlib import Path
@@ -22,6 +23,7 @@ from SLAC.reranker.models.bge_reranker_v2_m3 import (
     BGERerankerConfig,
     BGERerankerV2M3,
 )
+from SLAC.reranker.pipeline.build_pairs import group_records_by_query_id
 from SLAC.reranker.pipeline.pack_bridge import build_pack_bridge_records
 from SLAC.reranker.pipeline.rank_candidates import (
     build_scored_records,
@@ -107,22 +109,30 @@ def _safe_int(value: Any, default: int = 0) -> int:
     return default
 
 
-def _safe_str(value: Any, default: str = "") -> str:
-    if value is None:
+def sanitize_filename_component(text: str, default: str = "unknown") -> str:
+    text = text.strip()
+    if not text:
         return default
-    if isinstance(value, str):
-        return value.strip()
-    return str(value).strip()
+    text = re.sub(r"[^\w\-.]+", "_", text)
+    text = re.sub(r"_+", "_", text).strip("._")
+    return text or default
 
 
-def group_records_by_query_id(records: List[dict]) -> Dict[str, List[dict]]:
-    groups: Dict[str, List[dict]] = {}
-    for record in records:
-        query_id = _safe_str(record.get("query_id"))
-        if query_id == "":
-            raise ValueError("missing query_id in reranker input record")
-        groups.setdefault(query_id, []).append(record)
-    return groups
+def input_file_tag(input_file: Path) -> str:
+    name = input_file.name
+    if name.endswith(".reranker_input.jsonl"):
+        name = name[: -len(".reranker_input.jsonl")]
+    else:
+        name = input_file.stem
+    return sanitize_filename_component(name, default="input")
+
+
+def derive_output_stem(input_file: Path, query_id: str, total_query_groups: int) -> str:
+    file_tag = input_file_tag(input_file)
+    query_tag = sanitize_filename_component(query_id, default="query")
+    if total_query_groups == 1:
+        return file_tag
+    return f"{file_tag}.{query_tag}"
 
 
 def parse_args() -> argparse.Namespace:
@@ -176,7 +186,6 @@ def apply_cli_overrides(cfg: Dict[str, Any], args: argparse.Namespace) -> Dict[s
     maybe_set("candidate_pool", "direct_top_n", args.direct_top_n)
     maybe_set("candidate_pool", "expanded_top_n", args.expanded_top_n)
     maybe_set("candidate_pool", "max_pairs_per_query", args.max_pairs_per_query)
-
     maybe_set("ranking", "output_top_n", args.output_top_n)
 
     maybe_set("pack_bridge", "pack_top_n", args.pack_top_n)
@@ -198,13 +207,6 @@ def apply_cli_overrides(cfg: Dict[str, Any], args: argparse.Namespace) -> Dict[s
         out["debug"]["dump_scored_pairs"] = False
 
     return out
-
-
-def derive_output_stem(input_file: Path, query_id: str, total_query_groups: int) -> str:
-    name = input_file.name
-    if total_query_groups == 1 and name.endswith(".reranker_input.jsonl"):
-        return name[: -len(".reranker_input.jsonl")]
-    return query_id
 
 
 def make_event(level: str, message: str, **kwargs: Any) -> dict:
@@ -229,12 +231,8 @@ def build_run_summary(
     query_latencies = [
         float(x["latency_sec"]) for x in all_query_summaries if x.get("latency_sec") is not None
     ]
-    selected_counts = [
-        int(x["num_selected_for_rerank"]) for x in all_query_summaries
-    ]
-    output_counts = [
-        int(x["num_output_candidates"]) for x in all_query_summaries
-    ]
+    selected_counts = [int(x["num_selected_for_rerank"]) for x in all_query_summaries]
+    output_counts = [int(x["num_output_candidates"]) for x in all_query_summaries]
     pack_counts = [
         int(x["num_selected_for_packing"])
         for x in all_query_summaries

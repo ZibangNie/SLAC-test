@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 
 DEFAULT_CANDIDATE_POOL_CONFIG: Dict[str, Any] = {
@@ -85,35 +85,14 @@ def dedupe_records(
         if key_value is None or _safe_str(key_value) == "":
             key_value = record.get("chunk_id")
         key = _safe_str(key_value)
-
         if key == "":
             continue
         if key in seen:
             continue
-
         seen.add(key)
         out.append(record)
 
     return out
-
-
-def split_records_by_role(
-    records: Sequence[Dict[str, Any]],
-) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
-    direct: List[Dict[str, Any]] = []
-    expanded: List[Dict[str, Any]] = []
-    other: List[Dict[str, Any]] = []
-
-    for record in sort_records_by_retrieval(records):
-        role = normalize_role(record)
-        if role == "direct":
-            direct.append(record)
-        elif role == "expanded":
-            expanded.append(record)
-        else:
-            other.append(record)
-
-    return direct, expanded, other
 
 
 def clip_records(records: Sequence[Dict[str, Any]], top_n: int | None) -> List[Dict[str, Any]]:
@@ -124,6 +103,47 @@ def clip_records(records: Sequence[Dict[str, Any]], top_n: int | None) -> List[D
     return list(records[:top_n])
 
 
+def backfill_records(
+    *,
+    selected_records: Sequence[Dict[str, Any]],
+    source_records: Sequence[Dict[str, Any]],
+    max_total: int,
+    dedupe_key: str,
+) -> List[Dict[str, Any]]:
+    if max_total <= 0:
+        return []
+
+    out = list(dedupe_records(selected_records, dedupe_key=dedupe_key))
+    seen = set()
+
+    for record in out:
+        key_value = record.get(dedupe_key)
+        if key_value is None or _safe_str(key_value) == "":
+            key_value = record.get("chunk_id")
+        key = _safe_str(key_value)
+        if key:
+            seen.add(key)
+
+    if len(out) >= max_total:
+        return out[:max_total]
+
+    for record in sort_records_by_retrieval(source_records):
+        key_value = record.get(dedupe_key)
+        if key_value is None or _safe_str(key_value) == "":
+            key_value = record.get("chunk_id")
+        key = _safe_str(key_value)
+        if key == "" or key in seen:
+            continue
+
+        out.append(record)
+        seen.add(key)
+
+        if len(out) >= max_total:
+            break
+
+    return out
+
+
 def select_candidate_pool(
     records: Sequence[Dict[str, Any]],
     candidate_pool_cfg: Dict[str, Any] | None = None,
@@ -132,9 +152,8 @@ def select_candidate_pool(
     Policy:
     1) retrieval fused rank 升序
     2) direct / expanded 分别截断
-    3) 若一侧为空，则允许 other 回填
-    4) union 后按 chunk_id 去重
-    5) 最后按 retrieval fused rank 全局裁剪到 max_pairs_per_query
+    3) union 后按 chunk_id 去重
+    4) 若还未达到 max_pairs_per_query，则从全体候选中按 retrieval rank 回填
     """
     cfg = dict(DEFAULT_CANDIDATE_POOL_CONFIG)
     if candidate_pool_cfg:
@@ -146,32 +165,32 @@ def select_candidate_pool(
     dedupe_key = _safe_str(cfg.get("dedupe_key"), "chunk_id") or "chunk_id"
 
     sorted_records = sort_records_by_retrieval(records)
-    direct_records, expanded_records, other_records = split_records_by_role(sorted_records)
+    direct_records = [r for r in sorted_records if normalize_role(r) == "direct"]
+    expanded_records = [r for r in sorted_records if normalize_role(r) == "expanded"]
 
-    direct_selected = clip_records(direct_records, direct_top_n)
-    expanded_selected = clip_records(expanded_records, expanded_top_n)
+    selected_seed: List[Dict[str, Any]] = []
+    selected_seed.extend(clip_records(direct_records, direct_top_n))
+    selected_seed.extend(clip_records(expanded_records, expanded_top_n))
 
-    selected_raw: List[Dict[str, Any]] = []
-    selected_raw.extend(direct_selected)
-    selected_raw.extend(expanded_selected)
-
-    # 若 direct 或 expanded 缺失，用 other 回填，避免候选池过窄
-    if len(direct_selected) == 0 or len(expanded_selected) == 0:
-        selected_raw.extend(other_records)
-
-    deduped_selected = dedupe_records(selected_raw, dedupe_key=dedupe_key)
+    selected_deduped = dedupe_records(selected_seed, dedupe_key=dedupe_key)
 
     if max_pairs_per_query > 0:
-        deduped_selected = deduped_selected[:max_pairs_per_query]
+        selected_final = backfill_records(
+            selected_records=selected_deduped,
+            source_records=sorted_records,
+            max_total=max_pairs_per_query,
+            dedupe_key=dedupe_key,
+        )
+    else:
+        selected_final = selected_deduped
 
     stats = {
         "num_input_candidates": len(sorted_records),
         "num_direct_candidates": len(direct_records),
         "num_expanded_candidates": len(expanded_records),
-        "num_other_candidates": len(other_records),
-        "num_selected_direct": len([r for r in deduped_selected if normalize_role(r) == "direct"]),
-        "num_selected_expanded": len([r for r in deduped_selected if normalize_role(r) == "expanded"]),
-        "num_selected_total": len(deduped_selected),
+        "num_selected_direct": len([r for r in selected_final if normalize_role(r) == "direct"]),
+        "num_selected_expanded": len([r for r in selected_final if normalize_role(r) == "expanded"]),
+        "num_selected_total": len(selected_final),
         "candidate_pool_cfg": {
             "direct_top_n": direct_top_n,
             "expanded_top_n": expanded_top_n,
@@ -179,7 +198,7 @@ def select_candidate_pool(
             "dedupe_key": dedupe_key,
         },
     }
-    return deduped_selected, stats
+    return selected_final, stats
 
 
 def build_rerank_pairs(selected_records: Sequence[Dict[str, Any]]) -> List[Tuple[str, str]]:
