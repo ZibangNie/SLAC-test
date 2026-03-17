@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 
 from .validators import RerankerInputValidationError, normalize_reranker_input_record
 
@@ -37,14 +37,15 @@ def load_reranker_input_file(
     path = Path(path)
     records: List[dict] = []
     for raw in iter_jsonl(path):
-        line_no = raw.pop("_line_no", None)
-        source_file = raw.pop("_source_file", str(path))
+        line_no = raw.get("_line_no")
+        source_file = raw.get("_source_file", str(path))
         try:
             rec = normalize_reranker_input_record(raw, strict=strict)
         except RerankerInputValidationError as exc:
             raise RerankerInputValidationError(
                 f"{path}:{line_no}: {exc}"
             ) from exc
+
         rec["_line_no"] = line_no
         rec["_source_file"] = source_file
         records.append(rec)
@@ -60,7 +61,7 @@ def discover_reranker_input_files(
     Accepts:
       - a single *.reranker_input.jsonl file
       - a directory containing query-level reranker input files
-      - a run root; we will look under <run_root>/queries first, then recursively
+      - a run root; we will look under <run_root>/queries first, then current dir
     """
     input_path = Path(input_path)
 
@@ -82,7 +83,6 @@ def discover_reranker_input_files(
     if recursive and not candidates:
         candidates.extend(sorted(input_path.rglob("*.reranker_input.jsonl")))
 
-    # De-duplicate while preserving order.
     seen = set()
     unique: List[Path] = []
     for p in candidates:

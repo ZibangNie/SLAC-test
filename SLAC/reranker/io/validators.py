@@ -102,7 +102,8 @@ def normalize_source_views(value: Any) -> List[str]:
         if "," in value:
             return [p.strip() for p in value.split(",") if p.strip()]
         return [value]
-    return [str(value).strip()] if str(value).strip() else []
+    text = str(value).strip()
+    return [text] if text else []
 
 
 def normalize_path_text(value: Any) -> Optional[str]:
@@ -147,6 +148,44 @@ def infer_role(role: Any, hit_type: Any) -> str:
     return "direct"
 
 
+def _first_non_none_with_name(candidates: List[tuple[str, Any]]) -> tuple[Optional[str], Any]:
+    for name, value in candidates:
+        if value is not None:
+            if isinstance(value, str) and value.strip() == "":
+                continue
+            return name, value
+    return None, None
+
+
+def normalize_rerank_rank(raw: Dict[str, Any]) -> tuple[int, str]:
+    """
+    retrieval 的 reranker_input 在不同版本里，排序字段名字可能不同。
+    优先使用显式 fused rank；如果缺失，就退化到行号，保证 reranker 至少可运行。
+    """
+    source_name, source_value = _first_non_none_with_name([
+        ("retrieve_rank_fused", raw.get("retrieve_rank_fused")),
+        ("retrieve_rank", raw.get("retrieve_rank")),
+        ("rank_fused", raw.get("rank_fused")),
+        ("fused_rank", raw.get("fused_rank")),
+        ("candidate_rank", raw.get("candidate_rank")),
+        ("rank", raw.get("rank")),
+        ("global_rank", raw.get("global_rank")),
+        ("_line_no", raw.get("_line_no")),
+    ])
+
+    if source_value is None:
+        raise RerankerInputValidationError(
+            "missing rank field: none of "
+            "[retrieve_rank_fused, retrieve_rank, rank_fused, fused_rank, "
+            "candidate_rank, rank, global_rank, _line_no] is present"
+        )
+
+    rank_value = _coerce_int(source_value, "retrieve_rank_fused")
+    if rank_value <= 0:
+        rank_value = 1
+    return rank_value, source_name or "unknown"
+
+
 def normalize_reranker_input_record(
     record: Dict[str, Any],
     *,
@@ -155,11 +194,12 @@ def normalize_reranker_input_record(
     """
     Normalize one line from *.reranker_input.jsonl into the canonical v1 schema.
 
-    This function is intentionally tolerant for current/legacy retrieval outputs:
+    Tolerant behaviors:
     - query_text may fall back from query / query_main / query_main_zh / query_main_en
     - passage_text may fall back from text or be rebuilt from
       number_signature + path_text + text
-    - schema_version / record_type may be missing when strict=False
+    - retrieve_rank_fused may fall back from multiple legacy fields,
+      and finally from _line_no
     """
     if not isinstance(record, dict):
         raise RerankerInputValidationError("record must be a dict")
@@ -168,7 +208,7 @@ def normalize_reranker_input_record(
 
     schema_version = _coerce_optional_str(raw.get("schema_version"))
     if strict:
-        if schema_version != RERANKER_INPUT_SCHEMA_VERSION:
+        if schema_version is not None and schema_version != RERANKER_INPUT_SCHEMA_VERSION:
             raise RerankerInputValidationError(
                 f"schema_version must be {RERANKER_INPUT_SCHEMA_VERSION}, got {schema_version!r}"
             )
@@ -177,7 +217,7 @@ def normalize_reranker_input_record(
 
     record_type = _coerce_optional_str(raw.get("record_type"))
     if strict:
-        if record_type != "query_chunk_pair":
+        if record_type is not None and record_type != "query_chunk_pair":
             raise RerankerInputValidationError(
                 f"record_type must be 'query_chunk_pair', got {record_type!r}"
             )
@@ -216,7 +256,7 @@ def normalize_reranker_input_record(
         )
     passage_text = _coerce_required_str(passage_text, "passage_text")
 
-    retrieve_rank_fused = _coerce_int(raw.get("retrieve_rank_fused"), "retrieve_rank_fused")
+    retrieve_rank_fused, retrieve_rank_source = normalize_rerank_rank(raw)
     role = infer_role(raw.get("role"), raw.get("hit_type"))
     hit_type = _coerce_required_str(raw.get("hit_type"), "hit_type")
     source_views = normalize_source_views(raw.get("source_views"))
@@ -230,6 +270,7 @@ def normalize_reranker_input_record(
         "doc_id": doc_id,
         "passage_text": passage_text,
         "retrieve_rank_fused": retrieve_rank_fused,
+        "retrieve_rank_source": retrieve_rank_source,
         "role": role,
         "hit_type": hit_type,
         "source_views": source_views,
@@ -281,11 +322,13 @@ def normalize_reranker_input_record(
             value = value.strip() or None
         normalized[field] = value
 
-    # Preserve any extra fields for downstream debugging / traceability.
+    # Preserve extra user/debug fields, but ignore internal loader keys.
     reserved = set(normalized.keys())
     extras = {}
     for key, value in raw.items():
         if key in reserved:
+            continue
+        if key.startswith("_"):
             continue
         extras[key] = value
     if extras:
