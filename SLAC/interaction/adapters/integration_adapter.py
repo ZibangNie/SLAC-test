@@ -6,9 +6,19 @@ from typing import Any
 class IntegrationAdapter:
     def __init__(self, integrator: Any | None = None) -> None:
         if integrator is None:
+            from SLAC.integration.adapters.reranker_run_dir_adapter import (
+                RerankerRunDirAdapter,
+            )
+            from SLAC.integration.adapters.retrieval_run_dir_adapter import (
+                RetrievalRunDirAdapter,
+            )
             from SLAC.integration.orchestrator.final_integrator import FinalIntegrator
 
-            integrator = FinalIntegrator()
+            integrator = FinalIntegrator(
+                retrieval_adapter=RetrievalRunDirAdapter(),
+                reranker_adapter=RerankerRunDirAdapter(),
+            )
+
         self.integrator = integrator
 
     def invoke(self, integration_request: Any) -> Any:
