@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from SLAC.integration.evidence.normalizers import normalize_candidate_list
 from SLAC.integration.evidence.selectors import select_evidence
 from SLAC.integration.io.schemas import (
-    ChatMessage,
     IntegrationRequest,
     IntegrationResponse,
     IntegrationTrace,
+    PromptBundle,
     RetrievalArtifacts,
     RerankerArtifacts,
     SelectedEvidence,
@@ -24,6 +24,19 @@ def _obj_to_dict(obj: Any) -> Any:
     if is_dataclass(obj):
         return asdict(obj)
     return obj
+
+
+@dataclass
+class IntegrationExecutionArtifacts:
+    retrieval_artifacts: Optional[RetrievalArtifacts] = None
+    reranker_artifacts: Optional[RerankerArtifacts] = None
+    selected_evidence: List[SelectedEvidence] = None
+    prompt_bundle: Optional[PromptBundle] = None
+    llm_request: Any = None
+
+    def __post_init__(self) -> None:
+        if self.selected_evidence is None:
+            self.selected_evidence = []
 
 
 class FinalIntegrator:
@@ -91,7 +104,7 @@ class FinalIntegrator:
     def _choose_candidate_source(
         self,
         req: IntegrationRequest,
-        retrieval_artifacts: RetrievalArtifacts,
+        retrieval_artifacts: Optional[RetrievalArtifacts],
         reranker_artifacts: Optional[RerankerArtifacts],
     ) -> Tuple[List[Dict[str, Any]], str]:
         if reranker_artifacts is not None:
@@ -100,11 +113,13 @@ class FinalIntegrator:
             if reranker_artifacts.reranked_candidates:
                 return reranker_artifacts.reranked_candidates, "reranker_reranked_candidates"
 
-        if retrieval_artifacts.packed_evidence:
-            return retrieval_artifacts.packed_evidence, "retrieval_packed_evidence"
-
-        if retrieval_artifacts.candidates:
-            return retrieval_artifacts.candidates, "retrieval_candidates"
+        if retrieval_artifacts is not None:
+            if retrieval_artifacts.packed_evidence:
+                return retrieval_artifacts.packed_evidence, "retrieval_packed_evidence"
+            if retrieval_artifacts.candidates:
+                return retrieval_artifacts.candidates, "retrieval_candidates"
+            if retrieval_artifacts.reranker_input:
+                return retrieval_artifacts.reranker_input, "retrieval_reranker_input"
 
         return [], "empty"
 
@@ -112,7 +127,7 @@ class FinalIntegrator:
         self,
         req: IntegrationRequest,
         selected_evidence: List[SelectedEvidence],
-        prompt_bundle: Any,
+        prompt_bundle: PromptBundle,
     ) -> Any:
         from SLAC.llm.io.schemas import (
             ChatMessage as LLMChatMessage,
@@ -135,7 +150,6 @@ class FinalIntegrator:
                     LLMChatMessage(role=msg.role, content=msg.content)
                     for msg in req.memory.messages
                 ],
-                summary_text=req.memory.summary_text,
             )
 
         evidence = [
@@ -162,6 +176,16 @@ class FinalIntegrator:
         pc = req.pipeline_config
         llm_cfg = pc.llm
         assert llm_cfg is not None
+
+        meta = {
+            "integration_module": "SLAC.integration",
+            "prompt_bundle": {
+                "num_current_messages": len(prompt_bundle.current_messages),
+                "num_selected_evidence": len(selected_evidence),
+            },
+        }
+        if req.memory and req.memory.summary_text:
+            meta["memory_summary_text"] = req.memory.summary_text
 
         return LLMRequest(
             schema_version="slac_llm_request_v1",
@@ -190,13 +214,7 @@ class FinalIntegrator:
                 "evidence_render_policy": "append_as_context_block",
                 "return_raw_response": False,
             },
-            meta={
-                "integration_module": "SLAC.integration",
-                "prompt_bundle": {
-                    "num_current_messages": len(prompt_bundle.current_messages),
-                    "num_selected_evidence": len(selected_evidence),
-                },
-            },
+            meta=meta,
         )
 
     def build_integration_response(
@@ -229,7 +247,10 @@ class FinalIntegrator:
             meta=meta or {},
         )
 
-    def run(self, data: Dict[str, Any] | IntegrationRequest) -> IntegrationResponse:
+    def run_with_artifacts(
+        self,
+        data: Dict[str, Any] | IntegrationRequest,
+    ) -> Tuple[IntegrationResponse, IntegrationExecutionArtifacts]:
         req = validate_integration_request(data)
 
         trace = IntegrationTrace(
@@ -238,30 +259,36 @@ class FinalIntegrator:
             degraded_to_retrieval=False,
             evidence_budget_tokens=req.pipeline_config.max_evidence_tokens,
         )
+        artifacts = IntegrationExecutionArtifacts()
 
         retrieval_artifacts: Optional[RetrievalArtifacts] = None
         reranker_artifacts: Optional[RerankerArtifacts] = None
         answer_result: Any | None = None
 
-        try:
-            retrieval_artifacts = self._read_or_run_retrieval(req)
-            trace.retrieval_used = True
-        except Exception as exc:
-            trace.errors.append(f"retrieval failed: {exc}")
-            return self.build_integration_response(
-                req=req,
-                answer_result=None,
-                selected_evidence=[],
-                trace=trace,
-                status="error",
-                meta={"error_stage": "retrieval", "error_message": str(exc)},
-            )
-
-        candidate_records: List[Dict[str, Any]] = []
+        if req.pipeline_config.use_retrieval or req.context.retrieval_artifacts:
+            try:
+                retrieval_artifacts = self._read_or_run_retrieval(req)
+                artifacts.retrieval_artifacts = retrieval_artifacts
+                trace.retrieval_used = True
+            except Exception as exc:
+                trace.errors.append(f"retrieval failed: {exc}")
+                response = self.build_integration_response(
+                    req=req,
+                    answer_result=None,
+                    selected_evidence=[],
+                    trace=trace,
+                    status="error",
+                    meta={"error_stage": "retrieval", "error_message": str(exc)},
+                )
+                return response, artifacts
 
         if req.pipeline_config.use_reranker:
             try:
-                reranker_artifacts = self._read_or_run_reranker(req, retrieval_artifacts)
+                reranker_artifacts = self._read_or_run_reranker(
+                    req,
+                    retrieval_artifacts or RetrievalArtifacts(),
+                )
+                artifacts.reranker_artifacts = reranker_artifacts
                 trace.reranker_used = True
             except Exception as exc:
                 if req.pipeline_config.allow_retrieval_fallback:
@@ -269,7 +296,7 @@ class FinalIntegrator:
                     trace.warnings.append(f"reranker failed, fallback to retrieval: {exc}")
                 else:
                     trace.errors.append(f"reranker failed: {exc}")
-                    return self.build_integration_response(
+                    response = self.build_integration_response(
                         req=req,
                         answer_result=None,
                         selected_evidence=[],
@@ -277,6 +304,7 @@ class FinalIntegrator:
                         status="error",
                         meta={"error_stage": "reranker", "error_message": str(exc)},
                     )
+                    return response, artifacts
 
         candidate_records, candidate_source = self._choose_candidate_source(
             req=req,
@@ -300,15 +328,18 @@ class FinalIntegrator:
             prefer_direct_first=req.pipeline_config.prefer_direct_first,
             min_direct_evidence=req.pipeline_config.min_direct_evidence,
         )
+        artifacts.selected_evidence = selected_evidence[:]
         trace.num_evidence_selected = len(selected_evidence)
 
         prompt_bundle = build_prompt_bundle(req, selected_evidence)
+        artifacts.prompt_bundle = prompt_bundle
+
         llm_request = self.build_llm_request(req, selected_evidence, prompt_bundle)
+        artifacts.llm_request = llm_request
         trace.llm_request_id = getattr(llm_request, "request_id", None)
 
         if self.llm_adapter is None:
             from SLAC.integration.adapters.llm_adapter import LLMAdapter
-
             self.llm_adapter = LLMAdapter()
 
         try:
@@ -317,7 +348,7 @@ class FinalIntegrator:
             trace.llm_response_id = answer_dict.get("response_id")
         except Exception as exc:
             trace.errors.append(f"llm invoke failed: {exc}")
-            return self.build_integration_response(
+            response = self.build_integration_response(
                 req=req,
                 answer_result=None,
                 selected_evidence=selected_evidence,
@@ -325,6 +356,7 @@ class FinalIntegrator:
                 status="error",
                 meta={"error_stage": "llm_invoke", "error_message": str(exc)},
             )
+            return response, artifacts
 
         answer_dict = _obj_to_dict(answer_result) or {}
         llm_status = str(answer_dict.get("status", "ok"))
@@ -336,7 +368,7 @@ class FinalIntegrator:
         else:
             final_status = "ok"
 
-        return self.build_integration_response(
+        response = self.build_integration_response(
             req=req,
             answer_result=answer_result,
             selected_evidence=selected_evidence,
@@ -348,3 +380,8 @@ class FinalIntegrator:
                 "llm_status": llm_status,
             },
         )
+        return response, artifacts
+
+    def run(self, data: Dict[str, Any] | IntegrationRequest) -> IntegrationResponse:
+        response, _ = self.run_with_artifacts(data)
+        return response
