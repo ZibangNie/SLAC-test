@@ -1,6 +1,6 @@
 """
 title: SLAC Remote Pipe
-version: 1.1.0
+version: 1.2.0
 author: OpenAI
 required_open_webui_version: 0.6.0
 """
@@ -8,7 +8,7 @@ required_open_webui_version: 0.6.0
 from __future__ import annotations
 
 import base64
-import os
+import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin
@@ -25,8 +25,11 @@ class Pipe:
         API_TOKEN: str = Field(default="")
         REQUEST_TIMEOUT_S: int = Field(default=1800)
 
-        # 用于在 OpenWebUI 容器内部解析相对文件 URL
+        # OpenWebUI 容器内部基地址
         OPENWEBUI_INTERNAL_BASE: str = Field(default="http://127.0.0.1:8080")
+
+        # OpenWebUI 自身 API Key（到 Settings > Account 里复制）
+        OPENWEBUI_API_KEY: str = Field(default="")
 
         RETURN_FULL_UI_RESPONSE: bool = Field(default=False)
         DEBUG: bool = Field(default=True)
@@ -37,10 +40,16 @@ class Pipe:
     def pipes(self):
         return [{"id": self.valves.PIPE_ID, "name": self.valves.PIPE_NAME}]
 
-    def _headers(self) -> Dict[str, str]:
+    def _slac_headers(self) -> Dict[str, str]:
         headers = {"Content-Type": "application/json"}
         if self.valves.API_TOKEN.strip():
             headers["Authorization"] = f"Bearer {self.valves.API_TOKEN.strip()}"
+        return headers
+
+    def _openwebui_headers(self) -> Dict[str, str]:
+        headers = {}
+        if self.valves.OPENWEBUI_API_KEY.strip():
+            headers["Authorization"] = f"Bearer {self.valves.OPENWEBUI_API_KEY.strip()}"
         return headers
 
     def _derive_session_id(self, body: Dict[str, Any], __metadata__: Optional[dict]) -> str:
@@ -62,70 +71,141 @@ class Pipe:
             return p.read_bytes()
         return None
 
+    def _extract_file_id(self, item: Dict[str, Any]) -> Optional[str]:
+        file_obj = item.get("file") if isinstance(item.get("file"), dict) else {}
+        for key in ("file_id", "id"):
+            if item.get(key):
+                return str(item[key])
+        for key in ("file_id", "id"):
+            if file_obj.get(key):
+                return str(file_obj[key])
+        return None
+
+    def _download_from_openwebui_file_api(self, file_id: str) -> Optional[bytes]:
+        # 社区常用路径：/api/v1/files/{file_id}/content
+        candidate_paths = [
+            f"/api/v1/files/{file_id}/content",
+            f"/api/v1/files/{file_id}",
+        ]
+        for p in candidate_paths:
+            url = self._resolve_relative_url(p)
+            try:
+                resp = requests.get(
+                    url,
+                    headers=self._openwebui_headers(),
+                    timeout=120,
+                )
+                if resp.status_code == 200 and resp.content:
+                    return resp.content
+            except Exception:
+                pass
+        return None
+
     def _normalize_upload_candidates(self, files_meta: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        尽量兼容几种常见 file metadata 形态：
-        - {"name": "...", "path": "..."}
-        - {"name": "...", "url": "..."}
-        - {"file": {"name": "...", "url": "..."}}
-        - {"name": "...", "content_base64": "..."}
-        """
         normalized: List[Dict[str, Any]] = []
 
         for item in files_meta or []:
-            name = item.get("name") or "uploaded_file"
-            content_type = item.get("content_type") or item.get("type")
-            file_obj = item.get("file") if isinstance(item.get("file"), dict) else {}
+            if not isinstance(item, dict):
+                continue
 
-            # 1) 直接给了本地路径
+            file_obj = item.get("file") if isinstance(item.get("file"), dict) else {}
+            name = (
+                item.get("name")
+                or file_obj.get("name")
+                or item.get("filename")
+                or file_obj.get("filename")
+                or "uploaded_file"
+            )
+            content_type = item.get("content_type") or item.get("type") or file_obj.get("content_type")
+
+            # 0) 优先尝试 file_id / id -> 从 OpenWebUI API 下载
+            file_id = self._extract_file_id(item)
+            if file_id:
+                raw = self._download_from_openwebui_file_api(file_id)
+                if raw is not None:
+                    normalized.append(
+                        {
+                            "name": name,
+                            "content": raw,
+                            "content_type": content_type,
+                            "source": "openwebui_file_api",
+                            "file_id": file_id,
+                        }
+                    )
+                    continue
+
+            # 1) 直接本地路径
+            hit = False
             for k in ("path", "local_path"):
                 if item.get(k):
                     raw = self._try_read_local_path(str(item[k]))
                     if raw is not None:
-                        normalized.append({"name": name, "content": raw, "content_type": content_type})
-                        break
-            else:
-                # 2) 嵌套 file.path
-                if file_obj.get("path"):
-                    raw = self._try_read_local_path(str(file_obj["path"]))
-                    if raw is not None:
                         normalized.append(
                             {
-                                "name": file_obj.get("name") or name,
+                                "name": name,
                                 "content": raw,
                                 "content_type": content_type,
+                                "source": "local_path",
                             }
                         )
-                        continue
+                        hit = True
+                        break
+            if hit:
+                continue
 
-                # 3) base64
-                b64 = item.get("content_base64") or file_obj.get("content_base64")
-                if b64:
-                    try:
-                        raw = base64.b64decode(b64)
-                        normalized.append({"name": file_obj.get("name") or name, "content": raw, "content_type": content_type})
-                        continue
-                    except Exception:
-                        pass
+            # 2) 嵌套 file.path
+            if file_obj.get("path"):
+                raw = self._try_read_local_path(str(file_obj["path"]))
+                if raw is not None:
+                    normalized.append(
+                        {
+                            "name": name,
+                            "content": raw,
+                            "content_type": content_type,
+                            "source": "nested_local_path",
+                        }
+                    )
+                    continue
 
-                # 4) URL 下载
-                url = item.get("url") or item.get("file_url") or file_obj.get("url")
-                if url:
-                    resolved = self._resolve_relative_url(str(url))
-                    try:
-                        resp = requests.get(resolved, timeout=120)
-                        resp.raise_for_status()
-                        normalized.append(
-                            {
-                                "name": file_obj.get("name") or name,
-                                "content": resp.content,
-                                "content_type": content_type,
-                            }
-                        )
-                        continue
-                    except Exception:
-                        # URL 拉不到时，先跳过；后端仍能收到聊天，只是不会触发新文件入库
-                        pass
+            # 3) base64
+            b64 = item.get("content_base64") or file_obj.get("content_base64")
+            if b64:
+                try:
+                    raw = base64.b64decode(b64)
+                    normalized.append(
+                        {
+                            "name": name,
+                            "content": raw,
+                            "content_type": content_type,
+                            "source": "base64",
+                        }
+                    )
+                    continue
+                except Exception:
+                    pass
+
+            # 4) URL 下载
+            url = item.get("url") or item.get("file_url") or file_obj.get("url")
+            if url:
+                resolved = self._resolve_relative_url(str(url))
+                try:
+                    resp = requests.get(
+                        resolved,
+                        headers=self._openwebui_headers(),
+                        timeout=120,
+                    )
+                    resp.raise_for_status()
+                    normalized.append(
+                        {
+                            "name": name,
+                            "content": resp.content,
+                            "content_type": content_type,
+                            "source": "url",
+                        }
+                    )
+                    continue
+                except Exception:
+                    pass
 
         return normalized
 
@@ -144,7 +224,8 @@ class Pipe:
             return {
                 "uploaded": False,
                 "saved_file_refs": [],
-                "warning": "body.files 存在，但当前 Pipe 未解析出可上传的文件字节；建议检查 body.files 真实结构。",
+                "warning": "body.files 存在，但 Pipe 未解析出可上传的文件字节。",
+                "files_meta_preview": files_meta[:3],
             }
 
         multipart = []
@@ -161,10 +242,14 @@ class Pipe:
             url,
             files=multipart,
             timeout=self.valves.REQUEST_TIMEOUT_S,
-            headers={k: v for k, v in self._headers().items() if k != "Content-Type"},
+            headers={k: v for k, v in self._slac_headers().items() if k != "Content-Type"},
         )
         resp.raise_for_status()
-        return resp.json()
+        result = resp.json()
+        result["uploaded"] = True
+        result["num_uploadables"] = len(uploadables)
+        result["upload_sources"] = [x.get("source") for x in uploadables]
+        return result
 
     async def pipe(
         self,
@@ -209,13 +294,20 @@ class Pipe:
         if upload_result:
             payload["meta"]["upload_result"] = upload_result
 
+        if self.valves.DEBUG:
+            payload["meta"]["pipe_debug"] = {
+                "files_meta_preview": (body or {}).get("files", [])[:3],
+                "has_files": bool((body or {}).get("files")),
+                "session_id": session_id,
+            }
+
         url = self.valves.SLAC_API_BASE.rstrip("/") + "/chat"
 
         try:
             resp = requests.post(
                 url,
                 json=payload,
-                headers=self._headers(),
+                headers=self._slac_headers(),
                 timeout=self.valves.REQUEST_TIMEOUT_S,
             )
             resp.raise_for_status()
