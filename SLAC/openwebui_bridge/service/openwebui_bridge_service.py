@@ -42,7 +42,8 @@ class OpenWebUIBridgeService:
 
     async def handle(self, raw_payload: Dict[str, Any]) -> Dict[str, Any]:
         try:
-            openwebui_req = validate_openwebui_request(parse_pipe_payload(raw_payload))
+            parsed_req = parse_pipe_payload(raw_payload)
+            openwebui_req = validate_openwebui_request(parsed_req)
             integration_req = validate_integration_request(
                 build_integration_request(
                     openwebui_req,
