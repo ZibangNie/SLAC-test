@@ -1,0 +1,1 @@
+"""SLAC OpenWebUI bridge package."""
