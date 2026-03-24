@@ -29,7 +29,7 @@ class Pipe:
         OPENWEBUI_INTERNAL_BASE: str = Field(default="http://127.0.0.1:8080")
 
         # OpenWebUI 自身 API Key（到 Settings > Account 里复制）
-        OPENWEBUI_API_KEY: str = Field(default="")
+        OPENWEBUI_API_KEY: str = Field(default="sk-569365f1716c4e83add630c5e8d1a3b0")
 
         RETURN_FULL_UI_RESPONSE: bool = Field(default=False)
         DEBUG: bool = Field(default=True)
