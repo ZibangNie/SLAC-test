@@ -6,13 +6,14 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, Header, HTTPException, Request, status
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from SLAC.openwebui_bridge.openwebui_pipe import Pipe as LocalPipe
+from SLAC.openwebui_bridge.upload_ingest.upload_ingest_service import UploadIngestService
 
 logger = logging.getLogger("slac.openwebui_bridge.server_api")
 logging.basicConfig(
@@ -26,9 +27,6 @@ def _utc_now_iso() -> str:
 
 
 def _coerce_env_value(raw: str, current_value: Any) -> Any:
-    """
-    按当前字段类型做尽量稳妥的环境变量类型转换。
-    """
     if isinstance(current_value, bool):
         return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
     if isinstance(current_value, int) and not isinstance(current_value, bool):
@@ -41,41 +39,67 @@ def _coerce_env_value(raw: str, current_value: Any) -> Any:
 
 
 def _build_local_pipe_from_env() -> LocalPipe:
-    """
-    复用现有 openwebui_pipe.py 的配置结构。
-    这样 HTTP 入口和 Pipe 入口共用同一套默认参数与 service 构造逻辑。
-    """
     pipe = LocalPipe()
-
     model_fields = getattr(pipe.valves.__class__, "model_fields", None)
     if model_fields is None:
         model_fields = getattr(pipe.valves.__class__, "__fields__", {})
-
     for field_name in model_fields.keys():
         if field_name in os.environ:
             current_value = getattr(pipe.valves, field_name)
             try:
-                setattr(
-                    pipe.valves,
-                    field_name,
-                    _coerce_env_value(os.environ[field_name], current_value),
-                )
+                setattr(pipe.valves, field_name, _coerce_env_value(os.environ[field_name], current_value))
                 logger.info("Applied env override for valve: %s", field_name)
             except Exception as e:
-                logger.warning(
-                    "Failed to apply env override for valve %s: %s",
-                    field_name,
-                    e,
-                )
-
+                logger.warning("Failed to apply env override for valve %s: %s", field_name, e)
     return pipe
+
+
+def _extract_query_text_from_payload(raw_payload: Dict[str, Any]) -> str:
+    messages = raw_payload.get("messages") or []
+    for item in reversed(messages):
+        if item.get("role") != "user":
+            continue
+        content = item.get("content", "")
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            texts: List[str] = []
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    texts.append(str(part.get("text", "")))
+            return "\n".join([x for x in texts if x]).strip()
+    return str(raw_payload.get("query_text", "")).strip()
 
 
 LOCAL_PIPE = _build_local_pipe_from_env()
 SERVICE = LOCAL_PIPE.service
 
+UPLOAD_INGEST = UploadIngestService(
+    project_root=os.environ.get("WORKING_DIR", "/root/autodl-tmp/SLAC-test"),
+    work_root=os.environ.get("UPLOAD_WORK_ROOT", "/root/autodl-tmp/data/openwebui_upload_workspace"),
+    python_bin=os.environ.get("PYTHON_BIN", "python"),
+    refiner_config=os.environ.get(
+        "REFINER_CONFIG",
+        "/root/autodl-tmp/SLAC-test/SLAC/refiner/pipeline/configs/pipeline_config.yaml",
+    ),
+    retrieval_config=os.environ.get(
+        "RETRIEVAL_CONFIG",
+        "/root/autodl-tmp/SLAC-test/SLAC/retrieval/configs/retrieval_config.yaml",
+    ),
+    reranker_config=os.environ.get(
+        "RERANKER_CONFIG",
+        "/root/autodl-tmp/SLAC-test/SLAC/reranker/configs/reranker_config.yaml",
+    ),
+    bilingual_terms_path=os.environ.get(
+        "BILINGUAL_TERMS_PATH",
+        "/root/autodl-tmp/SLAC-test/SLAC/retrieval/configs/bilingual_terms.yaml",
+    ),
+    default_domain=os.environ.get("DEFAULT_DOMAIN", "rail"),
+    debug=os.environ.get("DEBUG", "false").lower() == "true",
+)
+
 APP_TITLE = os.environ.get("SLAC_BRIDGE_APP_TITLE", "SLAC OpenWebUI Bridge API")
-APP_VERSION = os.environ.get("SLAC_BRIDGE_APP_VERSION", "1.0.0")
+APP_VERSION = os.environ.get("SLAC_BRIDGE_APP_VERSION", "1.1.0")
 API_TOKEN = os.environ.get("SLAC_BRIDGE_API_TOKEN", "").strip()
 
 app = FastAPI(title=APP_TITLE, version=APP_VERSION)
@@ -93,89 +117,32 @@ app.add_middleware(
 
 
 def _check_auth(authorization: Optional[str]) -> None:
-    """
-    若设置了 SLAC_BRIDGE_API_TOKEN，则要求 Bearer Token。
-    未设置则默认不开鉴权，方便你先联调。
-    """
     if not API_TOKEN:
         return
-
     if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Authorization header.",
-        )
-
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing Authorization header.")
     prefix = "Bearer "
     if not authorization.startswith(prefix):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authorization header must use Bearer token.",
-        )
-
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authorization header must use Bearer token.")
     token = authorization[len(prefix):].strip()
     if token != API_TOKEN:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API token.",
-        )
-
-
-def _safe_config_summary() -> Dict[str, Any]:
-    """
-    返回不含敏感信息的配置摘要，便于排查。
-    """
-    valves = LOCAL_PIPE.valves
-    api_key_env_name = getattr(valves, "LLM_API_KEY_ENV", "")
-    api_key_present = bool(api_key_env_name and os.environ.get(api_key_env_name, "").strip())
-
-    return {
-        "pipe_id": getattr(valves, "PIPE_ID", ""),
-        "pipe_name": getattr(valves, "PIPE_NAME", ""),
-        "working_dir": getattr(valves, "WORKING_DIR", ""),
-        "integration_runner": getattr(valves, "INTEGRATION_RUNNER", ""),
-        "retrieval_run_dir": getattr(valves, "RETRIEVAL_RUN_DIR", ""),
-        "reranker_run_dir": getattr(valves, "RERANKER_RUN_DIR", ""),
-        "use_retrieval": getattr(valves, "USE_RETRIEVAL", None),
-        "use_reranker": getattr(valves, "USE_RERANKER", None),
-        "llm_provider": getattr(valves, "LLM_PROVIDER", ""),
-        "llm_model_name": getattr(valves, "LLM_MODEL_NAME", ""),
-        "llm_api_base": getattr(valves, "LLM_API_BASE", ""),
-        "llm_api_key_env": api_key_env_name,
-        "llm_api_key_present": api_key_present,
-        "answer_language": getattr(valves, "ANSWER_LANGUAGE", ""),
-        "answer_style": getattr(valves, "ANSWER_STYLE", ""),
-        "debug": getattr(valves, "DEBUG", False),
-    }
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API token.")
 
 
 def _extract_answer_text(ui_response: Dict[str, Any]) -> str:
-    """
-    统一兜底提取答案文本，兼容不同返回结构。
-    """
     if not isinstance(ui_response, dict):
         return str(ui_response)
-
     candidates = [
         ui_response.get("answer_text"),
         ui_response.get("text"),
         ui_response.get("content"),
     ]
-
     answer_obj = ui_response.get("answer")
     if isinstance(answer_obj, dict):
-        candidates.extend(
-            [
-                answer_obj.get("text"),
-                answer_obj.get("answer_text"),
-                answer_obj.get("content"),
-            ]
-        )
-
+        candidates.extend([answer_obj.get("text"), answer_obj.get("answer_text"), answer_obj.get("content")])
     for item in candidates:
         if isinstance(item, str) and item.strip():
             return item.strip()
-
     return ""
 
 
@@ -189,18 +156,29 @@ async def health() -> Dict[str, Any]:
     }
 
 
-@app.get("/info")
-async def info(
+@app.post("/sessions/{session_id}/files")
+async def upload_session_files(
+    session_id: str,
+    files: List[UploadFile] = File(...),
+    domain: Optional[str] = Form(default=None),
     authorization: Optional[str] = Header(default=None),
-) -> Dict[str, Any]:
+):
     _check_auth(authorization)
-    return {
-        "ok": True,
-        "service": "slac_openwebui_bridge",
-        "version": APP_VERSION,
-        "time": _utc_now_iso(),
-        "config": _safe_config_summary(),
-    }
+
+    prepared: List[Dict[str, Any]] = []
+    for f in files:
+        prepared.append(
+            {
+                "name": f.filename or "uploaded_file",
+                "content_type": f.content_type,
+                "content": await f.read(),
+            }
+        )
+
+    result = UPLOAD_INGEST.save_uploaded_files(session_id, prepared)
+    result["domain"] = domain
+    result["time"] = _utc_now_iso()
+    return result
 
 
 @app.post("/chat")
@@ -216,34 +194,74 @@ async def chat(
     try:
         raw_payload = await request.json()
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid JSON body: {e}",
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid JSON body: {e}")
 
     if not isinstance(raw_payload, dict):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Request body must be a JSON object.",
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request body must be a JSON object.")
+
+    session_id = (
+        raw_payload.get("session_id")
+        or raw_payload.get("chat_id")
+        or (raw_payload.get("openwebui_meta") or {}).get("chat_id")
+        or f"sess_{uuid.uuid4().hex[:12]}"
+    )
+    raw_payload["session_id"] = session_id
 
     raw_payload.setdefault("meta", {})
     raw_payload["meta"]["http_request_id"] = request_id
     raw_payload["meta"]["http_received_at"] = _utc_now_iso()
     raw_payload["meta"]["http_client_host"] = request.client.host if request.client else None
 
+    query_text = _extract_query_text_from_payload(raw_payload)
+    query_id = raw_payload.get("query_id") or f"qt_{uuid.uuid4().hex[:12]}"
+    raw_payload["query_id"] = query_id
+
+    # 若当前会话已经上传过文件，则先为当前 query 准备 retrieval/reranker 产物
     try:
+        prep = None
+        try:
+            prep = UPLOAD_INGEST.prepare_query_runs(
+                session_id=session_id,
+                query_id=query_id,
+                query_text=query_text,
+                domain=((raw_payload.get("context") or {}).get("domain") or os.environ.get("DEFAULT_DOMAIN", "rail")),
+            )
+        except RuntimeError as e:
+            # 没有上传文件时，不强行报错；继续走默认 retrieval/reranker run
+            logger.info("No session-specific uploaded assets used. session_id=%s reason=%s", session_id, e)
+
+        if prep:
+            raw_payload.setdefault("runtime_config", {})
+            raw_payload["runtime_config"]["retrieval_run_dir"] = prep["retrieval_run_dir"]
+            raw_payload["runtime_config"]["reranker_run_dir"] = prep["reranker_run_dir"]
+            raw_payload["runtime_config"]["working_dir"] = str(LOCAL_PIPE.valves.WORKING_DIR)
+
+            raw_payload.setdefault("context", {})
+            if prep.get("doc_scope"):
+                raw_payload["context"]["doc_scope"] = prep["doc_scope"]
+
+            raw_payload.setdefault("meta", {})
+            raw_payload["meta"]["session_asset_version"] = prep.get("asset_version")
+            raw_payload["meta"]["session_bound_retrieval_run_dir"] = prep["retrieval_run_dir"]
+            raw_payload["meta"]["session_bound_reranker_run_dir"] = prep["reranker_run_dir"]
+
         ui_response = await SERVICE.handle(raw_payload)
 
         if not isinstance(ui_response, dict):
-            ui_response = {
-                "status": "ok",
-                "answer_text": str(ui_response),
-            }
+            ui_response = {"status": "ok", "answer_text": str(ui_response)}
+
+        if isinstance(ui_response, dict):
+            logger.info(
+                "Bridge ui_response request_id=%s body=%s",
+                request_id,
+                json.dumps(ui_response, ensure_ascii=False, default=str),
+            )
 
         ui_response.setdefault("status", "ok")
         ui_response.setdefault("answer_text", _extract_answer_text(ui_response))
         ui_response.setdefault("request_id", request_id)
+        ui_response.setdefault("session_id", session_id)
+        ui_response.setdefault("query_id", query_id)
         ui_response.setdefault("server_time", _utc_now_iso())
         ui_response.setdefault("latency_ms", int((time.perf_counter() - t0) * 1000))
 
@@ -252,16 +270,16 @@ async def chat(
     except HTTPException:
         raise
     except Exception as e:
-        latency_ms = int((time.perf_counter() - t0) * 1000)
         logger.exception("Chat request failed. request_id=%s", request_id)
-
         return JSONResponse(
             status_code=500,
             content={
                 "status": "error",
                 "request_id": request_id,
+                "session_id": session_id,
+                "query_id": query_id,
                 "server_time": _utc_now_iso(),
-                "latency_ms": latency_ms,
+                "latency_ms": int((time.perf_counter() - t0) * 1000),
                 "answer_text": "",
                 "error": {
                     "type": e.__class__.__name__,
