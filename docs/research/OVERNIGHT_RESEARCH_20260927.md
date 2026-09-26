@@ -49,6 +49,14 @@ Support计划为 `qasper-extended-development-plan-01`，配置SHA256为 `382cc1
 
 夜间工作继续推进独立离线项目：缓存向量的跨文档检索对照、原文与native段映射、规则chunk到现有双索引聚合的桥接、固定版专用reranker准备。chunk桥接按[单独协议](NATIVE_CHUNK_BRIDGE_PROTOCOL_20260927.md)执行。显卡被用户游戏占用时暂不启动本地模型推理；CPU检查和固定模型文件准备可以继续。所有这些工作都不需要重发失败请求，也不声称已完成JEV端到端验证。
 
+## 已完成的独立离线工作
+
+- **跨文档压力诊断已完成并独立回放。** 77题/24family完整保留，来源限定F1为指定文档`0.202453`、32篇跨库`0.082127`；候选recall为`0.679046`与`0.277561`。Qasper问题原本依赖特定论文，不能将该变化当标准Qasper成绩或归因为SLAC架构缺陷。完整8项family配对区间、重复引用ID及其他限制见[完整报告](CORPUS_BRIDGE_RESULTS_20260927.md)。该实验新增API为0。
+- **原文及规则chunk适配完成。** 32文档、1,892原生字段、1,850个与缓存逐项相符的leaf、671个规则chunk；42个空白字段保留在旁路记录，10个超512tokens的完整段保留为单独chunk。原生文档视图与canonical坐标分开，均有hash及roundtrip核验。这里尚未构建或编码chunk向量，也未证明检索收益。[聚合记录](results/qasper_native_chunks_20260927.json)
+- **固定reranker准备完成。** BGE-reranker-v2-m3 revision `953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e`；全部1,214 query–passage pairs共156,384个真实pair tokens，最大804。固定1,024输入上限零截断；512会截断14对。有效准备目录为`qasper-reranker-02`，01保留并标注已被替代。当前只准备，尚无该模型成绩；待游戏退出且显卡检查通过后运行，再独立重算输出。
+
+本轮跨文档、分析器及native适配的联合检查为 **36 passed，2 warnings**，包含真实77题的旧排序/候选/渲染/token/选集/评分全等回放。reranker准备的41项离线测试另外通过。局部环境快照见[环境记录](results/offline_environment_20260927.json)，不反推为此前付费阶段的完整环境锁定。关于未知请求能否无重复调用恢复的公开接口核对，见[超时恢复说明](OPENROUTER_TIMEOUT_RECOVERY_20260927.md)。
+
 ## 来源
 
 - [原15题 pilot](RELATION_PILOT_EXECUTION_20260926.md)、[零调用机制诊断](RELATION_MECHANISM_DIAGNOSIS_20260926.md)。
