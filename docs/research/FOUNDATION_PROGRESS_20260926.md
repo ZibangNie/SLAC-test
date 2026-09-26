@@ -4,6 +4,8 @@
 
 本文指向 `artifacts/research-foundation/` 的链接依赖本地研究产物；原始数据、QA、缓存和权重不随代码发布到 GitHub。
 
+后续进展：[Qasper 原生证据对齐、官方评价器与 BM25/BGE-M3 开发基线](QASPER_DEVELOPMENT_BASELINES_20260926.md)。第一阶段修复已在提交 `ab2bfcbc837f53cd9e0841857c268b2e7a176e17` 推送至上述分支。
+
 ## 1. 已修复的实验基础
 
 - **标签与解码一致**：定义确定性的最小成本单调对齐，`KEEP/DEL/SHIFT/INSERT` 可严格回放最终边界。DP 在 DEL 后保留最近的真实输出位置；默认允许相邻 INSERT；逐文档真实 gap 长度控制 padding。
