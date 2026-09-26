@@ -115,7 +115,15 @@ Native v2 编码全部671个规则chunk，得到77题×6组=462条完整记录�
 
 公开发布器32项合成检查通过，公开白名单不含真实ID、原文、答案或请求响应；本地完整审计为`qasper-local-answer-audit-01`，独立数值复核为`qasper-local-answer-independent-verification-01`。当前所有付费队列均已完成或停止，不可重启；下一步仅评估已固定顺序控制的答案复用可行性，任何新增调用仍要单独冻结且累加当前预留。
 
-## 来源
+## 04:10 后续准备与资源补充
+
+六组完整答案结果已公开推送至`71f147b67f2b215cc60fec78353419e57cbe33f9`并核验远端。新增[实际请求资源摘要](LOCAL_ANSWER_RESOURCES_20260927.md)从已审计绑定中提取367次真实请求的tokens、费用和请求周期，15项合成检查及独立numpy/Decimal数值核对通过。没有新API调用，不把这些计时当作端到端时延。另完成[机制研究方向](MECHANISM_RESEARCH_DIRECTION_20260927.md)的一手文献核对。
+
+两组已冻结given-document leaf_score控制的答案可行性由两份独立完整payload重建核对：154逻辑中146继承、8新增逻辑折为7个新unique请求。当前仅授权实现和冻结，尚未释放调用；新增保守预留$0.0258755250，拟累计$2.8326378175，不清零旧unknown1。必须先测试和独立审阅，7条全部成功才计算完整五组结果。旧367响应按严格完整payload和实际模型版本复用，不重记新费用。
+
+下一步数据准备是对剩余249篇validation做仅正文的近重复筛查：固定ID排序分8批，复用原精确5gram/版本ID算法，对已绑定的train/validation及明确legacy train/dev正文比较。此筛查不读取新QA、答案或官方test文件、不选择新holdout、不自动剔除，也不把无flag当成独立性证明；尚未完成时不得提前报告。
+
+## 来源索引
 
 - [原15题 pilot](RELATION_PILOT_EXECUTION_20260926.md)、[零调用机制诊断](RELATION_MECHANISM_DIAGNOSIS_20260926.md)。
 - [Qasper 官方 evaluator 固定版本](https://github.com/allenai/qasper-led-baseline/blob/afd0fb96bf78ce8cd8157639c6f6a6995e4f9089/scripts/evaluator.py)。
