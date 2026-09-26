@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal
+from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
@@ -28,10 +29,47 @@ MODELS = {
 }
 BYTE_CAP = 24000
 MAX_OUTPUT_TOKENS = 1024
+RESPONSE_BYTE_CAP = 2 * 1024 * 1024
+ERROR_MESSAGE_CHAR_CAP = 1024
+ERROR_CODE_CHAR_CAP = 128
+ERROR_RAW_BYTE_CAP = 64 * 1024
 RESPONSE_MODELS = {
     "jev": {"typesafe/jev-1.13-20260917"},
     "general": {"openai/gpt-4.1-mini", "openai/gpt-4.1-mini-2025-04-14", "gpt-4.1-mini-2025-04-14"},
 }
+GENERAL_PROFILES = {
+    "gpt41mini": deepcopy(MODELS["general"]),
+    "qwen36plus": {
+        "id": "qwen/qwen3.6-plus", "endpoint": "https://openrouter.ai/api/v1/chat/completions",
+        "provider": "alibaba", "prompt_per_million": "0.325", "completion_per_million": "1.95",
+        "observed_canonical_slug": "qwen/qwen3.6-plus-04-02", "reasoning": {"enabled": False},
+    },
+}
+GENERAL_RESPONSE_MODELS = {
+    "gpt41mini": set(RESPONSE_MODELS["general"]),
+    "qwen36plus": {"qwen/qwen3.6-plus", "qwen/qwen3.6-plus-04-02"},
+}
+# Alibaba's model-specific documentation lists JSON Object, not JSON Schema,
+# for Qwen3.6 Plus. Keep the unsuccessful strict profile reconstructible.
+GENERAL_PROFILES["qwen36plus-json"] = {
+    **deepcopy(GENERAL_PROFILES["qwen36plus"]), "output_format": "json_object"}
+GENERAL_RESPONSE_MODELS["qwen36plus-json"] = set(GENERAL_RESPONSE_MODELS["qwen36plus"])
+
+
+def select_general_profile(name):
+    """Explicit plan-time alternative, never an automatic provider fallback.
+
+    Qwen metadata: /api/v1/models/qwen/qwen3.6-plus/endpoints, 2026-09-26.
+    Its route is distinct from the rejected OpenAI model. The failed run stays
+    preserved and is not relabeled as a Qwen experiment.
+    """
+    if name not in GENERAL_PROFILES:
+        raise ValueError("unknown frozen general-model profile")
+    MODELS["general"] = deepcopy(GENERAL_PROFILES[name])
+    RESPONSE_MODELS["general"] = set(GENERAL_RESPONSE_MODELS[name])
+    return deepcopy(MODELS["general"])
+
+
 CRITERIA = {
     "static": {
         "dependent": "Reading B needs A to interpret an unfinished sentence or list, a local definition, an explicit reference, or a heading's scope. Mere topical similarity is insufficient.",
@@ -101,6 +139,13 @@ def make_payload(tasks, kind, backend):
                                 {"role": "user", "content": canonical_bytes({"state": state, "questions": questions}).decode("utf-8")}],
                    "response_format": {"type": "json_schema", "json_schema": {
                        "name": "slac_decisions", "strict": True, "schema": schema}}}
+        if "reasoning" in model:
+            payload["reasoning"] = deepcopy(model["reasoning"])
+        if model.get("output_format") == "json_object":
+            payload["response_format"] = {"type": "json_object"}
+            payload["messages"][0]["content"] += (
+                " Return only a JSON object conforming to this output schema: "
+                + canonical_bytes(schema).decode("utf-8"))
     if len(canonical_bytes(payload)) > BYTE_CAP:
         raise ValueError("request exceeds local byte cap; do not truncate")
     return payload
@@ -137,6 +182,21 @@ def unique_object(pairs):
     return result
 
 
+def payload_task_ids(payload, backend):
+    if backend == "jev":
+        return list(payload["questions"])
+    format_type = payload["response_format"]["type"]
+    if format_type == "json_schema":
+        return payload["response_format"]["json_schema"]["schema"]["required"]
+    if format_type != "json_object":
+        raise ValueError("unsupported general output format")
+    visible = json.loads(payload["messages"][1]["content"], object_pairs_hook=unique_object)
+    questions = visible["questions"]
+    if not isinstance(questions, dict) or set(questions) != set(visible["state"]["items"]):
+        raise ValueError("general question and state IDs differ")
+    return list(questions)
+
+
 def parse_labels(response, payload, backend, kind):
     if backend == "jev":
         answers = response.get("answers")
@@ -145,13 +205,13 @@ def parse_labels(response, payload, backend, kind):
         if any(not isinstance(v, dict) or v.get("type") != "choice" for v in answers.values()):
             raise ValueError("unexpected decision type")
         labels = {key: value.get("choice") for key, value in answers.items()}
-        wanted = set(payload["questions"])
+        wanted = set(payload_task_ids(payload, backend))
     else:
         choices = response.get("choices", [])
         if len(choices) != 1 or choices[0].get("finish_reason") != "stop":
             raise ValueError("incomplete general-model response")
         labels = json.loads(choices[0]["message"]["content"], object_pairs_hook=unique_object)
-        wanted = set(payload["response_format"]["json_schema"]["schema"]["required"])
+        wanted = set(payload_task_ids(payload, backend))
     if not isinstance(labels, dict) or set(labels) != wanted:
         raise ValueError("decision IDs differ from request")
     if any(not isinstance(label, str) or label not in CRITERIA[kind] for label in labels.values()):
@@ -216,6 +276,133 @@ class BoundedClient:
         temporary.write_text(json.dumps(self.redacted(self.ledger), indent=2, ensure_ascii=False), encoding="utf-8")
         temporary.replace(path)
 
+    def structured_error_fields(self, source):
+        """Allowlist two diagnostic fields; redact before applying field limits."""
+        result = {}
+        if isinstance(source, dict):
+            source = self.redacted(source)
+            code, message = source.get("code"), source.get("message")
+            if type(code) is int:
+                result["code"] = code
+            elif isinstance(code, str):
+                result["code"] = code[:ERROR_CODE_CHAR_CAP]
+            if isinstance(message, str):
+                result["message"] = message[:ERROR_MESSAGE_CHAR_CAP]
+        return result
+
+    def provider_error_metadata(self, metadata):
+        """Extract upstream diagnostics, never save raw bodies or other metadata.
+
+        OpenRouter documents provider_name/raw in error.metadata:
+        https://openrouter.ai/docs/api_reference/errors-and-debugging
+        Raw may be an object or a JSON string. Parse one envelope only and redact
+        again after parsing, including credentials represented by JSON escapes.
+        """
+        result = {}
+        if not isinstance(metadata, dict):
+            return result
+        provider = metadata.get("provider_name")
+        if isinstance(provider, str):
+            result["provider_name"] = self.redacted(provider)[:ERROR_CODE_CHAR_CAP]
+        if "raw" not in metadata:
+            return result
+        raw = metadata["raw"]
+        try:
+            if isinstance(raw, str):
+                size = len(raw.encode("utf-8"))
+            elif isinstance(raw, dict):
+                size = len(canonical_bytes(raw))
+            else:
+                raise ValueError("unsupported upstream diagnostic")
+            if size >= ERROR_RAW_BYTE_CAP:
+                result["upstream_body_status"] = "size_limit"
+                return result
+            parsed = json.loads(raw, object_pairs_hook=unique_object) if isinstance(raw, str) else raw
+            if not isinstance(parsed, dict):
+                raise ValueError("upstream diagnostic must be an object")
+            source = parsed.get("error", parsed)
+            if not isinstance(source, dict):
+                raise ValueError("upstream error must be an object")
+            fields = self.structured_error_fields(source)
+        except (ValueError, TypeError, RecursionError):
+            result["upstream_body_status"] = "invalid_json"
+        else:
+            result["upstream_body_status"] = "json"
+            if fields:
+                result["upstream_error"] = fields
+        return result
+
+    def capture_http_error(self, exc, index, record):
+        """Keep bounded diagnostics without persisting arbitrary provider bodies.
+
+        A body at the read limit is conservatively treated as incomplete. Invalid
+        JSON, read failures, headers and exception text are never serialized.
+        Reported numeric usage is accounting evidence; absence is not zero cost.
+        """
+        diagnostic = {"http_status": exc.code, "body_status": "read_failed",
+                      "cost_status": "cost_unknown"}
+        record["cost_status"] = "cost_unknown"
+        response = None
+        try:
+            raw = exc.read(RESPONSE_BYTE_CAP)
+        except Exception:
+            pass  # Preserve the original HTTP status, not the reader's exception.
+        else:
+            if len(raw) >= RESPONSE_BYTE_CAP:
+                diagnostic["body_status"] = "size_limit"
+            else:
+                try:
+                    parsed = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object)
+                    if not isinstance(parsed, dict):
+                        raise ValueError("error body must be an object")
+                    response = self.redacted(parsed)
+                    diagnostic["body_status"] = "json"
+                except (ValueError, TypeError, RecursionError):
+                    diagnostic["body_status"] = "invalid_json"
+        if response is not None:
+            source = response.get("error", response)
+            error = self.structured_error_fields(source)
+            if isinstance(source, dict):
+                error.update(self.provider_error_metadata(source.get("metadata")))
+            if error:
+                diagnostic["error"] = error
+                record["provider_error"] = error
+            reported_usage = response.get("usage")
+            usage = {}
+            if isinstance(reported_usage, dict):
+                for name in ("input_tokens", "prompt_tokens", "output_tokens", "completion_tokens", "total_tokens"):
+                    value = reported_usage.get(name)
+                    if type(value) is int and value >= 0:
+                        usage[name] = value
+                value = reported_usage.get("cost")
+                try:
+                    if type(value) not in (str, int, float) or len(str(value)) > 128:
+                        raise ValueError("invalid reported cost")
+                    cost = Decimal(str(value))
+                    if not cost.is_finite() or cost < 0:
+                        raise ValueError("invalid reported cost")
+                    total = Decimal(self.ledger["actual_reported_cost_usd"]) + cost
+                    if not total.is_finite():
+                        raise ValueError("invalid reported total")
+                except (ValueError, ArithmeticError):
+                    pass
+                else:
+                    usage["cost"] = str(cost)
+                    record["actual_cost_usd"] = str(cost)
+                    self.ledger["actual_reported_cost_usd"] = str(total)
+                    record["cost_status"] = diagnostic["cost_status"] = "provider_reported"
+            if usage:
+                record["usage"] = diagnostic["usage"] = usage
+                for target, names in (("input_tokens", ("input_tokens", "prompt_tokens")),
+                                      ("output_tokens", ("output_tokens", "completion_tokens"))):
+                    for name in names:
+                        if name in usage:
+                            record[target] = usage[name]
+                            break
+        name = f"error_response_{index:03d}.json"
+        (self.output / name).write_text(json.dumps(self.redacted(diagnostic), ensure_ascii=False), encoding="utf-8")
+        record.update(error_response_file=name, error_body_status=diagnostic["body_status"])
+
     def submit(self, tasks, kind, backend):
         if self.ledger["halt_reason"]:
             raise RuntimeError("client halted; no automatic resume")
@@ -249,8 +436,8 @@ class BoundedClient:
                 request = urllib.request.Request(MODELS[backend]["endpoint"], data=body, method="POST",
                     headers={"Authorization": "Bearer " + self.key, "Content-Type": "application/json", "User-Agent": "SLAC-research/1.0"})
                 with self.opener.open(request, timeout=60) as stream:
-                    raw = stream.read(2 * 1024 * 1024 + 1)
-                    if len(raw) > 2 * 1024 * 1024:
+                    raw = stream.read(RESPONSE_BYTE_CAP + 1)
+                    if len(raw) > RESPONSE_BYTE_CAP:
                         raise ValueError("response exceeds bounded size")
                 response = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object)
             # Defense in depth against an error response echoing authentication.
@@ -288,6 +475,11 @@ class BoundedClient:
             reason = type(exc).__name__
             if isinstance(exc, urllib.error.HTTPError):
                 reason = "HTTP_" + str(exc.code)
+                try:
+                    self.capture_http_error(exc, index, record)
+                except Exception:
+                    # Diagnostic capture must never replace the original failure.
+                    record["error_capture_status"] = "failed"
             record.update(status="halted", error_class=reason)
             self.ledger["halt_reason"] = reason
             raise RuntimeError("bounded provider call halted: " + reason) from None

@@ -134,6 +134,8 @@ def schedule_requests(batches):
             reserved, input_allowance, output_allowance = client.reservation(payload, backend)
             schedule.append({"batch_id": batch["id"], "kind": batch["kind"], "backend": backend,
                 "task_ids": [task["id"] for task in batch["tasks"]],
+                "cache_key": client.object_hash({"endpoint": client.MODELS[backend]["endpoint"],
+                    "payload": payload, "prompt_version": client.PROMPT_VERSION}),
                 "payload_sha256": client.object_hash(payload), "reserved_usd": str(reserved),
                 "input_allowance": input_allowance, "output_allowance": output_allowance})
             totals["requests"] += 1
@@ -147,6 +149,244 @@ def schedule_requests(batches):
             or total_cost > Decimal(CAPS["budget_usd"])):
         raise ValueError("frozen request prediction exceeds pilot caps")
     return schedule, totals
+
+
+def nonnegative_decimal(value):
+    if type(value) not in (str, int, float) or len(str(value)) > 128:
+        raise ValueError("invalid prior accounting amount")
+    amount = Decimal(str(value))
+    if not amount.is_finite() or amount < 0:
+        raise ValueError("invalid prior accounting amount")
+    return amount
+
+
+def accounting():
+    return {"attempts": 0, "questions": 0, "input_allowance": 0, "output_allowance": 0,
+            "reservation_usd": "0", "known_cost_usd": "0", "unknown_cost_attempts": 0}
+
+
+def add_attempt(totals, record):
+    for target, source in (("questions", "question_count"), ("input_allowance", "input_allowance"),
+                           ("output_allowance", "output_allowance")):
+        value = record[source]
+        if type(value) is not int or value < 1:
+            raise ValueError("invalid prior allowance")
+        totals[target] += value
+    totals["attempts"] += 1
+    totals["reservation_usd"] = str(nonnegative_decimal(totals["reservation_usd"]) +
+                                    nonnegative_decimal(record["reserved_usd"]))
+    if record.get("actual_cost_usd") is None:
+        totals["unknown_cost_attempts"] += 1
+    else:
+        cost = nonnegative_decimal(record["actual_cost_usd"])
+        if cost > nonnegative_decimal(record["reserved_usd"]):
+            raise ValueError("prior cost exceeds reservation")
+        totals["known_cost_usd"] = str(nonnegative_decimal(totals["known_cost_usd"]) + cost)
+
+
+def prior_request(path, record, prompt_version):
+    """Validate saved request accounting using its own frozen route prices."""
+    payload = read_json(path)
+    backend = record["backend"]
+    if backend not in client.MODELS or record["kind"] not in client.CRITERIA:
+        raise ValueError("invalid prior backend or kind")
+    ids = client.payload_task_ids(payload, backend)
+    if (not 1 <= len(ids) <= 8 or len(set(ids)) != len(ids) or set(ids) != set(record["task_ids"])
+            or len(ids) != record["question_count"] or digest(path) != record["request_sha256"]
+            or client.object_hash(payload) != record["request_sha256"]):
+        raise ValueError("prior request identity or hash mismatch")
+    key = client.object_hash({"endpoint": client.MODELS[backend]["endpoint"],
+                              "payload": payload, "prompt_version": prompt_version})
+    if record["cache_key"] != key:
+        raise ValueError("prior endpoint/payload/prompt cache key mismatch")
+    count = len(ids) if backend == "jev" else 1
+    input_allowance = (len(client.canonical_bytes(payload)) + 2048) * count
+    price = payload["provider"]["max_price"]
+    expected = max(Decimal("0.005"), (Decimal(input_allowance) * nonnegative_decimal(price["prompt"])
+        + Decimal(1024) * nonnegative_decimal(price["completion"])) / Decimal(1000000) * Decimal("1.5"))
+    if (record["input_allowance"] != input_allowance or record["output_allowance"] != 1024
+            or nonnegative_decimal(record["reserved_usd"]) != expected):
+        raise ValueError("prior request reservation mismatch")
+    return payload
+
+
+def validate_reused_response(response, payload, record):
+    backend, kind = record["backend"], record["kind"]
+    if record["status"] != "completed":
+        raise ValueError("only completed prior requests can be reused")
+    if backend == "general":
+        profiles = [name for name, config in client.GENERAL_PROFILES.items()
+                    if config["id"] == payload.get("model")
+                    and payload.get("provider", {}).get("only") == [config["provider"]]]
+        allowed_models = set().union(*(client.GENERAL_RESPONSE_MODELS[name] for name in profiles))
+        allowed_providers = {client.GENERAL_PROFILES[name]["provider"] for name in profiles}
+    else:
+        allowed_models, allowed_providers = client.RESPONSE_MODELS[backend], {client.MODELS[backend]["provider"]}
+    model, provider, response_id = response.get("model"), response.get("provider"), response.get("id")
+    if (model not in allowed_models or model != record.get("response_model")
+            or not isinstance(response_id, str) or not response_id.strip()
+            or response_id != record.get("response_id") or provider != record.get("provider")):
+        raise ValueError("prior response model or identity mismatch")
+    if provider is not None and (not isinstance(provider, str) or provider.casefold() not in allowed_providers):
+        raise ValueError("prior response provider mismatch")
+    usage = response.get("usage")
+    if not isinstance(usage, dict) or usage != record.get("usage"):
+        raise ValueError("prior response usage mismatch")
+    for field, alternate, allowance in (("input_tokens", "prompt_tokens", "input_allowance"),
+                                       ("output_tokens", "completion_tokens", "output_allowance")):
+        value = usage.get(field, usage.get(alternate))
+        if type(value) is not int or not 0 <= value <= record[allowance] or value != record.get(field):
+            raise ValueError("prior response token usage mismatch")
+    cost = nonnegative_decimal(usage.get("cost"))
+    if cost != nonnegative_decimal(record.get("actual_cost_usd")) or cost > nonnegative_decimal(record["reserved_usd"]):
+        raise ValueError("prior response cost mismatch")
+    labels = client.parse_labels(response, payload, backend, kind)
+    if labels != record.get("labels"):
+        raise ValueError("prior saved labels differ from reparsed response")
+    return labels
+
+
+def freeze_prior_run(schedule, batches, directory, *, bind, allow_reuse):
+    """Validate one run independently; only the designated run supplies labels."""
+    directory = Path(directory).resolve() / "provider_calls"
+    ledger_path = bind(directory / "ledger.json")
+    ledger = read_json(ledger_path)
+    if ledger.get("prompt_version") != client.PROMPT_VERSION or ledger.get("automatic_retries") != 0:
+        raise ValueError("prior run prompt or retry policy mismatch")
+    by_batch = {batch["id"]: batch for batch in batches}
+    by_key = {item["cache_key"]: item for item in schedule}
+    if len(by_key) != len(schedule):
+        raise ValueError("duplicate scheduled cache key")
+    request_records, seen_keys, expected_files = {}, set(), {ledger_path}
+    totals, reused = accounting(), {}
+    for number, record in enumerate(ledger["attempts"], 1):
+        if (record["attempt"] != number or record["cache_key"] in seen_keys
+                or record["status"] not in ("completed", "halted", "in_flight")):
+            raise ValueError("prior attempts are not uniquely numbered")
+        seen_keys.add(record["cache_key"])
+        request_path = bind(directory / f"request_{number:03d}.json")
+        expected_files.add(request_path)
+        payload = prior_request(request_path, record, ledger["prompt_version"])
+        request_records[str(request_path)] = record
+        add_attempt(totals, record)
+        response_path = directory / f"response_{number:03d}.json"
+        if response_path.exists():
+            response_path = bind(response_path)
+            expected_files.add(response_path)
+        error_name = record.get("error_response_file")
+        if error_name:
+            if error_name != f"error_response_{number:03d}.json":
+                raise ValueError("invalid prior diagnostic filename")
+            expected_files.add(bind(directory / error_name))
+        if record["status"] != "completed":
+            continue  # Failures consume admission budget but never produce reusable labels.
+        response_path = bind(response_path)
+        validate_reused_response(read_json(response_path), payload, record)
+        if not allow_reuse:
+            continue
+        key = record["cache_key"]
+        if key not in by_key:
+            raise ValueError("completed prior request has no exact match in new schedule")
+        item = by_key[key]
+        batch = by_batch[item["batch_id"]]
+        fresh_payload = client.make_payload(batch["tasks"], batch["kind"], item["backend"])
+        if (record["backend"] != item["backend"] or record["kind"] != item["kind"]
+                or record["task_ids"] != item["task_ids"] or payload != fresh_payload
+                or record["request_sha256"] != item["payload_sha256"]):
+            raise ValueError("prior request differs from frozen new request")
+        reused[key] = {"request_path": str(request_path),
+            "response_path": str(response_path), "ledger_path": str(ledger_path),
+            "attempt": number, "backend": record["backend"], "kind": record["kind"],
+            "original_actual_cost_usd": record["actual_cost_usd"], "response_model": record["response_model"]}
+    actual_files = {p.resolve() for pattern in ("request_*.json", "response_*.json", "error_response_*.json")
+                    for p in directory.glob(pattern)} | {ledger_path}
+    if actual_files != expected_files:
+        raise ValueError("prior request/response files are not completely accounted")
+    if (nonnegative_decimal(ledger["reservation_total_usd"]) != nonnegative_decimal(totals["reservation_usd"])
+            or nonnegative_decimal(ledger["actual_reported_cost_usd"]) != nonnegative_decimal(totals["known_cost_usd"])):
+        raise ValueError("prior ledger aggregate mismatch")
+    return request_records, totals, reused
+
+
+def normalize_prior_directories(value):
+    if value is None:
+        return []
+    values = [value] if isinstance(value, (str, Path)) else value
+    paths = [Path(item).resolve() for item in values]
+    if len(set(paths)) != len(paths):
+        raise ValueError("duplicate prior source directory")
+    return [str(path) for path in paths]
+
+
+def freeze_prior(schedule, batches, reuse_run=None, prior_diagnostic=None, prior_runs=None):
+    """Bind explicit historical runs and diagnostics without repeating charges."""
+    reuse = str(Path(reuse_run).resolve()) if reuse_run else None
+    extras = normalize_prior_directories(prior_runs)
+    diagnostics = normalize_prior_directories(prior_diagnostic)
+    directories = normalize_prior_directories(([reuse] if reuse else []) + extras)
+    if set(map(Path, directories)) & set(map(Path, diagnostics)):
+        raise ValueError("run and diagnostic cannot share a prior source directory")
+    if diagnostics and not directories:
+        raise ValueError("prior diagnostic requires the original run")
+    prior = {"reuse_run": reuse, "prior_runs": extras, "prior_diagnostic": diagnostics,
+             "input_sha256": {}, "accounting": accounting(), "reused_responses": {}}
+    bound, totals, request_records = prior["input_sha256"], prior["accounting"], {}
+    def bind(path):
+        path = Path(path).resolve()
+        bound[str(path)] = digest(path)
+        return path
+    for directory in directories:
+        requests, run_totals, reused = freeze_prior_run(schedule, batches, directory,
+            bind=bind, allow_reuse=directory == reuse)
+        if set(requests) & set(request_records):
+            raise ValueError("duplicate historical request source")
+        request_records.update(requests)
+        prior["reused_responses"].update(reused)
+        for name in ("attempts", "questions", "input_allowance", "output_allowance", "unknown_cost_attempts"):
+            totals[name] += run_totals[name]
+        for name in ("reservation_usd", "known_cost_usd"):
+            totals[name] = str(nonnegative_decimal(totals[name]) + nonnegative_decimal(run_totals[name]))
+    for directory in diagnostics:
+        diagnostic_path = bind(Path(directory) / "ledger.json")
+        diagnostic = read_json(diagnostic_path)
+        response = read_json(bind(Path(directory) / "response.json"))
+        request_path = Path(diagnostic["request_path"]).resolve()
+        if str(request_path) not in request_records:
+            raise ValueError("diagnostic is not bound to a prior request")
+        original = request_records[str(request_path)]
+        if original["status"] == "completed":
+            raise ValueError("diagnostic must identify the rejected prior request")
+        if (type(diagnostic.get("http_status")) is not int or not 400 <= diagnostic["http_status"] <= 599
+                or response.get("error", {}).get("code") != diagnostic["http_status"]):
+            raise ValueError("diagnostic rejection status mismatch")
+        for field in ("reserved_usd", "input_allowance", "output_allowance"):
+            if diagnostic[field] != original[field]:
+                raise ValueError("diagnostic reservation differs from original request")
+        reported = response.get("usage", {}).get("cost")
+        if ((reported is None) != (diagnostic.get("actual_cost_usd") is None)
+                or reported is not None and nonnegative_decimal(reported) != nonnegative_decimal(diagnostic["actual_cost_usd"])):
+            raise ValueError("diagnostic reported cost mismatch")
+        add_attempt(totals, {**original, **diagnostic, "question_count": original["question_count"]})
+    verify_hashes(bound)
+    return prior
+
+
+def cumulative_prediction(schedule, prior):
+    reused = prior["reused_responses"]
+    new = accounting()
+    for item in schedule:
+        if item["cache_key"] not in reused:
+            add_attempt(new, {**item, "question_count": len(item["task_ids"]), "actual_cost_usd": "0"})
+    old = prior["accounting"]
+    total = {name: old[name] + new[name] for name in ("attempts", "questions", "input_allowance", "output_allowance")}
+    total["reservation_usd"] = str(nonnegative_decimal(old["reservation_usd"]) + nonnegative_decimal(new["reservation_usd"]))
+    if (total["attempts"] > CAPS["request_cap"] or total["questions"] > CAPS["question_cap"]
+            or total["input_allowance"] > CAPS["input_allowance_cap"]
+            or nonnegative_decimal(total["reservation_usd"]) > Decimal(CAPS["budget_usd"])):
+        raise ValueError("cumulative prior plus new prediction exceeds pilot caps")
+    return {"new_requests": new["attempts"], "new_questions": new["questions"],
+            "new_input_allowance": new["input_allowance"], "new_reservation_usd": new["reservation_usd"],
+            "reused_count": len(reused), "prior": old, "cumulative": total}
 
 
 def selected_gold(sidecar, prepared):
@@ -244,6 +484,8 @@ def plan(args):
         for key in ("prepared", "sidecar", "tokenizer", "output"))
     output.mkdir(parents=True, exist_ok=False)
     try:
+        general_profile = getattr(args, "general_profile", "gpt41mini")
+        client.select_general_profile(general_profile)
         prepared, manifest, documents = load_prepared(prepared_dir)
         inputs = dict(manifest["input_sha256"])
         if inputs.get(str(sidecar)) != digest(sidecar):
@@ -257,6 +499,10 @@ def plan(args):
         inputs.update({str(path): digest(path) for path in local_paths})
         batches = freeze_batches(prepared)
         schedule, prediction = schedule_requests(batches)
+        prior = freeze_prior(schedule, batches, getattr(args, "reuse_run", None),
+                             getattr(args, "prior_diagnostic", None), getattr(args, "prior_run", None))
+        cumulative = cumulative_prediction(schedule, prior)
+        inputs.update(prior["input_sha256"])
         references = selected_gold(sidecar, prepared)  # References never enter batches or payloads.
         rankings = full_rankings(prepared, manifest)
         tokenizer = AutoTokenizer.from_pretrained(str(tokenizer_path), local_files_only=True, trust_remote_code=False)
@@ -274,7 +520,9 @@ def plan(args):
             "prepared_dir": str(prepared_dir), "sidecar": str(sidecar), "tokenizer": str(tokenizer_path),
             "input_sha256": inputs, "plan_files_sha256": {
                 name: digest(output / name) for name in ("batches.json", "baseline_per_question.jsonl", "candidate_coverage.jsonl", "baseline_summary.json")},
-            "models": client.MODELS, "prompt_version": client.PROMPT_VERSION,
+            "models": json.loads(client.canonical_bytes(client.MODELS)), "prompt_version": client.PROMPT_VERSION,
+            "general_profile": general_profile, "prior_execution": prior,
+            "cumulative_prediction": cumulative,
             "caps": dict(CAPS), "selector": dict(SELECTOR), "schedule": schedule,
             "predicted_reservations": prediction, "batch_count": len(batches),
             "query_count": len(prepared["queries"]), "family_count": len(prepared["documents"]),
@@ -369,6 +617,7 @@ def load_plan(directory):
     config = read_json(directory / "experiment_config.json")
     if config.get("status") != "planned" or config.get("schema") != "slac-qasper-relation-experiment-v1":
         raise ValueError("invalid frozen plan")
+    client.select_general_profile(config["general_profile"])
     if config["caps"] != CAPS or config["selector"] != SELECTOR or config["models"] != client.MODELS:
         raise ValueError("frozen plan differs from current locked implementation")
     if config["prompt_version"] != client.PROMPT_VERSION:
@@ -379,6 +628,11 @@ def load_plan(directory):
     schedule, totals = schedule_requests(batches)
     if schedule != config["schedule"] or totals != config["predicted_reservations"]:
         raise ValueError("regenerated requests differ from frozen plan")
+    saved_prior = config["prior_execution"]
+    prior = freeze_prior(schedule, batches, saved_prior["reuse_run"], saved_prior["prior_diagnostic"],
+                         saved_prior["prior_runs"])
+    if prior != saved_prior or cumulative_prediction(schedule, prior) != config["cumulative_prediction"]:
+        raise ValueError("prior response provenance or cumulative budget changed")
     return config, batches
 
 
@@ -398,16 +652,37 @@ def run(args, *, client_factory=client.BoundedClient):
         tokenizer = AutoTokenizer.from_pretrained(config["tokenizer"], local_files_only=True, trust_remote_code=False)
         by_batch = {batch["id"]: batch for batch in batches}
         labels = {backend: {} for backend in client.MODELS}
-        bounded = client_factory(output / "provider_calls", key_file=args.key_file, proxy=args.proxy,
-            budget_usd=CAPS["budget_usd"], request_cap=CAPS["request_cap"],
-            question_cap=CAPS["question_cap"], token_cap=CAPS["input_allowance_cap"])
+        prior = config["prior_execution"]
+        used = prior["accounting"]
+        reused_events = []
+        if config["cumulative_prediction"]["new_requests"]:
+            bounded = client_factory(output / "provider_calls", key_file=args.key_file, proxy=args.proxy,
+                budget_usd=str(Decimal(CAPS["budget_usd"]) - Decimal(used["reservation_usd"])),
+                request_cap=CAPS["request_cap"] - used["attempts"],
+                question_cap=CAPS["question_cap"] - used["questions"],
+                token_cap=CAPS["input_allowance_cap"] - used["input_allowance"])
         for index, item in enumerate(config["schedule"]):
             # Provider transport has a 60-second timeout. Do not start a call
             # that could knowingly exceed the overall 30-minute run window.
             if deadline - time.monotonic() <= 65:
                 raise TimeoutError("insufficient remaining provider time allowance")
             batch = by_batch[item["batch_id"]]
-            decisions = bounded.submit(batch["tasks"], batch["kind"], item["backend"])
+            provenance = prior["reused_responses"].get(item["cache_key"])
+            if provenance:
+                verify_hashes(prior["input_sha256"])
+                record = read_json(provenance["ledger_path"])["attempts"][provenance["attempt"] - 1]
+                payload = client.make_payload(batch["tasks"], batch["kind"], item["backend"])
+                decisions = validate_reused_response(read_json(provenance["response_path"]), payload, record)
+                reused_events.append({"schedule_index": index, "cache_key": item["cache_key"],
+                    "source": provenance, "new_api_call": False,
+                    "accounting": "original known cost retained once in cumulative prior cost"})
+                write_json(output / f"reuse_{len(reused_events):03d}.json", reused_events[-1])
+            else:
+                decisions = bounded.submit(batch["tasks"], batch["kind"], item["backend"])
+                for source in prior["reused_responses"].values():
+                    if (source["backend"] == item["backend"]
+                            and bounded.ledger["resolved_models"][item["backend"]] != source["response_model"]):
+                        raise ValueError("reused and new response model identity differs")
             if set(decisions) != set(item["task_ids"]) or set(decisions) & set(labels[item["backend"]]):
                 raise ValueError("provider result identities differ from frozen schedule")
             labels[item["backend"]].update(decisions)
@@ -415,7 +690,9 @@ def run(args, *, client_factory=client.BoundedClient):
             temporary.write_text(json.dumps(labels, ensure_ascii=False, indent=2), encoding="utf-8")
             temporary.replace(output / "labels.json")
             print(json.dumps({"completed_requests": index + 1, "total_requests": len(config["schedule"]),
-                "actual_reported_cost_usd": bounded.ledger["actual_reported_cost_usd"]}), flush=True)
+                "new_api_calls": len(bounded.ledger["attempts"]) if bounded else 0,
+                "reused_count": len(reused_events),
+                "new_reported_cost_usd": bounded.ledger["actual_reported_cost_usd"] if bounded else "0"}), flush=True)
             check_time(deadline)
         records, traces = replay_records(prepared, documents, annotations, labels, tokenizer, deadline)
         comparisons = paired_differences(records)
@@ -424,15 +701,29 @@ def run(args, *, client_factory=client.BoundedClient):
         verify_hashes(initial_plan_hashes)
         verify_hashes({str(plan_dir / name): value for name, value in config["plan_files_sha256"].items()})
         check_time(deadline)
+        new_ledger = bounded.ledger if bounded else {"attempts": [], "actual_reported_cost_usd": "0", "resolved_models": {}}
+        cumulative_usage = dict(used)
+        for attempt in new_ledger["attempts"]:
+            add_attempt(cumulative_usage, attempt)
+        resolved = dict(new_ledger["resolved_models"])
+        for value in prior["reused_responses"].values():
+            if resolved.setdefault(value["backend"], value["response_model"]) != value["response_model"]:
+                raise ValueError("reused and new response model identity differs")
+        verify_hashes(prior["input_sha256"])
         write_rows(output / "per_question.jsonl", records)
         write_rows(output / "traces.jsonl", traces)
         summary = {"status": "completed", "scope": "actual unique backend judgments plus six-cell policy replay",
             "plan_sha256": initial_plan_hashes[str(plan_dir / "experiment_config.json")], "input_hashes_unchanged": True,
             "question_count": len(prepared["queries"]), "family_count": len(documents),
             "record_count": len(records), "metrics": aggregate(records), "paired_differences": comparisons,
-            "actual_requests": len(bounded.ledger["attempts"]),
-            "actual_reported_cost_usd": bounded.ledger["actual_reported_cost_usd"],
-            "resolved_models": bounded.ledger["resolved_models"],
+            "actual_requests": len(new_ledger["attempts"]), "new_api_calls": len(new_ledger["attempts"]),
+            "reused_count": len(reused_events), "prior_attempts": used["attempts"],
+            "actual_reported_cost_usd": new_ledger["actual_reported_cost_usd"],
+            "cumulative_accounting": cumulative_usage,
+            "cumulative_known_cost_usd": cumulative_usage["known_cost_usd"],
+            "cumulative_unknown_cost_attempts": cumulative_usage["unknown_cost_attempts"],
+            "prior_input_sha256": prior["input_sha256"],
+            "resolved_models": resolved, "general_profile": config["general_profile"],
             "elapsed_seconds": time.monotonic() - started, "limits": LIMITS,
             "answer_generation_performed": False, "independent_evaluation": False,
             "cache_savings_measured": False, "test_payload_read": False,
@@ -451,6 +742,10 @@ def parse_args():
     offline = commands.add_parser("plan")
     for name in ("prepared", "sidecar", "tokenizer", "output"):
         offline.add_argument(f"--{name}", required=True)
+    offline.add_argument("--general-profile", choices=tuple(client.GENERAL_PROFILES), default="gpt41mini")
+    offline.add_argument("--reuse-run")
+    offline.add_argument("--prior-run", action="append", default=[])
+    offline.add_argument("--prior-diagnostic", action="append", default=[])
     execute = commands.add_parser("run")
     for name in ("plan", "key-file", "output"):
         execute.add_argument(f"--{name}", required=True)

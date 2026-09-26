@@ -13,6 +13,13 @@ from prepare_qasper_relation_pilot import build_prepared
 from run_qasper_evidence_baselines import Unit
 
 
+@pytest.fixture(autouse=True)
+def restore_default_general_profile():
+    api.select_general_profile("gpt41mini")
+    yield
+    api.select_general_profile("gpt41mini")
+
+
 class TinyTokenizer:
     def encode(self, text, *, add_special_tokens, truncation):
         assert add_special_tokens is True and truncation is False
@@ -222,3 +229,296 @@ def test_paired_differences_use_family_means_not_many_queries_as_independent():
     result = differences[0]["statistics"]["official_evidence_f1"]
     assert result["family_macro_delta"] == .5 and result["document_macro_delta"] == .5
     assert result["confidence_interval"] is None
+
+
+def make_failed_prior(tmp_path, monkeypatch):
+    args = make_prepared(tmp_path, monkeypatch)
+    runner.plan(args)
+    old_run = tmp_path / "old_run"
+    calls = []
+    def transport(backend, payload):
+        calls.append(backend)
+        if len(calls) == 2:
+            raise RuntimeError("mock rejection")
+        return responses(backend, payload)
+    with pytest.raises(RuntimeError):
+        runner.run(SimpleNamespace(plan=args.output, output=old_run, key_file="unused", proxy=None),
+            client_factory=lambda path, **kw: api.BoundedClient(path, transport=transport, **kw))
+    ledger = runner.read_json(old_run / "provider_calls" / "ledger.json")
+    diagnostic = tmp_path / "diagnostic"
+    diagnostic.mkdir()
+    rejected = ledger["attempts"][1]
+    runner.write_json(diagnostic / "ledger.json", {
+        **{key: rejected[key] for key in ("reserved_usd", "input_allowance", "output_allowance")},
+        "request_path": str(old_run / "provider_calls" / "request_002.json"),
+        "http_status": 403, "actual_cost_usd": None})
+    runner.write_json(diagnostic / "response.json", {"error": {"code": 403}})
+    args.output = tmp_path / "new_plan"
+    args.general_profile = "qwen36plus"
+    args.reuse_run = old_run
+    args.prior_diagnostic = diagnostic
+    return args
+
+
+def test_exact_prior_response_reused_with_cumulative_unknown_costs_and_reduced_caps(tmp_path, monkeypatch):
+    args = make_failed_prior(tmp_path, monkeypatch)
+    original_hashes = {str(path): runner.digest(path) for root in (args.reuse_run, args.prior_diagnostic)
+                       for path in root.rglob("*.json")}
+    config = runner.plan(args)
+    prediction = config["cumulative_prediction"]
+    assert config["general_profile"] == "qwen36plus"
+    assert config["models"]["general"]["id"] == "qwen/qwen3.6-plus"
+    assert prediction["new_requests"] == 5 and prediction["reused_count"] == 1
+    assert prediction["prior"]["attempts"] == 3
+    assert prediction["prior"]["known_cost_usd"] == "0.001"
+    assert prediction["prior"]["unknown_cost_attempts"] == 2
+    assert prediction["cumulative"]["attempts"] == 8
+    calls, caps = [], {}
+    def transport(backend, payload):
+        calls.append((backend, api.object_hash(payload)))
+        if backend == "general":
+            assert payload["model"] == "qwen/qwen3.6-plus"
+        return responses(backend, payload)
+    def factory(path, **kwargs):
+        caps.update(kwargs)
+        return api.BoundedClient(path, transport=transport, **kwargs)
+    api.select_general_profile("gpt41mini")  # load_plan must restore the sealed choice.
+    output = tmp_path / "new_run"
+    result = runner.run(SimpleNamespace(plan=args.output, output=output, key_file="unused", proxy=None),
+                        client_factory=factory)
+    assert len(calls) == result["new_api_calls"] == result["actual_requests"] == 5
+    assert result["reused_count"] == 1 and result["prior_attempts"] == 3
+    assert ("jev", config["schedule"][0]["payload_sha256"]) not in calls
+    assert result["actual_reported_cost_usd"] == "0.005"
+    assert result["cumulative_known_cost_usd"] == "0.006"
+    assert result["cumulative_unknown_cost_attempts"] == 2
+    assert result["cumulative_accounting"]["attempts"] == 8
+    assert caps["request_cap"] == runner.CAPS["request_cap"] - 3
+    assert caps["question_cap"] == runner.CAPS["question_cap"] - prediction["prior"]["questions"]
+    assert caps["token_cap"] == runner.CAPS["input_allowance_cap"] - prediction["prior"]["input_allowance"]
+    assert runner.Decimal(caps["budget_usd"]) + runner.Decimal(prediction["prior"]["reservation_usd"]) == 2
+    event = runner.read_json(output / "reuse_001.json")
+    assert event["new_api_call"] is False and event["source"]["original_actual_cost_usd"] == "0.001"
+    runner.verify_hashes(original_hashes)
+
+
+@pytest.mark.parametrize("target,value", [
+    ("response_id", "wrong-id"), ("response_model", "wrong-model"),
+    ("provider", "wrong-provider"), ("actual_cost_usd", "NaN"),
+    ("input_tokens", 999999), ("labels", {}), ("request_sha256", "0" * 64),
+    ("cache_key", "0" * 64), ("question_count", 99), ("input_allowance", 1),
+])
+def test_prior_identity_cost_usage_labels_and_payload_must_validate(tmp_path, monkeypatch, target, value):
+    args = make_failed_prior(tmp_path, monkeypatch)
+    path = args.reuse_run / "provider_calls" / "ledger.json"
+    ledger = runner.read_json(path)
+    ledger["attempts"][0][target] = value
+    path.write_text(json.dumps(ledger), encoding="utf-8")
+    with pytest.raises((ValueError, KeyError)):
+        runner.plan(args)
+    assert not (args.output / "experiment_config.json").exists()
+
+
+def test_prior_request_without_matching_new_schedule_fails_closed(tmp_path, monkeypatch):
+    args = make_failed_prior(tmp_path, monkeypatch)
+    original = runner.schedule_requests
+    def altered(batches):
+        schedule, totals = original(batches)
+        schedule[0]["cache_key"] = "f" * 64
+        return schedule, totals
+    monkeypatch.setattr(runner, "schedule_requests", altered)
+    with pytest.raises(ValueError, match="no exact match"):
+        runner.plan(args)
+
+
+def test_prior_bytes_changed_after_plan_rejected_before_any_client(tmp_path, monkeypatch):
+    args = make_failed_prior(tmp_path, monkeypatch)
+    runner.plan(args)
+    path = args.reuse_run / "provider_calls" / "response_001.json"
+    path.write_text(path.read_text(encoding="utf-8") + " ", encoding="utf-8")
+    def forbidden(*args, **kwargs):
+        raise AssertionError("client must not be created")
+    with pytest.raises(ValueError, match="source hash mismatch"):
+        runner.run(SimpleNamespace(plan=args.output, output=tmp_path / "new_run", key_file="unused", proxy=None),
+                   client_factory=forbidden)
+
+
+def test_prior_bytes_changed_during_execution_rejected_at_end(tmp_path, monkeypatch):
+    args = make_failed_prior(tmp_path, monkeypatch)
+    config = runner.plan(args)
+    calls = []
+    def transport(backend, payload):
+        calls.append(backend)
+        if len(calls) == config["cumulative_prediction"]["new_requests"]:
+            path = args.prior_diagnostic / "response.json"
+            path.write_text(path.read_text(encoding="utf-8") + " ", encoding="utf-8")
+        return responses(backend, payload)
+    output = tmp_path / "new_run"
+    with pytest.raises(ValueError, match="source hash mismatch"):
+        runner.run(SimpleNamespace(plan=args.output, output=output, key_file="unused", proxy=None),
+            client_factory=lambda path, **kw: api.BoundedClient(path, transport=transport, **kw))
+    assert not (output / "summary.json").exists()
+    assert not (output / "per_question.jsonl").exists()
+
+
+@pytest.mark.parametrize("field,value", [("attempts", 160), ("questions", 1600),
+    ("input_allowance", 8000000), ("reservation_usd", "2")])
+def test_prior_usage_cannot_bypass_any_cumulative_cap(field, value):
+    task = {"id": "task", "item": {"query": "query", "unit": {"id": "unit", "text": "text"}}}
+    schedule, _ = runner.schedule_requests([{"id": "batch", "kind": "support", "tasks": [task]}])
+    prior = {"accounting": runner.accounting(), "reused_responses": {}}
+    prior["accounting"][field] = value
+    with pytest.raises(ValueError, match="cumulative"):
+        runner.cumulative_prediction(schedule, prior)
+
+
+@pytest.mark.parametrize("profile", ["gpt41mini", "qwen36plus-json"])
+def test_full_exact_reuse_never_creates_client_or_reads_key(tmp_path, monkeypatch, profile):
+    args = make_prepared(tmp_path, monkeypatch)
+    args.general_profile = profile
+    runner.plan(args)
+    old_run = tmp_path / "old_run"
+    runner.run(SimpleNamespace(plan=args.output, output=old_run, key_file="unused", proxy=None),
+        client_factory=lambda path, **kw: api.BoundedClient(path, transport=responses, **kw))
+    args.output = tmp_path / "new_plan"
+    args.reuse_run = old_run
+    config = runner.plan(args)
+    assert config["cumulative_prediction"]["new_requests"] == 0
+    def forbidden(*args, **kwargs):
+        raise AssertionError("fully reused run must not instantiate authenticated client")
+    result = runner.run(SimpleNamespace(plan=args.output, output=tmp_path / "new_run", key_file="not-a-key", proxy=None),
+                        client_factory=forbidden)
+    assert result["new_api_calls"] == 0 and result["reused_count"] == 6
+    assert result["cumulative_known_cost_usd"] == "0.006"
+    assert result["cumulative_unknown_cost_attempts"] == 0
+
+
+@pytest.mark.parametrize("mutation", ["unbound_request", "reservation", "status", "cost"])
+def test_manual_diagnostic_must_match_prior_request_and_response(tmp_path, monkeypatch, mutation):
+    args = make_failed_prior(tmp_path, monkeypatch)
+    path = args.prior_diagnostic / "ledger.json"
+    row = runner.read_json(path)
+    if mutation == "unbound_request":
+        row["request_path"] = str(tmp_path / "arbitrary_file")
+    elif mutation == "reservation":
+        row["reserved_usd"] = "0"
+    elif mutation == "status":
+        row["http_status"] = 401
+    else:
+        row["actual_cost_usd"] = "0"
+    path.write_text(json.dumps(row), encoding="utf-8")
+    with pytest.raises(ValueError, match="diagnostic"):
+        runner.plan(args)
+
+
+def test_unaccounted_prior_response_file_is_rejected(tmp_path, monkeypatch):
+    args = make_failed_prior(tmp_path, monkeypatch)
+    (args.reuse_run / "provider_calls" / "response_999.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="completely accounted"):
+        runner.plan(args)
+
+
+def make_multiple_prior(tmp_path, monkeypatch):
+    import io
+    import urllib.error
+    args = make_failed_prior(tmp_path, monkeypatch)
+    api.select_general_profile("qwen36plus")
+    prepared, _, _ = runner.load_prepared(args.prepared)
+    batch = runner.freeze_batches(prepared)[0]
+    second_run = tmp_path / "second_failed_run"
+    def rejection(backend, payload):
+        raise urllib.error.HTTPError("https://example.invalid", 400, "mock rejection", {},
+                                     io.BytesIO(b'{"error":{"code":400,"message":"Provider returned error"}}'))
+    bounded = api.BoundedClient(second_run / "provider_calls", transport=rejection)
+    with pytest.raises(RuntimeError):
+        bounded.submit(batch["tasks"], batch["kind"], "general")
+    rejected = bounded.ledger["attempts"][0]
+    second_diagnostic = tmp_path / "second_diagnostic"
+    second_diagnostic.mkdir()
+    runner.write_json(second_diagnostic / "ledger.json", {
+        **{key: rejected[key] for key in ("reserved_usd", "input_allowance", "output_allowance")},
+        "request_path": str(second_run / "provider_calls" / "request_001.json"),
+        "http_status": 400, "actual_cost_usd": None})
+    runner.write_json(second_diagnostic / "response.json", {"error": {"code": 400}})
+    args.prior_run = [second_run]
+    args.prior_diagnostic = [args.prior_diagnostic, second_diagnostic]
+    return args
+
+
+def test_multiple_prior_runs_and_diagnostics_keep_all_attempts_without_duplicate_reuse(tmp_path, monkeypatch):
+    args = make_multiple_prior(tmp_path, monkeypatch)
+    config = runner.plan(args)
+    prior = config["prior_execution"]
+    assert prior["prior_runs"] == [str(args.prior_run[0].resolve())]
+    assert prior["prior_diagnostic"] == [str(path.resolve()) for path in args.prior_diagnostic]
+    assert prior["accounting"]["attempts"] == 5
+    assert prior["accounting"]["known_cost_usd"] == "0.001"
+    assert prior["accounting"]["unknown_cost_attempts"] == 4
+    assert config["cumulative_prediction"]["new_requests"] == 5
+    assert config["cumulative_prediction"]["reused_count"] == 1
+    assert config["cumulative_prediction"]["cumulative"]["attempts"] == 10
+    assert str((args.prior_run[0] / "provider_calls" / "error_response_001.json").resolve()) in prior["input_sha256"]
+    loaded, _ = runner.load_plan(args.output)
+    assert loaded == config
+    result = runner.run(SimpleNamespace(plan=args.output, output=tmp_path / "new_run", key_file="unused", proxy=None),
+        client_factory=lambda path, **kw: api.BoundedClient(path, transport=responses, **kw))
+    assert result["prior_attempts"] == 5 and result["new_api_calls"] == 5
+    assert result["reused_count"] == 1
+    assert result["cumulative_accounting"]["attempts"] == 10
+    assert result["cumulative_unknown_cost_attempts"] == 4
+    assert result["cumulative_known_cost_usd"] == "0.006"
+
+
+@pytest.mark.parametrize("mutation", ["reuse_as_extra", "duplicate_extra", "duplicate_diagnostic", "run_as_diagnostic"])
+def test_duplicate_historical_sources_are_rejected(tmp_path, monkeypatch, mutation):
+    args = make_multiple_prior(tmp_path, monkeypatch)
+    if mutation == "reuse_as_extra":
+        args.prior_run.append(args.reuse_run / ".")
+    elif mutation == "duplicate_extra":
+        args.prior_run.append(args.prior_run[0])
+    elif mutation == "duplicate_diagnostic":
+        args.prior_diagnostic.append(args.prior_diagnostic[0])
+    else:
+        args.prior_diagnostic.append(args.prior_run[0])
+    with pytest.raises(ValueError, match="duplicate|share"):
+        runner.plan(args)
+
+
+def test_extra_run_response_modified_after_freeze_fails_before_client(tmp_path, monkeypatch):
+    args = make_multiple_prior(tmp_path, monkeypatch)
+    runner.plan(args)
+    path = args.prior_run[0] / "provider_calls" / "error_response_001.json"
+    path.write_text(path.read_text(encoding="utf-8") + " ", encoding="utf-8")
+    def forbidden(*args, **kwargs):
+        raise AssertionError("client must not be created")
+    with pytest.raises(ValueError, match="source hash mismatch"):
+        runner.run(SimpleNamespace(plan=args.output, output=tmp_path / "new_run", key_file="unused", proxy=None),
+                   client_factory=forbidden)
+
+
+def test_extra_completed_run_is_accounted_without_becoming_reuse_source(tmp_path, monkeypatch):
+    args = make_failed_prior(tmp_path, monkeypatch)
+    prepared, _, _ = runner.load_prepared(args.prepared)
+    batch = runner.freeze_batches(prepared)[0]
+    extra = tmp_path / "extra_completed_gpt_run"
+    # A historical GPT result remains verifiable while the new schedule is Qwen.
+    api.select_general_profile("gpt41mini")
+    bounded = api.BoundedClient(extra / "provider_calls", transport=responses)
+    bounded.submit(batch["tasks"], batch["kind"], "general")
+    args.prior_run = [extra]
+    config = runner.plan(args)
+    prior = config["prior_execution"]
+    assert prior["accounting"]["attempts"] == 4
+    assert prior["accounting"]["known_cost_usd"] == "0.002"
+    assert prior["accounting"]["unknown_cost_attempts"] == 2
+    assert len(prior["reused_responses"]) == 1
+    assert next(iter(prior["reused_responses"].values()))["backend"] == "jev"
+
+
+def test_command_line_accepts_repeated_prior_sources(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["pilot", "plan", "--prepared", "p", "--sidecar", "s",
+        "--tokenizer", "t", "--output", "o", "--reuse-run", "run1", "--prior-run", "run2",
+        "--prior-run", "run3", "--prior-diagnostic", "diag1", "--prior-diagnostic", "diag2"])
+    args = runner.parse_args()
+    assert args.reuse_run == "run1"
+    assert args.prior_run == ["run2", "run3"] and args.prior_diagnostic == ["diag1", "diag2"]
