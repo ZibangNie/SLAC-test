@@ -45,3 +45,5 @@
 优先使用各阶段的只读`audit`或分析入口核对保存结果。`plan`与`run`记录的是特定冻结实验；已存在的目录、注册和失败账本不可覆盖或复用为新尝试。复现实验需要重新明确数据来源、方法、模型实际版本、预算和时间窗口，再建立独立计划，不能简单重启历史命令。
 
 当前自动推进与费用状态在本地`artifacts/research-foundation/overnight-20260927/state.json`；科学source、plan、run和已完成receipt保持不变。费用的已知小计、未知请求和保守预留是三个不同字段，不能互换。
+
+[完整原域关系置换协议](RELATION_PLACEBO_DEMAND_PROTOCOL_20260927.md)及[元数据冻结计划](results/qasper_relation_placebo_demand_protocol_20260927.json)用于检验 F∘P 的完整需求与结构退化；40项合成测试及独立审查通过，此处尚未执行真实置换。另冻结[排序上下界按需选择协议](RELATION_LAZY_BOUNDS_PROTOCOL_20260927.md)，运行策略不读取真值表或必要边，源码与完整验证仍在准备。两项均无新增API授权。
