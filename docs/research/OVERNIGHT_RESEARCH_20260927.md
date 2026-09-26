@@ -65,6 +65,16 @@ Support计划为 `qasper-extended-development-plan-01`，配置SHA256为 `382cc1
 
 队列只在 FIFA 退出且连续三次显卡空闲检查通过后启动 GPU；等待时每分钟检查，不修改或终止用户进程。它会在运行期间监测 FIFA 重启，并仅停止自己的推理子进程。后台队列和 heartbeat 是互补关系：heartbeat 先读队列状态/PID，已有运行时不得重复发起模型任务；输出完成后再复核、扫描、公开聚合和推送。主 JEV support 超时状态仍保留，没有重发请求或恢复答案调用。
 
+## CPU 词面对照及本地启动修正
+
+固定 BM25 对照已经完成，308 条记录及全部配对聚合通过独立 CPU 回放。它沿用研究代码原有的 Unicode 词法、k1=1.5、b=0.75，未依据新分数调参；全库 1,850 个 native 单元共享 IDF。两种检索范围都保留全部77题，并将 BM25 与同口径重新计算的 cached dense 比较。给定论文的来源限定 F1 为 dense `0.202453`、BM25 `0.185323`；query-only 32篇跨库为 `0.082127`、`0.089455`。两处 F1 差值的两种 family bootstrap 区间均跨零；BM25 的平均 evidence tokens 分别增加约49和130。因此不能将词面基线包装为确定收益，也不据此否定其他词法分析器或调优后的 BM25。四组共用打包计数缓存，不按逐组 packing 时间声称速度优势。完整结果另列于 `LEXICAL_BASELINE_RESULTS_20260927.md`，公开图使用全部聚合。
+
+原一次性本地队列在 reranker 首次启动时停止：`torch.cuda.is_available()` 后直接调用带显式设备0的 `reset_peak_memory_stats(0)`，尚未完成 CUDA allocator 初始化；在加载模型前抛出 `RuntimeError: Invalid device argument`，耗时13.187秒，没有实验分数。旧 runner、plan02、失败 run01 和队列记录全部保留。[单独封印的初始化 launcher](RERANKER_INITIALIZATION_RECOVERY_20260927.md) 会在原空闲门禁通过后显式初始化 CUDA，再调用未改动的 runner；预留新的 run02 和独立 receipt，原配对分析规格保持不变。这是定位实现问题后由主任务明确批准的纠正，不是失败队列自动重试。
+
+随后单独尝试 native v1 时，前置门禁把 NVIDIA 列出的空闲 Codex 宿主界面进程当成其他计算任务，因而在创建 run 目录或加载模型前退出。未生成 native run01。新 v2 与 plan02 仅修正该判断：唯一可放行项必须同时匹配事先核验的本机宿主可执行文件完整路径、NVIDIA 返回的 PID/名称及操作系统实时进程身份；任何未知或其他计算进程仍拒绝。FIFA 拒绝、连续3次低利用率、至少4,096 MiB空闲显存、所有科学计算及预算参数不变。原 v1 源码、plan01 和前置退出日志保留。实际模型输出只有在修正后的独立启动及回放成功后才报告。
+
+纠正后的单次执行队列使用 `overnight-20260927/corrected_local_queue_state.json`；此前两个队列已停止，不可重启。所有排队器只结束自己的推理子进程，不操作用户游戏或 Codex 宿主。每次心跳必须同时核对主状态及最新队列状态，不能因为旧队列退出而重复启动仍在执行的新实验。
+
 ## 来源
 
 - [原15题 pilot](RELATION_PILOT_EXECUTION_20260926.md)、[零调用机制诊断](RELATION_MECHANISM_DIAGNOSIS_20260926.md)。
