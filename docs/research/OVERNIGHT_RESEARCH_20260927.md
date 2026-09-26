@@ -221,3 +221,9 @@ Root在协议commit `cc336148a473a5b34112df7b58638c972e2ee200`之后单次运行
 原域置换协议已在14次新生成前发布于`1e3e194b85892aac857e776dd18eaee481f80335`；随后完成的源码和40项合成测试通过独立审查，作者不读取新答案质量，不能把源码完成时间写成质量可见之前。元数据plan SHA `cec5164a94b616ced56f31d087ff2aedeac34d2a013564a4054b99babd94e9c5`的14直接绑定及23继承承诺获独审，禁止分析函数后的回读通过。此时尚未计算P、U、结构退化或预算。Root发布后只单次CPU run/audit，并设置各300秒外部时限；若全部F∘P与F相同，按预定规则停止语义内容付费，不调整seed/strata或估算准入费用。
 
 另一个[直接排序上下界策略](RELATION_LAZY_BOUNDS_PROTOCOL_20260927.md)固定上下界认证与按原始边顺序询问冲突候选的规则，运行时不读取完整truth table/必要边。独立审查证明其认证与停止条件成立；源代码尚在实现，未运行真实501赋值或23915缓存路径。它仅检验固定oracle下的精确输出和逻辑读取，不能推断实际API费用、质量或共享收益。费用总额维持817尝试/816成功/旧unknown1、known$0.490420862加未知、reserve$4.6586873300。
+
+## 07:45—07:55 原域置换完整完成及上下界选择器准备
+
+原域源码/plan发布于`e00ee285577a0bad08bdb1208d53a5c15faf4938`之后，Root单次run/audit分别0.266/0.250秒exit0；独立标准库实现38项合成测试及另人审查后全量验证77/501、U、所有public/private聚合和20完整payload Decimal预算，26绑定首末一致，receipt `69b4af662ebae5f032eec0b44647338f8ee553cc208ba0ce4cf3da0c3f42cfc5`。仅1题函数可能不同、4/501不同；U20，reserve投影$0.100。非全退化，但对照很弱，仍未付费。全部负向边界见[结果](RELATION_PLACEBO_DEMAND_RESULTS_20260927.md)。
+
+上下界直接选择器源码及49项synthetic独审通过；17绑定的新plan SHA `e0a15722fea215328df995d2343145ade7f88a15056741adc9fcede2976a26cf`，六分析入口禁用后的metadata回读由作者及Root各自通过。此刻真实selector仍未运行，run01不存在，发布后Root另设各300秒外部时限单次运行与审计。完整501空cache与23915全known-subset路径（包含501）将保留所有额外非必要读取和warmtoken-cache限制。
