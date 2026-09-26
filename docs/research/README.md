@@ -2,7 +2,7 @@
 
 从[当前研究判断](RESEARCH_STATUS_20260927.md)开始阅读。它区分已完成的开发结果、失败或未完成的实验，以及仍待验证的创新主张。[夜间执行记录](OVERNIGHT_RESEARCH_20260927.md)保留准备、失败和后续完成的历史；不要根据旧段落重复启动实验。
 
-当前所有质量结果都是开发性证据。原77题JEV扩展在一次结果与费用未知的超时后停止，没有完整主质量或主答案结果；已经完成的本地基线与顺序控制不能补作JEV结果。原始问答、文档、逐题输出、API请求响应、凭据及权重均不在公开结果目录中。
+当前所有质量结果都是开发性证据。原77题JEV扩展经历一次未知超时，随后按事先公开的操作修订完成全部support，并通过完整审计和独立240区间复算；主答案六组462个预测也已完整审计和独立60区间复算。旧失败及未知费用仍保留。原始问答、文档、逐题输出、API请求响应、凭据及权重均不在公开结果目录中。
 
 ## 已完成结果的入口
 
@@ -15,6 +15,8 @@
 | 固定候选下改变入选优先级 | [CPU顺序诊断与固定定义](NATIVE_OWNER_ORDER_RESULTS_20260927.md) | 同文档含全部范围、负结果和128个描述性区间 |
 | 证据指标是否转化为回答 | [六组答案协议](LOCAL_BASELINE_ANSWER_PROTOCOL_20260927.md) | [完整六组答案](LOCAL_BASELINE_ANSWER_RESULTS_20260927.md)、[真实请求资源](LOCAL_ANSWER_RESOURCES_20260927.md) |
 | 两个已有顺序控制的答案表现 | [小范围继承响应协议](OWNER_ORDER_ANSWER_PROTOCOL_20260927.md) | [完整五组对照](OWNER_ORDER_ANSWER_RESULTS_20260927.md)，恢复接近dense而非超过dense |
+| JEV粗标签、原始分数与一般模型判断 | [操作恢复修订](PRIMARY_SUPPORT_RECOVERY_AMENDMENT_20260927.md) | [完整77题support](PRIMARY_SUPPORT_RESULTS_20260927.md)，原主k=3及全部k=1/2、240区间；[后续答案冻结计划](RECOVERED_PRIMARY_ANSWER_PROTOCOL_20260927.md) |
+| 主证据选择能否改善最终回答 | [完整主答案冻结计划](RECOVERED_PRIMARY_ANSWER_PROTOCOL_20260927.md) | [全部六组主答案](PRIMARY_ANSWER_RESULTS_20260927.md)，相对dense有正向开发信号，score相对粗标签的答案区间仍跨零 |
 | 固定候选在同预算内能达到多高 | [精确候选oracle协议](CANDIDATE_ORACLE_PROTOCOL_20260927.md) | [完整六组上界](CANDIDATE_ORACLE_RESULTS_20260927.md)与[图](results/qasper_candidate_oracle_20260927.svg)，gold参与选择，不能部署或当答案收益 |
 | 下一批数据是否存在文档重叠 | [249篇固定文档筛查定义及报告](REMAINING_VALIDATION_SCREEN_20260927.md) | 8批完整，1个标记已[机器复核](VALIDATION_OVERLAP_REVIEW_20260927.md)仍待来源判断；没有自动准入、剔除或holdout选择 |
 
@@ -22,7 +24,7 @@
 
 ## 创新判断与继续工作的依据
 
-[相关工作缺口](RELATED_WORK_GAPS_20260927.md)及[针对选择机制的六项一手来源核对](MECHANISM_RESEARCH_DIRECTION_20260927.md)说明了层级展平、上下文过滤、普通重排和依赖选择已有的研究。JEV发布时间本身不是方法创新。
+[相关工作缺口](RELATED_WORK_GAPS_20260927.md)、[机制来源核对](MECHANISM_RESEARCH_DIRECTION_20260927.md)及[近期ETS与预算控制文献](RECENT_RELATED_WORK_20260927.md)说明了层级展平、上下文过滤、普通重排和依赖选择已有的研究。JEV发布时间本身不是方法创新。[论文工作提纲](PAPER_WORKING_OUTLINE_20260927.md)整理可检验贡献与尚缺证据，未完成的表格不能当作结果。
 
 当前优先问题是额外候选能否在相同实际预算内提供可用于回答的证据，而后才检验文档关系跨阶段共享是否超过普通重排、固定邻接及一般缓存。Refiner标签的来源与跨split问题尚未获得正式训练准入。任何未见family确认都应先完成曝光/版本/近重复审核和方法锁定；不能继续在已看到结果的77题上调参后称独立确认。
 
