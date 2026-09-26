@@ -67,6 +67,9 @@ def render(source, output):
     figure.subplots_adjust(left=.085, right=.985, top=.8, bottom=.24, wspace=.65)
     for extension in ("png", "svg"):
         figure.savefig(output / f"candidate_oracle.{extension}", dpi=180, metadata={"Date": None} if extension == "svg" else {})
+    svg_path = output / "candidate_oracle.svg"
+    svg_path.write_text("\n".join(line.rstrip() for line in svg_path.read_text(encoding="utf-8").splitlines()) + "\n",
+                        encoding="utf-8", newline="\n")
     plt.close(figure)
     return {"png": str((output/"candidate_oracle.png").resolve()), "svg": str((output/"candidate_oracle.svg").resolve())}
 
