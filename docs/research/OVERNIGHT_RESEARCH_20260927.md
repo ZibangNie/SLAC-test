@@ -145,3 +145,9 @@ Native v2 编码全部671个规则chunk，得到77题×6组=462条完整记录�
 - [Qasper 官方 evaluator 固定版本](https://github.com/allenai/qasper-led-baseline/blob/afd0fb96bf78ce8cd8157639c6f6a6995e4f9089/scripts/evaluator.py)。
 - [OpenRouter Qwen3.6 Plus](https://openrouter.ai/qwen/qwen3.6-plus)，价格/模型信息于2026-09-27复核；路由实际是否接受仍以调用结果为准。
 - [OpenAI 本地定时任务要求](https://learn.chatgpt.com/docs/automations?surface=app)。
+
+## 04:50 固定候选精确上界完整完成
+
+已推送的c7aef259冻结源码/协议随后单次执行：六组462行、311,028个大小0–3组合全部检查，1,150个超预算，309,878个合法。完整CPU审计重算全部组合、精确Fraction并列规则、实际选集见证与四项双加权比较，结果verified。run函数耗时64.642秒（含来源检查、既有native审计、枚举与统计，不是纯内核或端到端时延）；新增API、GPU推理均为0，费用状态不变。
+
+给定论文direct/leaf/dual的gold-guided F1上界为0.801105/0.816724/0.833298，当前实际为0.202453/0.143845/0.139207。候选选择有改进空间，但新增层级候选的两个主上界增量双加权区间均跨零；跨库dual−leaf区间下界恰0，不能改写为稳定正收益。全部空参考、不可回答、FLOAT和负比较保留，oracle选集不进入生成或部署。完整结果见[CANDIDATE_ORACLE_RESULTS_20260927.md](CANDIDATE_ORACLE_RESULTS_20260927.md)。

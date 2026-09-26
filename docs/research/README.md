@@ -15,7 +15,8 @@
 | 固定候选下改变入选优先级 | [CPU顺序诊断与固定定义](NATIVE_OWNER_ORDER_RESULTS_20260927.md) | 同文档含全部范围、负结果和128个描述性区间 |
 | 证据指标是否转化为回答 | [六组答案协议](LOCAL_BASELINE_ANSWER_PROTOCOL_20260927.md) | [完整六组答案](LOCAL_BASELINE_ANSWER_RESULTS_20260927.md)、[真实请求资源](LOCAL_ANSWER_RESOURCES_20260927.md) |
 | 两个已有顺序控制的答案表现 | [小范围继承响应协议](OWNER_ORDER_ANSWER_PROTOCOL_20260927.md) | [完整五组对照](OWNER_ORDER_ANSWER_RESULTS_20260927.md)，恢复接近dense而非超过dense |
-| 下一批数据是否存在文档重叠 | [249篇固定文档筛查定义及报告](REMAINING_VALIDATION_SCREEN_20260927.md) | 8批完整，1个中等词面标记待审；没有自动准入、剔除或holdout选择 |
+| 固定候选在同预算内能达到多高 | [精确候选oracle协议](CANDIDATE_ORACLE_PROTOCOL_20260927.md) | [完整六组上界](CANDIDATE_ORACLE_RESULTS_20260927.md)与[图](results/qasper_candidate_oracle_20260927.svg)，gold参与选择，不能部署或当答案收益 |
+| 下一批数据是否存在文档重叠 | [249篇固定文档筛查定义及报告](REMAINING_VALIDATION_SCREEN_20260927.md) | 8批完整，1个标记已[机器复核](VALIDATION_OVERLAP_REVIEW_20260927.md)仍待来源判断；没有自动准入、剔除或holdout选择 |
 
 各结果报告链接对应完整精度的公开聚合JSON及图。JSON保留固定方法、全部预定比较、双权重区间、费用和来源hash；没有为了只展示正结果删去失败或下降项。
 
