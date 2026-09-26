@@ -95,6 +95,14 @@ Native v2 编码全部671个规则chunk，得到77题×6组=462条完整记录�
 
 新控制与直接dense的五项证据质量指标逐题相同，但选集并不处处相同，不能把指标全等写成实现或文本全等。结果说明选择顺序会影响质量与长度，尚未证明新增候选覆盖、关系或JEV的独立收益。新增GPU/API调用均为0。新代码31项合成检查通过，真实audit另验证完整候选不变量与所有配对统计。答案评测仍保留此前固定的六组原基线，不因顺序诊断结果替换方法。
 
+## 独立六组答案计划封印
+
+六组本地基线答案计划已完成29项离线测试、来源审计和独立payload重建；全部442个绑定核验通过。唯一可执行计划为`qasper-local-answer-plan-02`，配置SHA为`ccc215ebe4ac9aceadb312d7f66a850791d3b6da4ca02d08e6e131996960998d`。01只保留为未执行准备记录，不能启动。完整六方法、六配对、367请求和累计`$2.8067622925`预留见[独立答案协议](LOCAL_BASELINE_ANSWER_PROTOCOL_20260927.md)。
+
+一次性driver及其永久状态分别为忽略目录中的`overnight-20260927/local_answer_driver.py`和`local_answer_driver_state.json`，只有独立readiness明确记录root单次释放且hash通过后才能启动。运行与注册固定；失败不重试，完整结束才计算462条答案成绩，否则仅审计费用和来源前缀。driver的11项mock检查通过，包括异常时清理自己的Python进程树与无法确认退出时保留真实状态。它不操作用户游戏或Codex宿主。
+
+本节记录执行前封印，不预报调用成功；真实进度以该driver状态、`qasper-local-answer-run-01/provider_calls/ledger.json`及最终审计为准。此答案实验不补齐原JEV主比较，原165次尝试含未知预留仍保留。
+
 ## 来源
 
 - [原15题 pilot](RELATION_PILOT_EXECUTION_20260926.md)、[零调用机制诊断](RELATION_MECHANISM_DIAGNOSIS_20260926.md)。
