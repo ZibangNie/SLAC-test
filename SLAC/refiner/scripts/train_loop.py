@@ -65,6 +65,12 @@ def parse_args():
 
     parser.add_argument("--init_ckpt", type=str, default=None)
     parser.add_argument("--sample_weight_field", type=str, default=None)
+    parser.add_argument("--sample_weight_reduction", choices=["absolute", "normalized"], default="absolute")
+    parser.add_argument("--atom_model", type=str, default=LOCAL_BGE_M3_DIR)
+    parser.add_argument("--atom_max_length", type=int, default=128)
+    parser.add_argument("--max_doc_atoms", type=int, default=1024)
+    parser.add_argument("--k_shift", type=int, default=6)
+    parser.add_argument("--allow_atom_truncation", action="store_true")
 
     return parser.parse_args()
 
@@ -77,8 +83,11 @@ def set_seed(seed: int):
 
 def build_model(args):
     model = BoundaryRefinerModel(
-        atom_model_name=LOCAL_BGE_M3_DIR,
-        atom_max_length=64,
+        atom_model_name=args.atom_model,
+        atom_max_length=args.atom_max_length,
+        atom_overflow_policy="truncate" if args.allow_atom_truncation else "error",
+        max_doc_atoms=args.max_doc_atoms,
+        k_shift=args.k_shift,
         atom_freeze=True,
         doc_hidden_size=768,
         doc_layers=args.doc_layers,
@@ -99,6 +108,7 @@ def build_criterion(args):
         lambda_del=1.0,
         lambda_ins=1.0,
         lambda_shift=0.25,
+        sample_weight_reduction=args.sample_weight_reduction,
     )
 
 
@@ -116,7 +126,7 @@ def load_init_ckpt(model, ckpt_path: str | None) -> int:
     if ckpt_path is None:
         return 0
 
-    ckpt = torch.load(ckpt_path, map_location="cpu")
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
     state_dict = ckpt["model_state_dict"] if isinstance(ckpt, dict) and "model_state_dict" in ckpt else ckpt
 
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
@@ -167,13 +177,15 @@ def evaluate(model, loader, projector_cfg):
     model.eval()
 
     boundary_metrics = []
+    raw_boundary_metrics = []
+    projection_changes = 0
     edit_metrics = []
     insert_acc_metrics = []
     insert_prf_metrics = []
     shift_metrics = []
     length_metrics = []
 
-    K = 6
+    K = model.heads.K
     pbar = tqdm(loader, desc="dev", leave=False)
 
     for batch in pbar:
@@ -187,10 +199,11 @@ def evaluate(model, loader, projector_cfg):
             insert_logits=outputs.insert_logits,
             K=K,
             insert_threshold=0.5,
-            min_sep=1,
+            min_sep=0,
             lambda_del=1.0,
             lambda_ins=1.0,
             lambda_shift=0.25,
+            num_gaps=batch["num_gaps"],
         )
 
         B = batch["b0"].shape[0]
@@ -200,19 +213,24 @@ def evaluate(model, loader, projector_cfg):
             pred_edit = dec.pred_edit_labels[i]
             pred_insert = dec.pred_insert_labels[i]
 
-            gold_b = batch["b_gold"][i].tolist()
-            gold_insert = batch["insert_labels"][i].tolist()
+            num_gaps = int(batch["num_gaps"][i].item())
+            gold_b = batch["b_gold"][i, :num_gaps].tolist()
+            gold_insert = batch["insert_labels"][i, :num_gaps].tolist()
 
             atoms_text = batch["atoms_text"][i]
-            gap_scores = outputs.insert_logits[i].detach().cpu().tolist()
+            gap_scores = outputs.insert_logits[i, :num_gaps].detach().cpu().tolist()
 
             projected = rebuild_chunks_from_boundary_vector(
                 atoms_text=atoms_text,
                 b=raw_pred_b,
                 cfg=projector_cfg,
                 gap_scores=gap_scores,
+                token_counter=lambda text: len(model.atom_encoder.tokenizer.encode(text, add_special_tokens=True, truncation=False)),
+                strict=True,
             )
             pred_b = projected["projected_b"]
+            raw_boundary_metrics.append(boundary_prf(raw_pred_b, gold_b))
+            projection_changes += int(raw_pred_b != pred_b)
             spans_eval = projected["spans_after_merge"]
 
             g0_positions_i = [int(x) for x in batch["g0_positions"][i].tolist() if int(x) >= 0]
@@ -239,6 +257,8 @@ def evaluate(model, loader, projector_cfg):
 
     return {
         "boundary": aggregate_metric_dicts(boundary_metrics),
+        "boundary_raw": aggregate_metric_dicts(raw_boundary_metrics),
+        "projection_changed_documents": projection_changes,
         "edit": aggregate_metric_dicts(edit_metrics),
         "insert_acc": aggregate_metric_dicts(insert_acc_metrics),
         "insert_prf": aggregate_metric_dicts(insert_prf_metrics),
@@ -276,8 +296,8 @@ def main():
     args = parse_args()
     set_seed(args.seed)
 
-    train_ds = RefinerDenoiseDataset(args.train, sample_weight_field=args.sample_weight_field)
-    dev_ds = RefinerDenoiseDataset(args.dev, sample_weight_field=args.sample_weight_field)
+    train_ds = RefinerDenoiseDataset(args.train, sample_weight_field=args.sample_weight_field, expected_k=args.k_shift)
+    dev_ds = RefinerDenoiseDataset(args.dev, sample_weight_field=args.sample_weight_field, expected_k=args.k_shift)
 
     train_loader = DataLoader(
         train_ds,
@@ -320,6 +340,9 @@ def main():
             "epoch": epoch,
             "train_loss": train_stats["loss"],
             "dev_boundary": dev_stats["boundary"],
+            "dev_boundary_raw": dev_stats["boundary_raw"],
+            "projection_changed_documents": dev_stats["projection_changed_documents"],
+            "truncated_atom_occurrences": model.atom_encoder.truncated_atoms,
             "dev_edit": dev_stats["edit"],
             "dev_insert_acc": dev_stats["insert_acc"],
             "dev_insert_prf": dev_stats["insert_prf"],
@@ -332,6 +355,8 @@ def main():
         print(f"epoch={epoch}")
         print("  train loss =", train_stats["loss"])
         print("  dev boundary =", dev_stats["boundary"])
+        print("  dev boundary raw =", dev_stats["boundary_raw"])
+        print("  projection changed documents =", dev_stats["projection_changed_documents"])
         print("  dev edit =", dev_stats["edit"])
         print("  dev insert_acc =", dev_stats["insert_acc"])
         print("  dev insert_prf =", dev_stats["insert_prf"])

@@ -43,12 +43,17 @@ class AtomEncoder(nn.Module):
         device: str | None = None,
         local_files_only: bool = True,
         encode_batch_size: int = 16,   # 新增：分批编码 atom
+        overflow_policy: str = "error",
     ):
         super().__init__()
         self.model_name = model_name
         self.max_length = max_length
         self.local_files_only = local_files_only
         self.encode_batch_size = int(encode_batch_size)
+        if overflow_policy not in {"error", "truncate"}:
+            raise ValueError("overflow_policy must be error or truncate")
+        self.overflow_policy = overflow_policy
+        self.truncated_atoms = 0
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name,
@@ -77,6 +82,13 @@ class AtomEncoder(nn.Module):
     def device(self) -> torch.device:
         return next(self.parameters()).device
 
+    def train(self, mode: bool = True):
+        """A frozen feature extractor must not re-enable dropout via parent.train()."""
+        super().train(mode)
+        if self.freeze:
+            self.backbone.eval()
+        return self
+
     def tokenize(
         self,
         atoms_text: Sequence[str],
@@ -86,6 +98,17 @@ class AtomEncoder(nn.Module):
         这里改成 padding='max_length'，这样不同 mini-batch 的宽度一致，
         后面可以安全 torch.cat。
         """
+        lengths = self.tokenizer(
+            list(atoms_text), truncation=False, add_special_tokens=True,
+            return_length=True,
+        )["length"]
+        overflow = sum(int(n) > self.max_length for n in lengths)
+        if overflow and self.overflow_policy == "error":
+            raise ValueError(
+                f"{overflow} atoms exceed encoder max_length={self.max_length}; "
+                "re-atomize or explicitly select overflow_policy='truncate'."
+            )
+        self.truncated_atoms += overflow
         batch = self.tokenizer(
             list(atoms_text),
             padding="max_length",

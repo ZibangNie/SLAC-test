@@ -1,52 +1,21 @@
-import sys
-from pathlib import Path
-
 import torch
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
 from slac_refiner.models.atom_encoder import AtomEncoder
 
 
-def main():
-    atoms = [
-        "第一段。",
-        "第二句。",
-        "Third unit.",
-        "Another sentence.",
-        "最后一段。",
-    ]
-
-    encoder = AtomEncoder(
-        model_name=r"/root/autodl-tmp/models/bge-m3/bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181",
-        max_length=64,
-        freeze=True,
-    )
-
-    out = encoder.encode(atoms, normalize=False)
-
-    print("device =", encoder.device)
-    print("hidden_size =", out.hidden_size)
-    print("input_ids shape =", tuple(out.input_ids.shape))
-    print("attention_mask shape =", tuple(out.attention_mask.shape))
-    print("atom_embeddings shape =", tuple(out.atom_embeddings.shape))
-    print("dtype =", out.atom_embeddings.dtype)
-
-    assert out.atom_embeddings.ndim == 2
-    assert out.atom_embeddings.shape[0] == len(atoms)
-    assert out.atom_embeddings.shape[1] == out.hidden_size
-
-    # freeze check
-    trainable = [p.requires_grad for p in encoder.backbone.parameters()]
-    assert all(x is False for x in trainable), "Backbone should be frozen"
-
-    # numeric sanity
-    assert torch.isfinite(out.atom_embeddings).all()
-
-    print("AtomEncoder test passed.")
-
-
-if __name__ == "__main__":
-    main()
+def test_atom_encoder_microbatch_pooling_and_frozen_state(offline_pretrained):
+    encoder = AtomEncoder(model_name="offline-test-fixture", max_length=12,
+                          freeze=True, device="cpu", encode_batch_size=2)
+    atoms = ["甲", "英文", "abc", "d", "最后"]
+    output = encoder.encode(atoms)
+    assert output.input_ids.shape == (5, 12)
+    assert output.atom_embeddings.shape == (5, 4)
+    expected = []
+    for atom in atoms:
+        ids = torch.tensor(encoder.tokenizer.encode(atom))
+        expected.append(encoder.backbone.embedding(ids).mean(0))
+    torch.testing.assert_close(output.atom_embeddings, torch.stack(expected))
+    assert not any(p.requires_grad for p in encoder.backbone.parameters())
+    encoder.train()
+    assert not encoder.backbone.training
+    normalized = encoder.encode(atoms, normalize=True)
+    torch.testing.assert_close(normalized.atom_embeddings.norm(dim=1), torch.ones(5))

@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Sequence
 
 import torch
 from torch.utils.data import Dataset
+from slac_refiner.label_contract import replay_labels, validate_boundary_vector
 
 
 EDIT_LABEL2ID = {
@@ -54,10 +55,14 @@ class RefinerDenoiseDataset(Dataset):
     - optional sample_weight
     """
 
-    def __init__(self, jsonl_path: str, sample_weight_field: str | None = None):
+    def __init__(self, jsonl_path: str, sample_weight_field: str | None = None, validate_labels: bool = True, expected_k: int = K_DEFAULT):
         self.path = Path(jsonl_path)
         self.samples: List[Dict] = []
         self.sample_weight_field = sample_weight_field
+        self.validate_labels = validate_labels
+        if expected_k < 0:
+            raise ValueError("expected_k must be nonnegative")
+        self.expected_k = expected_k
 
         with self.path.open("r", encoding="utf-8") as f:
             for line_no, line in enumerate(f, start=1):
@@ -74,6 +79,9 @@ class RefinerDenoiseDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Dict:
         s = self.samples[idx]
+        K = int(_get_nested_field(s, "meta.K", K_DEFAULT))
+        if K != self.expected_k:
+            raise ValueError(f"sample SHIFT radius K={K} does not match model K={self.expected_k}")
 
         atoms_raw = s["atoms"]
         atoms_text = []
@@ -82,6 +90,12 @@ class RefinerDenoiseDataset(Dataset):
                 atoms_text.append(str(a["text"]))
             else:
                 atoms_text.append(str(a))
+
+        if self.validate_labels:
+            initial = validate_boundary_vector(s["b0"], name="b0", num_atoms=len(atoms_text))
+            target = validate_boundary_vector(s["b_gold"], name="b_gold", num_atoms=len(atoms_text))
+            if replay_labels(initial, s["labels"], K=K) != target:
+                raise ValueError(f"Sample {s.get('sample_id')} labels do not reproduce final boundaries")
 
         b0 = [int(x) for x in s["b0"]]
         insert_labels = [int(x) for x in s["labels"]["insert"]]
@@ -96,7 +110,6 @@ class RefinerDenoiseDataset(Dataset):
                 f"G0={g0_positions}, edit_keys={sorted(edit_map.keys())}"
             )
 
-        K = int(_get_nested_field(s, "meta.K", K_DEFAULT))
         edit_choice: List[int] = []
 
         for g in g0_positions:

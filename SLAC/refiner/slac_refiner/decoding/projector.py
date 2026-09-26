@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
+from numbers import Integral
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 
 _TOKEN_RE = re.compile(
     r"[A-Za-z]+(?:'[A-Za-z]+)?|\d+(?:\.\d+)?|[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff\uac00-\ud7af]|[^\w\s]",
     re.UNICODE,
 )
+Span = Tuple[int, int]
+TokenCounter = Callable[[str], int]
 
 
 @dataclass
@@ -24,322 +28,272 @@ class ProjectorConfig:
 DEFAULT_PROJECTOR_CONFIG = ProjectorConfig()
 
 
+class ProjectorBudgetError(ValueError):
+    """An indivisible atom exceeds at least one configured hard maximum."""
+
+    def __init__(self, overlong_spans: List[Dict]):
+        self.overlong_spans = overlong_spans
+        indices = [item["start_atom"] for item in overlong_spans]
+        super().__init__(f"Hard chunk budget is infeasible at indivisible atoms: {indices}")
+
+
 def token_len_proxy(text: str) -> int:
+    """Legacy regex proxy; this is not a model tokenizer."""
     return len(_TOKEN_RE.findall(text or ""))
 
 
-def boundary_vector_to_spans(num_atoms: int, b: Sequence[int]) -> List[Tuple[int, int]]:
-    if num_atoms <= 0:
+def boundary_vector_to_spans(num_atoms: int, b: Sequence[int]) -> List[Span]:
+    if num_atoms < 0:
+        raise ValueError("num_atoms must be nonnegative")
+    if len(b) != max(0, num_atoms - 1):
+        raise ValueError("Boundary vector length must equal max(0, num_atoms - 1)")
+    if any(value not in (0, 1) for value in b):
+        raise ValueError("Boundary vector must contain only 0 or 1")
+    if num_atoms == 0:
         return []
-
-    gaps = [i for i, x in enumerate(b) if int(x) == 1]
-    spans: List[Tuple[int, int]] = []
+    spans: List[Span] = []
     start = 0
-    for g in gaps:
-        end = g + 1
-        spans.append((start, end))
-        start = end
+    for g, value in enumerate(b):
+        if value == 1:
+            spans.append((start, g + 1))
+            start = g + 1
     spans.append((start, num_atoms))
     return spans
 
 
-def spans_to_boundary_vector(num_atoms: int, spans: Sequence[Tuple[int, int]]) -> List[int]:
+def spans_to_boundary_vector(num_atoms: int, spans: Sequence[Span]) -> List[int]:
     num_gaps = max(0, num_atoms - 1)
     b = [0] * num_gaps
-    for i in range(len(spans) - 1):
-        _, e = spans[i]
-        g = e - 1
-        if 0 <= g < num_gaps:
-            b[g] = 1
+    for _, end in spans[:-1]:
+        gap = end - 1
+        if 0 <= gap < num_gaps:
+            b[gap] = 1
     return b
 
 
-def spans_to_units(atoms_text: Sequence[str], spans: Sequence[Tuple[int, int]]) -> List[Dict]:
-    units = []
-    for uid, (s, e) in enumerate(spans):
-        text = "\n".join(atoms_text[s:e]).strip()
-        units.append(
-            {
-                "unit_id": uid,
-                "text": text,
-                "start_atom": s,
-                "end_atom": e,
-            }
-        )
-    return units
+class _SpanContext:
+    """Render and measure the very same span; never sum atom token counts."""
+
+    def __init__(
+        self,
+        atoms_text: Sequence[str],
+        token_counter: Optional[TokenCounter] = None,
+        source_text: Optional[str] = None,
+        atom_char_spans: Optional[Sequence[Span]] = None,
+    ):
+        self.atoms_text = atoms_text
+        self.token_counter = token_counter if token_counter is not None else token_len_proxy
+        self.source_text = source_text
+        self.atom_char_spans = atom_char_spans
+        self._stats: Dict[Span, Dict[str, int]] = {}
+        if (source_text is None) != (atom_char_spans is None):
+            raise ValueError("source_text and atom_char_spans must be supplied together")
+        if source_text is not None:
+            if len(atom_char_spans) != len(atoms_text):
+                raise ValueError("One source character span is required per atom")
+            if not atoms_text and source_text:
+                raise ValueError("Nonempty source_text cannot be represented by zero atoms")
+            previous_end = 0
+            for atom, (start, end) in zip(atoms_text, atom_char_spans):
+                if not isinstance(start, Integral) or not isinstance(end, Integral):
+                    raise ValueError("Source character offsets must be integers")
+                if not 0 <= previous_end <= start <= end <= len(source_text):
+                    raise ValueError("Source character spans must be ordered and nonoverlapping")
+                if source_text[start:end] != atom:
+                    raise ValueError("Each atom must exactly match its source character span")
+                previous_end = end
+
+    def char_span(self, span: Span) -> Span:
+        # Inter-atom separators belong to the preceding atom. Leading/trailing
+        # source text is retained, so concatenating projected units is lossless.
+        start, end = span
+        char_start = 0 if start == 0 else self.atom_char_spans[start][0]
+        char_end = len(self.source_text) if end == len(self.atoms_text) else self.atom_char_spans[end][0]
+        return char_start, char_end
+
+    def text(self, span: Span) -> str:
+        if self.source_text is not None:
+            start, end = self.char_span(span)
+            return self.source_text[start:end]
+        start, end = span
+        return "\n".join(self.atoms_text[start:end]).strip()
+
+    def stats(self, span: Span) -> Dict[str, int]:
+        if span not in self._stats:
+            text = self.text(span)
+            count = self.token_counter(text)
+            if isinstance(count, bool) or not isinstance(count, Integral) or count < 0:
+                raise ValueError("token_counter must return a nonnegative integer")
+            self._stats[span] = {"atoms": span[1] - span[0], "chars": len(text), "tokens": int(count)}
+        return self._stats[span]
+
+    def units(self, spans: Sequence[Span]) -> List[Dict]:
+        units = []
+        for uid, span in enumerate(spans):
+            unit = {"unit_id": uid, "text": self.text(span), "start_atom": span[0], "end_atom": span[1]}
+            if self.source_text is not None:
+                unit["start_char"], unit["end_char"] = self.char_span(span)
+            units.append(unit)
+        return units
 
 
-def _chunk_text(atoms_text: Sequence[str], span: Tuple[int, int]) -> str:
-    s, e = span
-    return "\n".join(atoms_text[s:e]).strip()
-
-
-def _chunk_stats(atoms_text: Sequence[str], span: Tuple[int, int]) -> Dict[str, int]:
-    text = _chunk_text(atoms_text, span)
-    s, e = span
-    return {
-        "atoms": e - s,
-        "chars": len(text),
-        "tokens": token_len_proxy(text),
-    }
+def spans_to_units(
+    atoms_text: Sequence[str], spans: Sequence[Span], *,
+    source_text: Optional[str] = None, atom_char_spans: Optional[Sequence[Span]] = None,
+) -> List[Dict]:
+    return _SpanContext(atoms_text, source_text=source_text, atom_char_spans=atom_char_spans).units(spans)
 
 
 def _is_overlong(stats: Dict[str, int], cfg: ProjectorConfig) -> bool:
-    return (
-        stats["atoms"] > cfg.max_chunk_atoms
-        or stats["chars"] > cfg.max_chunk_chars
-        or stats["tokens"] > cfg.max_chunk_tokens
-    )
+    return any(stats[key] > getattr(cfg, f"max_chunk_{key}") for key in ("atoms", "chars", "tokens"))
 
 
 def _is_too_short(stats: Dict[str, int], cfg: ProjectorConfig) -> bool:
-    return (
-        stats["atoms"] < cfg.min_chunk_atoms
-        or stats["chars"] < cfg.min_chunk_chars
-        or stats["tokens"] < cfg.min_chunk_tokens
-    )
+    return any(stats[key] < getattr(cfg, f"min_chunk_{key}") for key in ("atoms", "chars", "tokens"))
 
 
-def _pick_split_gap(
-    span: Tuple[int, int],
-    gap_scores: Optional[Sequence[float]] = None,
-) -> Optional[int]:
-    """
-    Pick an internal split gap g for span [s,e), where valid internal gaps are [s, e-2].
-    Prefer the highest gap score if provided; otherwise use midpoint.
-    """
-    s, e = span
-    if e - s <= 1:
+def _pick_split_gap(span: Span, gap_scores: Optional[Sequence[float]] = None) -> Optional[int]:
+    start, end = span
+    if end - start <= 1:
         return None
-
-    internal_gaps = list(range(s, e - 1))
-    if not internal_gaps:
-        return None
-
     if gap_scores is not None:
-        best_g = max(internal_gaps, key=lambda g: float(gap_scores[g]))
-        return best_g
-
-    mid = (s + e) // 2
-    # gap index corresponds to boundary between mid-1 and mid
-    g = mid - 1
-    g = max(s, min(e - 2, g))
-    return g
+        return max(range(start, end - 1), key=lambda gap: float(gap_scores[gap]))
+    return (start + end) // 2 - 1
 
 
-def _hard_max_split_once(
-    spans: List[Tuple[int, int]],
-    atoms_text: Sequence[str],
-    cfg: ProjectorConfig,
-    gap_scores: Optional[Sequence[float]] = None,
-) -> Tuple[List[Tuple[int, int]], bool]:
-    out: List[Tuple[int, int]] = []
-    changed = False
-
-    for span in spans:
-        stats = _chunk_stats(atoms_text, span)
-        if _is_overlong(stats, cfg):
-            g = _pick_split_gap(span, gap_scores=gap_scores)
-            if g is None:
-                out.append(span)
-                continue
-            s, e = span
-            out.append((s, g + 1))
-            out.append((g + 1, e))
-            changed = True
+def _hard_max_split(spans: Sequence[Span], context: _SpanContext, cfg: ProjectorConfig,
+                    gap_scores: Optional[Sequence[float]]) -> List[Span]:
+    # A stack avoids both recursion depth and the former arbitrary 32-round cap.
+    pending = list(reversed(spans))
+    result = []
+    while pending:
+        span = pending.pop()
+        gap = _pick_split_gap(span, gap_scores) if _is_overlong(context.stats(span), cfg) else None
+        if gap is None:
+            result.append(span)
         else:
-            out.append(span)
+            pending.append((gap + 1, span[1]))
+            pending.append((span[0], gap + 1))
+    return result
 
-    return out, changed
 
-
-def _hard_max_split_until_ok(
-    spans: List[Tuple[int, int]],
-    atoms_text: Sequence[str],
-    cfg: ProjectorConfig,
-    gap_scores: Optional[Sequence[float]] = None,
-    max_rounds: int = 32,
-) -> List[Tuple[int, int]]:
-    cur = spans
-    for _ in range(max_rounds):
-        cur, changed = _hard_max_split_once(cur, atoms_text, cfg, gap_scores=gap_scores)
+def _soft_min_merge(spans: Sequence[Span], context: _SpanContext, cfg: ProjectorConfig,
+                    gap_scores: Optional[Sequence[float]]) -> List[Span]:
+    result = list(spans)
+    while True:
+        changed = False
+        for index, span in enumerate(result):
+            if not _is_too_short(context.stats(span), cfg):
+                continue
+            candidates = []
+            # Hard maxima dominate soft minima and confidence preference.
+            for left in (index - 1, index):
+                if left < 0 or left + 1 >= len(result):
+                    continue
+                merged = (result[left][0], result[left + 1][1])
+                stats = context.stats(merged)
+                if _is_overlong(stats, cfg):
+                    continue
+                gap = result[left][1] - 1
+                confidence = float(gap_scores[gap]) if gap_scores is not None else 0.0
+                deficit = max(0, cfg.min_chunk_atoms - stats["atoms"])
+                candidates.append((confidence, deficit, stats["atoms"], left, merged))
+            if candidates:
+                _, _, _, left, merged = min(candidates)
+                result[left:left + 2] = [merged]
+                changed = True
+                break
+            # An unmergeable short span must not block later feasible merges.
         if not changed:
-            break
-    return cur
+            return result
 
 
-def _merge_two(a: Tuple[int, int], b: Tuple[int, int]) -> Tuple[int, int]:
-    return (a[0], b[1])
-
-
-def _boundary_confidence(
-    left_span: Tuple[int, int],
-    gap_scores: Optional[Sequence[float]],
-) -> float:
-    """
-    Confidence of the boundary after left_span, i.e. gap = end(left_span)-1
-    """
-    if gap_scores is None:
-        return 0.0
-    g = left_span[1] - 1
-    if 0 <= g < len(gap_scores):
-        return float(gap_scores[g])
-    return 0.0
-
-
-def _choose_merge_side(
-    spans: List[Tuple[int, int]],
-    idx: int,
-    atoms_text: Sequence[str],
-    cfg: ProjectorConfig,
-    gap_scores: Optional[Sequence[float]] = None,
-) -> str:
-    """
-    Choose merge side for a too-short chunk at spans[idx].
-    Rule:
-    1) if only one side exists, use that side
-    2) otherwise prefer deleting the lower-confidence boundary
-    3) tie-break by merged chunk size closeness to target minimum
-    """
-    has_left = idx > 0
-    has_right = idx < len(spans) - 1
-
-    if has_left and not has_right:
-        return "left"
-    if has_right and not has_left:
-        return "right"
-    if not has_left and not has_right:
-        return "none"
-
-    left_conf = _boundary_confidence(spans[idx - 1], gap_scores)
-    right_conf = _boundary_confidence(spans[idx], gap_scores)
-
-    if left_conf < right_conf:
-        return "left"
-    if right_conf < left_conf:
-        return "right"
-
-    cur = spans[idx]
-    merged_left = _merge_two(spans[idx - 1], cur)
-    merged_right = _merge_two(cur, spans[idx + 1])
-
-    left_stats = _chunk_stats(atoms_text, merged_left)
-    right_stats = _chunk_stats(atoms_text, merged_right)
-
-    left_deficit = max(0, cfg.min_chunk_atoms - left_stats["atoms"])
-    right_deficit = max(0, cfg.min_chunk_atoms - right_stats["atoms"])
-
-    if left_deficit < right_deficit:
-        return "left"
-    if right_deficit < left_deficit:
-        return "right"
-
-    left_size = left_stats["atoms"]
-    right_size = right_stats["atoms"]
-    return "left" if left_size <= right_size else "right"
-
-
-def _soft_min_merge_once(
-    spans: List[Tuple[int, int]],
-    atoms_text: Sequence[str],
-    cfg: ProjectorConfig,
-    gap_scores: Optional[Sequence[float]] = None,
-) -> Tuple[List[Tuple[int, int]], bool]:
-    if not spans:
-        return spans, False
-
-    for idx, span in enumerate(spans):
-        stats = _chunk_stats(atoms_text, span)
-        if _is_too_short(stats, cfg):
-            side = _choose_merge_side(spans, idx, atoms_text, cfg, gap_scores=gap_scores)
-
-            if side == "left":
-                merged = _merge_two(spans[idx - 1], spans[idx])
-                new_spans = spans[: idx - 1] + [merged] + spans[idx + 1 :]
-                return new_spans, True
-
-            if side == "right":
-                merged = _merge_two(spans[idx], spans[idx + 1])
-                new_spans = spans[:idx] + [merged] + spans[idx + 2 :]
-                return new_spans, True
-
-            return spans, False
-
-    return spans, False
-
-
-def _soft_min_merge_until_ok(
-    spans: List[Tuple[int, int]],
-    atoms_text: Sequence[str],
-    cfg: ProjectorConfig,
-    gap_scores: Optional[Sequence[float]] = None,
-    max_rounds: int = 32,
-) -> List[Tuple[int, int]]:
-    cur = spans
-    for _ in range(max_rounds):
-        cur, changed = _soft_min_merge_once(cur, atoms_text, cfg, gap_scores=gap_scores)
-        if not changed:
-            break
-    return cur
+def _validate_config(cfg: ProjectorConfig) -> None:
+    for key in ("atoms", "chars", "tokens"):
+        maximum = getattr(cfg, f"max_chunk_{key}")
+        minimum = getattr(cfg, f"min_chunk_{key}")
+        if (isinstance(maximum, bool) or not isinstance(maximum, Integral)
+                or isinstance(minimum, bool) or not isinstance(minimum, Integral)
+                or not 0 <= minimum <= maximum or maximum <= 0):
+            raise ValueError(f"Expected 0 <= min_chunk_{key} <= max_chunk_{key}, with a positive maximum")
 
 
 def project_boundary_vector(
-    atoms_text: Sequence[str],
-    b: Sequence[int],
-    cfg: ProjectorConfig | None = None,
-    gap_scores: Optional[Sequence[float]] = None,
+    atoms_text: Sequence[str], b: Sequence[int], cfg: ProjectorConfig | None = None,
+    gap_scores: Optional[Sequence[float]] = None, *,
+    token_counter: Optional[TokenCounter] = None,
+    source_text: Optional[str] = None,
+    atom_char_spans: Optional[Sequence[Span]] = None,
+    strict: bool = False,
 ) -> Dict:
-    """
-    Final projector:
-      1) convert b -> spans
-      2) hard max split
-      3) soft min merge
-      4) return projected b*
+    """Split to hard maxima, then merge toward soft minima only when feasible.
 
-    gap_scores:
-      optional confidence score per gap, larger means boundary more likely to keep/split.
-      It is used:
-        - during hard split: choose strongest internal split gap
-        - during soft merge: delete the weaker neighboring boundary
+    Existing callers retain regex token counts and newline-joined, stripped text.
+    Supply ``token_counter`` to count each complete rendered span with the actual
+    downstream tokenizer (including its special-token policy and no truncation).
+    Atom token counts cannot be added: tokenization is generally non-additive.
+
+    For lossless source reconstruction supply both ``source_text`` and exact
+    ``atom_char_spans``. Offsets must be ordered and each atom must match its slice.
+    Inter-atom separators belong to the preceding atom, and all leading/trailing
+    text is retained. Budgets measure exactly the returned unit text in both modes.
+
+    ``gap_scores`` selects stronger split boundaries and weaker *feasible* merge
+    boundaries. All maxima apply together. An overlarge indivisible atom is kept
+    and reported with ``hard_max_satisfied=False``; ``strict=True`` raises
+    ``ProjectorBudgetError`` instead. Soft minima may remain unmet.
     """
     cfg = cfg or DEFAULT_PROJECTOR_CONFIG
+    _validate_config(cfg)
     num_atoms = len(atoms_text)
-
     spans = boundary_vector_to_spans(num_atoms, b)
-    spans_after_split = _hard_max_split_until_ok(
-        spans,
-        atoms_text,
-        cfg,
-        gap_scores=gap_scores,
-    )
-    spans_after_merge = _soft_min_merge_until_ok(
-        spans_after_split,
-        atoms_text,
-        cfg,
-        gap_scores=gap_scores,
-    )
+    if gap_scores is not None:
+        if len(gap_scores) != max(0, num_atoms - 1):
+            raise ValueError("gap_scores length must equal max(0, num_atoms - 1)")
+        if any(not math.isfinite(float(score)) for score in gap_scores):
+            raise ValueError("gap_scores must be finite")
+    context = _SpanContext(atoms_text, token_counter, source_text, atom_char_spans)
+    spans_after_split = _hard_max_split(spans, context, cfg, gap_scores)
+    spans_after_merge = _soft_min_merge(spans_after_split, context, cfg, gap_scores)
 
-    projected_b = spans_to_boundary_vector(num_atoms, spans_after_merge)
-    projected_units = spans_to_units(atoms_text, spans_after_merge)
+    overlong_spans = []
+    short_spans = []
+    for start, end in spans_after_merge:
+        stats = context.stats((start, end))
+        record = {"start_atom": start, "end_atom": end, "stats": dict(stats)}
+        over = [key for key in stats if stats[key] > getattr(cfg, f"max_chunk_{key}")]
+        under = [key for key in stats if stats[key] < getattr(cfg, f"min_chunk_{key}")]
+        if over:
+            overlong_spans.append({**record, "violated_dimensions": over, "reason": "indivisible_atom"})
+        if under:
+            short_spans.append({**record, "unmet_dimensions": under})
+    if strict and overlong_spans:
+        raise ProjectorBudgetError(overlong_spans)
 
     return {
         "spans_before": spans,
         "spans_after_split": spans_after_split,
         "spans_after_merge": spans_after_merge,
-        "projected_b": projected_b,
-        "projected_units": projected_units,
+        "projected_b": spans_to_boundary_vector(num_atoms, spans_after_merge),
+        "projected_units": context.units(spans_after_merge),
+        "hard_max_satisfied": not overlong_spans,
+        "overlong_spans": overlong_spans,
+        "short_spans": short_spans,
+        "token_count_mode": "custom_whole_span" if token_counter is not None else "regex_proxy",
+        "text_mode": "source_spans" if source_text is not None else "legacy_newline_strip",
     }
 
 
 def rebuild_chunks_from_boundary_vector(
-    atoms_text: Sequence[str],
-    b: Sequence[int],
-    cfg: ProjectorConfig | None = None,
-    gap_scores: Optional[Sequence[float]] = None,
+    atoms_text: Sequence[str], b: Sequence[int], cfg: ProjectorConfig | None = None,
+    gap_scores: Optional[Sequence[float]] = None, *,
+    token_counter: Optional[TokenCounter] = None,
+    source_text: Optional[str] = None,
+    atom_char_spans: Optional[Sequence[Span]] = None,
+    strict: bool = False,
 ) -> Dict:
     return project_boundary_vector(
-        atoms_text=atoms_text,
-        b=b,
-        cfg=cfg,
-        gap_scores=gap_scores,
+        atoms_text=atoms_text, b=b, cfg=cfg, gap_scores=gap_scores,
+        token_counter=token_counter, source_text=source_text,
+        atom_char_spans=atom_char_spans, strict=strict,
     )

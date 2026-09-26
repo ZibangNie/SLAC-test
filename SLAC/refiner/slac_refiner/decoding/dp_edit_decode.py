@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from bisect import bisect_left
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -43,8 +44,17 @@ def _build_candidates_for_one_boundary(
     K: int,
     lambda_del: float,
     lambda_shift: float,
+    temperature: float = 1.0,
 ) -> List[Dict]:
-    log_probs = torch.log_softmax(edit_choice_logit_row, dim=-1).detach().cpu().tolist()
+    if not math.isfinite(temperature) or temperature <= 0:
+        raise ValueError("temperature must be positive and finite")
+    if K < 0 or edit_choice_logit_row.shape != (2 * K + 2,):
+        raise ValueError("edit logits must have 2*K+2 classes")
+    log_probs = torch.log_softmax(
+        edit_choice_logit_row.detach().float() / temperature, dim=-1
+    ).cpu().tolist()
+    if any(math.isnan(p) for p in log_probs):
+        raise ValueError("edit logits must define a valid probability distribution")
 
     candidates: List[Dict] = []
 
@@ -55,6 +65,7 @@ def _build_candidates_for_one_boundary(
             "pos": None,
             "score": float(log_probs[0] - lambda_del),
             "label": "DEL",
+            "prob": math.exp(log_probs[0]),
         }
     )
 
@@ -76,10 +87,78 @@ def _build_candidates_for_one_boundary(
                 "pos": pos,
                 "score": score,
                 "label": label,
+                "prob": math.exp(log_probs[cls_idx]),
+                "shift": k,
             }
         )
 
     return candidates
+
+
+def _select_monotonic_candidates(all_candidates: Sequence[Sequence[Dict]]) -> List[Dict]:
+    """Maximize the sum of candidate scores with strictly increasing emissions.
+
+    State is the last emitted gap, including -1 before any emission. DEL keeps
+    that state, so intervening deletions cannot permit a crossing or duplicate.
+    Prefix maxima avoid testing every previous state for each emitted candidate.
+    The sampler also uses this solver after perturbing its candidate scores.
+    """
+    scores = {-1: 0.0}
+    history: List[Dict[int, Tuple[int, int]]] = []
+    for candidates in all_candidates:
+        previous = sorted(scores)
+        prefix_best: List[int] = []
+        best = previous[0]
+        for last in previous:
+            if scores[last] > scores[best]:
+                best = last
+            prefix_best.append(best)
+
+        next_scores: Dict[int, float] = {}
+        back: Dict[int, Tuple[int, int]] = {}
+        for index, candidate in enumerate(candidates):
+            pos = candidate["pos"]
+            if pos is None:
+                transitions = ((last, last) for last in previous)
+            else:
+                # Gaps are integers; only states strictly below pos are legal.
+                stop = bisect_left(previous, pos)
+                transitions = ((prefix_best[stop - 1], int(pos)),) if stop else ()
+            for last, emitted in transitions:
+                value = scores[last] + float(candidate["score"])
+                if value > next_scores.get(emitted, -math.inf):
+                    next_scores[emitted] = value
+                    back[emitted] = (last, index)
+        if not next_scores:
+            raise ValueError("no finite legal edit path")
+        scores = next_scores
+        history.append(back)
+
+    if not history:
+        return []
+    last = max(scores, key=scores.get)
+    chosen: List[Dict] = []
+    for row in range(len(history) - 1, -1, -1):
+        last, index = history[row][last]
+        chosen.append(all_candidates[row][index])
+    chosen.reverse()
+    return chosen
+
+
+def _valid_boundary_rows(
+    b0: Sequence[int], g0_positions: Sequence[int], edit_choice_logits: torch.Tensor, K: int
+) -> List[Tuple[int, int]]:
+    if K < 0 or edit_choice_logits.ndim != 2 or edit_choice_logits.shape[1] != 2 * K + 2:
+        raise ValueError("edit logits must have shape [B0, 2*K+2]")
+    rows = [(row, int(g)) for row, g in enumerate(g0_positions) if int(g) >= 0]
+    gaps = [g for _, g in rows]
+    if any(g >= len(b0) for g in gaps) or gaps != sorted(set(gaps)):
+        raise ValueError("initial gaps must be distinct, increasing, and inside b0")
+    if rows and rows[-1][0] >= edit_choice_logits.shape[0]:
+        raise ValueError("missing edit-logit rows for initial boundaries")
+    if gaps != _vector_to_gaps(b0):
+        raise ValueError("g0_positions must enumerate the boundaries in b0")
+    return rows
 
 
 def _dp_monotonic_edit_decode(
@@ -90,28 +169,12 @@ def _dp_monotonic_edit_decode(
     lambda_del: float = 1.0,
     lambda_shift: float = 0.25,
 ) -> Tuple[List[int], List[Dict]]:
-    """
-    DP over initial boundaries:
-      candidates[j] = {DEL} U {g_j + k}
-    constraint:
-      chosen_pos(j) < chosen_pos(j+1)
-      DEL is treated as "no emitted boundary" and does not constrain monotonicity directly.
-
-    We keep a DP state over candidate index per boundary.
-    Transition validity:
-      - DEL -> any is allowed
-      - any -> DEL is allowed
-      - pos -> pos' requires pos < pos'
-    """
+    """Decode local edits; gap g is after atom g, within [0, T-2]."""
     num_gaps = len(b0)
-    g0_positions = [int(x) for x in g0_positions if int(x) >= 0]
-    n = len(g0_positions)
-
-    if n == 0:
-        return [], []
+    rows = _valid_boundary_rows(b0, g0_positions, edit_choice_logits, K)
 
     all_candidates: List[List[Dict]] = []
-    for j, g in enumerate(g0_positions):
+    for j, g in rows:
         cand_j = _build_candidates_for_one_boundary(
             g=g,
             num_gaps=num_gaps,
@@ -122,72 +185,16 @@ def _dp_monotonic_edit_decode(
         )
         all_candidates.append(cand_j)
 
-    NEG_INF = -1e18
-    dp: List[List[float]] = []
-    back: List[List[Optional[int]]] = []
-
-    # init
-    first = all_candidates[0]
-    dp.append([c["score"] for c in first])
-    back.append([None] * len(first))
-
-    # transition
-    for j in range(1, n):
-        prev = all_candidates[j - 1]
-        cur = all_candidates[j]
-
-        dp_j = [NEG_INF] * len(cur)
-        back_j: List[Optional[int]] = [None] * len(cur)
-
-        for c_idx, c in enumerate(cur):
-            c_pos = c["pos"]
-
-            for p_idx, p in enumerate(prev):
-                p_pos = p["pos"]
-
-                ok = False
-                if p_pos is None:
-                    ok = True
-                elif c_pos is None:
-                    ok = True
-                else:
-                    ok = p_pos < c_pos
-
-                if not ok:
-                    continue
-
-                cand_score = dp[j - 1][p_idx] + c["score"]
-                if cand_score > dp_j[c_idx]:
-                    dp_j[c_idx] = cand_score
-                    back_j[c_idx] = p_idx
-
-        dp.append(dp_j)
-        back.append(back_j)
-
-    # backtrack
-    last_idx = max(range(len(dp[-1])), key=lambda i: dp[-1][i])
-    chosen: List[Tuple[int, Dict]] = []
-
-    cur_idx = last_idx
-    for j in range(n - 1, -1, -1):
-        chosen.append((j, all_candidates[j][cur_idx]))
-        prev_idx = back[j][cur_idx]
-        if prev_idx is None:
-            break
-        cur_idx = prev_idx
-
-    chosen.reverse()
+    chosen = _select_monotonic_candidates(all_candidates)
 
     pred_edit_labels: List[Dict] = []
     edit_boundary_positions: List[int] = []
 
-    for j, cand in chosen:
-        g = g0_positions[j]
+    for (_, g), cand in zip(rows, chosen):
         pred_edit_labels.append({"g": g, "y": cand["label"]})
         if cand["pos"] is not None:
             edit_boundary_positions.append(int(cand["pos"]))
 
-    edit_boundary_positions = sorted(set(edit_boundary_positions))
     return edit_boundary_positions, pred_edit_labels
 
 
@@ -195,12 +202,14 @@ def _decode_insert_with_suppression(
     insert_logits: torch.Tensor,          # [G]
     edit_boundary_positions: Sequence[int],
     insert_threshold: float = 0.5,
-    min_sep: int = 1,
+    min_sep: int = 0,
 ) -> Tuple[List[int], List[int]]:
     """
     Threshold + neighborhood suppression:
     if a predicted insert gap is too close to any edit boundary, skip it.
     """
+    if min_sep < 0 or not 0 <= insert_threshold <= 1:
+        raise ValueError("min_sep must be nonnegative and threshold must lie in [0, 1]")
     probs = torch.sigmoid(insert_logits).detach().cpu().tolist()
 
     pred_insert_labels = [0] * len(probs)
@@ -227,12 +236,14 @@ def decode_one(
     insert_logits: torch.Tensor,        # [G]
     K: int = 6,
     insert_threshold: float = 0.5,
-    min_sep: int = 1,
+    min_sep: int = 0,
     lambda_del: float = 1.0,
     lambda_ins: float = 1.0,
     lambda_shift: float = 0.25,
 ) -> Dict:
     num_gaps = len(b0)
+    if insert_logits.ndim != 1 or insert_logits.shape[0] < num_gaps:
+        raise ValueError("insert logits must cover every real gap")
 
     # A) Edit-DP
     edit_boundary_positions, pred_edit_labels = _dp_monotonic_edit_decode(
@@ -246,7 +257,7 @@ def decode_one(
 
     # B) Insert threshold + suppression
     pred_insert_labels, insert_boundary_positions = _decode_insert_with_suppression(
-        insert_logits=insert_logits,
+        insert_logits=insert_logits[:num_gaps],
         edit_boundary_positions=edit_boundary_positions,
         insert_threshold=insert_threshold,
         min_sep=min_sep,
@@ -271,12 +282,18 @@ def batch_decode(
     insert_logits: torch.Tensor,
     K: int = 6,
     insert_threshold: float = 0.5,
-    min_sep: int = 1,
+    min_sep: int = 0,
     lambda_del: float = 1.0,
     lambda_ins: float = 1.0,
     lambda_shift: float = 0.25,
+    num_gaps: Optional[Sequence[int]] = None,
 ) -> DecodeOutput:
     B = b0.shape[0]
+    # Omission retains the historical unpadded-batch API. Mixed-length callers
+    # must supply their true lengths; trailing zero boundaries cannot reveal it.
+    lengths = [b0.shape[1]] * B if num_gaps is None else [int(n) for n in num_gaps]
+    if len(lengths) != B or any(n < 0 or n > b0.shape[1] for n in lengths):
+        raise ValueError("num_gaps must contain one valid length per document")
 
     pred_b_all = []
     pred_edit_all = []
@@ -284,8 +301,8 @@ def batch_decode(
     pred_gaps_all = []
 
     for i in range(B):
-        b0_i = b0[i].detach().cpu().tolist()
-        g0_i = [int(x) for x in g0_positions[i].detach().cpu().tolist() if int(x) >= 0]
+        b0_i = b0[i, :lengths[i]].detach().cpu().tolist()
+        g0_i = g0_positions[i].detach().cpu().tolist()
 
         out = decode_one(
             b0=b0_i,

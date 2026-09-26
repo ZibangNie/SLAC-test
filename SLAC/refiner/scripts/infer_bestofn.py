@@ -12,7 +12,7 @@ import random
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
 import torch
 
@@ -21,7 +21,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from slac_refiner.models.refiner import BoundaryRefinerModel
-from slac_refiner.decoding.dp_edit_decode import batch_decode
+from slac_refiner.decoding.dp_edit_decode import (
+    batch_decode,
+    _build_candidates_for_one_boundary,
+    _select_monotonic_candidates,
+    _valid_boundary_rows,
+)
+from slac_refiner.label_contract import CONTRACT_VERSION, derive_canonical_labels, replay_labels
 from slac_refiner.decoding.projector import (
     ProjectorConfig,
     rebuild_chunks_from_boundary_vector,
@@ -49,6 +55,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--input_jsonl", type=str, required=True)
     p.add_argument("--ckpt", type=str, required=True)
     p.add_argument("--output_dir", type=str, required=True)
+    p.add_argument("--atom_model_name", type=str, default=os.environ.get("SLAC_BGE_M3_DIR", LOCAL_BGE_M3_DIR))
+    p.add_argument("--atom_max_length", type=int, default=128)
+    p.add_argument("--atom_overflow_policy", choices=["error", "truncate"], default="error")
+    p.add_argument("--max_doc_atoms", type=int, default=1024)
 
     p.add_argument("--doc_layers", type=int, default=1)
     p.add_argument("--window_size", type=int, default=8)
@@ -69,7 +79,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max_chunk_chars", type=int, default=1600)
     p.add_argument("--min_chunk_chars", type=int, default=20)
 
-    p.add_argument("--insert_min_sep", type=int, default=1)
+    p.add_argument("--insert_min_sep", type=int, default=0)
     p.add_argument("--lambda_del", type=float, default=1.0)
     p.add_argument("--lambda_ins", type=float, default=1.0)   # 保留接口，当前 sample decode 不显式用
     p.add_argument("--lambda_shift", type=float, default=0.25)
@@ -214,7 +224,10 @@ def pctl90(xs: Sequence[int]) -> int:
     return ys[int(0.9 * (len(ys) - 1))]
 
 
-def compute_chunk_stats(atoms: Sequence[str], b_dense: Sequence[int]) -> Dict[str, Any]:
+def compute_chunk_stats(
+    atoms: Sequence[str], b_dense: Sequence[int],
+    token_counter: Optional[Callable[[str], int]] = None,
+) -> Dict[str, Any]:
     spans = boundary_vector_to_spans(len(atoms), b_dense)
     chunk_atom_lens: List[int] = []
     chunk_tok_lens: List[int] = []
@@ -223,23 +236,25 @@ def compute_chunk_stats(atoms: Sequence[str], b_dense: Sequence[int]) -> Dict[st
     for s, e in spans:
         text = "\n".join(atoms[s:e]).strip()
         chunk_atom_lens.append(e - s)
-        chunk_tok_lens.append(token_len_proxy(text))
+        chunk_tok_lens.append((token_counter or token_len_proxy)(text))
         chunk_char_lens.append(len(text))
 
     def avg(xs: Sequence[int]) -> float:
         return sum(xs) / max(1, len(xs))
 
     hard_viol = 0
+    short_chunks = 0
     for a_len, t_len, c_len in zip(chunk_atom_lens, chunk_tok_lens, chunk_char_lens):
         if (
             a_len > DEFAULT_PROJECTOR_CFG.max_chunk_atoms
-            or a_len < DEFAULT_PROJECTOR_CFG.min_chunk_atoms
             or t_len > DEFAULT_PROJECTOR_CFG.max_chunk_tokens
-            or t_len < DEFAULT_PROJECTOR_CFG.min_chunk_tokens
             or c_len > DEFAULT_PROJECTOR_CFG.max_chunk_chars
-            or c_len < DEFAULT_PROJECTOR_CFG.min_chunk_chars
         ):
             hard_viol += 1
+        if (a_len < DEFAULT_PROJECTOR_CFG.min_chunk_atoms
+                or t_len < DEFAULT_PROJECTOR_CFG.min_chunk_tokens
+                or c_len < DEFAULT_PROJECTOR_CFG.min_chunk_chars):
+            short_chunks += 1
 
     return {
         "num_chunks": len(spans),
@@ -256,25 +271,36 @@ def compute_chunk_stats(atoms: Sequence[str], b_dense: Sequence[int]) -> Dict[st
         "max_chunk_chars": max(chunk_char_lens) if chunk_char_lens else 0,
         "min_chunk_chars": min(chunk_char_lens) if chunk_char_lens else 0,
         "num_hard_violations": hard_viol,
+        "num_short_chunks": short_chunks,
+        "token_count_mode": "custom_whole_span" if token_counter else "regex_proxy",
     }
 
 
 def build_model(args: argparse.Namespace) -> BoundaryRefinerModel:
     model = BoundaryRefinerModel(
-        atom_model_name=LOCAL_BGE_M3_DIR,
-        atom_max_length=64,
+        atom_model_name=args.atom_model_name,
+        atom_max_length=args.atom_max_length,
         atom_freeze=True,
         doc_hidden_size=768,
         doc_layers=args.doc_layers,
         doc_heads=12,
         doc_dropout=0.1,
         window_size=args.window_size,
+        atom_overflow_policy=args.atom_overflow_policy,
+        max_doc_atoms=args.max_doc_atoms,
+        k_shift=args.k_shift,
     )
     return model
 
 
+def model_token_counter(model: BoundaryRefinerModel) -> Callable[[str], int]:
+    return lambda text: len(model.atom_encoder.tokenizer.encode(
+        text, add_special_tokens=True, truncation=False,
+    ))
+
+
 def load_model_from_ckpt(args: argparse.Namespace) -> BoundaryRefinerModel:
-    ckpt = torch.load(args.ckpt, map_location="cpu")
+    ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=True)
     state_dict = ckpt["model_state_dict"] if isinstance(ckpt, dict) and "model_state_dict" in ckpt else ckpt
 
     model = build_model(args)
@@ -441,7 +467,40 @@ def compute_teacher_stats(edit_trace: Sequence[Dict[str, Any]], insert_gaps: Seq
     }
 
 
-def build_identity_candidate(doc: Dict[str, Any], ckpt_path: str) -> Dict[str, Any]:
+def build_canonical_prediction(
+    b_original: Sequence[int], b_final: Sequence[int], K: int,
+    raw_passes: Sequence[Dict[str, Any]] = (),
+) -> Dict[str, Any]:
+    """Export supervision for original -> final, independently of execution traces."""
+    labels = derive_canonical_labels(b_original, b_final, K=K)
+    if replay_labels(b_original, labels, K=K) != list(b_final):
+        raise RuntimeError("canonical labels do not reproduce projected boundaries")
+    edit_trace = []
+    for item in labels["edit"]:
+        label, g = item["y"], item["g"]
+        shift = None if label == "DEL" else (0 if label == "KEEP" else int(label.split(":")[1]))
+        edit_trace.append({
+            "g0": g, "action": label.split(":")[0], "shift": shift,
+            "to": None if shift is None else g + shift, "prob": None,
+        })
+    return {
+        "b0_sparse": dense_b0_to_sparse(b_original),
+        "b_pred_sparse": dense_b0_to_sparse(b_final),
+        "canonical_labels": labels,
+        "label_contract_version": CONTRACT_VERSION,
+        "label_provenance": "canonical_original_to_final_alignment",
+        # Legacy fields now also replay exactly. Their actions may have been
+        # introduced by projection/alignment, so no model probability is claimed.
+        "edit_trace": edit_trace,
+        "insert_gaps": [{"gap": g, "prob": None} for g, value in enumerate(labels["insert"]) if value],
+        "raw_passes": list(raw_passes),
+    }
+
+
+def build_identity_candidate(
+    doc: Dict[str, Any], ckpt_path: str,
+    token_counter: Optional[Callable[[str], int]] = None,
+) -> Dict[str, Any]:
     atoms = normalize_atoms(doc["atoms"])
     b0_sparse = dense_b0_to_sparse(doc["b0"])
 
@@ -462,12 +521,7 @@ def build_identity_candidate(doc: Dict[str, Any], ckpt_path: str) -> Dict[str, A
             "num_units": len(doc["chunk0_units"]),
             "num_seed_boundaries": len(b0_sparse),
         },
-        "prediction": {
-            "b0_sparse": b0_sparse,
-            "b_pred_sparse": b0_sparse,
-            "edit_trace": [],
-            "insert_gaps": [],
-        },
+        "prediction": build_canonical_prediction(doc["b0"], doc["b0"], K=6),
         "teacher_stats": {
             "mean_edit_prob": None,
             "mean_insert_prob": None,
@@ -476,7 +530,7 @@ def build_identity_candidate(doc: Dict[str, Any], ckpt_path: str) -> Dict[str, A
             "num_shifted": 0,
             "sum_abs_shift": 0,
         },
-        "chunk_stats": compute_chunk_stats(atoms, doc["b0"]),
+        "chunk_stats": compute_chunk_stats(atoms, doc["b0"], token_counter),
         "score_terms": {},
         "flags": {},
     }
@@ -496,43 +550,10 @@ def build_candidates_for_boundary_row(
     lambda_del: float,
     lambda_shift: float,
 ) -> List[Dict[str, Any]]:
-    probs = softmax_from_logits(edit_choice_logit_row, temperature=temperature)
-    candidates: List[Dict[str, Any]] = []
-
-    # class 0 -> DEL
-    candidates.append(
-        {
-            "kind": "DEL",
-            "pos": None,
-            "score": float(math.log(probs[0]) - lambda_del),
-            "label": "DEL",
-            "prob": float(probs[0]),
-        }
+    return _build_candidates_for_one_boundary(
+        g=g0, num_gaps=num_gaps, edit_choice_logit_row=edit_choice_logit_row,
+        K=K, lambda_del=lambda_del, lambda_shift=lambda_shift, temperature=temperature,
     )
-
-    # classes 1..2K+1 -> k in [-K..K]
-    for cls_idx in range(1, 2 * K + 2):
-        k = cls_idx - 1 - K
-        pos = g0 + k
-        if not (0 <= pos < num_gaps):
-            continue
-
-        score = float(math.log(probs[cls_idx]) - lambda_shift * abs(k))
-        label = "KEEP" if k == 0 else f"SHIFT:{k}"
-        kind = "KEEP" if k == 0 else "SHIFT"
-
-        candidates.append(
-            {
-                "kind": kind,
-                "pos": pos,
-                "score": score,
-                "label": label,
-                "prob": float(probs[cls_idx]),
-                "shift": k,
-            }
-        )
-
-    return candidates
 
 
 def sample_monotonic_edit_decode(
@@ -545,102 +566,28 @@ def sample_monotonic_edit_decode(
     lambda_del: float,
     lambda_shift: float,
 ) -> Tuple[List[int], List[Dict[str, Any]]]:
-    num_gaps = len(b_cur_dense)
-    n = len(g0_positions)
-    if n == 0:
-        return [], []
-
+    rows = _valid_boundary_rows(b_cur_dense, g0_positions, edit_choice_logits, K)
     rng = random.Random(seed)
-
     all_candidates: List[List[Dict[str, Any]]] = []
-    for j, g in enumerate(g0_positions):
-        cand_j = build_candidates_for_boundary_row(
-            g0=g,
-            num_gaps=num_gaps,
-            edit_choice_logit_row=edit_choice_logits[j],
-            K=K,
-            temperature=temperature,
-            lambda_del=lambda_del,
-            lambda_shift=lambda_shift,
+    for row, g in rows:
+        candidates = build_candidates_for_boundary_row(
+            g0=g, num_gaps=len(b_cur_dense), edit_choice_logit_row=edit_choice_logits[row],
+            K=K, temperature=temperature, lambda_del=lambda_del, lambda_shift=lambda_shift,
         )
-        all_candidates.append(cand_j)
-
-    NEG_INF = -1e18
-    dp: List[List[float]] = []
-    back: List[List[Optional[int]]] = []
-
-    first = all_candidates[0]
-    dp.append([c["score"] + gumbel_noise(rng) for c in first])
-    back.append([None] * len(first))
-
-    for j in range(1, n):
-        prev = all_candidates[j - 1]
-        cur = all_candidates[j]
-
-        dp_j = [NEG_INF] * len(cur)
-        back_j: List[Optional[int]] = [None] * len(cur)
-
-        for c_idx, c in enumerate(cur):
-            c_pos = c["pos"]
-            c_score = c["score"] + gumbel_noise(rng)
-
-            for p_idx, p in enumerate(prev):
-                p_pos = p["pos"]
-
-                ok = False
-                if p_pos is None:
-                    ok = True
-                elif c_pos is None:
-                    ok = True
-                else:
-                    ok = p_pos < c_pos
-
-                if not ok:
-                    continue
-
-                cand_score = dp[j - 1][p_idx] + c_score
-                if cand_score > dp_j[c_idx]:
-                    dp_j[c_idx] = cand_score
-                    back_j[c_idx] = p_idx
-
-        dp.append(dp_j)
-        back.append(back_j)
-
-    last_idx = max(range(len(dp[-1])), key=lambda i: dp[-1][i])
-    chosen: List[Tuple[int, Dict[str, Any]]] = []
-
-    cur_idx = last_idx
-    for j in range(n - 1, -1, -1):
-        chosen.append((j, all_candidates[j][cur_idx]))
-        prev_idx = back[j][cur_idx]
-        if prev_idx is None:
-            break
-        cur_idx = prev_idx
-
-    chosen.reverse()
-
-    pred_boundary_positions: List[int] = []
-    pred_edit_labels: List[Dict[str, Any]] = []
-
-    for j, cand in chosen:
-        g = g0_positions[j]
-        pred_edit_labels.append({"g": g, "y": cand["label"]})
-        if cand["pos"] is not None:
-            pred_boundary_positions.append(int(cand["pos"]))
-
-    pred_boundary_positions = sorted(set(pred_boundary_positions))
-    edit_trace: List[Dict[str, Any]] = []
-    for item, (_, cand) in zip(pred_edit_labels, chosen):
-        g = int(item["g"])
-        label = item["y"]
-        if label == "DEL":
-            edit_trace.append({"g0": g, "action": "DEL", "shift": None, "to": None, "prob": cand["prob"]})
-        elif label == "KEEP":
-            edit_trace.append({"g0": g, "action": "KEEP", "shift": 0, "to": g, "prob": cand["prob"]})
-        else:
-            k = int(label.split(":", 1)[1])
-            edit_trace.append({"g0": g, "action": "SHIFT", "shift": k, "to": g + k, "prob": cand["prob"]})
-    return pred_boundary_positions, edit_trace
+        # One perturbation per candidate, then exactly the same legal DP as greedy.
+        for candidate in candidates:
+            candidate["score"] += gumbel_noise(rng)
+        all_candidates.append(candidates)
+    chosen = _select_monotonic_candidates(all_candidates)
+    positions = [int(candidate["pos"]) for candidate in chosen if candidate["pos"] is not None]
+    trace = []
+    for (_, g), candidate in zip(rows, chosen):
+        shift = candidate.get("shift")
+        trace.append({
+            "g0": g, "action": candidate["kind"], "shift": shift,
+            "to": candidate["pos"], "prob": candidate["prob"],
+        })
+    return positions, trace
 
 
 def sample_insert_decode(
@@ -651,6 +598,10 @@ def sample_insert_decode(
     min_sep: int,
     seed: int,
 ) -> Tuple[List[int], List[Dict[str, Any]]]:
+    if min_sep < 0 or not 0 <= insert_threshold <= 1:
+        raise ValueError("min_sep must be nonnegative and threshold must lie in [0, 1]")
+    if not math.isfinite(temperature) or temperature <= 0:
+        raise ValueError("temperature must be positive and finite")
     rng = random.Random(seed + 7919)
     probs: List[float] = []
     for logit in insert_logits.detach().cpu().tolist():
@@ -669,22 +620,9 @@ def sample_insert_decode(
         if rng.random() < p:
             accepted.append((g, p))
 
-    # neighborhood suppression
-    accepted = sorted(accepted, key=lambda x: (x[0], -x[1]))
-    kept: List[Tuple[int, float]] = []
-    for g, p in accepted:
-        if not kept:
-            kept.append((g, p))
-            continue
-        prev_g, prev_p = kept[-1]
-        if g - prev_g <= min_sep:
-            if p > prev_p:
-                kept[-1] = (g, p)
-        else:
-            kept.append((g, p))
-
+    # Match greedy: min_sep suppresses only around edited boundaries.
     insert_gaps: List[Dict[str, Any]] = []
-    for g, p in kept:
+    for g, p in accepted:
         pred_insert_labels[g] = 1
         insert_gaps.append({"gap": int(g), "prob": float(p)})
 
@@ -699,11 +637,14 @@ def run_greedy_candidate(
     atoms = normalize_atoms(doc["atoms"])
     b_original = [int(x) for x in doc["b0"]]
     b_cur = list(b_original)
+    token_counter = model_token_counter(model)
 
     final_edit_trace: List[Dict[str, Any]] = []
     final_insert_gaps: List[Dict[str, Any]] = []
+    raw_passes: List[Dict[str, Any]] = []
 
-    for _ in range(max(1, int(args.refine_passes))):
+    for pass_idx in range(max(1, int(args.refine_passes))):
+        pass_input = list(b_cur)
         raw = forward_one_doc(
             model=model,
             atoms=atoms,
@@ -739,6 +680,8 @@ def run_greedy_candidate(
             b=raw_pred_b,
             cfg=DEFAULT_PROJECTOR_CFG,
             gap_scores=insert_logits.tolist(),
+            token_counter=token_counter,
+            strict=True,
         )
         b_cur = projected["projected_b"]
 
@@ -752,6 +695,11 @@ def run_greedy_candidate(
             pred_insert_labels=dec.pred_insert_labels[0],
             insert_logits=insert_logits,
         )
+        raw_passes.append({
+            "pass_index": pass_idx, "b_input": pass_input, "b_raw": raw_pred_b,
+            "b_projected": list(b_cur), "edit_trace": final_edit_trace,
+            "insert_gaps": final_insert_gaps,
+        })
 
     b0_sparse = dense_b0_to_sparse(b_original)
     b_pred_sparse = dense_b0_to_sparse(b_cur)
@@ -773,14 +721,12 @@ def run_greedy_candidate(
             "num_units": len(doc["chunk0_units"]),
             "num_seed_boundaries": len(b0_sparse),
         },
-        "prediction": {
-            "b0_sparse": b0_sparse,
-            "b_pred_sparse": b_pred_sparse,
-            "edit_trace": final_edit_trace,
-            "insert_gaps": final_insert_gaps,
+        "prediction": build_canonical_prediction(b_original, b_cur, args.k_shift, raw_passes),
+        "teacher_stats": {
+            **compute_teacher_stats(final_edit_trace, final_insert_gaps),
+            "scope": "last_raw_pass",
         },
-        "teacher_stats": compute_teacher_stats(final_edit_trace, final_insert_gaps),
-        "chunk_stats": compute_chunk_stats(atoms, b_cur),
+        "chunk_stats": compute_chunk_stats(atoms, b_cur, token_counter),
         "score_terms": {},
         "flags": {},
     }
@@ -797,13 +743,16 @@ def run_sample_candidate(
     atoms = normalize_atoms(doc["atoms"])
     b_original = [int(x) for x in doc["b0"]]
     b_cur = list(b_original)
+    token_counter = model_token_counter(model)
 
     final_edit_trace: List[Dict[str, Any]] = []
     final_insert_gaps: List[Dict[str, Any]] = []
+    raw_passes: List[Dict[str, Any]] = []
 
     doc_seed = (int(hashlib.md5(str(doc["doc_id"]).encode("utf-8")).hexdigest()[:8], 16) + int(seed)) % (2**31)
 
     for pass_idx in range(max(1, int(args.refine_passes))):
+        pass_input = list(b_cur)
         raw = forward_one_doc(
             model=model,
             atoms=atoms,
@@ -842,11 +791,17 @@ def run_sample_candidate(
             b=merged_dense,
             cfg=DEFAULT_PROJECTOR_CFG,
             gap_scores=insert_logits.tolist(),
+            token_counter=token_counter,
+            strict=True,
         )
         b_cur = projected["projected_b"]
 
         final_edit_trace = edit_trace
         final_insert_gaps = insert_gaps
+        raw_passes.append({
+            "pass_index": pass_idx, "b_input": pass_input, "b_raw": merged_dense,
+            "b_projected": list(b_cur), "edit_trace": edit_trace, "insert_gaps": insert_gaps,
+        })
 
     b0_sparse = dense_b0_to_sparse(b_original)
     b_pred_sparse = dense_b0_to_sparse(b_cur)
@@ -868,14 +823,12 @@ def run_sample_candidate(
             "num_units": len(doc["chunk0_units"]),
             "num_seed_boundaries": len(b0_sparse),
         },
-        "prediction": {
-            "b0_sparse": b0_sparse,
-            "b_pred_sparse": b_pred_sparse,
-            "edit_trace": final_edit_trace,
-            "insert_gaps": final_insert_gaps,
+        "prediction": build_canonical_prediction(b_original, b_cur, args.k_shift, raw_passes),
+        "teacher_stats": {
+            **compute_teacher_stats(final_edit_trace, final_insert_gaps),
+            "scope": "last_raw_pass",
         },
-        "teacher_stats": compute_teacher_stats(final_edit_trace, final_insert_gaps),
-        "chunk_stats": compute_chunk_stats(atoms, b_cur),
+        "chunk_stats": compute_chunk_stats(atoms, b_cur, token_counter),
         "score_terms": {},
         "flags": {},
     }
@@ -917,7 +870,7 @@ def main() -> None:
             doc_candidates: List[Dict[str, Any]] = []
 
             if args.include_identity:
-                doc_candidates.append(build_identity_candidate(doc, args.ckpt))
+                doc_candidates.append(build_identity_candidate(doc, args.ckpt, model_token_counter(model)))
 
             if args.include_greedy:
                 doc_candidates.append(run_greedy_candidate(model, doc, args))
@@ -966,6 +919,14 @@ def main() -> None:
         "seeds": list(args.seeds),
         "k_shift": args.k_shift,
         "refine_passes": args.refine_passes,
+        "label_contract_version": CONTRACT_VERSION,
+        "atom_model_name": args.atom_model_name,
+        "atom_max_length": args.atom_max_length,
+        "atom_overflow_policy": args.atom_overflow_policy,
+        "atom_truncation_events": model.atom_encoder.truncated_atoms,
+        "max_doc_atoms": args.max_doc_atoms,
+        "token_count_mode": "tokenizer_whole_span_with_special_tokens",
+        "strict_projection": True,
         "projector_cfg": {
             "max_chunk_atoms": args.max_chunk_atoms,
             "min_chunk_atoms": args.min_chunk_atoms,
