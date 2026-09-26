@@ -4,6 +4,8 @@
 
 **结论：真实双后端 pilot 已完成。JEV 的调用费用较低，两后端的支持判断均改善了本批开发题的平均 Evidence F1；共享关系 S 尚未带来额外 F1 收益。当前证据支持继续研究低成本判断与误差来源，不支持宣布共享框架创新或论文主结论已经成立。**
 
+后续已经执行零 API 的换源、合并门槛、方向、oracle 可行域与选集数量诊断，并冻结剩余 24 family / 77 题的扩展开发清单。结果见 [机制诊断报告](RELATION_MECHANISM_DIAGNOSIS_20260926.md)；本页原 pilot 成绩保持不变。
+
 ## 凭据与 JEV 接口
 
 用户补充指定的本地 RTF 文件可提取 OpenRouter 通用 key。key 仅在进程中用于 Bearer 认证，未写入源代码、请求 JSON 或 Git。此前 `apikey.txt` 的格式判断仅针对另一个文件，不能据此断定 OpenRouter 账户不可用。
