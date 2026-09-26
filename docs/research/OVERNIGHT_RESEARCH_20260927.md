@@ -4,6 +4,8 @@
 
 **03:15 阶段状态：**主 JEV/Qwen support 仍停在164次成功、1次不确定请求，原主答案链未启动。独立 BM25、BGE reranker 和规则 chunk 双索引已完整执行并通过审计；三个本地队列均已结束，不得重启。下文按执行顺序保留先前准备和失败记录，最新完整结果见文末及[研究判断](RESEARCH_STATUS_20260927.md)。
 
+**随后完成：**固定候选顺序诊断及独立六组本地基线答案评测均已完整执行、审计。后者367次请求全部成功；原JEV主链仍未恢复。本文保留各阶段的历史准备状态，不能据前文的“尚未执行”重启已完成队列。
+
 ## 固定边界
 
 - 工作区 `D:/code/Github/SLAC-research-foundation-20260926`，分支 `codex/research-foundation-20260926`；起点 `d066029992401ae90911801615dc91f2480e3f0e`。保留原 `D:/code/Github/SLAC-test` 的本地工作。
@@ -102,6 +104,16 @@ Native v2 编码全部671个规则chunk，得到77题×6组=462条完整记录�
 一次性driver及其永久状态分别为忽略目录中的`overnight-20260927/local_answer_driver.py`和`local_answer_driver_state.json`，只有独立readiness明确记录root单次释放且hash通过后才能启动。运行与注册固定；失败不重试，完整结束才计算462条答案成绩，否则仅审计费用和来源前缀。driver的11项mock检查通过，包括异常时清理自己的Python进程树与无法确认退出时保留真实状态。它不操作用户游戏或Codex宿主。
 
 本节记录执行前封印，不预报调用成功；真实进度以该driver状态、`qasper-local-answer-run-01/provider_calls/ledger.json`及最终审计为准。此答案实验不补齐原JEV主比较，原165次尝试含未知预留仍保留。
+
+## 03:50 独立六组答案完成
+
+单次driver已完成367/367真实生成请求及全量审计，两阶段均退出0；固定run与driver完成state不再修改。另行捕获完整audit receipt并由独立stdlib/numpy实现从全部保存响应复算462条预测、官方多参考Answer F1、六组均值、六个固定配对的12条区间及全部方向计数，均一致。完整结果与图见[答案报告](LOCAL_BASELINE_ANSWER_RESULTS_20260927.md)。
+
+问题等权Answer F1依次为dense `0.413368`、reranker `0.437147`、BM25 `0.341302`、leaf_owner `0.293052`、dual_owner `0.317545`、empty `0.090909`。Reranker−dense、dual−leaf的双权重区间均跨零；两个owner−dense的双权重区间均为负。Empty全部输出Unanswerable，是同提示词的弃答控制。保留实际包长度、不同family权重、单次生成与已暴露开发集限制，不将证据指标或JEV新颖性当作答案收益。
+
+生成已知费用`$0.059179250`，新增未知0；本夜累计532次尝试，531次成功、旧support未知1次，已知收费小计`$0.271982232`，累计保守预留`$2.8067622925`。未知费用不视为零，尚有`$2.1932377075`未占用预留但不是必须使用的目标。旧JEV主实验依然没有完整77题质量或答案结果。
+
+公开发布器32项合成检查通过，公开白名单不含真实ID、原文、答案或请求响应；本地完整审计为`qasper-local-answer-audit-01`，独立数值复核为`qasper-local-answer-independent-verification-01`。当前所有付费队列均已完成或停止，不可重启；下一步仅评估已固定顺序控制的答案复用可行性，任何新增调用仍要单独冻结且累加当前预留。
 
 ## 来源
 
