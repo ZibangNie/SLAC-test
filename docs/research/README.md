@@ -20,7 +20,7 @@
 | 主方法相对强BGE基线的答案表现 | [明确事后的四组比较协议](POSTHOC_RERANKER_ANSWER_COMPARISON_20260927.md) | [完整事后答案比较](POSTHOC_RERANKER_ANSWER_RESULTS_20260927.md)，score双权重区间为正，粗标签双区间跨零；全部16区间保留 |
 | 关系规则能否实际改变证据包 | [固定501种掩码的CPU协议](RELATION_OPPORTUNITY_PROTOCOL_20260927.md) | [全部501种组合结果](RELATION_OPPORTUNITY_RESULTS_20260927.md)：17/77题存在包变化机会，独立实现全量核验通过；不代表质量改善 |
 | 能否保持全部选包结果并省去无影响判断 | [按需编译固定协议](RELATION_DEMAND_COMPILATION_PROTOCOL_20260927.md)、[对照与经典方法边界](RELATION_DEMAND_DESIGN_REVIEW_20260927.md) | [完整按需编译结果](RELATION_DEMAND_COMPILATION_RESULTS_20260927.md)：101条eligible唯一边中19条必要，全部501赋值及23,915缓存路径精确等价；未显示空缓存自适应或跨题必要边复用收益 |
-| 关系规则全部可达包的回答是否不同 | [完整可达包回答协议](RELATION_PACK_ANSWER_PROTOCOL_20260927.md) | 37项测试与完整计划独审通过；96包中82个精确缓存、14新请求，尚未执行或计算新质量 |
+| 关系规则全部可达包的回答是否不同 | [完整可达包回答协议](RELATION_PACK_ANSWER_PROTOCOL_20260927.md) | [全部可达包答案结果](RELATION_PACK_ANSWER_RESULTS_20260927.md)：96包完整覆盖，14新请求全成功；全邻接相对I的答案双区间跨零，完整16区间及观察极值保留 |
 | 固定候选在同预算内能达到多高 | [精确候选oracle协议](CANDIDATE_ORACLE_PROTOCOL_20260927.md) | [完整六组上界](CANDIDATE_ORACLE_RESULTS_20260927.md)与[图](results/qasper_candidate_oracle_20260927.svg)，gold参与选择，不能部署或当答案收益 |
 | 下一批数据是否存在文档重叠 | [249篇固定文档筛查定义及报告](REMAINING_VALIDATION_SCREEN_20260927.md) | 8批完整，1个标记经[文本复核](VALIDATION_OVERLAP_REVIEW_20260927.md)及[官方来源核对](VALIDATION_SOURCE_RELATION_REVIEW_20260927.md)发现明确材料沿用关系；仍无人审准入或自动排除 |
 
@@ -29,6 +29,8 @@
 ## 创新判断与继续工作的依据
 
 [相关工作缺口](RELATED_WORK_GAPS_20260927.md)、[机制来源核对](MECHANISM_RESEARCH_DIRECTION_20260927.md)及[近期ETS与预算控制文献](RECENT_RELATED_WORK_20260927.md)说明了层级展平、上下文过滤、普通重排和依赖选择已有的研究。JEV发布时间本身不是方法创新。[论文工作提纲](PAPER_WORKING_OUTLINE_20260927.md)整理可检验贡献与尚缺证据；[英文论文工作稿](MANUSCRIPT_DEVELOPMENT_DRAFT_20260927.md)将完整开发结果整理为方法、实验及讨论，尚不是可投稿稿件。
+
+[语义算子优化补充检索](SEMANTIC_OPERATOR_RELATED_WORK_20260927.md)核对LOTUS、Palimpzest、Larch与ScaleDoc；廉价判断、缓存或自适应调用本身已有先例，有限真值表编译尚非可扩展系统贡献。
 
 [条件精度规划](CONDITIONAL_PRECISION_PLANNING_20260927.md)保留四组对照的全部72个半宽、48个整数情景，说明独立family数及假设标准差的影响。它不计算功效，不决定样本准入，也不证明现有或未来样本足量。
 
