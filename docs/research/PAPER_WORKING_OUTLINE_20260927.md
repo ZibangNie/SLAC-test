@@ -2,6 +2,8 @@
 
 **Status, 27 September 2026:** a research and writing outline, not a completed paper or a claim of publication readiness. It now includes the complete, audited primary support and answer experiments, both independently checked, alongside local baselines, owner-order and candidate-oracle results. All quality observations are exposed development evidence; the cross-stage relation contribution remains unproved.
 
+The [English manuscript draft](MANUSCRIPT_DEVELOPMENT_DRAFT_20260927.md) now provides a continuous methods/results/discussion narrative. The [complete BGE posthoc comparison](POSTHOC_RERANKER_ANSWER_RESULTS_20260927.md), [501-mask relation opportunity check](RELATION_OPPORTUNITY_RESULTS_20260927.md), and [conditional precision appendix](CONDITIONAL_PRECISION_PLANNING_20260927.md) are finished. The latter two establish behavior and hypothetical precision scales, not new quality or power claims. A [source review of the single overlap flag](VALIDATION_SOURCE_RELATION_REVIEW_20260927.md) found author-declared material reuse and additional research; data admission remains unresolved.
+
 编辑说明：明早首先决定论文要检验哪个贡献，而不是给现有所有模块找一个统一的成功叙事。当前建议以“候选覆盖如何转化为有限预算内的有效证据”为问题主线；关系共享、JEV 后端和 Refiner 分别接受可能失败的检验。本提纲不修改既有协议、指标、预算或数据准入，也不授权新的调用或训练。
 
 ## 1. The problem and the claim we could eventually defend
