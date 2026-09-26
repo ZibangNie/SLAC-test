@@ -17,6 +17,8 @@
 | 两个已有顺序控制的答案表现 | [小范围继承响应协议](OWNER_ORDER_ANSWER_PROTOCOL_20260927.md) | [完整五组对照](OWNER_ORDER_ANSWER_RESULTS_20260927.md)，恢复接近dense而非超过dense |
 | JEV粗标签、原始分数与一般模型判断 | [操作恢复修订](PRIMARY_SUPPORT_RECOVERY_AMENDMENT_20260927.md) | [完整77题support](PRIMARY_SUPPORT_RESULTS_20260927.md)，原主k=3及全部k=1/2、240区间；[后续答案冻结计划](RECOVERED_PRIMARY_ANSWER_PROTOCOL_20260927.md) |
 | 主证据选择能否改善最终回答 | [完整主答案冻结计划](RECOVERED_PRIMARY_ANSWER_PROTOCOL_20260927.md) | [全部六组主答案](PRIMARY_ANSWER_RESULTS_20260927.md)，相对dense有正向开发信号，score相对粗标签的答案区间仍跨零 |
+| 主方法相对强BGE基线的答案表现 | [明确事后的四组比较协议](POSTHOC_RERANKER_ANSWER_COMPARISON_20260927.md) | [完整事后答案比较](POSTHOC_RERANKER_ANSWER_RESULTS_20260927.md)，score双权重区间为正，粗标签双区间跨零；全部16区间保留 |
+| 关系规则能否实际改变证据包 | [固定501种掩码的CPU协议](RELATION_OPPORTUNITY_PROTOCOL_20260927.md) | 仅冻结准备，实际枚举尚未执行；不计算质量，不准入静态API调用 |
 | 固定候选在同预算内能达到多高 | [精确候选oracle协议](CANDIDATE_ORACLE_PROTOCOL_20260927.md) | [完整六组上界](CANDIDATE_ORACLE_RESULTS_20260927.md)与[图](results/qasper_candidate_oracle_20260927.svg)，gold参与选择，不能部署或当答案收益 |
 | 下一批数据是否存在文档重叠 | [249篇固定文档筛查定义及报告](REMAINING_VALIDATION_SCREEN_20260927.md) | 8批完整，1个标记已[机器复核](VALIDATION_OVERLAP_REVIEW_20260927.md)仍待来源判断；没有自动准入、剔除或holdout选择 |
 
