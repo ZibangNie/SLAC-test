@@ -123,7 +123,23 @@ Native v2 编码全部671个规则chunk，得到77题×6组=462条完整记录�
 
 下一步数据准备是对剩余249篇validation做仅正文的近重复筛查：固定ID排序分8批，复用原精确5gram/版本ID算法，对已绑定的train/validation及明确legacy train/dev正文比较。此筛查不读取新QA、答案或官方test文件、不选择新holdout、不自动剔除，也不把无flag当成独立性证明；尚未完成时不得提前报告。
 
-## 来源索引
+## 04:25 顺序控制答案完整完成
+
+执行前源码、29项测试及协议已推送`0075f248d98c378bb3f6f2615dbb01a4ad867a4c`并核验。固定plan01只执行一次；7请求全部成功、已知新增收费$0.001216475，根任务记录退出0后进行完整audit，再由独立实现从7个新响应及155个继承响应重算全部385记录、五组均值和五项配对的10条区间。均一致，父三个基线逐题不变。结果见[完整顺序答案报告](OWNER_ORDER_ANSWER_RESULTS_20260927.md)。
+
+两个leaf-score控制的Answer F1均为0.410526，相对原owner恢复较大，却略低于dense的0.413368；对dense各0胜/76平/1负，两种区间上界恰为0。控制之间逐题F1全平；保留多数payload与dense相同、真实长度增加和单次生成的限制，不将修复较弱基线写成创新收益。
+
+当前累计539次尝试、538次成功、旧support未知1次，已知收费小计$0.273198707，累计保守预留$2.8326378175；尚有$2.1673621825未占用预留，不是消费目标。所有API队列已完成或停止，不可重启。新源码、plan/run及完整审计receipt均保持封印；根执行记录`owner_answer_execution.json`只记录执行结束时状态，后续状态以主`state.json`为准。
+
+后续离线推进为剩余249篇正文筛查，以及固定native候选、≤3个原生单元/1,024token条件下的非部署证据oracle准备。后者元数据预计算有311,028个待枚举组合，涉及150,461个不同全局子集，不读取新QA、不生成新答案；完整性、超时及空参考语义在执行前冻结。
+
+## 04:26 剩余validation文档筛查完成
+
+固定249篇、8/8批正文筛查完整完成，0跳过；扫描284.610秒，wrapper总计292.094秒（不含解释器启动）。公开聚合经完整来源/计数回放、根任务再次只读audit验证，源与测试由独立review复跑29项合成检查。共2,652,311个原始方向比较、2,625,207个去重配对；唯一1个中等词面标记位于remaining validation对canonical train，无高重叠/身份标记。
+
+标记只是待审候选，尚未判断同一论文或污染；其余零标记也未获得独立评价准入。不自动排除、不选择holdout，不读取新QA/答案或官方test文件，真实pair和正文均留本地。结果见[剩余文档筛查](REMAINING_VALIDATION_SCREEN_20260927.md)。
+
+## 来源索引与历史记录
 
 - [原15题 pilot](RELATION_PILOT_EXECUTION_20260926.md)、[零调用机制诊断](RELATION_MECHANISM_DIAGNOSIS_20260926.md)。
 - [Qasper 官方 evaluator 固定版本](https://github.com/allenai/qasper-led-baseline/blob/afd0fb96bf78ce8cd8157639c6f6a6995e4f9089/scripts/evaluator.py)。
