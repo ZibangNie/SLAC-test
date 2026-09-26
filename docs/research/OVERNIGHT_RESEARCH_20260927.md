@@ -57,6 +57,14 @@ Support计划为 `qasper-extended-development-plan-01`，配置SHA256为 `382cc1
 
 本轮跨文档、分析器及native适配的联合检查为 **36 passed，2 warnings**，包含真实77题的旧排序/候选/渲染/token/选集/评分全等回放。reranker准备的41项离线测试另外通过。局部环境快照见[环境记录](results/offline_environment_20260927.json)，不反推为此前付费阶段的完整环境锁定。关于未知请求能否无重复调用恢复的公开接口核对，见[超时恢复说明](OPENROUTER_TIMEOUT_RECOVERY_20260927.md)。
 
+## 本地基线执行队列
+
+固定 reranker、预定配对分析和 native dual-index 三份方案均已冻结，并由另一审查者核验真实模型文件、全部 token 输入和来源绑定。参数及执行命令见[离线基线协议](OFFLINE_BASELINES_PROTOCOL_20260927.md)，机器可读准备记录见[公开配置](results/qasper_offline_protocol_20260927.json)。研究目录回归为 **527 passed，2 warnings**；新增元数据审计的 **26 项测试**另外通过，原 runner 和配对分析的62项测试也再次通过。上述检查不代表 GPU 实验已经执行。
+
+本地一次性排队器位于忽略目录 `overnight-20260927/offline_queue.py`，状态为同目录 `offline_queue_state.json`；不存在该状态时，以主 `state.json` 为准。队列按顺序执行 reranker、科学记录及元数据审计、预定配对分析、native dual-index、CPU 回放审计。Reranker 输出固定使用独立的 `qasper-reranker-run-01`，审计使用 `qasper-reranker-audit-01`，不往已封印的 plan 目录写运行产物。各阶段开始前绑定源码和计划 SHA，产物拒绝覆盖，曾启动的阶段不自动重试。队列自身的六项 mock 行为检查通过，覆盖重复启动、错位并发、失败、截止时间、游戏重启及子进程超时。
+
+队列只在 FIFA 退出且连续三次显卡空闲检查通过后启动 GPU；等待时每分钟检查，不修改或终止用户进程。它会在运行期间监测 FIFA 重启，并仅停止自己的推理子进程。后台队列和 heartbeat 是互补关系：heartbeat 先读队列状态/PID，已有运行时不得重复发起模型任务；输出完成后再复核、扫描、公开聚合和推送。主 JEV support 超时状态仍保留，没有重发请求或恢复答案调用。
+
 ## 来源
 
 - [原15题 pilot](RELATION_PILOT_EXECUTION_20260926.md)、[零调用机制诊断](RELATION_MECHANISM_DIAGNOSIS_20260926.md)。
