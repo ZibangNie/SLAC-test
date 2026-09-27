@@ -233,3 +233,9 @@ Root在协议commit `cc336148a473a5b34112df7b58638c972e2ee200`之后单次运行
 source/plan发布`87235a6e4c172cce75f471d0fb003c3f881790bf`后Root单次run27.547秒、完整audit32.234秒，均exit0；独立实现16项synthetic及另人代码审阅后重算501/23915所有eager-completion证书、源限定身份、真实BGE分词与全部效率聚合，external26.218秒exit0。receipt `e8c69eea1f90f4bd0662971f3f36f5a298c5633c6ebf0e324a401f747798a57e`及30绑定再次核对。
 
 空cache326读vs全读2166，全known-subset9682vs76390；各22/70次非必要读取，最大2读，两题在不同赋值下需1或2条。运行策略不读truth table，但验证枚举仍指数增长；共享的token cache使后suite新增encode0，不是coldstart服务延迟。所有计数、负项和旧compiled对比的事后边界见[完整结果](RELATION_LAZY_BOUNDS_RESULTS_20260927.md)。零API，夜间费额未变。20条实际关系的新执行器正在准备，尚未prepare/API准入。
+
+## 08:14 20条实际关系的完整执行计划通过独审
+
+[执行器及协议](RELATION_CONTENT_EXECUTION_PROTOCOL_20260927.md)33项synthetic由作者、Root和独立审阅者分别通过；另验证HTTP429已知/未知收费及失败不续发。Root正式prepare时禁止resolve/score/StaticClient/read_key/load_references，随后独立计划审阅又禁六入口完整回读，2166绑定首末一致。plan SHA `84eb8ca9b4ba63ce3e565088ce97e48968563a9690007a1970ad8ba2b98ef4c6`，独审receipt `709c46e65f3137e05ab4349cf5db7ff476e26bf3e39fdce98cb51cf6389a22ec`。
+
+20原singleton提示由独立代码逐字节重建；预留$0.100、输入86847/输出20480，完整262既有答案payload覆盖所有501内容/置换组合和基线，无Qwen dispatch。新阶段如全部执行，累计为837次尝试、reserve$4.7586873300、余$0.2413126700；此时实际仍817次，尚无新标签/API。保留旧unknown和全部生成预留。发布后Root再检查当前总账、09点/65秒余量并单次放行；全20合法成功且请求审计通过才读取原77题参考并计算539记录/24CI。原562阶段不重启。
