@@ -4,7 +4,7 @@
 
 夜间阶段之后，已完成[确认实验元数据清单](CONFIRMATION_METADATA_RESULTS_20260927.md)：281 篇 validation 全保留去向记录，33 篇隔离，248 篇形成操作性候选，独立算法核验通过。它们尚不是获认证的独立测试集。新的[五组分析协议](CONFIRMATION_ANALYSIS_PROTOCOL_20260927.md)及[数值退化修订 V2](CONFIRMATION_ANALYSIS_AMENDMENT_20260927.md)在新结果出现前固定；后续以 [V2 机器协议](results/qasper_confirmation_protocol_v2_20260927.json)为当前分析入口。本次元数据阶段未打开 QA 或发送 API 请求；历史解析记录见清单报告。
 
-已完成[完整 QA 导出与本地候选构建](CONFIRMATION_OFFLINE_PROGRESS_20260927.md)：248 篇、900 题、14,284 个问题—候选配对，内容检查固定抽取 8 篇／16 题，数值复核也只抽样。未删题、未计算新质量结果，API 调用为 0。
+已完成[完整 QA 导出与本地候选构建](CONFIRMATION_OFFLINE_PROGRESS_20260927.md)：248 篇、900 题、14,284 个问题—候选配对，内容检查固定抽取 8 篇／16 题，数值复核也只抽样。900 题的 Dense 与 BGE 重排证据包均已完成，未删题、未计算新质量结果，API 调用为 0。
 
 当前所有质量结果都是开发性证据。原77题JEV扩展经历一次未知超时，随后按事先公开的操作修订完成全部support，并通过完整审计和独立240区间复算；主答案六组462个预测也已完整审计和独立60区间复算。旧失败及未知费用仍保留。原始问答、文档、逐题输出、API请求响应、凭据及权重均不在公开结果目录中。
 
@@ -26,7 +26,7 @@
 | 能否保持全部选包结果并省去无影响判断 | [按需编译固定协议](RELATION_DEMAND_COMPILATION_PROTOCOL_20260927.md)、[对照与经典方法边界](RELATION_DEMAND_DESIGN_REVIEW_20260927.md) | [完整按需编译结果](RELATION_DEMAND_COMPILATION_RESULTS_20260927.md)：101条eligible唯一边中19条必要，全部501赋值及23,915缓存路径精确等价；未显示空缓存自适应或跨题必要边复用收益 |
 | 关系规则全部可达包的回答是否不同 | [完整可达包回答协议](RELATION_PACK_ANSWER_PROTOCOL_20260927.md) | [全部可达包答案结果](RELATION_PACK_ANSWER_RESULTS_20260927.md)：96包完整覆盖，14新请求全成功；全邻接相对I的答案双区间跨零，完整16区间及观察极值保留 |
 | 固定候选在同预算内能达到多高 | [精确候选oracle协议](CANDIDATE_ORACLE_PROTOCOL_20260927.md) | [完整六组上界](CANDIDATE_ORACLE_RESULTS_20260927.md)与[图](results/qasper_candidate_oracle_20260927.svg)，gold参与选择，不能部署或当答案收益 |
-| 下一批数据是否存在文档重叠 | [249篇固定文档筛查定义及报告](REMAINING_VALIDATION_SCREEN_20260927.md) | 8批完整，1个标记经[文本复核](VALIDATION_OVERLAP_REVIEW_20260927.md)及[官方来源核对](VALIDATION_SOURCE_RELATION_REVIEW_20260927.md)发现明确材料沿用关系；历史筛查未排除样本，后续[新元数据政策](CONFIRMATION_METADATA_RESULTS_20260927.md)已形成248篇操作性候选，尚未准入 |
+| 下一批数据是否存在文档重叠 | [249篇固定文档筛查定义及报告](REMAINING_VALIDATION_SCREEN_20260927.md) | 8批完整，1个标记经[文本复核](VALIDATION_OVERLAP_REVIEW_20260927.md)及[官方来源核对](VALIDATION_SOURCE_RELATION_REVIEW_20260927.md)发现明确材料沿用关系；历史筛查未排除样本，后续[新元数据政策](CONFIRMATION_METADATA_RESULTS_20260927.md)已形成248篇操作性候选，并完成900题离线构建；付费阶段尚未准入 |
 
 各结果报告链接对应完整精度的公开聚合JSON及图。JSON保留固定方法、全部预定比较、双权重区间、费用和来源hash；没有为了只展示正结果删去失败或下降项。
 
@@ -38,7 +38,7 @@
 
 [条件精度规划](CONDITIONAL_PRECISION_PLANNING_20260927.md)保留四组对照的全部72个半宽、48个整数情景，说明独立family数及假设标准差的影响。它不计算功效，不决定样本准入，也不证明现有或未来样本足量。
 
-当前优先任务是冻结分数选择方法并完成独立family准入，再对强排序基线确认开发信号。额外候选与关系共享仍是待检验问题；当前邻接依赖规则未得到语义内容增益支持。Refiner标签的来源与跨split问题尚未获得正式训练准入。任何未见family确认都应先完成曝光/版本/近重复审核和方法锁定；不能继续在已看到结果的77题上调参后称独立确认。
+当前优先任务是在已冻结方法的完整 900 题队列上对强排序基线作前瞻性检验，公开来源、暴露和组件独立性的剩余限制。[完整新阶段预算](results/qasper_confirmation_budget_20260927.json)已准备，付费调用等待新的预算选择。额外候选与关系共享仍是待检验问题；当前邻接依赖规则未得到语义内容增益支持。Refiner标签的来源与跨split问题尚未获得正式训练准入。任何未见family确认都应先完成曝光/版本/近重复审核和方法锁定；不能继续在已看到结果的77题上调参后称独立确认。
 
 ## 重放与运行记录
 
