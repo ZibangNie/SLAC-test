@@ -46,6 +46,6 @@
 
 当前自动推进与费用状态在本地`artifacts/research-foundation/overnight-20260927/state.json`；科学source、plan、run和已完成receipt保持不变。费用的已知小计、未知请求和保守预留是三个不同字段，不能互换。
 
-[完整原域关系置换协议](RELATION_PLACEBO_DEMAND_PROTOCOL_20260927.md)及[元数据冻结计划](results/qasper_relation_placebo_demand_protocol_20260927.json)用于检验 F∘P 的完整需求与结构退化；40项合成测试及独立审查通过，此处尚未执行真实置换。另冻结[排序上下界按需选择协议](RELATION_LAZY_BOUNDS_PROTOCOL_20260927.md)，运行策略不读取真值表或必要边，源码与完整验证仍在准备。两项均无新增API授权。
+[完整原域置换结果](RELATION_PLACEBO_DEMAND_RESULTS_20260927.md)已独立验证：76题两函数相同，仅1题可能不同，4/501赋值改变输出；共同需求20条，预算投影$0.100仍待独立新付费准入。
 
-[完整原域置换结果](RELATION_PLACEBO_DEMAND_RESULTS_20260927.md)已独立验证：76题两函数相同，仅1题可能不同，4/501赋值改变输出；共同需求20条，预算投影$0.100但尚未付费准入。另[上下界选择元数据计划](results/qasper_relation_lazy_bounds_protocol_20260927.json)已通过49项合成测试及独立源码/元数据审查，真实501/23915验证尚待此次发布后的单次CPU运行。
+[直接上下界选择结果](RELATION_LAZY_BOUNDS_RESULTS_20260927.md)也已完整独验：运行策略不读取真值表，501空cache与23915全known-subset路径精确输出相同；共读取326/9682次，保留22/70次非必要读取。两题随赋值读取1–2条，但无实际跨题共享调度、API费用或质量收益结论。

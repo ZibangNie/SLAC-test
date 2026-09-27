@@ -186,3 +186,5 @@ Choose one primary contribution candidate, name its strongest fixed comparator, 
 No abstract should claim improved shared reasoning, calibrated judgments, full SLAC superiority, independent generalization or amortized latency until the corresponding evidence above exists. The undergraduate report and migration notes provide engineering history and hypotheses; unverifiable claims from them are not promoted to results in this outline.
 
 新增[原域placebo需求结果](RELATION_PLACEBO_DEMAND_RESULTS_20260927.md)：完整501符号赋值及独立复核表明只有1/77题的content/placebo函数可能不同，不能将这组控制描写为广泛区分语义效用的证据。U为20条唯一边，预算仅作新合同投影，实际关系标签和质量尚未产生。
+
+[上下界直接选择器](RELATION_LAZY_BOUNDS_RESULTS_20260927.md)将完整真值表移出运行策略：所有501空cache及23915缓存路径正确，独立真实分词与全completion证书验证通过。应完整报告空缓存326次逻辑读取、22次非必要读取及两题1–2条的自适应范围，不把有限验证写成最优算法、新理论、实测HTTP节省或部署benchmark。

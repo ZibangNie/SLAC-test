@@ -227,3 +227,9 @@ Root在协议commit `cc336148a473a5b34112df7b58638c972e2ee200`之后单次运行
 原域源码/plan发布于`e00ee285577a0bad08bdb1208d53a5c15faf4938`之后，Root单次run/audit分别0.266/0.250秒exit0；独立标准库实现38项合成测试及另人审查后全量验证77/501、U、所有public/private聚合和20完整payload Decimal预算，26绑定首末一致，receipt `69b4af662ebae5f032eec0b44647338f8ee553cc208ba0ce4cf3da0c3f42cfc5`。仅1题函数可能不同、4/501不同；U20，reserve投影$0.100。非全退化，但对照很弱，仍未付费。全部负向边界见[结果](RELATION_PLACEBO_DEMAND_RESULTS_20260927.md)。
 
 上下界直接选择器源码及49项synthetic独审通过；17绑定的新plan SHA `e0a15722fea215328df995d2343145ade7f88a15056741adc9fcede2976a26cf`，六分析入口禁用后的metadata回读由作者及Root各自通过。此刻真实selector仍未运行，run01不存在，发布后Root另设各300秒外部时限单次运行与审计。完整501空cache与23915全known-subset路径（包含501）将保留所有额外非必要读取和warmtoken-cache限制。
+
+## 07:58—08:05 直接上下界选择器全量完成
+
+source/plan发布`87235a6e4c172cce75f471d0fb003c3f881790bf`后Root单次run27.547秒、完整audit32.234秒，均exit0；独立实现16项synthetic及另人代码审阅后重算501/23915所有eager-completion证书、源限定身份、真实BGE分词与全部效率聚合，external26.218秒exit0。receipt `e8c69eea1f90f4bd0662971f3f36f5a298c5633c6ebf0e324a401f747798a57e`及30绑定再次核对。
+
+空cache326读vs全读2166，全known-subset9682vs76390；各22/70次非必要读取，最大2读，两题在不同赋值下需1或2条。运行策略不读truth table，但验证枚举仍指数增长；共享的token cache使后suite新增encode0，不是coldstart服务延迟。所有计数、负项和旧compiled对比的事后边界见[完整结果](RELATION_LAZY_BOUNDS_RESULTS_20260927.md)。零API，夜间费额未变。20条实际关系的新执行器正在准备，尚未prepare/API准入。
