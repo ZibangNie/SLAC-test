@@ -102,6 +102,41 @@ def lookup(rows):
     return {tuple(row[k] for k in IDENTITY): row for row in rows}
 
 
+def test_null_section_heading_keeps_paragraphs_and_all_questions():
+    data=make_fixture((3,));cohort,native,canonical=data
+    source=cohort[0]['source_id'];doc=cohort[0]['doc_id']
+    native[source]['full_text'][0]['section_name']=None
+    canonical[doc]['blocks']=[b for b in canonical[doc]['blocks']
+        if b['source_locator']['json_pointer']!=f'/{source}/full_text/0']
+    result=project(data)
+    assert len(result['questions'])==3
+    assert sum(u['kind']=='paragraph' for u in result['documents'][0]['units'])==2
+    assert all(u['native_text'] is not None for u in result['documents'][0]['units'])
+
+
+def test_null_section_heading_with_canonical_heading_is_rejected():
+    data=make_fixture((1,));source=data[0][0]['source_id']
+    data[1][source]['full_text'][0]['section_name']=None
+    with pytest.raises(ValueError,match='null native heading'):
+        project(data)
+
+
+@pytest.mark.parametrize('field',['title','abstract'])
+def test_null_non_heading_native_field_is_rejected(field):
+    data=make_fixture((1,));source=data[0][0]['source_id']
+    data[1][source][field]=None
+    with pytest.raises(ValueError,match='native unit is not text'):
+        project(data)
+
+
+@pytest.mark.parametrize('value',[0,False,[],{}])
+def test_nonnull_nonstring_section_heading_is_rejected(value):
+    data=make_fixture((1,));source=data[0][0]['source_id']
+    data[1][source]['full_text'][0]['section_name']=value
+    with pytest.raises(ValueError,match='native unit is not text'):
+        project(data)
+
+
 def test_sample_exact_fixed_hash_membership_and_input_order_independence():
     values = [f"document-{i:02d}" for i in range(20)]
     salt = "SLAC-QASPER-CONFIRMATION-EXPORT-20260927-v1"

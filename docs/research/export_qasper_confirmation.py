@@ -121,6 +121,11 @@ def project_dataset(cohort,native,canonical_documents,archive_sha256,sample_doc_
             block_map.setdefault(key,[]).append(block)
         units=[]
         for kind,_,locator,text in native_text_blocks(paper,source):
+            # Qasper permits an unnamed section. It contributes paragraphs but
+            # no heading; never synthesize the string "None" or drop a section.
+            if kind=='heading' and text is None:
+                require(not block_map.get((locator,'heading')),'null native heading has a canonical heading')
+                continue
             require(type(text)is str,'native unit is not text')
             if not text.strip():continue
             matches=block_map.get((locator,'heading' if kind=='title' else kind),[])
