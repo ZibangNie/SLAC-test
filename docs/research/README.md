@@ -52,4 +52,6 @@
 
 [20条实际关系执行协议](RELATION_CONTENT_EXECUTION_PROTOCOL_20260927.md)和[完整冻结计划](results/qasper_relation_content_protocol_20260927.json)已通过33项合成测试及独立源码/计划审查。全部七组方法共539条记录、24区间预先固定；20单例总预留$0.100，所有答案精确继承，不新增生成。源码和计划先发布后单次执行，20条均成功；[完整结果](RELATION_CONTENT_EXECUTION_RESULTS_20260927.md)及539条记录、24区间已独立复核。内容组与placebo全部77题证据包相同，当前规则不支持语义内容增益。
 
-[Activation-only 对照协议](RELATION_ACTIVATION_CONTROL_PROTOCOL_20260927.md)及[冻结计划](results/qasper_relation_activation_protocol_20260927.json)已完成44项合成测试和独立审查。它在同一501/23915完整路径上分开检查激活过滤与区间认证的省读；当前最多2读来自邻接结构与k=3。此处只发布执行前合同，真实CPU结果尚待执行、audit与独验。
+[Activation-only 对照协议](RELATION_ACTIVATION_CONTROL_PROTOCOL_20260927.md)及[冻结计划](results/qasper_relation_activation_protocol_20260927.json)已完成44项合成测试和独立审查。它在同一501/23915完整路径上分开检查激活过滤与区间认证的省读；当前最多2读来自邻接结构与k=3。[完整结果](RELATION_ACTIVATION_CONTROL_RESULTS_20260927.md)现已完成全量回放和独立验证：空cache的读取为2166→352→326，全known-subset为76390→9760→9682；区间证书额外减少26/78次，大部分省读来自激活过滤。
+
+[晨间交接与下一步决定](MORNING_RESEARCH_HANDOFF_20260927.md)汇总正负证据、最后的归因控制、完整费用和独立确认仍需满足的条件。

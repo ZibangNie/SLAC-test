@@ -1,6 +1,6 @@
 # SLAC × JEV 夜间研究记录
 
-工作窗口：2026-09-27 01:18–09:00，Asia/Shanghai。用户明确要求整晚主动推进，允许目标/自动化；此前已允许创建和推送研究分支。当前持久目标 active，当前任务 heartbeat `slac-jev` 每 30 分钟接续，截止本日 09:00。自动化依赖本机和 Codex 应用保持运行。
+工作窗口：2026-09-27 01:18–09:00，Asia/Shanghai。用户明确要求整晚主动推进，允许目标/自动化；此前已允许创建和推送研究分支。本夜使用持久目标及当前任务 heartbeat `slac-jev` 每30分钟接续，自动化窗口截止本日09:00，依赖本机和Codex应用运行。最终完成状态以本地state和晨间交接为准。
 
 **08:33 当前状态：**全部七个付费阶段已结束，837次尝试、836成功、旧unknown1；known $0.491133602加未知，reserve $4.7586873300。最新20条内容关系已完成独立复核；当前无API进程，完整结果与负结论见文末。其余时段继续零API对照与论文整理。
 
@@ -255,3 +255,9 @@ source/plan发布`87235a6e4c172cce75f471d0fb003c3f881790bf`后Root单次run27.54
 [新对照协议](RELATION_ACTIVATION_CONTROL_PROTOCOL_20260927.md)先询问全部当前active未缓存边，再按相同优先级选包。每条询问对应一个已选且最多有一条前驱边的B，满k即终止，因此最大新读k−1；提前停在r<k时只能写≤r，而非r−1。这说明原最大2读不能归功于区间证书。44项合成测试由Root和独立审阅分别通过；禁止select/evaluate/load_saved/token_lookup/parent.select后的metadata prepare与回读完成，18直接绑定、17继承承诺。plan `8f92a2575c7e701d4aa334d741e414a753ee4426aa25e990d7961a8079a4afd6`，没有运行真实策略、读取新QA或调用API。
 
 冻结完整501空cache、23915全known-subset路径，保存真实整包token测量仅作确定性回调，完整winner轨迹、最终包和lazy请求子集均必须通过。分别报告eligible−activation与activation−lazy，保留两种策略的非必要读取；CPU计时不能称serving latency。Root在发布和计划独审完成后单次run/audit，各有300秒外部时限。
+
+## 激活对照完整收尾
+
+源码、协议、44项测试和计划先发布`58e1afec0d2f8c4a950ca0b40b73172b079600fa`，Root在08:41:41单次执行，run11.703秒、audit12.469秒，均exit0。所有501/23915路径的完整winner轨迹和证据包一致，lazy读集合均包含于activation读集合；独立实现随后从Core、旧已验证整包token测量和全部路径重建，完整receipt `629481aeae67a11c496de3c8cfba8a190b792789ccea99f67e2ea55e68f95896`通过审查。
+
+空cache读取2166→352→326，all-known-subset76390→9760→9682；区间额外26/78次，其余475/23837路径不减。结构天然上界2、双方非必要读取48→22/148→70、源限定唯一读边30→24全部保留，不宣传为API费用或质量收益。[完整对照报告](RELATION_ACTIVATION_CONTROL_RESULTS_20260927.md)与[晨间交接](MORNING_RESEARCH_HANDOFF_20260927.md)保留范围和下一步。全夜仍837尝试/836成功/旧unknown1，known $0.491133602加未知，reserve $4.7586873300。此后无新增付费，旧运行不重启。
