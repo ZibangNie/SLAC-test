@@ -2,6 +2,8 @@
 
 从[当前研究判断](RESEARCH_STATUS_20260927.md)开始阅读。它区分已完成的开发结果、失败或未完成的实验，以及仍待验证的创新主张。[夜间执行记录](OVERNIGHT_RESEARCH_20260927.md)保留准备、失败和后续完成的历史；不要根据旧段落重复启动实验。
 
+夜间阶段之后，已完成[确认实验元数据清单](CONFIRMATION_METADATA_RESULTS_20260927.md)：281 篇 validation 全保留去向记录，33 篇隔离，248 篇形成操作性候选，独立算法核验通过。它们尚不是获认证的独立测试集。新的[五组分析协议](CONFIRMATION_ANALYSIS_PROTOCOL_20260927.md)及[数值退化修订 V2](CONFIRMATION_ANALYSIS_AMENDMENT_20260927.md)在新结果出现前固定；后续以 [V2 机器协议](results/qasper_confirmation_protocol_v2_20260927.json)为当前分析入口。本次元数据阶段未打开 QA 或发送 API 请求；历史解析记录见清单报告。
+
 当前所有质量结果都是开发性证据。原77题JEV扩展经历一次未知超时，随后按事先公开的操作修订完成全部support，并通过完整审计和独立240区间复算；主答案六组462个预测也已完整审计和独立60区间复算。旧失败及未知费用仍保留。原始问答、文档、逐题输出、API请求响应、凭据及权重均不在公开结果目录中。
 
 ## 已完成结果的入口
@@ -22,7 +24,7 @@
 | 能否保持全部选包结果并省去无影响判断 | [按需编译固定协议](RELATION_DEMAND_COMPILATION_PROTOCOL_20260927.md)、[对照与经典方法边界](RELATION_DEMAND_DESIGN_REVIEW_20260927.md) | [完整按需编译结果](RELATION_DEMAND_COMPILATION_RESULTS_20260927.md)：101条eligible唯一边中19条必要，全部501赋值及23,915缓存路径精确等价；未显示空缓存自适应或跨题必要边复用收益 |
 | 关系规则全部可达包的回答是否不同 | [完整可达包回答协议](RELATION_PACK_ANSWER_PROTOCOL_20260927.md) | [全部可达包答案结果](RELATION_PACK_ANSWER_RESULTS_20260927.md)：96包完整覆盖，14新请求全成功；全邻接相对I的答案双区间跨零，完整16区间及观察极值保留 |
 | 固定候选在同预算内能达到多高 | [精确候选oracle协议](CANDIDATE_ORACLE_PROTOCOL_20260927.md) | [完整六组上界](CANDIDATE_ORACLE_RESULTS_20260927.md)与[图](results/qasper_candidate_oracle_20260927.svg)，gold参与选择，不能部署或当答案收益 |
-| 下一批数据是否存在文档重叠 | [249篇固定文档筛查定义及报告](REMAINING_VALIDATION_SCREEN_20260927.md) | 8批完整，1个标记经[文本复核](VALIDATION_OVERLAP_REVIEW_20260927.md)及[官方来源核对](VALIDATION_SOURCE_RELATION_REVIEW_20260927.md)发现明确材料沿用关系；仍无人审准入或自动排除 |
+| 下一批数据是否存在文档重叠 | [249篇固定文档筛查定义及报告](REMAINING_VALIDATION_SCREEN_20260927.md) | 8批完整，1个标记经[文本复核](VALIDATION_OVERLAP_REVIEW_20260927.md)及[官方来源核对](VALIDATION_SOURCE_RELATION_REVIEW_20260927.md)发现明确材料沿用关系；历史筛查未排除样本，后续[新元数据政策](CONFIRMATION_METADATA_RESULTS_20260927.md)已形成248篇操作性候选，尚未准入 |
 
 各结果报告链接对应完整精度的公开聚合JSON及图。JSON保留固定方法、全部预定比较、双权重区间、费用和来源hash；没有为了只展示正结果删去失败或下降项。
 
