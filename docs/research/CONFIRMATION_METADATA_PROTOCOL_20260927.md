@@ -1,0 +1,25 @@
+# Prospective confirmation metadata policy, 27 September 2026
+
+This new, zero-API stage prepares an auditable candidate cohort for a later confirmation experiment. It does not reopen any overnight run, export new QA, train a model, or admit a paid experiment. The complete original 281 validation-document denominator is retained; the 32 documents already used for development remain explicitly marked. No document is chosen using a question count, answer, reference, model disagreement or quality score.
+
+## Source policy fixed before evaluation
+
+Build connected components over the 888 canonical train and 281 validation metadata records using equal declared family, equal normalized body hash, strictly parsed arXiv base identity, existing moderate/high canonical lexical-overlap flags, and the already documented explicit material-reuse relation. The graph is a conservative policy grouping, not a claim that every connected pair is the same paper or a human-adjudicated family. Preserve all original identities and family fields.
+
+A component touching canonical train, the existing 32-document development pool, a prior reservation or a recorded development-exposure identity/hash is quarantined from the proposed confirmation cohort. An unresolved source identifier is retained with a needs-review status. Otherwise its validation documents form a proposed operational candidate component. Include every document in each eligible component; do not take a favorable subset. This is a new prospective source policy: the previous screening and source-review artifacts remain unchanged and did not themselves exclude anything. Quarantine is not deletion or an assertion of QA leakage.
+
+The resulting cohort is provisional. Zero lexical flags do not prove independence, a declared family is not necessarily an independent sampling unit, and model-pretraining exposure remains unknown. No `cleared_for_evaluation`, `independent_confirmation_test`, or `cleared_for_training` flag may become true in this stage. Any later admission must specify its operational assumptions and limitations, freeze methods and analysis before outcomes, and verify the actual QA export and evaluator.
+
+## Exposure is a layered record
+
+The historical native exporter reads the entire validation member and calls `json.loads` before iterating the selected 32 papers. Its unchanged Git source and sealed completed alignment report jointly support at least one historical machine decoding of the complete member. The completed report does not contain an execution-time exporter hash, so this is a source-and-artifact reconstruction, not additional runtime telemetry. Do not claim that the remaining 249 papers' QA bytes were never read by any program.
+
+Distinguish that event from selection for export, serialized QA, model input, metric computation and researcher/agent visibility. Only the existing 32-document sidecar's export scope is directly established by its report. For the remaining documents, absence from the explicitly bound development manifests means no match in those records, not proof of absence from every external workflow. Neither machine decoding alone nor a lack of recorded model use establishes training contamination or its absence. Keep unobserved exposure categories unknown.
+
+This stage reads only bound metadata, manifests, reports, source code and the one already reviewed source-relation record. It never opens the raw archive, the native QA sidecar, official test, canonical prose shards, legacy text rows or model weights. Old full-text and legacy provenance audits are inherited commitments; only files directly consumed here are freshly hashed. Preserve the 948 historical `orig_split=test` rows within named legacy train/dev provenance without opening an official test file.
+
+## Reproducible execution and outputs
+
+Preparation validates the source inventory and exact metadata projection, then seals a new input JSON, plan and implementation hashes. It must not execute the policy. A single exclusive run first registers its plan, then writes the complete validation ledger, the proposed-cohort rows, all private components, the public aggregate and a summary. A failed run leaves its occupied directory intact and cannot be retried there. Audit writes a separate receipt after recomputing the policy and all outputs from the sealed input. Independent review checks the identity joins, whole-component quarantine, exposure distinctions and all public counts. A changed source, incomplete denominator, missing record, invalid split or inconsistent receipt fails closed. Unrecognized source identities remain in the complete ledger with a needs-review requirement and cannot enter the proposal.
+
+All identities, component membership and local paths remain in ignored artifacts. Public outputs contain fixed aggregate keys, source hashes and explicit limitations only. Publication scans exact credential material and known private identities/questions in Git blobs. This document changes neither the old night ledger nor any completed scientific result.
