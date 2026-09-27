@@ -2,7 +2,9 @@
 
 工作窗口：2026-09-27 01:18–09:00，Asia/Shanghai。用户明确要求整晚主动推进，允许目标/自动化；此前已允许创建和推送研究分支。当前持久目标 active，当前任务 heartbeat `slac-jev` 每 30 分钟接续，截止本日 09:00。自动化依赖本机和 Codex 应用保持运行。
 
-**03:15 阶段状态：**主 JEV/Qwen support 仍停在164次成功、1次不确定请求，原主答案链未启动。独立 BM25、BGE reranker 和规则 chunk 双索引已完整执行并通过审计；三个本地队列均已结束，不得重启。下文按执行顺序保留先前准备和失败记录，最新完整结果见文末及[研究判断](RESEARCH_STATUS_20260927.md)。
+**08:33 当前状态：**全部七个付费阶段已结束，837次尝试、836成功、旧unknown1；known $0.491133602加未知，reserve $4.7586873300。最新20条内容关系已完成独立复核；当前无API进程，完整结果与负结论见文末。其余时段继续零API对照与论文整理。
+
+**03:15 历史阶段状态：**主 JEV/Qwen support 仍停在164次成功、1次不确定请求，原主答案链未启动。独立 BM25、BGE reranker 和规则 chunk 双索引已完整执行并通过审计；三个本地队列均已结束，不得重启。下文按执行顺序保留先前准备和失败记录，最新完整结果见文末及[研究判断](RESEARCH_STATUS_20260927.md)。
 
 **随后完成：**固定候选顺序诊断及独立六组本地基线答案评测均已完整执行、审计。后者367次请求全部成功；原JEV主链仍未恢复。本文保留各阶段的历史准备状态，不能据前文的“尚未执行”重启已完成队列。
 
@@ -239,3 +241,17 @@ source/plan发布`87235a6e4c172cce75f471d0fb003c3f881790bf`后Root单次run27.54
 [执行器及协议](RELATION_CONTENT_EXECUTION_PROTOCOL_20260927.md)33项synthetic由作者、Root和独立审阅者分别通过；另验证HTTP429已知/未知收费及失败不续发。Root正式prepare时禁止resolve/score/StaticClient/read_key/load_references，随后独立计划审阅又禁六入口完整回读，2166绑定首末一致。plan SHA `84eb8ca9b4ba63ce3e565088ce97e48968563a9690007a1970ad8ba2b98ef4c6`，独审receipt `709c46e65f3137e05ab4349cf5db7ff476e26bf3e39fdce98cb51cf6389a22ec`。
 
 20原singleton提示由独立代码逐字节重建；预留$0.100、输入86847/输出20480，完整262既有答案payload覆盖所有501内容/置换组合和基线，无Qwen dispatch。新阶段如全部执行，累计为837次尝试、reserve$4.7586873300、余$0.2413126700；此时实际仍817次，尚无新标签/API。保留旧unknown和全部生成预留。发布后Root再检查当前总账、09点/65秒余量并单次放行；全20合法成功且请求审计通过才读取原77题参考并计算539记录/24CI。原562阶段不重启。
+
+## 08:33 实际内容关系及完整独立复算完成
+
+源码、33项测试和计划先推送至`a6a0b60f3a4cfde7a95e464d35b51b3bb4c39c25`，Root核对远端和封印后单次执行。20条JEV单例全部成功；run 21.203秒、audit 11.797秒，均exit0。新known $0.000712740，reserve $0.100，生成调用0；原562阶段仍未准入，旧unknown永久保留。
+
+另一实现经52项合成测试及独立代码审查，从20条raw响应、完整费用链和既有答案重算539记录、24区间；3,306来源绑定首末一致，receipt `ca2edfa6e981bf829f931423c8f07819d16d7cee3aa0a1a532cad288cffe823c`另经盲绑定核对。旧817请求的transport验证继承固定父独验，不伪称本次重parse所有旧响应。
+
+内容与placebo77题证据包全同；内容相对R0为1增/74同/2减，答案双区间均跨零。按执行前规则停止本+1依赖规则的语义内容收益主张；全部负结果和24区间见[完整报告](RELATION_CONTENT_EXECUTION_RESULTS_20260927.md)。夜间总账现为837尝试/836成功/旧unknown1、known $0.491133602加未知、reserve $4.7586873300，余 $0.2413126700，已完成run不重启。
+
+## 08:37 激活控制的执行前冻结
+
+[新对照协议](RELATION_ACTIVATION_CONTROL_PROTOCOL_20260927.md)先询问全部当前active未缓存边，再按相同优先级选包。每条询问对应一个已选且最多有一条前驱边的B，满k即终止，因此最大新读k−1；提前停在r<k时只能写≤r，而非r−1。这说明原最大2读不能归功于区间证书。44项合成测试由Root和独立审阅分别通过；禁止select/evaluate/load_saved/token_lookup/parent.select后的metadata prepare与回读完成，18直接绑定、17继承承诺。plan `8f92a2575c7e701d4aa334d741e414a753ee4426aa25e990d7961a8079a4afd6`，没有运行真实策略、读取新QA或调用API。
+
+冻结完整501空cache、23915全known-subset路径，保存真实整包token测量仅作确定性回调，完整winner轨迹、最终包和lazy请求子集均必须通过。分别报告eligible−activation与activation−lazy，保留两种策略的非必要读取；CPU计时不能称serving latency。Root在发布和计划独审完成后单次run/audit，各有300秒外部时限。
