@@ -1,6 +1,6 @@
 # SLAC × JEV 研究记录
 
-**2026-10-04 更新：已恢复低 API 成本下的持续探索。** 已完成的[零 API 缓存预算实验](BUDGET_SELECTION_RESULTS_20261004.md)是负结果：精确报分选包改变 2/77 题，题等权 Evidence F1 从 0.391755 降至 0.380933，其他两种对照也未改善均值。新增[可复用预算选择器](../../SLAC/retrieval/pack/README.md)，但不替换默认策略。接下来核验[廉价特征路由设计](NEXT_OFFLINE_ROUTING_DESIGN_20261004.md)，旧 900 题付费计划继续暂停；下文保留历史阶段记录。
+**2026-10-04 更新：持续进行零 API 探索。** [缓存预算实验](BUDGET_SELECTION_RESULTS_20261004.md)与随后完成的[按 family 隔离的路由实验](CACHED_ROUTING_RESULTS_20261004.md)均未支持各自的新收益假设：优化报分降低 Evidence F1，四个廉价结构特征也未优于同配额简单控制。已保留可复用[预算选择器](../../SLAC/retrieval/pack/README.md)和[路由组件](../../SLAC/retrieval/routing/README.md)，不替换默认策略、不在同批结果上继续调参。下一步利用已找到的 32 条单元添加对照做[有限缓存诊断](NEXT_CACHED_ADDITION_DIAGNOSIS_20261004.md)，不声称现有缓存能识别二阶交互。旧 900 题付费计划继续暂停，下文保留历史阶段记录。
 
 从[当前研究判断](RESEARCH_STATUS_20260927.md)开始阅读。它区分已完成的开发结果、失败或未完成的实验，以及仍待验证的创新主张。[夜间执行记录](OVERNIGHT_RESEARCH_20260927.md)保留准备、失败和后续完成的历史；不要根据旧段落重复启动实验。
 
