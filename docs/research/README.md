@@ -1,5 +1,7 @@
 # SLAC × JEV 研究记录
 
+**2026-10-04 更新：已恢复低 API 成本下的持续探索。** 已完成的[零 API 缓存预算实验](BUDGET_SELECTION_RESULTS_20261004.md)是负结果：精确报分选包改变 2/77 题，题等权 Evidence F1 从 0.391755 降至 0.380933，其他两种对照也未改善均值。新增[可复用预算选择器](../../SLAC/retrieval/pack/README.md)，但不替换默认策略。接下来核验[廉价特征路由设计](NEXT_OFFLINE_ROUTING_DESIGN_20261004.md)，旧 900 题付费计划继续暂停；下文保留历史阶段记录。
+
 从[当前研究判断](RESEARCH_STATUS_20260927.md)开始阅读。它区分已完成的开发结果、失败或未完成的实验，以及仍待验证的创新主张。[夜间执行记录](OVERNIGHT_RESEARCH_20260927.md)保留准备、失败和后续完成的历史；不要根据旧段落重复启动实验。
 
 夜间阶段之后，已完成[确认实验元数据清单](CONFIRMATION_METADATA_RESULTS_20260927.md)：281 篇 validation 全保留去向记录，33 篇隔离，248 篇形成操作性候选，独立算法核验通过。它们尚不是获认证的独立测试集。新的[五组分析协议](CONFIRMATION_ANALYSIS_PROTOCOL_20260927.md)及[数值退化修订 V2](CONFIRMATION_ANALYSIS_AMENDMENT_20260927.md)在新结果出现前固定；后续以 [V2 机器协议](results/qasper_confirmation_protocol_v2_20260927.json)为当前分析入口。本次元数据阶段未打开 QA 或发送 API 请求；历史解析记录见清单报告。
