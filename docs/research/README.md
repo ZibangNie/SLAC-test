@@ -1,6 +1,6 @@
 # SLAC × JEV 研究记录
 
-**2026-10-04 更新：持续进行零 API 探索。** [缓存预算实验](BUDGET_SELECTION_RESULTS_20261004.md)与[按 family 隔离的路由实验](CACHED_ROUTING_RESULTS_20261004.md)均未支持各自的新收益假设：优化报分降低 Evidence F1，四个廉价结构特征也未优于同配额简单控制。已保留可复用[预算选择器](../../SLAC/retrieval/pack/README.md)和[路由组件](../../SLAC/retrieval/routing/README.md)，不在同批结果上继续调参。随后完成的[32 组单证据增量诊断](CACHED_ADDITION_RESULTS_20261004.md)发现：向非空证据包加入 JEV 判为支持的单元时，16 组中 15 组持平、1 组下降；这是单段支持与边际收益不等价的有限观察，尚未证明新算法有效，也不能识别二阶互补性。[一手来源核对](SET_CONDITIONED_JEV_GATE_20261004.md)确认普通集合条件选择已有先例，下一步只做区分条件判断与 SLAC 来源关系的合成接口契约。旧 900 题付费计划继续暂停，下文保留历史阶段记录。
+**2026-10-04 更新：持续进行零 API 探索。** [缓存预算实验](BUDGET_SELECTION_RESULTS_20261004.md)与[按 family 隔离的路由实验](CACHED_ROUTING_RESULTS_20261004.md)均未支持各自的新收益假设：优化报分降低 Evidence F1，四个廉价结构特征也未优于同配额简单控制。已保留可复用[预算选择器](../../SLAC/retrieval/pack/README.md)和[路由组件](../../SLAC/retrieval/routing/README.md)，不在同批结果上继续调参。随后完成的[32 组单证据增量诊断](CACHED_ADDITION_RESULTS_20261004.md)发现：向非空证据包加入 JEV 判为支持的单元时，16 组中 15 组持平、1 组下降；这是单段支持与边际收益不等价的有限观察，尚未证明新算法有效，也不能识别二阶互补性。[一手来源核对](SET_CONDITIONED_JEV_GATE_20261004.md)确认普通集合条件选择已有先例，已完成[条件 JEV 接口契约](CONDITIONAL_JEV_CONTRACT_RESULTS_20261004.md)：区分单段支持、给定证据包后的新增信息与冲突，57 项合成测试及独立核验通过，16 个合成状态产生 50 条固定模拟记录；这不是模型准确率或 RAG 收益。[下一项可行性检查](LOCAL_DECISION_FEASIBILITY_20261004.md)是小型本地决策模型的隔离环境兼容性，尚未下载权重或执行推理。旧 900 题付费计划继续暂停，下文保留历史阶段记录。
 
 从[当前研究判断](RESEARCH_STATUS_20260927.md)开始阅读。它区分已完成的开发结果、失败或未完成的实验，以及仍待验证的创新主张。[夜间执行记录](OVERNIGHT_RESEARCH_20260927.md)保留准备、失败和后续完成的历史；不要根据旧段落重复启动实验。
 
