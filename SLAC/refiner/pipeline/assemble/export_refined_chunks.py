@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from typing import Any, Dict, List, Optional, Tuple
+
+from .source_document_view import DocumentSourceView
 
 
 @dataclass
@@ -309,9 +312,13 @@ def build_refined_boundary_record(
 def build_refined_chunks(
     refiner_input_record: Dict[str, Any],
     candidate_record: Dict[str, Any],
+    *,
+    source_view: Optional[DocumentSourceView] = None,
 ) -> List[Dict[str, Any]]:
     doc_id = refiner_input_record["doc_id"]
     atoms = refiner_input_record["atoms"]
+    if source_view is not None:
+        source_view.validate_against(doc_id, atoms)
     chunk0_units = refiner_input_record.get("chunk0_units", []) or []
     unit2atom_span = refiner_input_record.get("unit2atom_span", []) or []
 
@@ -323,7 +330,7 @@ def build_refined_chunks(
 
     for idx, (atom_start, atom_end) in enumerate(chunk_spans):
         atom_slice = atoms[atom_start:atom_end]
-        text = _join_atoms(atom_slice)
+        text = source_view.render(atom_start, atom_end) if source_view is not None else _join_atoms(atom_slice)
 
         seed_unit = _find_covering_seed_unit(
             chunk0_units=chunk0_units,
@@ -363,11 +370,25 @@ def build_refined_chunks(
                 },
             }
         )
+        if source_view is not None:
+            refined_chunks[-1].update({
+                "source": "refiner_source_view",
+                "text_mode": "source_document",
+                "source_coordinate_system": source_view.coordinate_system,
+                "source_char_span": list(source_view.char_span(atom_start, atom_end)),
+            })
 
     return refined_chunks
 
 
-def build_leaf_records(refined_chunks: List[Dict[str, Any]], atoms: List[str]) -> List[Dict[str, Any]]:
+def build_leaf_records(
+    refined_chunks: List[Dict[str, Any]], atoms: List[str], *,
+    source_view: Optional[DocumentSourceView] = None,
+) -> List[Dict[str, Any]]:
+    if source_view is not None:
+        source_view.validate_against(source_view.doc_id, atoms)
+        for chunk in refined_chunks:
+            source_view.validate_against(chunk["doc_id"], atoms)
     leaf_records: List[Dict[str, Any]] = []
 
     for ch in refined_chunks:
@@ -381,7 +402,7 @@ def build_leaf_records(refined_chunks: List[Dict[str, Any]], atoms: List[str]) -
         parent_id = ch.get("parent_id")
 
         for atom_idx in range(atom_start, atom_end):
-            atom_text = atoms[atom_idx]
+            atom_text = source_view.render(atom_idx, atom_idx + 1) if source_view is not None else atoms[atom_idx]
             leaf_records.append(
                 {
                     "doc_id": doc_id,
@@ -397,6 +418,14 @@ def build_leaf_records(refined_chunks: List[Dict[str, Any]], atoms: List[str]) -
                     "source": "refiner_epoch8",
                 }
             )
+            if source_view is not None:
+                leaf_records[-1].update({
+                    "source": "refiner_source_view",
+                    "text_mode": "source_document",
+                    "source_coordinate_system": source_view.coordinate_system,
+                    "source_char_span": list(source_view.char_span(atom_idx, atom_idx + 1)),
+                    "boundary_meta": dict(ch.get("boundary_meta") or {}),
+                })
 
     return leaf_records
 
@@ -452,15 +481,20 @@ def export_refined_chunks_from_candidate(
     refiner_input_record: Dict[str, Any],
     candidate_record: Dict[str, Any],
     cfg: Optional[RefinedChunkExportConfig] = None,
+    *,
+    source_view: Optional[DocumentSourceView] = None,
 ) -> Dict[str, Any]:
     cfg = cfg or RefinedChunkExportConfig()
+    # Source identity is a mandatory binding check, independent of legacy validation.
+    if source_view is not None:
+        source_view.validate_against(refiner_input_record["doc_id"], refiner_input_record["atoms"])
 
     boundary_record = build_refined_boundary_record(refiner_input_record, candidate_record)
-    refined_chunks = build_refined_chunks(refiner_input_record, candidate_record)
+    refined_chunks = build_refined_chunks(refiner_input_record, candidate_record, source_view=source_view)
 
     leaf_records: List[Dict[str, Any]] = []
     if cfg.export_leaf_records:
-        leaf_records = build_leaf_records(refined_chunks, refiner_input_record["atoms"])
+        leaf_records = build_leaf_records(refined_chunks, refiner_input_record["atoms"], source_view=source_view)
 
     export_record: Dict[str, Any] = {
         "doc_id": refiner_input_record["doc_id"],
@@ -468,6 +502,14 @@ def export_refined_chunks_from_candidate(
         "refined_boundary": boundary_record,
         "refined_chunks": refined_chunks,
     }
+    if source_view is not None:
+        export_record.update({
+            "source": "refiner_source_view",
+            "text_mode": "source_document",
+            "source_coordinate_system": source_view.coordinate_system,
+            "source_char_span": list(source_view.char_span(0, len(refiner_input_record["atoms"]))),
+            "source_document_sha256": hashlib.sha256(source_view.source_text.encode("utf-8")).hexdigest(),
+        })
 
     if cfg.export_leaf_records:
         export_record["leaf_records"] = leaf_records
@@ -491,6 +533,8 @@ def export_refined_chunks_from_candidates(
     refiner_input_record: Dict[str, Any],
     candidate_records: List[Dict[str, Any]],
     cfg: Optional[RefinedChunkExportConfig] = None,
+    *,
+    source_view: Optional[DocumentSourceView] = None,
 ) -> Dict[str, Any]:
     cfg = cfg or RefinedChunkExportConfig()
     best = select_best_candidate(candidate_records, cfg=cfg)
@@ -498,6 +542,7 @@ def export_refined_chunks_from_candidates(
         refiner_input_record=refiner_input_record,
         candidate_record=best,
         cfg=cfg,
+        source_view=source_view,
     )
 
 
