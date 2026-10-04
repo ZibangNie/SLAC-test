@@ -83,3 +83,35 @@ assert wrapped.request.payload()["state"]["candidate"]["text"] == native.text
 ```
 
 `text_policy` is required: `exact` rejects differing display text; `reconstruct` creates a new native state and reports changes. Budgeting uses the complete final rendering, not old token estimates or pack order. Relations involving changed-text endpoints are rejected to prevent reusing stale character offsets. The adapter does not infer relations from parent/neighbor/path fields or change the default retrieval pipeline. See the [bridge verification and boundaries](../../../docs/research/NATIVE_DECISION_BRIDGE_20261004.md).
+
+## Refiner source exports
+
+`refiner_bridge.py` accepts exact source-mode chunk dictionaries together with a validated `NativeCoverageIndex`. Capture before retrieval loading or text normalization: the adapter checks the supplied row against the immutable document source view and does not certify the identity of an entire export file. It copies the actual source rendering into a frozen `Unit`, with `order=atom_start` so order stays relative to the common atom basis.
+
+```python
+from SLAC.refiner.pipeline.assemble.source_coverage import build_native_coverage_index
+from SLAC.retrieval.decision.refiner_bridge import (
+    capture_refiner_source_chunk, build_refiner_source_request,
+)
+
+# source_view is a validated DocumentSourceView. Each native unit supplies
+# native_unit_id, source_span, and exact source_text in that document's coordinates.
+index = build_native_coverage_index(source_view, native_units)
+snapshot = capture_refiner_source_chunk(source_chunk, index)
+wrapped = build_refiner_source_request(
+    query, (), snapshot, arm="standalone",
+    endpoint_id="offline-example", model_id="synthetic-request-model",
+    expected_response_model="synthetic-response-model",
+    token_counter=caller_token_counter, counter_version=caller_counter_version,
+)
+assert wrapped.request.payload()["state"]["candidate"]["text"] == source_chunk["text"]
+receipt = wrapped.provenance_receipt()
+assert receipt["request_key"] == wrapped.request.cache_key
+# Constructing this object does not send a request or access a response cache.
+```
+
+Coverage preserves each native interval's `full` or `partial` intersection. A complete unit plus extra whitespace is full coverage but not `exact_native_unit_id`; a merged chunk can cover several full units; a leaf can cover only part of one. These are coordinate facts, not support labels, scores or a rule for reusing judgments. Blank native units are rejected and whitespace outside nonblank units stays explicit gap coverage.
+
+The adapter reuses the core `build_request`, cache and response contracts. Only `standalone` and `plain_conditional` are supported; no relations are inferred. Source SHA256, coordinate system, atom/character spans and native coverage remain in a separate fresh provenance receipt. Same-document snapshots must agree on source version, coordinates and base model atoms/spans. Different chunk boundaries and deliberate overlaps on that basis are allowed; core duplicate-ID, duplicate-position and duplicate-complete-text checks still apply.
+
+Changing visible text changes the existing request key. A change elsewhere in an unselected source document may leave the complete visible request unchanged and retain that key, while the new receipt identifies the current source version. Both cases require the full existing request binding, not merely a source membership or text-hash match. The evidence budget counts the complete core rendering with headers; Refiner's raw chunk token count is a different surface. No live transport/provider policy or default retrieval-pipeline integration is added here. See the [fixed two-document contract result](../../../docs/research/REFINER_JEV_SOURCE_CONTRACT_RESULTS_20261004.md).
