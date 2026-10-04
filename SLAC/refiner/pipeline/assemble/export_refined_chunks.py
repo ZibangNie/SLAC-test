@@ -178,12 +178,40 @@ def _find_covering_seed_unit(
     atom_end: int,
 ) -> Optional[Dict[str, Any]]:
     """
-    Choose seed unit with maximum overlap with refined chunk span.
-    """
-    best_idx: Optional[int] = None
-    best_overlap = -1
+    Choose seed unit by the ID of its maximum-overlap span.
 
-    for idx, sp in enumerate(unit2atom_span):
+    Empty units can be omitted from unit2atom_span, so span positions are not
+    chunk0 positions. If either optional metadata list is absent, no seed is
+    available; otherwise every span must name a unique existing unit.
+    """
+    if not chunk0_units or not unit2atom_span:
+        return None
+
+    units_by_id: Dict[int, Dict[str, Any]] = {}
+    for unit in chunk0_units:
+        try:
+            unit_id = int(unit["unit_id"])
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("chunk0 unit has missing or invalid unit_id") from exc
+        if unit_id in units_by_id:
+            raise ValueError(f"Duplicate chunk0 unit_id: {unit_id}")
+        units_by_id[unit_id] = unit
+
+    best_seed: Optional[Dict[str, Any]] = None
+    best_overlap = -1
+    seen_span_ids = set()
+
+    for sp in unit2atom_span:
+        try:
+            unit_id = int(sp["unit_id"])
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("unit2atom_span has missing or invalid unit_id") from exc
+        if unit_id in seen_span_ids:
+            raise ValueError(f"Duplicate unit2atom_span unit_id: {unit_id}")
+        seen_span_ids.add(unit_id)
+        if unit_id not in units_by_id:
+            raise ValueError(f"unit2atom_span references missing chunk0 unit_id: {unit_id}")
+
         s = _safe_int(sp.get("start_atom"), -1)
         e = _safe_int(sp.get("end_atom"), -1)
         if not (0 <= s < e):
@@ -191,13 +219,9 @@ def _find_covering_seed_unit(
         ov = max(0, min(atom_end, e) - max(atom_start, s))
         if ov > best_overlap:
             best_overlap = ov
-            best_idx = idx
+            best_seed = units_by_id[unit_id]
 
-    if best_idx is None:
-        return None
-    if best_idx >= len(chunk0_units):
-        return None
-    return chunk0_units[best_idx]
+    return best_seed
 
 
 def _extract_path_depth_parent(seed_unit: Optional[Dict[str, Any]]) -> Tuple[List[str], Optional[int], Optional[int]]:
