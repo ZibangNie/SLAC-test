@@ -6,16 +6,17 @@ Legacy records without source-mode fields keep their existing reader behavior.
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
+from typing import Literal
 
 from SLAC.refiner.pipeline.assemble.source_document_view import DocumentSourceView
 from SLAC.refiner.pipeline.assemble.source_coverage import NativeCoverageIndex, build_native_coverage_index
 from SLAC.retrieval.decision.refiner_bridge import RefinerSourceSnapshot, capture_refiner_source_chunk
-from SLAC.retrieval.schemas.records import ChunkRecord
+from SLAC.retrieval.schemas.records import ChunkRecord, PackedEvidenceItem, RetrievalCandidate
 from SLAC.retrieval.utils.text_utils import normalize_text_basic
 
 INDEX_SCHEMA = 'slac-refiner-source-indexes-v1'
@@ -248,3 +249,63 @@ def source_snapshot_from_chunk_record(record: ChunkRecord, source_indexes: Mappi
              'chunk record has no saved source snapshot')
     snapshot = capture_or_restore_source_meta(record.to_dict(), kind='chunk', source_indexes=source_indexes)
     return capture_refiner_source_chunk(_snapshot_raw(snapshot), _index(record.doc_id, source_indexes))
+
+
+def resolve_refiner_source_selection(
+    current_pack: Sequence[PackedEvidenceItem],
+    candidate: RetrievalCandidate,
+    chunk_lookup: Mapping[str, ChunkRecord],
+    source_indexes: Mapping[str, NativeCoverageIndex],
+    *,
+    text_policy: Literal['exact', 'reconstruct'],
+) -> tuple[tuple[RefinerSourceSnapshot, ...], RefinerSourceSnapshot, tuple[str, ...]]:
+    """Resolve only selected retrieval identities to revalidated source snapshots.
+
+    ``exact`` requires complete source text, including an already-restored pack
+    whose lookup text is normalized. ``reconstruct`` also accepts the current
+    validated lookup text and reports IDs whose selected text changes. Neither
+    policy accepts a third display form such as a summary or truncated text.
+
+    Lookups are point accesses; scores, token estimates, pack order and roles
+    are not used. The result preserves pack sequence and does not select, sort,
+    truncate or budget evidence. Pass its first two values to the existing
+    build_refiner_source_request for joint source-contract validation and the
+    complete core rendering, budget, request key and provenance receipt.
+    """
+    _require(isinstance(text_policy, str) and text_policy in ('exact', 'reconstruct'),
+             'text_policy must explicitly be exact or reconstruct')
+    _require(isinstance(current_pack, Sequence) and not isinstance(current_pack, (str, bytes, bytearray)),
+             'current_pack must be a sequence of PackedEvidenceItem records')
+    _require(isinstance(candidate, RetrievalCandidate), 'candidate must be a RetrievalCandidate')
+    _require(isinstance(chunk_lookup, Mapping), 'chunk_lookup must be a mapping')
+    _require(isinstance(source_indexes, Mapping), 'source_indexes must be a mapping')
+    seen, changed = set(), set()
+
+    def resolve(item):
+        chunk_id = _nonblank(item.chunk_id, 'selected chunk ID')
+        doc_id = _nonblank(item.doc_id, 'selected document ID')
+        _require(chunk_id not in seen, 'selected chunk IDs must be unique across pack and candidate')
+        seen.add(chunk_id)
+        _require(isinstance(item.text, str), 'selected display text must be a string')
+        try:
+            record = chunk_lookup[chunk_id]
+        except KeyError as error:
+            raise ValueError('selected chunk is missing from chunk_lookup') from error
+        _require(isinstance(record, ChunkRecord), 'selected lookup value must be a ChunkRecord')
+        _require(record.chunk_id == chunk_id and record.doc_id == doc_id,
+                 'selected chunk identity differs from lookup key or document')
+        snapshot = source_snapshot_from_chunk_record(record, source_indexes)
+        source_text = snapshot.unit.text
+        _require(item.text in (source_text, record.text),
+                 'selected text must equal complete source or current validated lookup text')
+        if item.text != source_text:
+            _require(text_policy == 'reconstruct', 'selected text differs from source under exact policy')
+            changed.add(chunk_id)
+        return snapshot
+
+    current = []
+    for item in current_pack:
+        _require(isinstance(item, PackedEvidenceItem), 'current_pack must contain PackedEvidenceItem records')
+        current.append(resolve(item))
+    restored_candidate = resolve(candidate)
+    return tuple(current), restored_candidate, tuple(sorted(changed))

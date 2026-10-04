@@ -160,3 +160,41 @@ This preserves source inputs through real preparation and reload. A query-time s
 must still explicitly restore snapshots and budget the final JEV/generator rendering;
 the default selector does not automatically invoke JEV. See the
 [bounded loader result](../../../docs/research/REFINER_SOURCE_LOADER_RESULTS_20261004.md).
+
+### Selected candidates and an existing pack
+
+`resolve_refiner_source_selection` resolves existing retrieval objects through the
+validated chunk lookup. It accesses only the selected IDs; it does not enumerate
+the lookup, select evidence or read scores/token estimates.
+
+```python
+from SLAC.retrieval.dataio.source_records import resolve_refiner_source_selection
+
+current, candidate_source, changed_ids = resolve_refiner_source_selection(
+    packed_items, candidate, chunk_lookup, indexes, text_policy="reconstruct",
+)
+wrapped = build_refiner_source_request(
+    query, current, candidate_source, arm="plain_conditional",
+    endpoint_id="offline-example", model_id="synthetic-request-model",
+    expected_response_model="synthetic-response-model",
+    token_counter=caller_token_counter, counter_version=caller_counter_version,
+    max_tokens=1024,
+)
+# No request is sent. The builder counts its complete restored evidence render.
+```
+
+`exact` requires each selected object's text to equal the full source text.
+`reconstruct` additionally permits the current, validated lookup text and reports
+changed IDs in sorted order. Both accept a previously restored raw pack even when
+the lookup text is normalized. Both reject a third form such as a summary,
+truncation or stale display text; matching chunk IDs alone is insufficient.
+Neither mutates the selected objects. All selected identities are checked before
+the builder projects standalone/conditional visibility. Joint source-version and
+atom-contract checks remain in the existing builder.
+
+The resolver adds no request/cache version: after restoration, identical complete
+source requests retain the existing source-bridge binding. The returned change
+list describes local text restoration, not a model judgment. It also does not
+certify the final answer model's budget: that renderer has its own headers and
+must be counted separately from JEV's evidence render and the whole prompt.
+See the [selection and renderer diagnosis](../../../docs/research/REFINER_SELECTED_SOURCE_RESULTS_20261004.md).
