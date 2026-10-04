@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import TYPE_CHECKING, Dict, List
 
-import numpy as np
-
-from SLAC.retrieval.index.embedder import HFTextEmbedder
-from SLAC.retrieval.index.faiss_utils import build_flat_ip_index, save_faiss_index, save_id_map
 from SLAC.retrieval.schemas.records import ChunkRecord, LeafRecord
+
+if TYPE_CHECKING:
+    from SLAC.retrieval.index.embedder import HFTextEmbedder
 
 
 def compose_leaf_retrieval_text(leaf: LeafRecord, owner_chunk: ChunkRecord | None) -> str:
@@ -37,6 +36,8 @@ def build_leaf_dense_index(
     embedder: HFTextEmbedder,
     output_dir: str | Path,
 ) -> Dict[str, object]:
+    from SLAC.retrieval.index.faiss_utils import build_flat_ip_index, save_faiss_index, save_id_map
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 

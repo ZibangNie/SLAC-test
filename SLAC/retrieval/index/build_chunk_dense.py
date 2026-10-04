@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
+from typing import TYPE_CHECKING, List
 
-from SLAC.retrieval.index.embedder import HFTextEmbedder
-from SLAC.retrieval.index.faiss_utils import build_flat_ip_index, save_faiss_index, save_id_map
 from SLAC.retrieval.schemas.records import ChunkRecord
+
+if TYPE_CHECKING:
+    from SLAC.retrieval.index.embedder import HFTextEmbedder
 
 
 def compose_chunk_retrieval_text(chunk: ChunkRecord) -> str:
@@ -28,6 +29,8 @@ def build_chunk_dense_index(
     embedder: HFTextEmbedder,
     output_dir: str | Path,
 ) -> dict:
+    from SLAC.retrieval.index.faiss_utils import build_flat_ip_index, save_faiss_index, save_id_map
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
