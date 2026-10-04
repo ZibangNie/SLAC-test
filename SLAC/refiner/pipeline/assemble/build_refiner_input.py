@@ -278,11 +278,11 @@ def _split_long_text_once(text: str, cfg: RefinerInputBuildConfig) -> List[str]:
 
 
 def _split_long_text_recursive(text: str, cfg: RefinerInputBuildConfig) -> List[str]:
-    queue = [normalize_spaces(text)]
+    stack = [normalize_spaces(text)]
     out: List[str] = []
 
-    while queue:
-        cur = queue.pop(0)
+    while stack:
+        cur = stack.pop()
         if not cur:
             continue
 
@@ -299,10 +299,10 @@ def _split_long_text_recursive(text: str, cfg: RefinerInputBuildConfig) -> List[
             out.append(cur)
             continue
 
-        # breadth-first split
-        for p in parts:
+        # Finish each left subtree before emitting its right sibling.
+        for p in reversed(parts):
             if p:
-                queue.append(p)
+                stack.append(p)
 
     return out
 
