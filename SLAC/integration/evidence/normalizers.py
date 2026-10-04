@@ -96,10 +96,14 @@ def normalize_candidate_to_selected_evidence(
     query_text: Optional[str] = None,
     source_name: Optional[str] = None,
     ordinal: Optional[int] = None,
+    passage_text_override: Optional[str] = None,
 ) -> SelectedEvidence:
     chunk_id = str(record.get("chunk_id", "")).strip()
     doc_id = str(record.get("doc_id", "")).strip()
-    passage_text = _build_passage_text(record)
+    if passage_text_override is not None and not isinstance(passage_text_override, str):
+        raise TypeError("passage_text_override must be a string or None")
+    passage_text = (_build_passage_text(record) if passage_text_override is None
+                    else passage_text_override)
 
     if not chunk_id:
         raise ValueError("candidate missing required field: chunk_id")

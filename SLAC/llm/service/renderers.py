@@ -5,7 +5,20 @@ from typing import List
 from SLAC.llm.io.schemas import EvidenceItem
 
 
-def render_evidence_block(evidence: List[EvidenceItem]) -> str:
+SOURCE_RENDER_POLICY = "append_as_source_context_block"
+SOURCE_RENDERER_VERSION = "slac-source-llm-evidence-v1"
+
+
+def render_evidence_block(
+    evidence: List[EvidenceItem], *, preserve_source_text: bool = False,
+) -> str:
+    """Render evidence, optionally preserving every passage's original text.
+
+    Source preservation is a rendering primitive, not provenance or budget
+    validation. The compiler separately checks a caller-supplied budget receipt.
+    """
+    if type(preserve_source_text) is not bool:
+        raise ValueError("preserve_source_text must be bool")
     if not evidence:
         return ""
 
@@ -43,4 +56,7 @@ def render_evidence_block(evidence: List[EvidenceItem]) -> str:
         lines.append(ev.passage_text)
         lines.append("")
 
+    if preserve_source_text:
+        # Remove only our final empty separator, never whitespace in a passage.
+        return "\n".join(lines[:-1])
     return "\n".join(lines).strip()

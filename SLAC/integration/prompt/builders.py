@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List
+from typing import List, Sequence
 
 from SLAC.integration.io.schemas import (
     ChatMessage,
@@ -22,7 +22,27 @@ def build_current_messages(req: IntegrationRequest) -> List[ChatMessage]:
     return [ChatMessage(role="user", content=user_text)]
 
 
-def render_evidence_context_block(evidence: List[SelectedEvidence]) -> str:
+def to_llm_evidence(evidence: Sequence[SelectedEvidence]):
+    """Use one field projection for preview, budget measurement and final requests."""
+    from SLAC.llm.io.schemas import EvidenceItem
+
+    return [EvidenceItem(
+        chunk_id=ev.chunk_id, doc_id=ev.doc_id, passage_text=ev.passage_text,
+        path_text=ev.path_text, query_id=ev.query_id, query_text=ev.query_text,
+        rerank_rank=ev.rerank_rank, rerank_score=ev.rerank_score,
+        retrieve_rank_fused=ev.retrieve_rank_fused, role=ev.role, hit_type=ev.hit_type,
+        source_views=ev.source_views[:], token_est=ev.token_est,
+        expansion_depth=ev.expansion_depth, meta=dict(ev.meta),
+    ) for ev in evidence]
+
+
+def render_evidence_context_block(
+    evidence: List[SelectedEvidence], *, preserve_source_text: bool = False,
+) -> str:
+    if preserve_source_text:
+        from SLAC.llm.service.renderers import render_evidence_block
+
+        return render_evidence_block(to_llm_evidence(evidence), preserve_source_text=True)
     if not evidence:
         return "以下没有可用证据。"
 
@@ -52,6 +72,8 @@ def render_evidence_context_block(evidence: List[SelectedEvidence]) -> str:
 def build_prompt_bundle(
     req: IntegrationRequest,
     selected_evidence: List[SelectedEvidence],
+    *,
+    preserve_source_text: bool = False,
 ) -> PromptBundle:
     system_prompt = (
         req.prompt_hints.system_prompt_override.strip()
@@ -60,7 +82,9 @@ def build_prompt_bundle(
     )
 
     current_messages = build_current_messages(req)
-    evidence_context_block = render_evidence_context_block(selected_evidence)
+    evidence_context_block = render_evidence_context_block(
+        selected_evidence, preserve_source_text=preserve_source_text,
+    )
 
     return PromptBundle(
         system_prompt=system_prompt,

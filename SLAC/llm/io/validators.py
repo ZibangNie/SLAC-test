@@ -12,7 +12,9 @@ from .schemas import (
 
 _ALLOWED_ROLES = {"system", "user", "assistant"}
 _ALLOWED_MEMORY_MERGE_POLICIES = {"prepend"}
-_ALLOWED_EVIDENCE_RENDER_POLICIES = {"append_as_context_block"}
+# Keep this IO validator independent of service/__init__, which imports it.
+_SOURCE_RENDER_POLICY = "append_as_source_context_block"
+_ALLOWED_EVIDENCE_RENDER_POLICIES = {"append_as_context_block", _SOURCE_RENDER_POLICY}
 _ALLOWED_PROVIDERS = {"openai_compatible"}
 
 
@@ -51,7 +53,8 @@ def validate_llm_request(req: LLMRequest) -> None:
     if req.memory:
         _validate_messages(req.memory.messages, field_name="memory.messages")
 
-    _validate_evidence(req.evidence)
+    source_mode = (req.options or {}).get("evidence_render_policy") == _SOURCE_RENDER_POLICY
+    _validate_evidence(req.evidence, source_mode=source_mode)
 
     gc = req.generation_config
     if gc.temperature < 0:
@@ -88,13 +91,15 @@ def _validate_messages(messages: Iterable[ChatMessage], *, field_name: str) -> N
             raise ValidationError(f"{field_name}[{idx}].content must be non-empty string")
 
 
-def _validate_evidence(evidence: list[EvidenceItem]) -> None:
+def _validate_evidence(evidence: list[EvidenceItem], *, source_mode: bool = False) -> None:
     rerank_ranks: list[int] = []
     for idx, ev in enumerate(evidence):
         if not ev.chunk_id:
             raise ValidationError(f"evidence[{idx}].chunk_id must be non-empty")
         if not ev.doc_id:
             raise ValidationError(f"evidence[{idx}].doc_id must be non-empty")
+        if source_mode and not isinstance(ev.passage_text, str):
+            raise ValidationError(f"evidence[{idx}].passage_text must be a string in source mode")
         if not ev.passage_text:
             raise ValidationError(f"evidence[{idx}].passage_text must be non-empty")
         if not isinstance(ev.source_views, list):

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, is_dataclass
-from typing import Any, Dict, List, Optional, Tuple
+import hashlib
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from SLAC.integration.evidence.normalizers import normalize_candidate_list
 from SLAC.integration.evidence.selectors import select_evidence
@@ -15,7 +16,10 @@ from SLAC.integration.io.schemas import (
     SelectedEvidence,
 )
 from SLAC.integration.io.validators import validate_integration_request
-from SLAC.integration.prompt.builders import build_prompt_bundle
+from SLAC.integration.prompt.builders import build_prompt_bundle, to_llm_evidence
+
+if TYPE_CHECKING:
+    from SLAC.integration.evidence.source_mode import SourceModeConfig
 
 
 def _obj_to_dict(obj: Any) -> Any:
@@ -46,10 +50,31 @@ class FinalIntegrator:
         retrieval_adapter: Any | None = None,
         reranker_adapter: Any | None = None,
         llm_adapter: Any | None = None,
+        source_mode: SourceModeConfig | None = None,
     ) -> None:
+        if source_mode is not None:
+            from SLAC.integration.evidence.source_mode import SourceModeConfig
+
+            if not isinstance(source_mode, SourceModeConfig):
+                raise TypeError("source_mode must be an explicit SourceModeConfig")
         self.retrieval_adapter = retrieval_adapter
         self.reranker_adapter = reranker_adapter
         self.llm_adapter = llm_adapter
+        self.source_mode = source_mode
+
+    def _count_source_block(self, block: str) -> int:
+        if self.source_mode is None:
+            raise ValueError("source evidence counting requires an explicit source mode")
+        count = self.source_mode.token_counter(block)
+        if type(count) is not int or count < 0:
+            raise ValueError("source evidence counter must return a nonnegative integer, excluding bool")
+        return count
+
+    def _source_pack_cost(self, items) -> int:
+        from SLAC.llm.service.renderers import render_evidence_block
+
+        block = render_evidence_block(to_llm_evidence(items), preserve_source_text=True)
+        return self._count_source_block(block)
 
     def _read_or_run_retrieval(self, req: IntegrationRequest) -> RetrievalArtifacts:
         if req.context.retrieval_artifacts:
@@ -129,10 +154,20 @@ class FinalIntegrator:
         selected_evidence: List[SelectedEvidence],
         prompt_bundle: PromptBundle,
     ) -> Any:
+        if self.source_mode is not None:
+            from SLAC.integration.evidence.source_mode import restore_source_candidates
+
+            # Revalidate the final selected source, including callers of this method directly.
+            verified = restore_source_candidates(
+                [asdict(ev) for ev in selected_evidence], source_mode=self.source_mode,
+            )
+            for original, restored in zip(selected_evidence, verified, strict=True):
+                if (original.passage_text != restored.passage_text
+                        or original.meta.get("refiner_source") != restored.meta["refiner_source"]):
+                    raise ValueError("final selected evidence differs from its verified source snapshot")
         from SLAC.llm.io.schemas import (
             ChatMessage as LLMChatMessage,
             ConversationMemory as LLMConversationMemory,
-            EvidenceItem,
             GenerationConfig,
             LLMRequest,
         )
@@ -152,26 +187,7 @@ class FinalIntegrator:
                 ],
             )
 
-        evidence = [
-            EvidenceItem(
-                chunk_id=ev.chunk_id,
-                doc_id=ev.doc_id,
-                passage_text=ev.passage_text,
-                path_text=ev.path_text,
-                query_id=ev.query_id,
-                query_text=ev.query_text,
-                rerank_rank=ev.rerank_rank,
-                rerank_score=ev.rerank_score,
-                retrieve_rank_fused=ev.retrieve_rank_fused,
-                role=ev.role,
-                hit_type=ev.hit_type,
-                source_views=ev.source_views[:],
-                token_est=ev.token_est,
-                expansion_depth=ev.expansion_depth,
-                meta=dict(ev.meta),
-            )
-            for ev in selected_evidence
-        ]
+        evidence = to_llm_evidence(selected_evidence)
 
         pc = req.pipeline_config
         llm_cfg = pc.llm
@@ -186,6 +202,28 @@ class FinalIntegrator:
         }
         if req.memory and req.memory.summary_text:
             meta["memory_summary_text"] = req.memory.summary_text
+
+        evidence_policy = "append_as_context_block"
+        if self.source_mode is not None:
+            from SLAC.llm.service.renderers import (
+                SOURCE_RENDER_POLICY, SOURCE_RENDERER_VERSION, render_evidence_block,
+            )
+
+            evidence_policy = SOURCE_RENDER_POLICY
+            block = render_evidence_block(evidence, preserve_source_text=True)
+            count = self._count_source_block(block)
+            limit = pc.max_evidence_tokens
+            if type(limit) is not int or limit < 0 or count > limit:
+                raise ValueError("final source evidence block exceeds its configured budget")
+            if prompt_bundle.evidence_context_block != block:
+                raise ValueError("source evidence preview differs from the actual final renderer")
+            meta["source_evidence_budget"] = {
+                "schema": "slac-source-evidence-budget-v1",
+                "renderer_version": SOURCE_RENDERER_VERSION,
+                "rendered_sha256": hashlib.sha256(block.encode("utf-8")).hexdigest(),
+                "counter_version": self.source_mode.counter_version,
+                "count": count, "max_tokens": limit,
+            }
 
         return LLMRequest(
             schema_version="slac_llm_request_v1",
@@ -211,7 +249,7 @@ class FinalIntegrator:
             evidence=evidence,
             options={
                 "memory_merge_policy": "prepend",
-                "evidence_render_policy": "append_as_context_block",
+                "evidence_render_policy": evidence_policy,
                 "return_raw_response": False,
             },
             meta=meta,
@@ -314,12 +352,18 @@ class FinalIntegrator:
         trace.candidate_source = candidate_source
         trace.num_candidates_read = len(candidate_records)
 
-        normalized_candidates = normalize_candidate_list(
-            candidate_records,
-            query_id=req.query_id,
-            query_text=req.query_text,
-            source_name=candidate_source,
-        )
+        if self.source_mode is None:
+            normalized_candidates = normalize_candidate_list(
+                candidate_records, query_id=req.query_id,
+                query_text=req.query_text, source_name=candidate_source,
+            )
+        else:
+            from SLAC.integration.evidence.source_mode import restore_source_candidates
+
+            normalized_candidates = restore_source_candidates(
+                candidate_records, source_mode=self.source_mode, query_id=req.query_id,
+                query_text=req.query_text, source_name=candidate_source,
+            )
 
         selected_evidence = select_evidence(
             normalized_candidates,
@@ -327,16 +371,32 @@ class FinalIntegrator:
             max_tokens=req.pipeline_config.max_evidence_tokens,
             prefer_direct_first=req.pipeline_config.prefer_direct_first,
             min_direct_evidence=req.pipeline_config.min_direct_evidence,
+            pack_cost=self._source_pack_cost if self.source_mode is not None else None,
         )
         artifacts.selected_evidence = selected_evidence[:]
         trace.num_evidence_selected = len(selected_evidence)
 
-        prompt_bundle = build_prompt_bundle(req, selected_evidence)
+        prompt_bundle = build_prompt_bundle(
+            req, selected_evidence, preserve_source_text=self.source_mode is not None,
+        )
         artifacts.prompt_bundle = prompt_bundle
 
         llm_request = self.build_llm_request(req, selected_evidence, prompt_bundle)
         artifacts.llm_request = llm_request
         trace.llm_request_id = getattr(llm_request, "request_id", None)
+
+        if self.source_mode is not None:
+            from SLAC.llm.service.request_compiler import compile_provider_payload
+
+            # Pure compilation checks the budget binding before any adapter can invoke a model.
+            compiled = compile_provider_payload(llm_request)
+            if selected_evidence and compiled["messages"][-1]["content"] != prompt_bundle.evidence_context_block:
+                raise ValueError("compiled source evidence differs from the measured preview")
+            trace.meta["source_evidence_budget"] = dict(llm_request.meta["source_evidence_budget"])
+            trace.meta["source_text_policy"] = self.source_mode.text_policy
+            trace.meta["source_text_changed_ids"] = [
+                ev.chunk_id for ev in selected_evidence if ev.meta.get("source_text_changed")
+            ]
 
         if self.llm_adapter is None:
             from SLAC.integration.adapters.llm_adapter import LLMAdapter
