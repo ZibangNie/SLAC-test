@@ -7,6 +7,7 @@ from typing import Dict, List
 
 from SLAC.retrieval.configs.loader import load_config
 from SLAC.retrieval.dataio.readers import load_chunk_records, load_leaf_records, read_jsonl
+from SLAC.retrieval.dataio.source_records import load_source_indexes
 from SLAC.retrieval.dataio.writers import write_json
 from SLAC.retrieval.index.embedder import build_embedder
 from SLAC.retrieval.pack.evidence_packer import pack_evidence
@@ -64,11 +65,19 @@ def main():
     cfg = load_config(args.config)
 
     build_dir = Path(args.retrieval_build_dir)
+    build_summary_path = build_dir / "summaries" / "run_build_index_summary.json"
+    if build_summary_path.exists():
+        with build_summary_path.open("r", encoding="utf-8") as handle:
+            build_summary = json.load(handle)
+        if build_summary.get("indexes_built") is False:
+            raise ValueError("retrieval build contains metadata only; retrieval indexes have not been built")
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    chunks = load_chunk_records(build_dir / "meta" / "chunk_lookup.jsonl")
-    leaves = load_leaf_records(build_dir / "meta" / "leaf_lookup.jsonl")
+    source_path = build_dir / "meta" / "refiner_source_indexes.json"
+    source_indexes = load_source_indexes(source_path) if source_path.exists() else None
+    chunks = load_chunk_records(build_dir / "meta" / "chunk_lookup.jsonl", source_indexes=source_indexes)
+    leaves = load_leaf_records(build_dir / "meta" / "leaf_lookup.jsonl", source_indexes=source_indexes)
     adjacency_rows = _load_tree_adjacency(build_dir / "meta" / "tree_adjacency.jsonl")
     quality_gates = _load_quality_gates(build_dir / "meta" / "quality_gates.json")
 

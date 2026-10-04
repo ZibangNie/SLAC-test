@@ -115,3 +115,48 @@ Coverage preserves each native interval's `full` or `partial` intersection. A co
 The adapter reuses the core `build_request`, cache and response contracts. Only `standalone` and `plain_conditional` are supported; no relations are inferred. Source SHA256, coordinate system, atom/character spans and native coverage remain in a separate fresh provenance receipt. Same-document snapshots must agree on source version, coordinates and base model atoms/spans. Different chunk boundaries and deliberate overlaps on that basis are allowed; core duplicate-ID, duplicate-position and duplicate-complete-text checks still apply.
 
 Changing visible text changes the existing request key. A change elsewhere in an unselected source document may leave the complete visible request unchanged and retain that key, while the new receipt identifies the current source version. Both cases require the full existing request binding, not merely a source membership or text-hash match. The evidence budget counts the complete core rendering with headers; Refiner's raw chunk token count is a different surface. No live transport/provider policy or default retrieval-pipeline integration is added here. See the [fixed two-document contract result](../../../docs/research/REFINER_JEV_SOURCE_CONTRACT_RESULTS_20261004.md).
+
+### Source records through retrieval preprocessing
+
+Source-mode records now require an explicit registry when loaded. Its JSON schema is
+`{"schema":"slac-refiner-source-indexes-v1","documents":[{"view":{...},"native_units":[...]}]}`:
+`view` contains the fields of `DocumentSourceView`; each native unit has `native_unit_id`,
+`source_span` and exact `source_text`. The registry is validated when loaded, including
+duplicate document IDs and JSON fields. It identifies the supplied source version; it
+does not authenticate a publisher or retrieve an external original.
+
+```python
+from SLAC.retrieval.dataio.source_records import (
+    load_source_indexes, source_snapshot_from_chunk_record,
+)
+from SLAC.retrieval.dataio.readers import load_chunk_records
+from SLAC.retrieval.preprocess.anchor_fields import enrich_chunk_record
+
+indexes = load_source_indexes("source_indexes.json")
+chunks = load_chunk_records("refined_chunks.jsonl", source_indexes=indexes)
+enrich_chunk_record(chunks[0])  # Retrieval uses normalized text.
+snapshot = source_snapshot_from_chunk_record(chunks[0], indexes)
+assert snapshot.unit.text == chunks[0].meta["refiner_source"]["text"]
+# Pass the restored snapshot to build_refiner_source_request as above.
+```
+
+The JSON-safe `meta.refiner_source` retains raw text, identity, spans and hashes through
+lookup serialization. Restoring it rechecks those fields against the supplied registry
+and requires current retrieval text to equal either the original or its exact supported
+normalization. Persisted dictionaries are not trusted proofs. Chunk and leaf loaders
+retain the same signatures for legacy input; the extra `source_indexes` argument is
+keyword-only. Anchors carry IDs and require a lookup to recover source text.
+
+`python -m SLAC.retrieval.run.run_build_index` accepts `--source_indexes_json` for
+source-mode inputs and copies the registry to `meta/refiner_source_indexes.json`.
+Its optional `--metadata_only` action requires an absent or empty output directory,
+runs validation, enrichment and metadata serialization, and returns before importing
+embedding/index runtimes. It writes `indexes_built: false`; these files cannot serve
+dense retrieval. Both retrieval entrypoints reject that stage before model loading
+and reload a saved registry for full builds. Their module imports may still load runtime
+libraries, so the model-free guarantee applies to the metadata build action.
+
+This preserves source inputs through real preparation and reload. A query-time selector
+must still explicitly restore snapshots and budget the final JEV/generator rendering;
+the default selector does not automatically invoke JEV. See the
+[bounded loader result](../../../docs/research/REFINER_SOURCE_LOADER_RESULTS_20261004.md).

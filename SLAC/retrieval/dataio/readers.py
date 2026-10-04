@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Dict, Generator, List, Mapping, Optional
+
+from SLAC.retrieval.dataio.source_records import capture_or_restore_source_meta
 
 from SLAC.retrieval.schemas.records import (
     ChunkRecord,
@@ -54,9 +56,26 @@ def _normalize_parent_id(x):
     return x
 
 
-def load_chunk_records(path: str | Path) -> List[ChunkRecord]:
+def _record_meta(obj, *, kind, source_indexes, legacy_fields):
+    # Capture raw source before retrieval enrichment normalizes record.text.
+    snapshot = capture_or_restore_source_meta(obj, kind=kind, source_indexes=source_indexes)
+    meta = dict(obj.get("meta", {}))
+    for field in legacy_fields:
+        meta[field] = obj.get(field, meta.get(field)) if snapshot is not None else obj.get(field)
+    if snapshot is not None:
+        for field in ("text_mode", "source_coordinate_system", "source_char_span",
+                      "source_document_sha256", "boundary_meta"):
+            if field in obj:
+                meta[field] = obj[field]
+        meta["refiner_source"] = snapshot
+    return meta
+
+
+def load_chunk_records(path: str | Path, *, source_indexes: Mapping | None = None) -> List[ChunkRecord]:
     items: List[ChunkRecord] = []
     for obj in read_jsonl(path):
+        meta = _record_meta(obj, kind="chunk", source_indexes=source_indexes,
+                            legacy_fields=("source", "boundary_meta"))
         atom_start = _pick(obj, "atom_start", "start_atom", "span_start", "chunk_start", required=True)
         atom_end = _pick(obj, "atom_end", "end_atom", "span_end", "chunk_end", required=True)
 
@@ -90,19 +109,17 @@ def load_chunk_records(path: str | Path) -> List[ChunkRecord]:
                 is_title_like=_pick(obj, "is_title_like"),
                 indent_level=_pick(obj, "indent_level"),
                 domain=_pick(obj, "domain"),
-                meta={
-                    **obj.get("meta", {}),
-                    "source": obj.get("source"),
-                    "boundary_meta": obj.get("boundary_meta"),
-                },
+                meta=meta,
             )
         )
     return items
 
 
-def load_leaf_records(path: str | Path) -> List[LeafRecord]:
+def load_leaf_records(path: str | Path, *, source_indexes: Mapping | None = None) -> List[LeafRecord]:
     items: List[LeafRecord] = []
     for obj in read_jsonl(path):
+        meta = _record_meta(obj, kind="leaf", source_indexes=source_indexes,
+                            legacy_fields=("source", "chunk_index", "parent_id", "atom_index"))
         # 当前真实 schema 是 atom_index，而不是 atom_start/atom_end
         atom_index = _pick(obj, "atom_index", "atom_start", "start_atom", "span_start", "leaf_start", "start", required=True)
 
@@ -133,13 +150,7 @@ def load_leaf_records(path: str | Path) -> List[LeafRecord]:
                 is_title_like=_pick(obj, "is_title_like"),
                 indent_level=_pick(obj, "indent_level"),
                 domain=_pick(obj, "domain"),
-                meta={
-                    **obj.get("meta", {}),
-                    "source": obj.get("source"),
-                    "chunk_index": obj.get("chunk_index"),
-                    "parent_id": obj.get("parent_id"),
-                    "atom_index": obj.get("atom_index"),
-                },
+                meta=meta,
             )
         )
     return items

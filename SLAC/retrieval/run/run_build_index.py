@@ -7,10 +7,8 @@ from pathlib import Path
 
 from SLAC.retrieval.configs.loader import load_config
 from SLAC.retrieval.dataio.readers import load_chunk_records, load_doc_catalog, load_leaf_records
+from SLAC.retrieval.dataio.source_records import load_source_indexes
 from SLAC.retrieval.dataio.writers import write_json, write_jsonl
-from SLAC.retrieval.index.build_anchor_lexical import build_anchor_lexical_index
-from SLAC.retrieval.index.build_chunk_dense import build_chunk_dense_index
-from SLAC.retrieval.index.build_leaf_dense import build_leaf_dense_index
 from SLAC.retrieval.index.build_lookup_tables import (
     build_anchor_lookup,
     build_chunk_lookup,
@@ -23,7 +21,6 @@ from SLAC.retrieval.index.build_lookup_tables import (
     serialize_leaf_lookup_rows,
     serialize_tree_adjacency_rows,
 )
-from SLAC.retrieval.index.embedder import build_embedder
 from SLAC.retrieval.schemas.records import IndexMeta
 from SLAC.retrieval.schemas.validation import (
     validate_chunk_doc_consistency,
@@ -41,6 +38,9 @@ def parse_args():
     p.add_argument("--leaf_records_jsonl", type=str, required=True)
     p.add_argument("--doc_catalog_jsonl", type=str, required=True)
     p.add_argument("--output_dir", type=str, required=True)
+    p.add_argument("--source_indexes_json", type=str, default=None)
+    p.add_argument("--metadata_only", action="store_true",
+                   help="Validate and serialize metadata without embedding or building indexes")
     return p.parse_args()
 
 
@@ -49,6 +49,8 @@ def main():
     cfg = load_config(args.config)
 
     output_dir = Path(args.output_dir)
+    if args.metadata_only and output_dir.exists() and (not output_dir.is_dir() or any(output_dir.iterdir())):
+        raise ValueError("metadata_only requires an absent or empty output directory")
     data_dir = output_dir / "data"
     index_dir = output_dir / "index"
     meta_dir = output_dir / "meta"
@@ -59,8 +61,9 @@ def main():
     for d in [data_dir, index_dir, meta_dir, eval_dir, log_dir, summary_dir]:
         d.mkdir(parents=True, exist_ok=True)
 
-    chunks = load_chunk_records(args.refined_chunks_jsonl)
-    leaves = load_leaf_records(args.leaf_records_jsonl)
+    source_indexes = load_source_indexes(args.source_indexes_json) if args.source_indexes_json else None
+    chunks = load_chunk_records(args.refined_chunks_jsonl, source_indexes=source_indexes)
+    leaves = load_leaf_records(args.leaf_records_jsonl, source_indexes=source_indexes)
     docs = load_doc_catalog(args.doc_catalog_jsonl)
 
     validate_chunk_records(chunks)
@@ -85,6 +88,30 @@ def main():
     write_jsonl(meta_dir / "anchor_lookup.jsonl", serialize_anchor_lookup_rows(anchor_rows))
     write_json(meta_dir / "quality_gates.json", quality_gates)
 
+    # Both paths retain the exact inputs and the registry used to validate source metadata.
+    shutil.copy2(args.refined_chunks_jsonl, data_dir / "refined_chunks.jsonl")
+    shutil.copy2(args.leaf_records_jsonl, data_dir / "leaf_records.jsonl")
+    shutil.copy2(args.doc_catalog_jsonl, data_dir / "doc_catalog.jsonl")
+    if args.source_indexes_json:
+        shutil.copy2(args.source_indexes_json, meta_dir / "refiner_source_indexes.json")
+
+    if args.metadata_only:
+        run_summary = {
+            "status": "ok", "stage": "metadata_only", "indexes_built": False,
+            "num_chunks": len(chunks), "num_leaves": len(leaves), "num_docs": len(docs),
+            "quality_gates": quality_gates,
+            "source_indexes_path": "meta/refiner_source_indexes.json" if args.source_indexes_json else None,
+        }
+        write_json(meta_dir / "index_meta.json", run_summary)
+        write_json(summary_dir / "run_build_index_summary.json", run_summary)
+        return
+
+    # Import model/index runtimes only for the original full-build action.
+    from SLAC.retrieval.index.build_anchor_lexical import build_anchor_lexical_index
+    from SLAC.retrieval.index.build_chunk_dense import build_chunk_dense_index
+    from SLAC.retrieval.index.build_leaf_dense import build_leaf_dense_index
+    from SLAC.retrieval.index.embedder import build_embedder
+
     embedder = build_embedder(
         model_name=cfg["common"]["encoder_name"],
         batch_size=int(cfg["common"]["batch_size"]),
@@ -106,11 +133,6 @@ def main():
         anchors=anchor_rows,
         output_dir=index_dir / "anchor_bm25",
     )
-
-    # 复制输入快照
-    shutil.copy2(args.refined_chunks_jsonl, data_dir / "refined_chunks.jsonl")
-    shutil.copy2(args.leaf_records_jsonl, data_dir / "leaf_records.jsonl")
-    shutil.copy2(args.doc_catalog_jsonl, data_dir / "doc_catalog.jsonl")
 
     meta = IndexMeta(
         encoder_name=cfg["common"]["encoder_name"],
