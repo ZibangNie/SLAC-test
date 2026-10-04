@@ -1,0 +1,402 @@
+{
+  "audit_receipts": {
+    "inference": {
+      "sha256": "ce8eefa8bf153d02c57b46b5a6a0316bcc2b9c81f1ae787988efd8968652b0b7",
+      "source_count": 14,
+      "status": "read_only_source_verified"
+    },
+    "training": {
+      "sha256": "ed0e33600154b51251eb6c762a0dfe34260c9c7cd641d11421694ac943a4738a",
+      "source_count": 16,
+      "status": "completed_static_source_audit"
+    }
+  },
+  "conclusion": "The traced default Refiner predicts document/boundary edits without an explicit user-question input. Downstream retrieval and the optional JEV source-decision adapter do receive the question. Replacing labels alone does not make the current model query-conditioned.",
+  "inference_findings": [
+    {
+      "conclusion": "Default input builder receives doc_id and chunk0_units, optional domain/config/meta. It emits atoms, unit2atom_span and b0. Metadata can carry arbitrary keys but is not consumed as a query by the audited forward path.",
+      "evidence": [
+        {
+          "line_end": 779,
+          "line_start": 727,
+          "path": "SLAC/refiner/pipeline/assemble/build_refiner_input.py"
+        }
+      ],
+      "id": "builder_document_input"
+    },
+    {
+      "conclusion": "Default infer entry validates doc_id/chunk0_units/atoms/unit2atom_span/b0. Its CLI exposes document/model/decode/length parameters, not query or retrieval results. Greedy and sampled candidates both call forward_one_doc with atoms and current boundaries.",
+      "evidence": [
+        {
+          "line_end": 92,
+          "line_start": 51,
+          "path": "SLAC/refiner/scripts/infer_bestofn.py"
+        },
+        {
+          "line_end": 198,
+          "line_start": 171,
+          "path": "SLAC/refiner/scripts/infer_bestofn.py"
+        },
+        {
+          "line_end": 653,
+          "line_start": 632,
+          "path": "SLAC/refiner/scripts/infer_bestofn.py"
+        },
+        {
+          "line_end": 761,
+          "line_start": 735,
+          "path": "SLAC/refiner/scripts/infer_bestofn.py"
+        }
+      ],
+      "id": "inference_entry"
+    },
+    {
+      "conclusion": "Inference batch contains only atoms_text and g0_positions. Model forward consumes text-derived atom embeddings or explicit cached atom_embeddings/atom_mask, then document encoder and insert/edit heads. It has no explicit query conditioning in either branch.",
+      "evidence": [
+        {
+          "line_end": 350,
+          "line_start": 322,
+          "path": "SLAC/refiner/scripts/infer_bestofn.py"
+        },
+        {
+          "line_end": 148,
+          "line_start": 107,
+          "path": "SLAC/refiner/slac_refiner/models/refiner.py"
+        }
+      ],
+      "id": "model_consumed_inputs"
+    },
+    {
+      "conclusion": "Edit/insert logits are decoded and projected under chunk-length constraints; projected boundaries feed the next refinement pass. Main writes all_candidates.jsonl and per-document candidates; no retrieval or answer-quality feedback is consumed in these audited functions. Sampling also depends on doc_id-derived seed.",
+      "evidence": [
+        {
+          "line_end": 702,
+          "line_start": 677,
+          "path": "SLAC/refiner/scripts/infer_bestofn.py"
+        },
+        {
+          "line_end": 761,
+          "line_start": 752,
+          "path": "SLAC/refiner/scripts/infer_bestofn.py"
+        },
+        {
+          "line_end": 807,
+          "line_start": 789,
+          "path": "SLAC/refiner/scripts/infer_bestofn.py"
+        },
+        {
+          "line_end": 903,
+          "line_start": 853,
+          "path": "SLAC/refiner/scripts/infer_bestofn.py"
+        }
+      ],
+      "id": "decoding_output"
+    },
+    {
+      "conclusion": "greedy_first and best_teacher_stats select by candidate type, mean model edit/insert probabilities and chunk count. teacher_stats is internal decoder probability/action statistics, not JEV labels, retrieval performance or answer utility.",
+      "evidence": [
+        {
+          "line_end": 466,
+          "line_start": 451,
+          "path": "SLAC/refiner/scripts/infer_bestofn.py"
+        },
+        {
+          "line_end": 109,
+          "line_start": 41,
+          "path": "SLAC/refiner/pipeline/assemble/export_refined_chunks.py"
+        }
+      ],
+      "id": "candidate_selection_is_not_jev_teacher"
+    },
+    {
+      "conclusion": "Stage1 normalizes/cleans/segments document text, attaches chunk0, builds atoms_b0. Stage2 invokes the default infer script and exports selected candidates, boundaries, chunks, leaves and document catalog. The pipeline does not supply a query.",
+      "evidence": [
+        {
+          "line_end": 380,
+          "line_start": 338,
+          "path": "SLAC/refiner/pipeline/run/run_rule_chunk0_only.py"
+        },
+        {
+          "line_end": 375,
+          "line_start": 343,
+          "path": "SLAC/refiner/pipeline/run/run_refiner_pipeline.py"
+        },
+        {
+          "line_end": 520,
+          "line_start": 460,
+          "path": "SLAC/refiner/pipeline/run/run_refiner_pipeline.py"
+        },
+        {
+          "line_end": 165,
+          "line_start": 146,
+          "path": "SLAC/refiner/pipeline/run/run_refiner_infer_only.py"
+        },
+        {
+          "line_end": 299,
+          "line_start": 289,
+          "path": "SLAC/refiner/pipeline/run/run_refiner_infer_only.py"
+        },
+        {
+          "line_end": 397,
+          "line_start": 389,
+          "path": "SLAC/refiner/pipeline/run/run_refiner_infer_only.py"
+        }
+      ],
+      "id": "default_pipeline"
+    },
+    {
+      "conclusion": "Chat extracts query text and calls prepare_query_runs; that first ensures session assets. Rebuild is based on missing assets/needs_rebuild, and its Refiner command receives uploaded document paths/config/output but no query. Existing assets are reused. A query can trigger lazy document preprocessing without entering the Refiner.",
+      "evidence": [
+        {
+          "line_end": 228,
+          "line_start": 215,
+          "path": "SLAC/openwebui_bridge/server_api.py"
+        },
+        {
+          "line_end": 269,
+          "line_start": 238,
+          "path": "SLAC/openwebui_bridge/upload_ingest/upload_ingest_service.py"
+        },
+        {
+          "line_end": 346,
+          "line_start": 310,
+          "path": "SLAC/openwebui_bridge/upload_ingest/upload_ingest_service.py"
+        }
+      ],
+      "id": "chat_trigger_is_not_query_conditioning"
+    },
+    {
+      "conclusion": "Rebuild runs Refiner before building leaf/chunk dense and anchor indexes from refined exports. Only afterwards prepare_query_runs writes query JSONL and invokes retrieval, followed by reranking. No pre-Refiner query retrieval is present in this traced route.",
+      "evidence": [
+        {
+          "line_end": 290,
+          "line_start": 269,
+          "path": "SLAC/openwebui_bridge/upload_ingest/upload_ingest_service.py"
+        },
+        {
+          "line_end": 134,
+          "line_start": 115,
+          "path": "SLAC/retrieval/run/run_build_index.py"
+        },
+        {
+          "line_end": 379,
+          "line_start": 339,
+          "path": "SLAC/openwebui_bridge/upload_ingest/upload_ingest_service.py"
+        },
+        {
+          "line_end": 116,
+          "line_start": 77,
+          "path": "SLAC/retrieval/run/run_retrieval_pipeline.py"
+        },
+        {
+          "line_end": 191,
+          "line_start": 140,
+          "path": "SLAC/retrieval/run/run_retrieval_pipeline.py"
+        }
+      ],
+      "id": "retrieval_after_refinement"
+    },
+    {
+      "conclusion": "Query retrieval exports candidates, reranker inputs and packed evidence; the server forwards retrieval/reranker run directories to the bridge integration service. This does not constitute a Refiner feedback loop.",
+      "evidence": [
+        {
+          "line_end": 220,
+          "line_start": 199,
+          "path": "SLAC/retrieval/run/run_retrieval_pipeline.py"
+        },
+        {
+          "line_end": 400,
+          "line_start": 392,
+          "path": "SLAC/openwebui_bridge/upload_ingest/upload_ingest_service.py"
+        },
+        {
+          "line_end": 248,
+          "line_start": 233,
+          "path": "SLAC/openwebui_bridge/server_api.py"
+        },
+        {
+          "line_end": 62,
+          "line_start": 43,
+          "path": "SLAC/openwebui_bridge/service/openwebui_bridge_service.py"
+        },
+        {
+          "line_end": 82,
+          "line_start": 54,
+          "path": "SLAC/integration/run/run_integration_pipeline.py"
+        }
+      ],
+      "id": "downstream_artifact_routing"
+    },
+    {
+      "conclusion": "The optional build_refiner_source_request explicitly receives query and existing source snapshots, constructs ConditionalState and delegates to build_request. It constructs a downstream decision request; it neither calls BoundaryRefinerModel nor changes the saved source boundaries. Thus query-aware JEV/source evidence decisions must be distinguished from query-blind boundary-model inference.",
+      "evidence": [
+        {
+          "line_end": 20,
+          "line_start": 16,
+          "path": "SLAC/retrieval/decision/refiner_bridge.py"
+        },
+        {
+          "line_end": 204,
+          "line_start": 163,
+          "path": "SLAC/retrieval/decision/refiner_bridge.py"
+        }
+      ],
+      "id": "query_aware_decision_bridge_is_not_boundary_refinement"
+    }
+  ],
+  "limits": [
+    "Static current-source evidence only; no executed deployment, checkpoint provenance, natural label-conflict incidence, utility improvement or novelty was established.",
+    "External embeddings, rewritten atoms/boundaries, numerical sample weights, custom inference scripts and historical paths may differ and were not certified.",
+    "No question field reaches the traced forward path. This is not a claim of bitwise deterministic runtime output or of all upstream data being statistically independent of queries."
+  ],
+  "next_step": "Trace how a local split/merge changes candidate-visible text and final evidence before proposing new supervision; remain offline and do not reopen closed packing variants on the same two questions.",
+  "research_consequences": [
+    "A document-only student needs an explicitly defined query-distribution utility target and treatment of conflicting preferences.",
+    "A query-conditioned post-retrieval editor would require an explicit question input, action timing, fixed source domain and evidence-output contract.",
+    "Existing standalone relevance labels do not identify local edit utility; identical rendered evidence cannot support a distinct output-based utility label."
+  ],
+  "schema": "slac-refiner-query-interface-audit-v1",
+  "scope": {
+    "api_calls": 0,
+    "credentials_read": 0,
+    "dataset_records_read": 0,
+    "model_loads": 0,
+    "runtime_invariance_tests": 0,
+    "tokenizer_loads": 0,
+    "training_steps": 0
+  },
+  "source_commit": "be5cd72d0f8c5cbfd43c528f61a76d67464a043a",
+  "source_sha256": {
+    "SLAC/integration/run/run_integration_pipeline.py": "1337670fa73c166c842572faa39ea84b3a6f2aa375d890a63b28b6e762fff3dd",
+    "SLAC/openwebui_bridge/server_api.py": "5251abc9b935b32614fa8af224b2a0e629945879a0286aaac749c622e90284c3",
+    "SLAC/openwebui_bridge/service/openwebui_bridge_service.py": "13600382fdfbdec48b1c0c32fedbdca91c29182183f43ecd6f455c3e012cb166",
+    "SLAC/openwebui_bridge/upload_ingest/upload_ingest_service.py": "cae18bdfb2c63e9cad26057ada6e582d893fc3e2e0d714e9d5ee3ceb58aa381b",
+    "SLAC/refiner/pipeline/assemble/build_refiner_input.py": "ec9fd0ab8bc7bee2ae514f70ddc264d5eaa94e147d474633137e14d85e89e5c2",
+    "SLAC/refiner/pipeline/assemble/export_refined_chunks.py": "61969e97e26cf66db3df146876c7c46f18b4379f9b8bbb924ec5ff0de279d668",
+    "SLAC/refiner/pipeline/configs/pipeline_config.yaml": "9c418558aa0c86e9c635d5a8c0659856f6b6a069f3d3d438d6342f5292a2b47e",
+    "SLAC/refiner/pipeline/run/run_refiner_infer_only.py": "4a07ee3d3d55034d653a8057bd157bf388ea4277c2f8910d26c0822b1d7c8a20",
+    "SLAC/refiner/pipeline/run/run_refiner_pipeline.py": "c39bc0e19aacc632be61fb1e0bf62ceb246577db17b914e60cd453ffcf7a872f",
+    "SLAC/refiner/pipeline/run/run_rule_chunk0_only.py": "b4ef47e8630abf88368c9b4f93f06431988cb132d3faa422de4037d558ede371",
+    "SLAC/refiner/scripts/build_denoise_pairs.py": "e2b63212bb39ea0a8dc92c83645f654356a4628c619bf483dadb3ca321bd4429",
+    "SLAC/refiner/scripts/infer_bestofn.py": "692b627674ea53f0bb6f4d033bc9f4d99c52bf198251ca849f185dc04661469d",
+    "SLAC/refiner/scripts/run_foundation_probe.py": "5a7028b1e16ddffcca14edc32b3d1d5d965518cd892c2f661deb5e3382fd113f",
+    "SLAC/refiner/scripts/train_loop.py": "52bd3769f4c9a793d1298402e4fddd87dbf29cc50260ed59b72ae0b415019b72",
+    "SLAC/refiner/scripts/train_one_step.py": "a755e456591c98157b7ba2f2836298779e18aa32916485a3c9f28622bf15e521",
+    "SLAC/refiner/slac_refiner/datasets/collate.py": "33dab30e9f5841f1103214b24bff9e1ffa07677c56a1cc6bce547d9b328ca93b",
+    "SLAC/refiner/slac_refiner/datasets/refiner_dataset.py": "4b645474f5e7f0b52c8773497cd7e3840a8abccf5a1640b669a7910a23080984",
+    "SLAC/refiner/slac_refiner/datasets/schemas.py": "db2000d068449c04eb716207f8f9e5e6bbcc80d8206431b00fec6883a0c523e4",
+    "SLAC/refiner/slac_refiner/label_contract.py": "fb96442dbf1b03f05ee86877d36e57b6408bb7c668b73ad2cea5cb023a2d774b",
+    "SLAC/refiner/slac_refiner/models/atom_encoder.py": "155827717592d9ef21bbe72b06308e4e63cb465c9b6075c2f0d41065ebaa4cba",
+    "SLAC/refiner/slac_refiner/models/direct_boundary.py": "62fd6f08598c9d06ddce459c201172ef1880ea5658a29e211430ecfc917a1832",
+    "SLAC/refiner/slac_refiner/models/doc_encoder.py": "8f655b1c74de6db639c00cb1bb68d7a41abc0f004d568f68933448dd8bc5ddb0",
+    "SLAC/refiner/slac_refiner/models/heads.py": "3469eb2754dab1f239495866b0ac711da9af3bde1ea77d7ce09f5d16327d803e",
+    "SLAC/refiner/slac_refiner/models/losses.py": "ed6b5e0ad87c24e809a21d1133752abfb17c695ca14c5a626c48054e886454ca",
+    "SLAC/refiner/slac_refiner/models/refiner.py": "135a998cddb615e5cbf4558f37d53e191c5006325a543a07e6a0b377c5ba767e",
+    "SLAC/refiner/slac_refiner/noise/apply_noise.py": "7c7aa4f6095e03f960e6e2b6843ab203f79d60b762c6489b35934770e4dae6aa",
+    "SLAC/retrieval/decision/refiner_bridge.py": "8c12d1a07773335e33ecbc0412dd10741382572145eacddb6367361f403ac6ec",
+    "SLAC/retrieval/run/run_build_index.py": "b9438bb6fad3bcfc5d4cbfb6af29210a438d45296cd72876382a71625c8a9a26",
+    "SLAC/retrieval/run/run_retrieval_pipeline.py": "22e14a8e17a6bb9aef9d0a7f092f8579c431c346e3a81695fe64fd93f631e078"
+  },
+  "status": "completed_static_source_audit",
+  "training_interfaces": [
+    {
+      "lines": [
+        58,
+        136
+      ],
+      "path": "SLAC/refiner/slac_refiner/datasets/refiner_dataset.py",
+      "projected_keys": [
+        "sample_id",
+        "doc_id",
+        "atoms_text",
+        "num_atoms",
+        "num_gaps",
+        "b0",
+        "insert_labels",
+        "g0_positions",
+        "edit_choice",
+        "b_gold",
+        "sample_weight"
+      ],
+      "query_note": "__init__ retains arbitrary parsed JSON in self.samples, but __getitem__ does not return query/question or arbitrary metadata. Optional numeric sample_weight_field may select a nested field; this affects loss weighting, not text conditioning.",
+      "signature": "RefinerDenoiseDataset(jsonl_path, sample_weight_field=None, validate_labels=True, expected_k=6); __getitem__(idx) -> Dict"
+    },
+    {
+      "lines": [
+        30,
+        73
+      ],
+      "path": "SLAC/refiner/slac_refiner/datasets/collate.py",
+      "projected_keys": [
+        "sample_ids",
+        "doc_ids",
+        "atoms_text",
+        "num_atoms",
+        "num_gaps",
+        "sample_weight",
+        "b0",
+        "b0_mask",
+        "b_gold",
+        "b_gold_mask",
+        "insert_labels",
+        "insert_mask",
+        "g0_positions",
+        "g0_mask",
+        "edit_choice",
+        "edit_choice_mask"
+      ],
+      "query_note": "Pads only boundary tensors and masks; no query tokens/embedding are introduced.",
+      "signature": "refiner_collate_fn(batch: List[Dict]) -> Dict"
+    },
+    {
+      "consumed_prediction_inputs": [
+        "g0_positions",
+        "atoms_text (normal path)",
+        "atom_embeddings + atom_mask (optional cached path)",
+        "optional cached num_atoms/num_gaps/atoms_text count consistency checks"
+      ],
+      "lines": [
+        107,
+        149
+      ],
+      "not_consumed_by_prediction": [
+        "query",
+        "question",
+        "doc_ids",
+        "sample_ids",
+        "b_gold",
+        "insert_labels",
+        "edit_choice",
+        "sample_weight"
+      ],
+      "path": "SLAC/refiner/slac_refiner/models/refiner.py",
+      "query_note": "Normal path encodes each document atom independently with AtomEncoder, then DocEncoder context, then boundary heads. Cached embeddings have shape/finite/mask checks but their upstream semantic provenance is not certified here.",
+      "signature": "BoundaryRefinerModel.forward(batch: Dict) -> RefinerForwardOutput"
+    },
+    {
+      "lines": [
+        116,
+        156
+      ],
+      "path": "SLAC/refiner/slac_refiner/models/heads.py",
+      "query_note": "query_proj(boundary_repr) at line137 is the learned pointer-query of an initial source boundary, not a user question. Gap representation is [h_left,h_right,h_right-h_left,h_left*h_right].",
+      "signature": "RefinerHeads.forward(h, g0_positions, atom_mask=None) -> HeadOutput"
+    },
+    {
+      "lines": [
+        147,
+        195
+      ],
+      "path": "SLAC/refiner/slac_refiner/models/losses.py",
+      "query_note": "No query or b_gold is read by this main loss.",
+      "signature": "RefinerLoss.forward(outputs, batch) -> RefinerLossOutput",
+      "target_keys": [
+        "insert_labels",
+        "insert_mask",
+        "edit_choice",
+        "edit_choice_mask",
+        "sample_weight"
+      ]
+    }
+  ]
+}
